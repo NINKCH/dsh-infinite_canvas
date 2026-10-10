@@ -41,27 +41,33 @@ function runGit(args, timeoutMs = 90000) {
   });
 }
 
-/** 更新检查：fetch origin + 对比本地/远端版本。 */
+/** 更新检查：fetch 当前分支上游 + 对比；本地领先（ahead）不算待更新。 */
 async function updateCheck() {
-  const fetchRes = await runGit(['fetch', 'origin', '--quiet'], 60000);
+  const branch = (await runGit(['rev-parse', '--abbrev-ref', 'HEAD'])).stdout.trim() || 'main';
+  const upstream = branch === 'HEAD' ? 'origin/main' : 'origin/' + branch;
+  const fetchRes = await runGit(['fetch', 'origin', branch, '--quiet'], 60000);
   if (!fetchRes.ok) throw new Error('git fetch 失败：' + (fetchRes.stderr || '').slice(0, 300));
   const head = (await runGit(['rev-parse', '--short', 'HEAD'])).stdout.trim();
-  const remoteHead = (await runGit(['rev-parse', '--short', 'origin/main'])).stdout.trim();
-  const behind = Number((await runGit(['rev-list', '--count', 'HEAD..origin/main'])).stdout.trim()) || 0;
+  const remoteHead = (await runGit(['rev-parse', '--short', upstream])).stdout.trim();
+  const behind = Number((await runGit(['rev-list', '--count', 'HEAD..' + upstream])).stdout.trim()) || 0;
+  const ahead = Number((await runGit(['rev-list', '--count', upstream + '..HEAD'])).stdout.trim()) || 0;
   let remoteVersion = null;
   try {
-    const pj = await runGit(['show', 'origin/main:package.json']);
+    const pj = await runGit(['show', upstream + ':package.json']);
     remoteVersion = JSON.parse(pj.stdout).version ?? null;
   } catch { /* 远端无 package.json 时忽略 */ }
   let runningVersion = null;
   try { runningVersion = JSON.parse(await fs.readFile(path.join(HERE, 'package.json'), 'utf8')).version ?? null; } catch { /* 忽略 */ }
-  return { head, remoteHead, behind, remoteVersion, runningVersion, upToDate: head === remoteHead };
+  return { branch, head, remoteHead, behind, ahead, remoteVersion, runningVersion, upToDate: behind === 0 };
 }
 
-/** 应用更新：git pull --ff-only；报告 index.js 是否变更（决定是否需要重启 Harness）。 */
+/** 应用更新：merge --ff-only 当前分支上游；绝不自动重启/刷新；报告 index.js 是否变更。 */
 async function updateApply() {
+  const branch = (await runGit(['rev-parse', '--abbrev-ref', 'HEAD'])).stdout.trim() || 'main';
+  const upstream = 'origin/' + (branch === 'HEAD' ? 'origin/main' : 'origin/' + branch);
   const before = (await runGit(['rev-parse', 'HEAD:index.js'])).stdout.trim();
-  const pull = await runGit(['pull', '--ff-only', 'origin', 'main'], 180000);
+  await runGit(['fetch', 'origin', branch, '--quiet'], 60000);
+  const pull = await runGit(['merge', '--ff-only', upstream], 180000);
   const after = (await runGit(['rev-parse', 'HEAD:index.js'])).stdout.trim();
   let version = null;
   try { version = JSON.parse(await fs.readFile(path.join(HERE, 'package.json'), 'utf8')).version ?? null; } catch { /* 忽略 */ }

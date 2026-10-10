@@ -334,6 +334,7 @@ window.__ModuleLoader__.load({
       'updateNow': '一键更新',
       'updateUpToDate': '已是最新版本',
       'releaseNotes': '发布说明',
+      'reloadPage': '刷新页面',
       'history': '历史版本',
       'refList': '参考图（[图N] 按此顺序绑定进提示词）',
       'moveUp': '上移',
@@ -587,6 +588,7 @@ window.__ModuleLoader__.load({
       'updateNow': 'Update now',
       'updateUpToDate': 'Up to date',
       'releaseNotes': 'release notes',
+      'reloadPage': 'Reload page',
       'history': 'History',
       'refList': 'Refs ([图N] bound to prompt in this order)',
       'moveUp': 'Move up',
@@ -1841,19 +1843,19 @@ window.__ModuleLoader__.load({
       }
     }
     async function applyUpdate() {
-      update((s) => { s.updateBusy = true; s.updateMsg = '正在拉取更新…'; });
+      update((s) => { s.updateBusy = true; s.updateMsg = '正在拉取更新…'; s.updateReloadable = false; });
       try {
         const res = await hostRpc('updateApply');
         if (!res.ok) {
           update((s) => { s.updateBusy = false; s.updateMsg = '更新失败：' + (res.output || '').slice(-300); });
           return;
         }
-        if (res.hostChanged) {
-          update((s) => { s.updateBusy = false; s.updateMsg = '已更新到 v' + res.version + ' — 后台已变更，请重启一次 Harness 后刷新页面'; });
-        } else {
-          update((s) => { s.updateBusy = false; s.updateMsg = '已更新到 v' + res.version + ' — 正在刷新页面…'; });
-          setTimeout(() => location.reload(), 1200);
-        }
+        // 绝不自动刷新/重启：更新落盘后由用户决定何时生效
+        update((s) => {
+          s.updateBusy = false;
+          s.updateReloadable = !res.hostChanged;
+          s.updateMsg = '已更新到 v' + res.version + (res.hostChanged ? ' — 后台已变更，重启 Harness 后生效' : ' — 刷新页面后生效');
+        });
       } catch (e) {
         update((s) => { s.updateBusy = false; s.updateMsg = '更新失败：' + (e.message || e); });
       }
@@ -5139,7 +5141,7 @@ window.__ModuleLoader__.load({
       }, []);
       const nodes = Object.values(S.graph.nodes);
       const upd = S.updateInfo;
-      const updAvail = upd && !upd.upToDate;
+      const updAvail = upd && upd.behind > 0; // 只有真正落后上游才提示；本地领先/版本相同不提示
       return h('div', { className: 'dshic-page' },
         !S.hostOk && S.hostError
           ? h('div', {
@@ -5185,11 +5187,20 @@ window.__ModuleLoader__.load({
         S.updateMsg
           ? h('div', {
               style: {
-                flex: 'none', padding: '6px 12px', fontSize: 12,
+                flex: 'none', display: 'flex', alignItems: 'center', gap: 10, padding: '6px 12px', fontSize: 12,
                 background: 'color-mix(in srgb, var(--dsw-alias-brand-primary) 12%, transparent)',
                 color: 'var(--dsw-alias-brand-primary)',
               },
-            }, S.updateMsg)
+            },
+              S.updateMsg,
+              S.updateReloadable
+                ? h('button', {
+                    type: 'button', className: 'dshic-mini',
+                    onPointerDown: (e) => e.stopPropagation(),
+                    onClick: () => location.reload(),
+                  }, T('reloadPage'))
+                : null,
+            )
           : null,
         h(Toolbar),
         h('div', { className: 'dshic-main' },
