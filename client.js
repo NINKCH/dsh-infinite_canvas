@@ -1840,6 +1840,9 @@ window.__ModuleLoader__.load({
       update((s) => { s.updateInfo = null; s.updateChecking = true; s.updateMsg = null; });
       try {
         const info = await hostRpc('updateCheck');
+        // 兼容旧 Host（SHA 比较语义会给出 upToDate=false 但 behind=0）：
+        // 只要有 behind 数值，就统一按"落后 N 版"判定最新与否
+        if (info && typeof info.behind === 'number') info.upToDate = info.behind === 0;
         update((s) => { s.updateInfo = info; s.updateChecking = false; });
         return info;
       } catch (e) {
@@ -4194,7 +4197,7 @@ window.__ModuleLoader__.load({
         h('button', {
           type: 'button', className: cls('dshic-btn'), style: { fontSize: 12, color: 'var(--dsw-alias-label-secondary)', gap: 4 },
           title: T('updateBtn') + ((S.updateInfo && S.updateInfo.runningVersion) ? '（当前 v' + S.updateInfo.runningVersion + '）' : ''), disabled: S.updateChecking,
-          onClick: () => { checkUpdate(false).then((info) => { if (info && info.upToDate) toast(T('updateUpToDate')); }); },
+          onClick: () => { checkUpdate(false).then((info) => { if (info && info.upToDate) toast(T('updateUpToDate') + (info.runningVersion ? ' v' + info.runningVersion : '')); }); },
         }, T('updateBtn'), S.updateChecking ? h('span', { className: 'dshic-spin' }) : ((S.updateInfo && !S.updateInfo.upToDate) ? ' ⬆' : '')),
         h('div', { className: 'dshic-toolbar-sep' }),
         h(Btn, {
