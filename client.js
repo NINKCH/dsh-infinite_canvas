@@ -1827,7 +1827,7 @@ window.__ModuleLoader__.load({
     // ============================================================
     // 自动更新：npm/git 双信息源，一键 git pull（Host RPC）
     // ============================================================
-    const PLUGIN_VERSION = '0.16.0';
+    const PLUGIN_VERSION = '0.17.0';
     async function checkUpdate(silent) {
       update((s) => { s.updateInfo = null; s.updateChecking = true; s.updateMsg = null; });
       try {
@@ -4200,7 +4200,7 @@ window.__ModuleLoader__.load({
           type: 'button', className: cls('dshic-btn'), style: { fontSize: 11, color: 'var(--dsw-alias-label-secondary)', gap: 4 },
           title: T('updateBtn'), disabled: S.updateChecking,
           onClick: () => { checkUpdate(false).then((info) => { if (info && info.upToDate) toast(T('updateUpToDate')); }); },
-        }, 'v' + PLUGIN_VERSION, S.updateChecking ? h('span', { className: 'dshic-spin' }) : (updAvail ? ' ⬆' : '')),
+        }, 'v' + ((S.updateInfo && S.updateInfo.runningVersion) || PLUGIN_VERSION), S.updateChecking ? h('span', { className: 'dshic-spin' }) : (updAvail ? ' ⬆' : '')),
         h('div', { className: 'dshic-toolbar-sep' }),
         h(Btn, {
           active: S.rightOpen, title: T('toggleRight'),
