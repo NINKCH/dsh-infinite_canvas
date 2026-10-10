@@ -342,6 +342,28 @@ window.__ModuleLoader__.load({
       'redraw': '重绘',
       'lastFrame': '尾帧',
       'chainNext': '接续下一镜',
+      'craftCard': 'Craft 后期（ArtCraft）',
+      'craftUnreachable': 'Craft 未连接：确认 dsh-artcraft 插件已安装/启用并重启过 Harness',
+      'craftDataRoot': '数据目录',
+      'craftProjectDir': '本项目目录',
+      'craftReady': '就绪',
+      'craftMissing': '未找到',
+      'craftCliMissing': '{name} CLI 未找到（检查 artcraft.config.json 或 PATH）',
+      'craftSyncAll': '同步全部资产到磁盘',
+      'craftSyncOne': '同步到磁盘',
+      'craftSyncDone': '同步完成：成功 {ok} / 失败 {fail}',
+      'photoCraft': 'PhotoCraft 处理',
+      'photoParams': '参数（JSON）',
+      'photoCustom': '自定义',
+      'photoRun': '开始处理',
+      'filmcraftExport': 'FilmCraft 导出',
+      'filmcraftParams': 'FilmCraft 导出参数（CLI 子命令未实测，默认取自配方，可编辑）',
+      'filmcraftArgs': 'CLI 参数（JSON 数组）',
+      'filmcraftOut': '输出文件（相对数据目录）',
+      'filmcraftSubmit': '提交 FilmCraft 任务',
+      'craftCancel': '取消任务',
+      'craftJobDone': 'Craft 产物已入库',
+      'craftInvalidJson': 'JSON 无效',
       'maskRedraw': '蒙版重绘',
       'brushSize': '笔刷大小',
       'clearMask': '清除蒙版',
@@ -568,6 +590,28 @@ window.__ModuleLoader__.load({
       'redraw': 'Redraw from this',
       'lastFrame': 'Last frame',
       'chainNext': 'Chain next shot',
+      'craftCard': 'Craft post (ArtCraft)',
+      'craftUnreachable': 'Craft not connected: make sure dsh-artcraft is installed/enabled and Harness was restarted',
+      'craftDataRoot': 'Data root',
+      'craftProjectDir': 'Project dir',
+      'craftReady': 'Ready',
+      'craftMissing': 'Not found',
+      'craftCliMissing': '{name} CLI not found (check artcraft.config.json or PATH)',
+      'craftSyncAll': 'Sync all assets to disk',
+      'craftSyncOne': 'Sync to disk',
+      'craftSyncDone': 'Sync finished: ok {ok} / fail {fail}',
+      'photoCraft': 'PhotoCraft process',
+      'photoParams': 'Params (JSON)',
+      'photoCustom': 'Custom',
+      'photoRun': 'Run',
+      'filmcraftExport': 'FilmCraft export',
+      'filmcraftParams': 'FilmCraft export params (CLI subcommands untested; defaults from recipe, editable)',
+      'filmcraftArgs': 'CLI args (JSON array)',
+      'filmcraftOut': 'Output file (relative to data root)',
+      'filmcraftSubmit': 'Submit FilmCraft job',
+      'craftCancel': 'Cancel job',
+      'craftJobDone': 'Craft output saved to assets',
+      'craftInvalidJson': 'Invalid JSON',
       'maskRedraw': 'Mask inpaint',
       'brushSize': 'Brush size',
       'clearMask': 'Clear mask',
@@ -1528,6 +1572,249 @@ window.__ModuleLoader__.load({
     }
 
     // ============================================================
+    // ArtCraft 后期工具链（同源 HTTP /artcraft/api/*，磁盘契约见 dsh-artcraft/README.md）
+    // 优雅降级：任何 Craft 故障只影响 Craft 功能，不触碰生成/MediaRecorder 链路。
+    // ============================================================
+    const CRAFT_BASE = '/artcraft/api';
+    async function craftFetch(tail, opts = {}, timeoutMs = 20000, silent = false) {
+      const ctrl = typeof AbortController !== 'undefined' ? new AbortController() : null;
+      const timer = ctrl ? setTimeout(() => ctrl.abort(), timeoutMs) : null;
+      try {
+        const res = await fetch(CRAFT_BASE + tail, { ...(opts || {}), signal: ctrl ? ctrl.signal : undefined });
+        if (!res.ok) {
+          let msg = 'HTTP ' + res.status;
+          try { const j = await res.clone().json(); if (j && j.error) msg = j.error; } catch { /* 保留状态码 */ }
+          const e = new Error(msg);
+          if (!silent) toast('Craft: ' + msg);
+          throw e;
+        }
+        return res;
+      } catch (e) {
+        if (e && e.name === 'AbortError') {
+          const err = new Error(T('craftTimeout'));
+          if (!silent) toast('Craft: ' + err.message);
+          throw err;
+        }
+        if (!silent) toast('Craft: ' + ((e && e.message) || e));
+        throw e;
+      } finally {
+        if (timer) clearTimeout(timer);
+      }
+    }
+    const craft = {
+      status: async () => { const r = await craftFetch('/status', {}, 20000, true); return await r.json(); },
+      projects: async () => { const r = await craftFetch('/projects'); return await r.json(); },
+      write: async (rel, blob) => { const r = await craftFetch('/fs?action=write&rel=' + encodeURIComponent(rel), { method: 'POST', body: blob }, 180000); return await r.json(); },
+      writeText: async (rel, text) => { const r = await craftFetch('/fs?action=write&rel=' + encodeURIComponent(rel), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ rel, text }) }, 60000); return await r.json(); },
+      readText: async (rel) => { const r = await craftFetch('/fs?op=readtext&rel=' + encodeURIComponent(rel)); return (await r.json()).text; },
+      file: async (rel) => { const r = await craftFetch('/file?rel=' + encodeURIComponent(rel), {}, 180000); return await r.blob(); },
+      jobStart: async (p) => { const r = await craftFetch('/job', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(p) }, 30000); return await r.json(); },
+      jobGet: async (id, tail) => { const r = await craftFetch('/job?id=' + encodeURIComponent(id) + '&tail=' + (tail || 12)); return await r.json(); },
+      jobCancel: async (id) => { const r = await craftFetch('/job/cancel', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id }) }); return await r.json(); },
+      control: async (p) => { const r = await craftFetch('/control', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(p) }, 45000); return await r.json(); },
+    };
+    async function probeCraft() {
+      let data = null;
+      try {
+        const r = await fetch(CRAFT_BASE + '/status');
+        if (r.ok) data = await r.json();
+      } catch { data = null; }
+      update((s) => { s.craftStatus = { at: Date.now(), data }; });
+      return data;
+    }
+    async function craftStatusSafe() {
+      try { return await craft.status(); } catch { toast(T('craftUnreachable')); return null; }
+    }
+    function craftOkCached() {
+      const cs = S.craftStatus;
+      if (!cs || !cs.at || Date.now() - cs.at > 120000 || !cs.data || !cs.data.bins) return false;
+      return Object.keys(cs.data.bins).some((k) => cs.data.bins[k] && cs.data.bins[k].found);
+    }
+    function slugifyName(name) {
+      return String(name || '').replace(/[\\/:*?"<>|]/g, '').trim() || 'project';
+    }
+    function craftProjectSlug() {
+      const p = S.projects.find((x) => x.id === S.activeId);
+      if (!p) return 'project';
+      if (!p.slug) {
+        let base = slugifyName(p.name);
+        const taken = new Set(S.projects.filter((x) => x.id !== p.id && x.slug).map((x) => x.slug));
+        if (taken.has(base)) base = base + '-' + p.id.slice(-4);
+        p.slug = base;
+        lsSet(LS_PROJECTS, S.projects);
+      }
+      return p.slug;
+    }
+    // 资产 assetId → dataRoot 相对路径 映射（项目级元数据，localStorage）
+    function craftMapLoad(pid) { return lsGet('dsh-ic:craftmap:' + pid, {}) || {}; }
+    function craftMapSave(pid, map) { lsSet('dsh-ic:craftmap:' + pid, map); }
+    function craftMapSet(pid, assetId, rel) { const m = craftMapLoad(pid); m[assetId] = rel; craftMapSave(pid, m); }
+    function extForMime(mime, name) {
+      const fromName = String(name || '').match(/(\.[a-z0-9]{2,5})$/i);
+      if (fromName) return fromName[1].toLowerCase();
+      const m = String(mime || '').toLowerCase();
+      if (m.includes('png')) return '.png';
+      if (m.includes('jpeg') || m.includes('jpg')) return '.jpg';
+      if (m.includes('webp')) return '.webp';
+      if (m.includes('webm')) return '.webm';
+      if (m.includes('mp4')) return '.mp4';
+      if (m.includes('mpeg') || m.includes('mp3')) return '.mp3';
+      if (m.includes('wav')) return '.wav';
+      return '.bin';
+    }
+    /** 资产落盘到 <项目>/media/（force=false 时已有映射则复用；force=true 覆盖写）。 */
+    async function syncAssetToDisk(rec, opts = {}) {
+      const pid = S.activeId;
+      const map = craftMapLoad(pid);
+      if (!opts.force && map[rec.id]) return map[rec.id];
+      const rel = craftProjectSlug() + '/media/' + rec.id + extForMime(rec.mime, rec.name);
+      await craft.write(rel, rec.blob);
+      craftMapSet(pid, rec.id, rel);
+      return rel;
+    }
+    async function ensureAssetOnDisk(rec) { return syncAssetToDisk(rec, { force: false }); }
+    async function videoDurationOf(blob) {
+      const url = URL.createObjectURL(blob);
+      try {
+        const v = document.createElement('video');
+        v.src = url; v.muted = true; v.preload = 'metadata';
+        await new Promise((res, rej) => { v.onloadedmetadata = () => res(); v.onerror = () => rej(new Error('视频解码失败')); setTimeout(res, 8000); });
+        return isFinite(v.duration) && v.duration > 0 ? v.duration : 5;
+      } finally { URL.revokeObjectURL(url); }
+    }
+    function xmlEsc(s) { return String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
+    /** FCP7 XML（xmeml v1）：媒体引用用本机绝对路径（file://localhost/...）。 */
+    function buildFcp7Xml(items, o) {
+      const tb = 30;
+      const frames = (s) => Math.round(s * tb);
+      let t = 0;
+      const clipitems = [];
+      items.forEach((sg, i) => {
+        const id = i + 1;
+        const start = frames(t), end = frames(t + sg.dur);
+        const abs = String(o.dataRoot || '').replace(/\\/g, '/') + '/' + sg.rel;
+        const pathurl = 'file://localhost/' + encodeURI(abs).replace(/#/g, '%23');
+        clipitems.push(
+          '        <clipitem id="clip-' + id + '">\n' +
+          '          <name>' + xmlEsc(sg.name) + '</name>\n' +
+          '          <duration>' + frames(sg.dur) + '</duration>\n' +
+          '          <rate><timebase>' + tb + '</timebase><ntsc>FALSE</ntsc></rate>\n' +
+          '          <start>' + start + '</start>\n' +
+          '          <end>' + end + '</end>\n' +
+          '          <in>0</in>\n' +
+          '          <out>' + frames(sg.dur) + '</out>\n' +
+          '          <file id="file-' + id + '">\n' +
+          '            <name>' + xmlEsc(sg.name) + '</name>\n' +
+          '            <pathurl>' + pathurl + '</pathurl>\n' +
+          '            <rate><timebase>' + tb + '</timebase><ntsc>FALSE</ntsc></rate>\n' +
+          '            <duration>' + frames(sg.dur) + '</duration>\n' +
+          '            <media>\n' +
+          '              <video>\n' +
+          '                <samplecharacteristics>\n' +
+          '                  <rate><timebase>' + tb + '</timebase><ntsc>FALSE</ntsc></rate>\n' +
+          '                  <width>' + o.width + '</width>\n' +
+          '                  <height>' + o.height + '</height>\n' +
+          '                </samplecharacteristics>\n' +
+          '              </video>\n' +
+          '              <audio><channelcount>2</channelcount></audio>\n' +
+          '            </media>\n' +
+          '          </file>\n' +
+          '        </clipitem>');
+        t += sg.dur;
+      });
+      return '<?xml version="1.0" encoding="UTF-8"?>\n' +
+        '<!DOCTYPE xmeml>\n' +
+        '<xmeml version="1">\n' +
+        '  <sequence id="sequence-1">\n' +
+        '    <name>' + xmlEsc(o.name) + '</name>\n' +
+        '    <duration>' + frames(t) + '</duration>\n' +
+        '    <rate><timebase>' + tb + '</timebase><ntsc>FALSE</ntsc></rate>\n' +
+        '    <media>\n' +
+        '      <video>\n' +
+        '        <format>\n' +
+        '          <samplecharacteristics>\n' +
+        '            <rate><timebase>' + tb + '</timebase><ntsc>FALSE</ntsc></rate>\n' +
+        '            <width>' + o.width + '</width>\n' +
+        '            <height>' + o.height + '</height>\n' +
+        '          </samplecharacteristics>\n' +
+        '        </format>\n' +
+        '        <track>\n' + clipitems.join('\n') + '\n        </track>\n' +
+        '      </video>\n' +
+        '      <audio>\n        <track/>\n      </audio>\n' +
+        '    </media>\n' +
+        '  </sequence>\n' +
+        '</xmeml>';
+    }
+    function buildSrt(items) {
+      const fmt = (s) => {
+        const ms = Math.round(s * 1000);
+        const h = String(Math.floor(ms / 3600000)).padStart(2, '0');
+        const m = String(Math.floor((ms % 3600000) / 60000)).padStart(2, '0');
+        const sec = String(Math.floor((ms % 60000) / 1000)).padStart(2, '0');
+        const mss = String(ms % 1000).padStart(3, '0');
+        return h + ':' + m + ':' + sec + ',' + mss;
+      };
+      let t = 0;
+      const out = [];
+      items.forEach((it, i) => {
+        const start = t;
+        t += it.dur;
+        const text = String(it.sub || '').trim();
+        if (!text) return;
+        out.push((i + 1) + '\n' + fmt(start) + ' --> ' + fmt(t) + '\n' + text + '\n');
+      });
+      return out.join('\n');
+    }
+    /** FilmCraft 任务后台轮询：状态写回节点，done 后回收产物入资产库。 */
+    async function pollFilmcraftJob(nodeId, jobId, outRel) {
+      for (;;) {
+        await sleep(2000);
+        let snap;
+        try { snap = await craft.jobGet(jobId, 10); } catch (e) {
+          update((s) => { const nd = s.graph.nodes[nodeId]; if (nd) nd.data.fcStatus = 'error: ' + e.message; });
+          return;
+        }
+        const tail = (snap.stderr || '').split('\n').filter(Boolean).slice(-1)[0] || '';
+        update((s) => {
+          const nd = s.graph.nodes[nodeId];
+          if (nd) nd.data.fcStatus = snap.status + (tail ? ' · ' + tail.slice(-90) : '');
+        });
+        if (snap.status === 'done') {
+          try {
+            const blob = await craft.file(outRel);
+            const rec = await saveAssetRecord(S.activeId, 'video', blob, {
+              name: T('finalCutDone') + '-FC-' + new Date().toISOString().slice(5, 16).replace('T', ' '),
+              prompt: 'filmcraft export', source: 'filmcraft', category: 'finalcut',
+            });
+            update((s) => {
+              const nd = s.graph.nodes[nodeId];
+              if (nd) { nd.data.fcAssetId = rec.id; nd.data.fcStatus = null; nd.data.fcJobId = null; }
+              s.assetsTick++;
+            });
+            toast(T('craftJobDone'));
+          } catch (e) {
+            update((s) => { const nd = s.graph.nodes[nodeId]; if (nd) nd.data.fcStatus = 'error: ' + e.message; });
+          }
+          return;
+        }
+        if (snap.status === 'failed' || snap.status === 'timeout') {
+          const detail = (snap.stderr || '').split('\n').filter(Boolean).slice(-3).join(' | ').slice(0, 300);
+          update((s) => { const nd = s.graph.nodes[nodeId]; if (nd) nd.data.fcStatus = snap.status + '：' + detail; nd.data.fcJobId = null; });
+          return;
+        }
+      }
+    }
+    const CRAFT_PRESETS = [
+      { cmd: 'filter.sharpen.smartSharpen', params: { amount: 80 } },
+      { cmd: 'layer.newAdjustmentLayer.curves', params: { points: [[0, 0], [64, 48], [192, 212], [255, 255]] } },
+    ];
+    // TODO(effectcraft 片头节点，P2 骨架)：
+    //  1) 标题/时长/字体 → 生成 .ecproj（版本化 JSON）写入 <项目>/craft/intro.ecproj
+    //  2) craft.jobStart({bin:'effectcraft', args:['render','--comp','Main','--out', outRel, projRel], outputs:[outRel]})
+    //  3) craft.file(outRel) 回收入库；预留 file.exportLottie 导出按钮位（Lottie 可在画布网页内预览）
+    //  实现时复用 craft.jobStart/craft.file 与 PhotoCraftDialog 的任务轮询模式。
+
+    // ============================================================
     // 尺寸 / 比例（Toonflow 式：清晰度 × 比例 → 像素）
     // ============================================================
     function dimsFromRatio(ratio, longSide, shortSide) {
@@ -1783,6 +2070,7 @@ window.__ModuleLoader__.load({
       menu: null,          // {x, y, kind:'add'}
       assetsTick: 0,
       tick: 0,
+      craftStatus: null, // {at, data} | {at, error}
     };
     const listeners = new Set();
     let saveTimer = null;
@@ -3006,6 +3294,8 @@ window.__ModuleLoader__.load({
 
     function GenNodeBody({ n, kind }) {
       const [showMask, setShowMask] = useState(false);
+      const [showCraft, setShowCraft] = useState(false);
+      useEffect(() => { probeCraft(); }, []);
       const promptEdge = S.graph.edges.some((x) => x.toNode === n.id && x.toPort === 'prompt');
       const refEdges = S.graph.edges.filter((x) => x.toNode === n.id && (kind === 'image' ? x.toPort === 'ref' : x.toPort === 'frame'));
       const vrCount = S.graph.edges.filter((x) => x.toNode === n.id && x.toPort === 'ref').length;
@@ -3083,6 +3373,14 @@ window.__ModuleLoader__.load({
                     onClick: () => setShowMask(true),
                   }, Ic('pencil', 11), T('maskRedraw'))
                 : null,
+              kind === 'image'
+                ? h('button', {
+                    type: 'button', className: 'dshic-mini is-ghost', title: craftOkCached() ? T('photoCraft') : T('craftUnreachable'),
+                    disabled: !craftOkCached(),
+                    onPointerDown: (e) => e.stopPropagation(),
+                    onClick: () => setShowCraft(true),
+                  }, Ic('image', 11), T('photoCraft'))
+                : null,
               kind === 'video' && n.data.lastAssetId
                 ? h('button', {
                     type: 'button', className: 'dshic-mini is-ghost', title: T('chainNext') + '（' + T('lastFrame') + ' → ' + T('portFrame') + '）',
@@ -3094,6 +3392,7 @@ window.__ModuleLoader__.load({
             )
           : null,
         showMask && assetUrlV ? h(MaskEditor, { key: 'mask', nodeId: n.id, onClose: () => setShowMask(false) }) : null,
+        showCraft && n.data.assetId ? h(PhotoCraftDialog, { key: 'pccd', assetId: n.data.assetId, onClose: () => setShowCraft(false) }) : null,
         (n.data.history || []).length > 1
           ? h('div', { key: 'hist', className: 'dshic-hist' },
               (n.data.history || []).map((hh) => h(HistThumb, {
@@ -3480,12 +3779,15 @@ window.__ModuleLoader__.load({
 
     function FinalCutNodeBody({ n }) {
       const running = n.data.status === 'running';
+      const [fcDialog, setFcDialog] = useState(null);
       const segEdges = S.graph.edges.filter((x) => x.toNode === n.id && x.toPort === 'in');
       const segs = segEdges
         .map((e) => ({ e, nd: S.graph.nodes[e.fromNode] }))
         .filter((x) => x.nd)
         .sort((a, b) => (a.nd.y - b.nd.y) || (a.nd.x - b.nd.x));
       const assetUrlV = useAssetUrl(n.data.assetId);
+      const fcUrl = useAssetUrl(n.data.fcAssetId);
+      useEffect(() => { probeCraft(); }, []);
       const getSub = (x) => {
         const defSub = x.nd.type === 'video-gen' ? (x.nd.data.prompt || '') : (x.nd.data.label || TYPE_LABEL()[x.nd.type]);
         const v = n.data.subs && n.data.subs[x.e.id];
@@ -3549,6 +3851,44 @@ window.__ModuleLoader__.load({
           metas.forEach((m) => URL.revokeObjectURL(m.url));
           update((s) => { const nd = s.graph.nodes[n.id]; if (nd) { nd.data.status = 'error'; nd.data.error = String(e.message || e); nd.data.progress = null; } });
         }
+      };
+      const filmcraftExport = async () => {
+        const st = await craftStatusSafe();
+        if (!st) return;
+        if (!(st.bins && st.bins.filmcraft && st.bins.filmcraft.found)) { toast(T('craftCliMissing').replace('{name}', 'filmcraft')); return; }
+        const items = [];
+        for (const x of segs) {
+          if (!x.nd.data.assetId) continue;
+          try {
+            const rec = await idbGet(x.nd.data.assetId);
+            if (!(rec && rec.blob)) continue;
+            const rel = await ensureAssetOnDisk(rec);
+            items.push({ rel, name: rec.name || 'seg', sub: getSub(x), dur: await videoDurationOf(rec.blob) });
+          } catch (e) { toast('Craft: ' + (e.message || e)); return; }
+        }
+        if (!items.length) { toast(T('noSegments')); return; }
+        const slug = craftProjectSlug();
+        const dims = videoDimsFor({ resolution: n.data.resolution, ratio: n.data.ratio });
+        const xml = buildFcp7Xml(items, {
+          name: (S.projects.find((p) => p.id === S.activeId) || {}).name || 'project',
+          dataRoot: (st.dataRoot && st.dataRoot.path) || '',
+          width: dims.w, height: dims.h,
+        });
+        try {
+          await craft.writeText(slug + '/craft/timeline.xml', xml);
+          await craft.writeText(slug + '/craft/subs.srt', buildSrt(items));
+        } catch (e) { return; /* craftFetch 已提示 */ }
+        setFcDialog({
+          args: JSON.stringify(['--project', slug + '/craft/drama.fcproj', '--import', slug + '/craft/timeline.xml', '--export', slug + '/out/final.mp4'], null, 1),
+          outRel: slug + '/out/final.mp4',
+        });
+      };
+      const submitFc = (args, outRel) => {
+        craft.jobStart({ bin: 'filmcraft', args, outputs: [outRel], timeoutMs: 30 * 60 * 1000 }).then((job) => {
+          update((s) => { const nd = s.graph.nodes[n.id]; if (nd) { nd.data.fcJobId = job.id; nd.data.fcStatus = 'running'; } });
+          setFcDialog(null);
+          pollFilmcraftJob(n.id, job.id, outRel);
+        }).catch(() => { /* craftFetch 已提示 */ });
       };
       return [
         h('div', { key: 'set', style: { display: 'flex', flexDirection: 'column', gap: 5 } },
@@ -3620,6 +3960,39 @@ window.__ModuleLoader__.load({
           onClick: compose,
         }, running ? h('span', { className: 'dshic-spin' }) : Ic('film', 12),
           running ? T('composing') + (n.data.progress ? ' ' + n.data.progress : '…') : T('compose')),
+        h('button', {
+          key: 'fc', type: 'button', className: 'dshic-mini', style: { alignSelf: 'flex-start' },
+          disabled: !segs.length || !craftOkCached(),
+          title: craftOkCached() ? T('filmcraftExport') : T('craftUnreachable'),
+          onPointerDown: (e) => e.stopPropagation(),
+          onClick: filmcraftExport,
+        }, Ic('film', 11), T('filmcraftExport')),
+        n.data.fcJobId || n.data.fcStatus
+          ? h('div', { key: 'fcst', className: 'dshic-node-row' },
+              h('span', { className: 'dshic-hint', style: { flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, 'FilmCraft: ' + (n.data.fcStatus || '')),
+              n.data.fcJobId
+                ? h('button', {
+                    type: 'button', className: 'dshic-mini is-ghost', title: T('craftCancel'),
+                    onPointerDown: (e) => e.stopPropagation(),
+                    onClick: () => { craft.jobCancel(n.data.fcJobId).catch(() => { /* 已提示 */ }); },
+                  }, Ic('stop', 11), T('craftCancel'))
+                : null,
+            )
+          : null,
+        n.data.fcAssetId && fcUrl
+          ? [
+              h('div', { key: 'fclb', className: 'dshic-hint' }, 'FilmCraft MP4'),
+              h('video', { key: 'fcv', className: 'dshic-video', src: fcUrl, controls: true, preload: 'metadata', 'data-no-drag': '1', onPointerDown: (e) => e.stopPropagation() }),
+              h('div', { key: 'fcda', className: 'dshic-node-row' },
+                h('button', {
+                  type: 'button', className: 'dshic-mini is-ghost',
+                  onPointerDown: (e) => e.stopPropagation(),
+                  onClick: () => downloadBlobFromUrl(fcUrl, 'finalcut-fc-' + n.id.slice(-5) + '.mp4'),
+                }, Ic('download', 11), T('download')),
+                h('div', { className: 'dshic-flex' })),
+            ]
+          : null,
+        fcDialog ? h(FilmcraftArgsDialog, { key: 'fcdlg', info: fcDialog, onSubmit: submitFc, onClose: () => setFcDialog(null) }) : null,
         assetUrlV
           ? [
               h('video', { key: 'vid', className: 'dshic-video', src: assetUrlV, controls: true, preload: 'metadata', 'data-no-drag': '1', onPointerDown: (e) => e.stopPropagation() }),
@@ -3955,8 +4328,10 @@ window.__ModuleLoader__.load({
       const [filter, setFilter] = useState('all');
       const [scope, setScope] = useState('current');
       const [search, setSearch] = useState('');
+      const [craftFor, setCraftFor] = useState(null);
       const fileRef = useRef(null);
       useEffect(() => {
+        probeCraft();
         let ok = true;
         (async () => {
           try {
@@ -4012,6 +4387,16 @@ window.__ModuleLoader__.load({
         setTick((x) => x + 1);
       };
       const q = search.trim().toLowerCase();
+      const syncAll = async () => {
+        const st = await craftStatusSafe();
+        if (!st) return;
+        const recs = assets.filter((a) => a.blob);
+        let okN = 0, failN = 0;
+        for (const a of recs) {
+          try { await syncAssetToDisk(a, { force: true }); okN++; } catch { failN++; }
+        }
+        toast(T('craftSyncDone').replace('{ok}', String(okN)).replace('{fail}', String(failN)));
+      };
       const shown = assets.filter((a) => {
         if (scope !== 'all' && scope !== 'current' && a.projectId !== scope) return false;
         if (filter !== 'all' && (a.category || 'general') !== filter) return false;
@@ -4043,6 +4428,7 @@ window.__ModuleLoader__.load({
             .concat(S.projects.filter((p) => p.id !== S.activeId).map((p) => ({ value: p.id, label: p.name }))),
           onChange: (v) => setScope(v),
         }),
+        h('button', { key: 'craftsync', type: 'button', className: 'dshic-mini', style: { alignSelf: 'flex-start' }, disabled: !craftOkCached(), title: craftOkCached() ? T('craftSyncAll') : T('craftUnreachable'), onClick: syncAll, onPointerDown: (e) => e.stopPropagation() }, Ic('upload', 11), T('craftSyncAll')),
         h('button', { key: 'imp', type: 'button', className: 'dshic-mini', style: { alignSelf: 'flex-start' }, onClick: () => { if (fileRef.current) fileRef.current.click(); } }, Ic('upload', 11), T('import')),
         h('input', { key: 'file', ref: fileRef, type: 'file', accept: 'image/*,video/*', multiple: true, style: { display: 'none' }, onChange: onImport }),
         shown.length === 0
@@ -4057,6 +4443,7 @@ window.__ModuleLoader__.load({
     }
     function AssetCard({ a, onAdd, onDel, onCat, showProject, projectName }) {
       const url = useAssetUrl(a.kind === 'text' ? null : a.id);
+      const [craftFor, setCraftFor] = useState(false);
       const downloadName = (a.name || 'asset') + (a.kind === 'image' ? '.png' : a.kind === 'video' ? '.webm' : a.kind === 'audio' ? '.mp3' : '.md');
       return h('div', { className: 'dshic-asset', onClick: a.kind === 'audio' ? undefined : () => onAdd(a), title: a.kind === 'text' ? T('textAssetHint') : a.kind === 'audio' ? '' : T('addAssetNode') },
         a.kind === 'text'
@@ -4068,6 +4455,20 @@ window.__ModuleLoader__.load({
               : h('div', { className: 'dshic-asset-thumb', style: { display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--dsw-alias-brand-primary)' } },
                   Ic('audio', 26)),
         h('div', { className: 'dshic-asset-actions' },
+          a.kind === 'image'
+            ? h('button', {
+                type: 'button', className: 'dshic-iconbtn', title: T('photoCraft'),
+                onClick: (e) => { e.stopPropagation(); setCraftFor(true); },
+                onPointerDown: (e) => e.stopPropagation(),
+              }, Ic('spark', 11))
+            : null,
+          a.blob
+            ? h('button', {
+                type: 'button', className: 'dshic-iconbtn', title: T('craftSyncOne'),
+                onClick: (e) => { e.stopPropagation(); syncAssetToDisk(a, { force: true }).then(() => toast(T('craftSyncOne') + ' ✓')).catch(() => { /* craftFetch 已提示 */ }); },
+                onPointerDown: (e) => e.stopPropagation(),
+              }, Ic('upload', 11))
+            : null,
           h('button', {
             type: 'button', className: 'dshic-iconbtn', title: T('download'),
             onClick: (e) => {
@@ -4094,6 +4495,7 @@ window.__ModuleLoader__.load({
           showProject && a.projectId ? h('span', { className: 'dshic-projchip', title: projectName }, projectName) : null,
           h('div', { style: { flex: 1 } }),
           h('span', {}, fmtTime(a.createdAt))),
+        craftFor ? h(PhotoCraftDialog, { key: 'pc', assetId: a.id, onClose: () => setCraftFor(false) }) : null,
       );
     }
     function downloadBlobFromUrl(url, name) {
@@ -4304,6 +4706,167 @@ window.__ModuleLoader__.load({
     }
     function kcUrlKey(kind) { return kind === 'image' ? 'baseUrl' : 'url'; }
 
+    /** T2：设置面板 Craft 后期卡片（连接状态 / 工具灯 / 数据目录）。 */
+    function CraftCard() {
+      const [, force] = useState(0);
+      useEffect(() => { probeCraft().then(() => force((x) => x + 1)); }, []);
+      const cs = S.craftStatus;
+      const data = cs && cs.data;
+      const slug = craftProjectSlug();
+      const binRow = (key) => {
+        const info = data && data.bins ? data.bins[key] : null;
+        const ok = !!(info && info.found);
+        return h('div', { className: 'dshic-row' },
+          h('span', { style: { color: ok ? 'var(--dsw-alias-state-success-primary)' : 'var(--dsw-alias-state-error-primary)', width: 12, flex: 'none' } }, ok ? '●' : '○'),
+          h('span', { style: { fontSize: 12, flex: 'none' } }, key),
+          h('span', { className: 'dshic-hint', style: { flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } },
+            ok ? T('craftReady') : (info && info.note ? info.note : T('craftMissing'))),
+        );
+      };
+      return h('div', { className: 'dshic-card' },
+        h('div', { className: 'dshic-row' },
+          Ic('film', 12),
+          h('strong', { style: { fontSize: 12, flex: 1, minWidth: 0 } }, T('craftCard')),
+          h('button', { type: 'button', className: 'dshic-mini is-ghost', onPointerDown: (e) => e.stopPropagation(), onClick: () => { probeCraft().then(() => force((x) => x + 1)); } }, '↻'),
+        ),
+        data
+          ? h('div', { className: 'dshic-hint' }, T('craftDataRoot') + '：' + ((data.dataRoot && data.dataRoot.path) || '—'))
+          : h('div', { className: 'dshic-err' }, T('craftUnreachable')),
+        data ? binRow('photocraft') : null,
+        data ? binRow('filmcraft') : null,
+        data ? binRow('effectcraft') : null,
+        data ? h('div', { className: 'dshic-hint' }, T('craftProjectDir') + '：' + slug + '/') : null,
+      );
+    }
+
+    /** T4：PhotoCraft 处理对话框（单资产：run --cmd --params --out；进度/stderr/取消）。 */
+    function PhotoCraftDialog({ assetId, onClose }) {
+      const [rec, setRec] = useState(null);
+      const [presetIdx, setPresetIdx] = useState('0');
+      const [cmd, setCmd] = useState(CRAFT_PRESETS[0].cmd);
+      const [paramsText, setParamsText] = useState(JSON.stringify(CRAFT_PRESETS[0].params));
+      const [running, setRunning] = useState(false);
+      const [progress, setProgress] = useState('');
+      const [err, setErr] = useState(null);
+      const [jobId, setJobId] = useState(null);
+      useEffect(() => {
+        let ok = true;
+        idbGet(assetId).then((r) => { if (ok) setRec(r); });
+        return () => { ok = false; };
+      }, [assetId]);
+      const run = async () => {
+        const st = await craftStatusSafe();
+        if (!st) return;
+        if (!(st.bins && st.bins.photocraft && st.bins.photocraft.found)) { toast(T('craftCliMissing').replace('{name}', 'photocraft')); return; }
+        let paramsObj;
+        try { paramsObj = JSON.parse(paramsText || '{}'); } catch { toast(T('craftInvalidJson')); return; }
+        if (!rec || !rec.blob) { toast(T('noResult')); return; }
+        setRunning(true); setErr(null); setProgress('…');
+        try {
+          const mediaRel = await ensureAssetOnDisk(rec);
+          const outRel = craftProjectSlug() + '/out/graded/' + rec.id + '-graded' + extForMime(rec.mime, rec.name);
+          const job = await craft.jobStart({
+            bin: 'photocraft',
+            args: ['run', mediaRel, '--cmd', cmd, '--params', JSON.stringify(paramsObj), '--out', outRel],
+            outputs: [outRel], timeoutMs: 600000,
+          });
+          setJobId(job.id);
+          let status = 'running';
+          while (status === 'running') {
+            await sleep(1500);
+            const snap = await craft.jobGet(job.id, 12);
+            status = snap.status;
+            const tail = (snap.stdout || '').split('\n').filter(Boolean).slice(-1)[0] || status;
+            setProgress(tail.slice(0, 120));
+            if (status === 'done' || status === 'failed' || status === 'timeout') {
+              if (status !== 'done') {
+                throw new Error('PhotoCraft ' + status + '：' + ((snap.stderr || '').split('\n').filter(Boolean).slice(-3).join('\n') || ''));
+              }
+              if (!(snap.outputs && snap.outputs[0] && snap.outputs[0].exists)) throw new Error('任务完成但未找到输出文件');
+              const blob = await craft.file(outRel);
+              const rec2 = await saveAssetRecord(S.activeId, 'image', blob, {
+                name: (rec.name || 'image') + '-graded',
+                prompt: 'photocraft ' + cmd, source: 'craft', category: rec.category || 'general',
+              });
+              update((s) => { s.assetsTick++; });
+              toast(T('craftJobDone'));
+              onClose();
+              return;
+            }
+          }
+        } catch (e) {
+          setErr(String(e.message || e));
+        } finally {
+          setRunning(false); setProgress(''); setJobId(null);
+        }
+      };
+      return h('div', { className: 'dshic-mask-overlay', onPointerDown: (e) => { if (e.target === e.currentTarget && !running) onClose(); } },
+        h('div', { className: 'dshic-mask-card' },
+          h('div', { className: 'dshic-modal-title' }, T('photoCraft') + ' — ' + (rec ? (rec.name || rec.id) : '…')),
+          h('div', { className: 'dshic-field' },
+            h('span', { className: 'dshic-field-label' }, T('photoCmd')),
+            h('select', {
+              className: 'dshic-select', value: presetIdx,
+              onChange: (e) => {
+                setPresetIdx(e.target.value);
+                if (e.target.value !== 'custom') {
+                  const p = CRAFT_PRESETS[Number(e.target.value)];
+                  setCmd(p.cmd); setParamsText(JSON.stringify(p.params));
+                } else setCmd('');
+              },
+              onPointerDown: (e) => e.stopPropagation(),
+            },
+              CRAFT_PRESETS.map((p, i) => h('option', { key: i, value: String(i) }, p.cmd)),
+              h('option', { value: 'custom' }, T('photoCustom')))),
+          presetIdx === 'custom'
+            ? h('div', { className: 'dshic-field' },
+                h('span', { className: 'dshic-field-label' }, T('photoCmd')),
+                h('input', { className: 'dshic-input', value: cmd, placeholder: 'filter.sharpen.smartSharpen', onChange: (e) => setCmd(e.target.value), onPointerDown: (e) => e.stopPropagation() }))
+            : null,
+          h('div', { className: 'dshic-field' },
+            h('span', { className: 'dshic-field-label' }, T('photoParams')),
+            h('textarea', {
+              className: 'dshic-textarea', style: { minHeight: 64, fontFamily: 'var(--ds-font-family-code, monospace)' },
+              value: paramsText, onChange: (e) => setParamsText(e.target.value), onPointerDown: (e) => e.stopPropagation(),
+            })),
+          running || progress ? h('div', { className: 'dshic-hint' }, T('composing') + ' ' + progress) : null,
+          err ? h('div', { className: 'dshic-err' }, err) : null,
+          h('div', { className: 'dshic-modal-actions' },
+            jobId ? h('button', { type: 'button', className: 'dshic-btn dshic-btn-outline', onPointerDown: (e) => e.stopPropagation(), onClick: () => { craft.jobCancel(jobId).catch(() => {}); } }, T('craftCancel')) : null,
+            h('button', { type: 'button', className: 'dshic-btn dshic-btn-outline', disabled: running, onClick: onClose, onPointerDown: (e) => e.stopPropagation() }, T('cancel')),
+            h('button', { type: 'button', className: 'dshic-gen', style: { width: 'auto', padding: '0 14px' }, disabled: running, onClick: run, onPointerDown: (e) => e.stopPropagation() },
+              running ? h('span', { className: 'dshic-spin' }) : Ic('spark', 12), running ? T('ttsRunning') : T('photoRun'))),
+        ));
+    }
+
+    /** T5：FilmCraft 导出参数确认框（args JSON 可编辑，默认取自 README 配方）。 */
+    function FilmcraftArgsDialog({ info, onSubmit, onClose }) {
+      const [argsText, setArgsText] = useState(info.args);
+      const [outRel, setOutRel] = useState(info.outRel);
+      const [err, setErr] = useState(null);
+      const submit = () => {
+        let args;
+        try { args = JSON.parse(argsText); } catch { setErr(T('craftInvalidJson')); return; }
+        if (!Array.isArray(args)) { setErr(T('craftInvalidJson')); return; }
+        onSubmit(args, String(outRel || '').trim());
+      };
+      return h('div', { className: 'dshic-mask-overlay', onPointerDown: (e) => { if (e.target === e.currentTarget) onClose(); } },
+        h('div', { className: 'dshic-mask-card' },
+          h('div', { className: 'dshic-modal-title' }, T('filmcraftParams')),
+          h('div', { className: 'dshic-hint' }, T('filmcraftOut') + '：' + info.outRel),
+          h('div', { className: 'dshic-field' },
+            h('span', { className: 'dshic-field-label' }, T('filmcraftArgs')),
+            h('textarea', {
+              className: 'dshic-textarea', style: { minHeight: 96, fontFamily: 'var(--ds-font-family-code, monospace)' },
+              value: argsText, onChange: (e) => setArgsText(e.target.value), onPointerDown: (e) => e.stopPropagation(),
+            })),
+          err ? h('div', { className: 'dshic-err' }, err) : null,
+          h('div', { className: 'dshic-modal-actions' },
+            h('button', { type: 'button', className: 'dshic-btn dshic-btn-outline', onClick: onClose, onPointerDown: (e) => e.stopPropagation() }, T('cancel')),
+            h('button', { type: 'button', className: 'dshic-gen', style: { width: 'auto', padding: '0 14px' }, onClick: submit, onPointerDown: (e) => e.stopPropagation() }, Ic('film', 12), T('filmcraftSubmit'))),
+        ));
+    }
+
     function SettingsTab() {
       const [s, setS] = useState(loadSettings);
       const apply = (fn) => {
@@ -4316,6 +4879,7 @@ window.__ModuleLoader__.load({
       };
       const field = (label, value, onChange, placeholder, password) => h(Field, { label, value, onChange, placeholder, password });
       return [
+        h(CraftCard, { key: 'craft' }),
         h('div', { key: 'lang', className: 'dshic-card' },
           h('div', { className: 'dshic-row' }, Ic('text', 12), h('strong', { style: { fontSize: 12 } }, T('langLabel'))),
           h('select', {
@@ -4341,7 +4905,7 @@ window.__ModuleLoader__.load({
         h(ApiListEditor, { key: 'imglist', kind: 'image' }),
         h(ApiListEditor, { key: 'vidlist', kind: 'video' }),
         h(ApiListEditor, { key: 'ttslist', kind: 'tts' }),
-        h('div', { key: 'note', className: 'dshic-hint' }, 'DeepSeek Harness · @local/infinite-canvas v0.15.0'),
+        h('div', { key: 'note', className: 'dshic-hint' }, 'DeepSeek Harness · @local/infinite-canvas v0.16.0'),
       ];
     }
 
@@ -4622,6 +5186,8 @@ window.__ModuleLoader__.load({
           pushHistory();
           LANG_OVERRIDE = loadSettings().lang || '';
           const unsub = ctx.locale.subscribe(() => notify());
+          // ArtCraft 后期工具链状态探测（失败静默，Craft 功能各自降级）
+          probeCraft();
           // 后台路由探活：失败时在画布顶部给出可操作的提示
           hostRpc('ping').then(() => { S.hostOk = true; S.hostError = null; notify(); }).catch((e) => {
             S.hostOk = false;
