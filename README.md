@@ -1,66 +1,83 @@
-# 无限画布 (@local/infinite-canvas)
+# Infinite Canvas for DeepSeek Harness
 
-DeepSeek Harness 插件：在 Web GUI 左侧面板新增 **无限画布** 按钮，点开即是一个节点式 **短剧 / 图片 / 视频生成工作流** 画布（能力模型参考 Toonflow）。
+**A node-based short-drama studio inside DeepSeek Harness.** Start from a one-line idea, walk out with a storyboarded, voiced, subtitled video cut — right on an infinite canvas.
 
-> **更新后台后首次需要重启一次 DeepSeek Harness**（dsh 机制：Host 半侧代码仅随重启加载；网页刷新只更新界面半侧）。
+English | [简体中文](./README.zh-CN.md)
 
-## 模型选择（多配置）
+<!-- Badges: add CI / npm / license badges here after publishing -->
 
-- **文本模型**：Harness 配置的全部 provider/model 自动出现在「设置 → 文本模型」下拉；剧本节点与分镜表节点上还有**模型小下拉**（默认"跟随设置"，可按节点覆盖）。
-- **图片 / 视频模型**：设置里可**配置多个**（名称 / 地址 / Key / 模型 / 参考图模式），★设为默认；每个图片/视频生成节点上可用小下拉选择本次用哪个配置；未配置或未选中时走演示模式。
-- 旧版单配置自动迁移为列表第一项。
+## What is this?
 
-## 内置专家团 & 技能增强
+Infinite Canvas is a [DeepSeek Harness](https://github.com/deepseek-ai) plugin that turns the web GUI's sidebar into a full creation studio. Instead of chat round-trips, you work the way directors do: nodes on an infinite canvas, wired into a pipeline — script, storyboard, character & scene assets, image generation, video generation, and a final cut with transitions, subtitles and dubbing.
 
-- **专家 persona**（方法论参考主流开源编剧/分镜技能提炼）：
-  - 短剧编剧专家——三幕结构、每场「目标→冲突→转折」、10 秒钩子、对白口语化；
-  - 分镜导演专家——景别与运镜语言、visual/motion 分离、180° 轴线与服装光线连续性。
-- **技能增强**：「设置 → 文本模型」卡片下可为剧本/分镜各选择一个 **Harness 已安装的技能包**（`skills` 服务实时枚举），选中后用该技能的方法论替代内置专家规则，设定集注入与 JSON 输出约束保持不变。
-- **设定集（右栏「设定集」标签，按项目隔离）**：风格基调 + 角色/场景/道具卡注入所有 AI 生成；分镜生成后自动一致性检查。
-- **参考图绑定**：图片生成自动生成「[参考图1] 角色：林宁（设定集外观描述）」绑定文本。
+Everything runs locally in your Harness. Bring your own generation APIs, or use the built-in demo mode to learn the whole flow with zero configuration.
 
-## 界面语言
+## How it works
 
-- 默认**跟随 Harness 语言设置**；「设置 → 界面语言」可一键强制 中文 / English；界面与 AI 输出语言统一，无混杂。
-
-## 节点与画布
-
-- **八类节点**：文本、剧本、分镜、分镜表、图片生成、视频生成、图片资产、视频资产，外加 **成片节点**（分镜节点由"铺开"自动生成）。
-- **生成设置（节点内两行布局，不溢出）**：图片=比例×清晰度(1K/2K/4K)；视频=时长(4-10s)×分辨率(480P/720P/1080P)×比例。
-- **画布**：平移/缩放/框选/多选/右键添加/适应视图；删除连线、节点、项目均有确认。
-
-## 成片合成（Final Cut）
-
-新增 **成片节点**：把画布上的分镜视频拼接导出为一条完整短剧。
-
-- 多视频输入端口：把各分镜的视频生成/视频资产输出连入（可多条）
-- **自动排序**：按来源节点的上下位置排列片段顺序
-- **字幕烧录**：每段自动取提示词为字幕，可逐段编辑，合成时烧录进画面（中英混排自动换行）
-- **原声开关**：保留片段原声或静音
-- 可选输出分辨率（480P/720P/1080P）与比例
-- 「合成导出」实时按顺序录制，进度按片段显示
-- 成片自动存入资产库，节点内直接预览/下载（WebM）
-
-技术：浏览器内 Canvas + MediaRecorder 实时合成，零外部依赖；导出时长=片段总时长（实时录制）。
-
-## 剧本 → 分镜 → 视频（一一对应）
-
-```
-剧本节点(AI 生成剧本) → 分镜表节点(AI 拆分镜) →「铺开到画布」
-   每条分镜自动生成：分镜节点 + 图片生成(多参考图) + 视频生成(首帧) + 视频资产，并自动连线；
-   角色/场景/道具按名称匹配已有资产节点，缺失生成"待补充"占位。
+```mermaid
+flowchart LR
+    A[Script node<br>AI screenplay] --> B[Storyboard node<br>AI shot list]
+    B --> C[Expand to canvas<br>1 shot = 1 node group]
+    C --> D[Image gen<br>multi-reference]
+    D --> E[Video gen<br>first frame + refs]
+    E --> F[Final cut<br>transitions · subtitles · voices]
+    F --> G[Export<br>WebM preview / FilmCraft MP4]
 ```
 
-## 资产系统
+## Highlights
 
-- 分类 `角色/场景/道具/剧本/分镜/通用`；画布产物（图片/视频/AI 剧本/AI 分镜）自动入库；按名称/提示词/内容/项目名搜索，支持跨项目视图与项目标签；项目 ✎ 重命名、删除需输入项目名确认。
+### Consistent characters, scene after scene
+A per-project **series bible** (style baseline + character/scene/prop cards) is injected into every AI call, so wardrobes, locations and props stay coherent across shots and episodes. After each storyboard run, a local consistency check flags any name that isn't registered yet.
 
-## 数据与隐私
+### References that actually bind
+Reference images connect as an ordered, visible list — `[图1] 角色：Lin Ning`, `[图2] 场景：The Old House` — and that exact order is what reaches the model. Multi-character frames stay unambiguous, and Volcano Engine **Seedance**'s native `[图N]` convention is supported end to end (first frame, up to 4 reference images, official task API).
 
-- 画布/项目/配置/设定集存 localStorage（`dsh-ic:*`）；资产存 IndexedDB（`dsh-infinite-canvas`）。
-- AI 文本走 Host 本地调用 Harness 模型（`/infinite-canvas/api/rpc`）；图片/视频 API 由浏览器直连所填地址。
+### From shots to a watchable cut
+The **Final Cut node** stitches shot videos in order — crossfade or black transitions, burned-in subtitles, original audio and TTS voices mixed in — and exports a preview cut instantly. For real post-production, one click writes a **FCP7 XML timeline + SRT** to disk and hands the render to [ArtCraft](#artcraft-bridge) (FilmCraft) for a true MP4.
 
-## 已知限制
+### An editor-grade canvas
+Pan, zoom, marquee select, alignment guides, groups that fold, a minimap, 60-step undo/redo, per-node media history (last 8 results), mask-based inpainting, and middle-click everything — the canvas part should feel like an editor, not a chat sidebar.
 
-- 更新插件 Host 半侧后需重启一次 Harness（见顶部说明）。
-- 演示视频依赖 MediaRecorder；严格 OpenAI 协议用 `edits` 模式；视频轮询字段为常见约定覆盖。
+### Bring your own models
+Text models come from Harness itself (no extra keys). Image, video and TTS backends are **multi-config** — define as many endpoints as you want, mark a default, and pick per node. No backend configured? Demo mode synthesizes placeholder images and animated videos locally so the entire pipeline is testable offline.
+
+## Quick start
+
+1. Install the plugin (bundle folder) and restart Harness once.
+2. Click the **Infinite Canvas** button in the left sidebar.
+3. Add a **Script** node, type a logline, hit *AI write script*.
+4. Connect it to a **Storyboard** node → *AI break into shots* → *Expand to canvas*.
+5. Drop character images onto the placeholder asset nodes, hit *Run workflow*, then open a **Final Cut** node and export.
+
+> Without any generation API configured, every step runs in demo mode — the full pipeline works offline.
+
+## Generation backends
+
+| Kind | Protocol | Notes |
+|---|---|---|
+| Text | Harness LLM service | Script & storyboard writers; pick any configured model, or override per node |
+| Image | OpenAI-compatible `/images/generations`, multi-reference via `/images/edits` | Size (1K/2K/4K) × ratio; mask inpainting via `edits` + PNG mask |
+| Video | Generic submit+poll, or **Volcano Seedance official tasks** | duration 4–10s, 480P/720P/1080P, ratio, first frame, up to 4 reference images |
+| TTS | OpenAI-compatible `/audio/speech` | Per-shot voices mixed into the final cut |
+
+## ArtCraft bridge
+
+When the companion [`dsh-artcraft`](../dsh-artcraft/README.md) plugin is installed, the canvas talks to the local **PhotoCraft / FilmCraft / EffectCraft** toolchain over same-origin HTTP: assets sync to a per-project data folder, images get headless PhotoCraft grading (single or batch), and final cuts export as FCP7 XML + SRT for FilmCraft to render as MP4. Status lights, graceful degradation and a full contract live in [`docs/artcraft-handoff.md`](./docs/artcraft-handoff.md).
+
+## Data & privacy
+
+- Canvas documents, projects, settings and the series bible live in browser `localStorage` (`dsh-ic:*`); assets live in IndexedDB (`dsh-infinite-canvas`).
+- AI text generation runs through the Harness host process (your configured models, no extra keys).
+- Image/video/TTS calls go directly from the browser to the endpoints you configure — mind CORS and key handling.
+- Nothing is uploaded anywhere by the plugin itself.
+
+## Requirements & limitations
+
+- DeepSeek Harness 0.2.0-rc.2+; demo video export needs MediaRecorder (Chromium).
+- The preview cut is real-time recorded WebM; for MP4 masters with multi-track editing, pair with ArtCraft FilmCraft or any NLE.
+- Image `edits`/mask inpainting requires a model that supports the endpoint (e.g. gpt-image-1).
+- Host-side plugin updates need one Harness restart; the web half hot-reloads.
+
+## License
+
+MIT

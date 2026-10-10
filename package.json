@@ -1,7 +1,22 @@
 {
   "name": "@local/infinite-canvas",
   "version": "0.16.0",
-  "private": true,
+  "description": "Node-based short-drama studio for DeepSeek Harness: script → storyboard → assets → shots → voiced, subtitled final cut on an infinite canvas.",
+  "keywords": [
+    "dsh",
+    "deepseek-harness",
+    "plugin",
+    "infinite-canvas",
+    "storyboard",
+    "short-drama",
+    "ai-video",
+    "image-generation",
+    "video-generation",
+    "seedance",
+    "photocraft",
+    "filmcraft"
+  ],
+  "license": "MIT",
   "type": "module",
   "icon": "./icon.svg",
   "exports": {
@@ -14,8 +29,11 @@
     "index.js",
     "client.js",
     "icon.svg",
+    "cordis.patch.yml",
     "locale/*.json",
-    "README.md"
+    "README.md",
+    "README.zh-CN.md",
+    "docs/*.md"
   ],
   "dsh": {
     "bundle": {
