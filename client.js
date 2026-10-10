@@ -4016,85 +4016,120 @@ window.__ModuleLoader__.load({
     }
     function ApiListEditor({ kind }) {
       const [s, setS] = useState(loadSettings);
-      const listKey = kind === 'image' ? 'imageApis' : 'videoApis';
-      const defKey = kind === 'image' ? 'imageApiId' : 'videoApiId';
-      const labelKey = kind === 'image' ? 'imageApisLabel' : 'videoApisLabel';
-      const icon = kind === 'image' ? 'image' : 'video';
+      const [openId, setOpenId] = useState(null);
+      const listKey = kind === 'image' ? 'imageApis' : kind === 'video' ? 'videoApis' : 'ttsApis';
+      const defKey = kind === 'image' ? 'imageApiId' : kind === 'video' ? 'videoApiId' : 'ttsApiId';
+      const labelKey = kind === 'image' ? 'imageApisLabel' : kind === 'video' ? 'videoApisLabel' : 'ttsApisLabel';
+      const icon = kind === 'image' ? 'image' : kind === 'video' ? 'video' : 'audio';
+      const nameKey = kind === 'image' ? 'defaultImageCfg' : kind === 'video' ? 'defaultVideoCfg' : 'defaultTtsCfg';
       const persist = (next) => { setS(next); saveSettings(next); };
       const mutate = (fn) => {
         const next = JSON.parse(JSON.stringify(s));
         next[listKey] = fn(next[listKey] || []);
         persist(next);
       };
-      const add = () => mutate((list) => list.concat([{
-        id: uid('cfg'),
-        name: (kind === 'image' ? T('defaultImageCfg') : T('defaultVideoCfg')) + ' ' + ((s[listKey] || []).length + 1),
-        ...(kind === 'image'
-          ? { baseUrl: '', apiKey: '', model: '', mode: 'generations' }
-          : { url: '', apiKey: '', model: '' }),
-      }]));
+      const add = () => {
+        const id = uid('cfg');
+        mutate((list) => list.concat([{
+          id,
+          name: T(nameKey) + ' ' + ((s[listKey] || []).length + 1),
+          [kcUrlKey(kind)]: '',
+          apiKey: '',
+          model: '',
+          ...(kind === 'image' ? { mode: 'generations' } : {}),
+          ...(kind === 'tts' ? { voice: 'alloy' } : {}),
+        }]));
+        setOpenId(id);
+      };
       const patch = (id, k, v) => mutate((list) => list.map((x) => (x.id === id ? { ...x, [k]: v } : x)));
-      const remove = (id) => mutate((list) => list.filter((x) => x.id !== id));
+      const remove = (id) => {
+        mutate((list) => list.filter((x) => x.id !== id));
+        if (openId === id) setOpenId(null);
+      };
       const list = s[listKey] || [];
+      const urlPh = kind === 'image' ? 'https://api.example.com/v1' : kind === 'video' ? 'https://api.example.com/v1/video/generations' : 'https://api.example.com/v1';
+      const urlKey = kind === 'image' ? 'baseUrl' : 'url';
       return h('div', { className: 'dshic-card' },
         h('div', { className: 'dshic-row' },
           Ic(icon, 12),
           h('strong', { style: { fontSize: 12, flex: 1, minWidth: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' } }, T(labelKey)),
+          h('span', { className: 'dshic-tag st' }, String(list.length)),
           h('button', { type: 'button', className: 'dshic-mini', onClick: add, onPointerDown: (e) => e.stopPropagation() }, Ic('plus', 11), T('addConfig')),
         ),
         list.length === 0 ? h('div', { className: 'dshic-hint' }, T('noCfgHint')) : null,
-        list.map((cfg) => h('div', { key: cfg.id, className: 'dshic-card', style: { padding: 8, gap: 6, background: 'var(--dsw-alias-bg-layer-1)' } },
-          h('div', { className: 'dshic-row' },
-            h('input', {
-              className: 'dshic-input', style: { flex: 1, minWidth: 0, fontWeight: 600 }, value: cfg.name || '',
-              placeholder: T('cfgName'),
-              onChange: (e) => patch(cfg.id, 'name', e.target.value),
-              onPointerDown: (e) => e.stopPropagation(),
-            }),
-            s[defKey] === cfg.id
-              ? h('span', { className: 'dshic-tag api' }, T('isDefault'))
-              : h('button', {
-                  type: 'button', className: 'dshic-mini is-ghost', title: T('setDefault'),
-                  onPointerDown: (e) => e.stopPropagation(),
-                  onClick: () => { const next = { ...s, [defKey]: cfg.id }; persist(next); },
-                }, '★'),
-            h('button', {
-              type: 'button', className: 'dshic-iconbtn is-danger', title: T('delConfig'),
-              onPointerDown: (e) => e.stopPropagation(),
-              onClick: () => remove(cfg.id),
-            }, Ic('trash', 11)),
-          ),
-          h(Field, { label: T('baseUrl'), value: cfg.baseUrl ?? cfg.url ?? '', onChange: (v) => patch(cfg.id, kind === 'image' ? 'baseUrl' : 'url', v), placeholder: kind === 'image' ? 'https://api.example.com/v1' : 'https://api.example.com/v1/video/generations' }),
-          h(Field, { label: T('apiKey'), value: cfg.apiKey || '', onChange: (v) => patch(cfg.id, 'apiKey', v), placeholder: 'sk-…', password: true }),
-          h(Field, { label: T('model'), value: cfg.model || '', onChange: (v) => patch(cfg.id, 'model', v) }),
-          kind === 'image'
-            ? h('div', { className: 'dshic-field' },
-                h('span', { className: 'dshic-field-label' }, T('imgMode')),
-                h('select', {
-                  className: 'dshic-select', value: cfg.mode || 'generations',
-                  onChange: (e) => patch(cfg.id, 'mode', e.target.value),
-                  onPointerDown: (e) => e.stopPropagation(),
-                },
-                  h('option', { value: 'generations' }, T('modeGenerations')),
-                  h('option', { value: 'edits' }, T('modeEdits'))))
-            : null,
-          kind === 'video'
-            ? h('div', { className: 'dshic-field' },
-                h('span', { className: 'dshic-field-label' }, T('vidProtocol')),
-                h('select', {
-                  className: 'dshic-select', value: cfg.protocol || 'generic',
-                  onChange: (e) => patch(cfg.id, 'protocol', e.target.value),
-                  onPointerDown: (e) => e.stopPropagation(),
-                },
-                  h('option', { value: 'generic' }, T('protoGeneric')),
-                  h('option', { value: 'seedance' }, T('protoSeedance'))))
-            : null,
-          kind === 'tts'
-            ? h(Field, { label: T('voice'), value: cfg.voice || '', onChange: (v) => patch(cfg.id, 'voice', v), placeholder: 'alloy' })
-            : null,
-        )),
+        list.map((cfg) => {
+          const open = openId === cfg.id;
+          const isDef = s[defKey] === cfg.id;
+          return h('div', { key: cfg.id, className: 'dshic-card', style: { padding: open ? 8 : 5, gap: 6, background: 'var(--dsw-alias-bg-layer-1)' } },
+            // 折叠头：箭头 + 名称 + 默认标记 + 删除
+            h('div', { className: 'dshic-row' },
+              h('button', {
+                type: 'button', className: 'dshic-iconbtn', title: open ? T('collapse') : T('unfold'),
+                onPointerDown: (e) => e.stopPropagation(),
+                onClick: () => setOpenId(open ? null : cfg.id),
+              }, open ? '▾' : '▸'),
+              open
+                ? h('input', {
+                    className: 'dshic-input', style: { flex: 1, minWidth: 0, fontWeight: 600 }, value: cfg.name || '',
+                    placeholder: T('cfgName'), autoFocus: true,
+                    onChange: (e) => patch(cfg.id, 'name', e.target.value),
+                    onPointerDown: (e) => e.stopPropagation(),
+                  })
+                : h('span', {
+                    style: { flex: 1, minWidth: 0, fontSize: 12, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', cursor: 'pointer', color: 'var(--dsw-alias-label-primary)' },
+                    onClick: () => setOpenId(cfg.id),
+                    onPointerDown: (e) => e.stopPropagation(),
+                    title: T('baseUrl') + ': ' + (cfg[kcUrlKey(kind)] || '—'),
+                  }, cfg.name || T('cfgName')),
+              isDef
+                ? h('span', { className: 'dshic-tag api' }, T('isDefault'))
+                : h('button', {
+                    type: 'button', className: 'dshic-mini is-ghost', title: T('setDefault'),
+                    onPointerDown: (e) => e.stopPropagation(),
+                    onClick: () => { const next = { ...s, [defKey]: cfg.id }; persist(next); },
+                  }, '★'),
+              cfg.model ? h('span', { className: 'dshic-tag st' }, String(cfg.model).slice(0, 18)) : null,
+              h('button', {
+                type: 'button', className: 'dshic-iconbtn is-danger', title: T('delConfig'),
+                onPointerDown: (e) => e.stopPropagation(),
+                onClick: () => remove(cfg.id),
+              }, Ic('trash', 11)),
+            ),
+            open ? [
+              h(Field, { key: 'u', label: T('baseUrl'), value: cfg[kcUrlKey(kind)] || '', onChange: (v) => patch(cfg.id, urlKey, v), placeholder: urlPh }),
+              h(Field, { key: 'k', label: T('apiKey'), value: cfg.apiKey || '', onChange: (v) => patch(cfg.id, 'apiKey', v), placeholder: 'sk-…', password: true }),
+              h(Field, { key: 'm', label: T('model'), value: cfg.model || '', onChange: (v) => patch(cfg.id, 'model', v) }),
+              kind === 'image'
+                ? h('div', { key: 'mode', className: 'dshic-field' },
+                    h('span', { className: 'dshic-field-label' }, T('imgMode')),
+                    h('select', {
+                      className: 'dshic-select', value: cfg.mode || 'generations',
+                      onChange: (e) => patch(cfg.id, 'mode', e.target.value),
+                      onPointerDown: (e) => e.stopPropagation(),
+                    },
+                      h('option', { value: 'generations' }, T('modeGenerations')),
+                      h('option', { value: 'edits' }, T('modeEdits'))))
+                : null,
+              kind === 'video'
+                ? h('div', { key: 'proto', className: 'dshic-field' },
+                    h('span', { className: 'dshic-field-label' }, T('vidProtocol')),
+                    h('select', {
+                      className: 'dshic-select', value: cfg.protocol || 'generic',
+                      onChange: (e) => patch(cfg.id, 'protocol', e.target.value),
+                      onPointerDown: (e) => e.stopPropagation(),
+                    },
+                      h('option', { value: 'generic' }, T('protoGeneric')),
+                      h('option', { value: 'seedance' }, T('protoSeedance'))))
+                : null,
+              kind === 'tts'
+                ? h(Field, { key: 'voice', label: T('voice'), value: cfg.voice || '', onChange: (v) => patch(cfg.id, 'voice', v), placeholder: 'alloy' })
+                : null,
+            ] : null,
+          );
+        }),
       );
     }
+    function kcUrlKey(kind) { return kind === 'image' ? 'baseUrl' : 'url'; }
 
     function SettingsTab() {
       const [s, setS] = useState(loadSettings);
