@@ -335,6 +335,14 @@ window.__ModuleLoader__.load({
       'unfold': '展开',
       'ungroup': '解散分组',
       'redraw': '重绘',
+      'maskRedraw': '蒙版重绘',
+      'brushSize': '笔刷大小',
+      'clearMask': '清除蒙版',
+      'applyGen': '应用生成',
+      'maskHint': '涂抹需要重新生成的区域（红色区=重绘区）；需使用支持 images/edits 的图片模型（如 gpt-image-1）',
+      'vidProtocol': '接口协议',
+      'protoGeneric': '标准（提交+轮询）',
+      'protoSeedance': '火山 Seedance（官方任务）',
     };
     const DICT_EN = {
       'panel': 'Infinite Canvas',
@@ -546,6 +554,14 @@ window.__ModuleLoader__.load({
       'unfold': 'Expand',
       'ungroup': 'Ungroup',
       'redraw': 'Redraw from this',
+      'maskRedraw': 'Mask inpaint',
+      'brushSize': 'Brush size',
+      'clearMask': 'Clear mask',
+      'applyGen': 'Apply & generate',
+      'maskHint': 'Paint the region to regenerate (red = repainted); requires an images/edits model (e.g. gpt-image-1)',
+      'vidProtocol': 'Protocol',
+      'protoGeneric': 'Generic (submit + poll)',
+      'protoSeedance': 'Volcano Seedance (official tasks)',
     };
 
     // ============================================================
@@ -754,6 +770,16 @@ window.__ModuleLoader__.load({
 /* 对齐参考线 */
 .dshic-guide-v{position:absolute;top:-5000px;width:1px;height:12000px;background:var(--dsw-alias-brand-primary);opacity:.65;pointer-events:none;z-index:40;}
 .dshic-guide-h{position:absolute;left:-5000px;height:1px;width:12000px;background:var(--dsw-alias-brand-primary);opacity:.65;pointer-events:none;z-index:40;}
+/* 蒙版编辑器 */
+.dshic-mask-overlay{position:fixed;inset:0;z-index:90;background:color-mix(in srgb,var(--dsw-alias-bg-base) 62%,transparent);
+  display:flex;align-items:center;justify-content:center;padding:16px;}
+.dshic-mask-card{width:min(720px, 94vw);max-height:92vh;overflow:auto;background:var(--dsw-alias-bg-overlay);
+  border:1px solid var(--dsw-alias-border-l2);border-radius:14px;padding:14px;display:flex;flex-direction:column;gap:10px;}
+.dshic-mask-stage{position:relative;display:inline-block;align-self:center;max-width:100%;line-height:0;
+  border:1px solid var(--dsw-alias-border-l2);}
+.dshic-mask-stage img{max-width:100%;max-height:52vh;display:block;}
+.dshic-mask-paint{position:absolute;inset:0;width:100%;height:100%;cursor:crosshair;touch-action:none;}
+.dshic-mask-toolbar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
 /* 小地图 */
 .dshic-minimap{position:absolute;right:12px;bottom:12px;width:160px;height:100px;background:var(--dsw-alias-bg-overlay);
   border:1px solid var(--dsw-alias-border-l2);border-radius:8px;z-index:15;overflow:hidden;cursor:pointer;box-sizing:border-box;
@@ -1149,11 +1175,60 @@ window.__ModuleLoader__.load({
       if (!r.ok) throw new Error('下载视频失败 HTTP ' + r.status);
       return await r.blob();
     }
-    async function apiVideo(prompt, frameBlob, s, opts) {
+    /** 火山方舟 Seedance 官方协议：创建任务 → 轮询 → 下载（支持首帧 + 最多 4 张参考图）。 */
+    async function seedanceVideo(prompt, frameBlob, refs, s, opts) {
       if (!s.url) throw new Error('未配置视频 API');
       const base = s.url.replace(/\/+$/, '');
       const headers = { 'Content-Type': 'application/json', ...(s.apiKey ? { Authorization: 'Bearer ' + s.apiKey } : {}) };
       const o = opts || {};
+      const refBlobs = (refs || []).slice(0, 4);
+      let text = prompt;
+      if (refBlobs.length && !/\[图\d\]/.test(prompt)) {
+        text += '\n（' + [...Array(refBlobs.length)].map((_, i) => '[图' + (i + 1) + ']').join('') + ' 为参考图，请保持其人物/场景/道具特征一致）';
+      }
+      const content = [{ type: 'text', text }];
+      if (frameBlob) content.push({ type: 'image_url', image_url: { url: await blobToDataUrl(frameBlob) }, role: 'first_frame' });
+      for (const b of refBlobs) content.push({ type: 'image_url', image_url: { url: await blobToDataUrl(b) }, role: 'reference_image' });
+      const body = {
+        model: s.model || 'doubao-seedance-1-5-pro-251215',
+        content,
+        duration: Number(o.duration) || 5,
+        resolution: (o.resolution || '720P').toLowerCase(),
+        watermark: false,
+        generate_audio: true,
+      };
+      body.ratio = frameBlob ? 'adaptive' : (o.ratio || '16:9');
+      const res = await fetch(base, { method: 'POST', headers, body: JSON.stringify(body) });
+      if (!res.ok) throw new Error('Seedance HTTP ' + res.status + '：' + (await res.text()).slice(0, 300));
+      const j = await res.json();
+      const taskId = j && j.id;
+      if (!taskId) throw new Error('Seedance 响应中没有任务 id');
+      const deadline = Date.now() + 15 * 60 * 1000;
+      while (Date.now() < deadline) {
+        await sleep(10000);
+        const r2 = await fetch(base + '/' + taskId, { headers });
+        if (!r2.ok) throw new Error('查询 Seedance 任务失败 HTTP ' + r2.status);
+        const st = await r2.json();
+        if (st.status === 'succeeded') {
+          const u = st.content && st.content.video_url;
+          if (!u) throw new Error('Seedance 任务成功但未返回视频地址');
+          return await downloadVideo(u, {});
+        }
+        if (st.status === 'failed' || st.status === 'expired') {
+          throw new Error('Seedance 任务失败：' + ((st.error && st.error.message) || st.status));
+        }
+      }
+      throw new Error('Seedance 任务超时（15 分钟）');
+    }
+    async function apiVideo(prompt, frameBlob, s, opts) {
+      const o = opts || {};
+      // 火山 Seedance 官方协议适配
+      if (s.protocol === 'seedance' || (s.url || '').includes('contents/generations/tasks')) {
+        return await seedanceVideo(prompt, frameBlob, o.refs || [], s, o);
+      }
+      if (!s.url) throw new Error('未配置视频 API');
+      const base = s.url.replace(/\/+$/, '');
+      const headers = { 'Content-Type': 'application/json', ...(s.apiKey ? { Authorization: 'Bearer ' + s.apiKey } : {}) };
       const body = {
         ...(s.model ? { model: s.model } : {}),
         prompt,
@@ -2713,7 +2788,132 @@ window.__ModuleLoader__.load({
       );
     }
 
+    /** 蒙版级局部重绘：涂抹区域导出 mask PNG，走 images/edits 多部分请求。 */
+    function MaskEditor({ nodeId, onClose }) {
+      const n = S.graph.nodes[nodeId];
+      const url = useAssetUrl(n && n.data.assetId);
+      const [brush, setBrush] = useState(28);
+      const [running, setRunning] = useState(false);
+      const [err, setErr] = useState(null);
+      const imgEl = useRef(null);
+      const overRef = useRef(null);
+      const maskRef = useRef(null);
+      const drawing = useRef(false);
+      const lastPt = useRef(null);
+      const dims = useRef({ w: 0, h: 0 });
+
+      if (!n) return null;
+
+      const initCanvases = () => {
+        const img = imgEl.current;
+        if (!img) return;
+        dims.current = { w: img.naturalWidth || 512, h: img.naturalHeight || 512 };
+        const over = overRef.current, mk = maskRef.current;
+        if (over) { over.width = dims.current.w; over.height = dims.current.h; }
+        if (mk) {
+          mk.width = dims.current.w; mk.height = dims.current.h;
+          const c = mk.getContext('2d');
+          c.fillStyle = '#000';
+          c.fillRect(0, 0, mk.width, mk.height);
+        }
+      };
+      const pt = (e) => {
+        const over = overRef.current;
+        const rect = over.getBoundingClientRect();
+        const d = dims.current;
+        return {
+          x: (e.clientX - rect.left) * (d.w / rect.width),
+          y: (e.clientY - rect.top) * (d.h / rect.height),
+          scale: d.w / rect.width,
+        };
+      };
+      const stroke = (a, b) => {
+        const over = overRef.current, mk = maskRef.current;
+        if (!over || !mk) return;
+        const o = over.getContext('2d'), m = mk.getContext('2d');
+        const lw = Math.max(2, brush * (a.scale || 1));
+        o.strokeStyle = 'rgba(255,48,48,0.55)'; o.lineWidth = lw; o.lineCap = 'round'; o.lineJoin = 'round';
+        o.beginPath(); o.moveTo(a.x, a.y); o.lineTo(b.x, b.y); o.stroke();
+        m.globalCompositeOperation = 'destination-out';
+        m.strokeStyle = '#000'; m.lineWidth = lw; m.lineCap = 'round'; m.lineJoin = 'round';
+        m.beginPath(); m.moveTo(a.x, a.y); m.lineTo(b.x, b.y); m.stroke();
+        m.globalCompositeOperation = 'source-over';
+      };
+      const clearMask = () => {
+        const mk = maskRef.current, over = overRef.current;
+        if (mk) { const c = mk.getContext('2d'); c.globalCompositeOperation = 'source-over'; c.fillStyle = '#000'; c.fillRect(0, 0, mk.width, mk.height); }
+        if (over) over.getContext('2d').clearRect(0, 0, over.width, over.height);
+      };
+      const apply = async () => {
+        const settings = loadSettings();
+        const cfg = resolveApiCfg(settings.imageApis, settings.imageApiId, n.data.imageApiId);
+        if (!cfg) { toast(T('errNoImageApi')); return; }
+        setRunning(true); setErr(null);
+        try {
+          const mk = maskRef.current;
+          const maskBlob = await new Promise((res) => mk.toBlob(res, 'image/png'));
+          const baseBlob = await (await fetch(url)).blob();
+          const fd = new FormData();
+          fd.append('image[]', baseBlob, 'base.png');
+          fd.append('mask', maskBlob, 'mask.png');
+          fd.append('prompt', String(n.data.prompt || '').trim() || T('redraw'));
+          if (cfg.model) fd.append('model', cfg.model);
+          fd.append('n', '1');
+          fd.append('size', dims.current.w + 'x' + dims.current.h);
+          const res2 = await fetch((cfg.baseUrl || '').replace(/\/+$/, '') + '/images/edits', {
+            method: 'POST',
+            headers: cfg.apiKey ? { Authorization: 'Bearer ' + cfg.apiKey } : {},
+            body: fd,
+          });
+          if (!res2.ok) throw new Error('HTTP ' + res2.status + '：' + (await res2.text()).slice(0, 300));
+          const j = await res2.json();
+          const d = j && j.data && j.data[0];
+          let blob;
+          if (d && d.b64_json) blob = base64ToBlob(d.b64_json, 'image/png');
+          else if (d && d.url) blob = await (await fetch(d.url)).blob();
+          else throw new Error(T('noResult'));
+          const rec = await saveAssetRecord(S.activeId, 'image', blob, { prompt: '蒙版重绘: ' + (n.data.prompt || ''), source: 'api' });
+          commitGenResult(n.id, rec.id, false, 'image');
+          onClose();
+        } catch (e) {
+          setErr(String(e.message || e));
+        } finally { setRunning(false); }
+      };
+      return h('div', { className: 'dshic-mask-overlay', onPointerDown: (e) => { if (e.target === e.currentTarget) onClose(); } },
+        h('div', { className: 'dshic-mask-card' },
+          h('div', { className: 'dshic-modal-title' }, T('maskRedraw') + ' — ' + (n.data.label || T('nImageGen'))),
+          h('div', { className: 'dshic-hint' }, T('maskHint')),
+          h('div', { className: 'dshic-mask-stage' },
+            h('img', { ref: imgEl, src: url || '', onLoad: initCanvases, draggable: false }),
+            h('canvas', {
+              ref: overRef, className: 'dshic-mask-paint',
+              onPointerDown: (e) => {
+                e.stopPropagation();
+                try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* 忽略 */ }
+                drawing.current = true;
+                const p = pt(e); lastPt.current = p; stroke(p, p);
+              },
+              onPointerMove: (e) => { if (!drawing.current) return; const p = pt(e); stroke(lastPt.current || p, p); lastPt.current = p; },
+              onPointerUp: () => { drawing.current = false; },
+              onPointerCancel: () => { drawing.current = false; },
+            }),
+            h('canvas', { ref: maskRef, style: { display: 'none' } }),
+          ),
+          h('div', { className: 'dshic-mask-toolbar' },
+            h('span', { className: 'dshic-field-label' }, T('brushSize')),
+            h('input', { type: 'range', min: 8, max: 90, value: brush, style: { flex: 1, minWidth: 120 }, onChange: (e) => setBrush(Number(e.target.value)), onPointerDown: (e) => e.stopPropagation() }),
+            h('button', { type: 'button', className: 'dshic-mini is-ghost', onClick: clearMask, onPointerDown: (e) => e.stopPropagation() }, Ic('trash', 11), T('clearMask')),
+            h('div', { className: 'dshic-flex' }),
+            h('button', { type: 'button', className: 'dshic-btn dshic-btn-outline', onClick: onClose, onPointerDown: (e) => e.stopPropagation() }, T('cancel')),
+            h('button', { type: 'button', className: 'dshic-gen', style: { width: 'auto', padding: '0 14px' }, disabled: running, onClick: apply, onPointerDown: (e) => e.stopPropagation() },
+              running ? h('span', { className: 'dshic-spin' }) : Ic('spark', 12), running ? T('aiRunning') : T('applyGen')),
+          ),
+          err ? h('div', { className: 'dshic-err' }, err) : null,
+        ));
+    }
+
     function GenNodeBody({ n, kind }) {
+      const [showMask, setShowMask] = useState(false);
       const promptEdge = S.graph.edges.some((x) => x.toNode === n.id && x.toPort === 'prompt');
       const refEdges = S.graph.edges.filter((x) => x.toNode === n.id && (kind === 'image' ? x.toPort === 'ref' : x.toPort === 'frame'));
       const vrCount = S.graph.edges.filter((x) => x.toNode === n.id && x.toPort === 'ref').length;
@@ -2785,9 +2985,18 @@ window.__ModuleLoader__.load({
                     },
                   }, Ic('pencil', 11), T('redraw'))
                 : null,
+              kind === 'image'
+                ? h('button', {
+                    type: 'button', className: 'dshic-mini is-ghost', title: T('maskRedraw'),
+                    disabled: S.running || n.data.status === 'running',
+                    onPointerDown: (e) => e.stopPropagation(),
+                    onClick: () => setShowMask(true),
+                  }, Ic('pencil', 11), T('maskRedraw'))
+                : null,
               h('div', { className: 'dshic-flex' }),
             )
           : null,
+        showMask && assetUrlV ? h(MaskEditor, { key: 'mask', nodeId: n.id, onClose: () => setShowMask(false) }) : null,
         (n.data.history || []).length > 1
           ? h('div', { key: 'hist', className: 'dshic-hist' },
               (n.data.history || []).map((hh) => h(HistThumb, {
@@ -3867,6 +4076,20 @@ window.__ModuleLoader__.load({
                   h('option', { value: 'generations' }, T('modeGenerations')),
                   h('option', { value: 'edits' }, T('modeEdits'))))
             : null,
+          kind === 'video'
+            ? h('div', { className: 'dshic-field' },
+                h('span', { className: 'dshic-field-label' }, T('vidProtocol')),
+                h('select', {
+                  className: 'dshic-select', value: cfg.protocol || 'generic',
+                  onChange: (e) => patch(cfg.id, 'protocol', e.target.value),
+                  onPointerDown: (e) => e.stopPropagation(),
+                },
+                  h('option', { value: 'generic' }, T('protoGeneric')),
+                  h('option', { value: 'seedance' }, T('protoSeedance'))))
+            : null,
+          kind === 'tts'
+            ? h(Field, { label: T('voice'), value: cfg.voice || '', onChange: (v) => patch(cfg.id, 'voice', v), placeholder: 'alloy' })
+            : null,
         )),
       );
     }
@@ -3908,7 +4131,7 @@ window.__ModuleLoader__.load({
         h(ApiListEditor, { key: 'imglist', kind: 'image' }),
         h(ApiListEditor, { key: 'vidlist', kind: 'video' }),
         h(ApiListEditor, { key: 'ttslist', kind: 'tts' }),
-        h('div', { key: 'note', className: 'dshic-hint' }, 'DeepSeek Harness · @local/infinite-canvas v0.12.0'),
+        h('div', { key: 'note', className: 'dshic-hint' }, 'DeepSeek Harness · @local/infinite-canvas v0.13.0'),
       ];
     }
 
