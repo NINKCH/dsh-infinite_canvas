@@ -80,4 +80,4 @@ When the companion [`dsh-artcraft`](../dsh-artcraft/README.md) plugin is install
 
 ## License
 
-MIT
+Apache-2.0
