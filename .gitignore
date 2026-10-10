@@ -4,3 +4,7 @@ node_modules/
 .smoke*.cjs
 .ht.mjs
 .s.cjs
+publish-auth-url.txt
+publish-out.txt
+publish-auth-url.txt
+publish-out.txt

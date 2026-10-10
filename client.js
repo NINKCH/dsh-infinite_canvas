@@ -1,5 +1,5 @@
 window.__ModuleLoader__.load({
-  id: 'dsh-infinite-canvas',
+  id: '@ninkch/dsh-infinite-canvas',
   factory(require) {
     const React = require('react');
     const h = React.createElement;

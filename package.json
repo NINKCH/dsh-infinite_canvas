@@ -1,5 +1,5 @@
 {
-  "name": "dsh-infinite-canvas",
+  "name": "@ninkch/dsh-infinite-canvas",
   "version": "0.16.0",
   "description": "Node-based short-drama studio for DeepSeek Harness: script → storyboard → assets → shots → voiced, subtitled final cut on an infinite canvas.",
   "keywords": [
@@ -18,6 +18,9 @@
   ],
   "license": "Apache-2.0",
   "author": "NINKCH",
+  "publishConfig": {
+    "registry": "https://registry.npmjs.org/"
+  },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/NINKCH/dsh-infinite_canvas.git"
