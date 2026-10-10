@@ -4200,7 +4200,7 @@ window.__ModuleLoader__.load({
           type: 'button', className: cls('dshic-btn'), style: { fontSize: 11, color: 'var(--dsw-alias-label-secondary)', gap: 4 },
           title: T('updateBtn'), disabled: S.updateChecking,
           onClick: () => { checkUpdate(false).then((info) => { if (info && info.upToDate) toast(T('updateUpToDate')); }); },
-        }, 'v' + ((S.updateInfo && S.updateInfo.runningVersion) || PLUGIN_VERSION), S.updateChecking ? h('span', { className: 'dshic-spin' }) : (updAvail ? ' ⬆' : '')),
+        }, 'v' + ((S.updateInfo && S.updateInfo.runningVersion) || PLUGIN_VERSION), S.updateChecking ? h('span', { className: 'dshic-spin' }) : ((S.updateInfo && !S.updateInfo.upToDate) ? ' ⬆' : '')),
         h('div', { className: 'dshic-toolbar-sep' }),
         h(Btn, {
           active: S.rightOpen, title: T('toggleRight'),
