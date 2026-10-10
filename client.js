@@ -1,5 +1,5 @@
 window.__ModuleLoader__.load({
-  id: '@local/infinite-canvas',
+  id: 'dsh-infinite-canvas',
   factory(require) {
     const React = require('react');
     const h = React.createElement;
@@ -4905,7 +4905,7 @@ window.__ModuleLoader__.load({
         h(ApiListEditor, { key: 'imglist', kind: 'image' }),
         h(ApiListEditor, { key: 'vidlist', kind: 'video' }),
         h(ApiListEditor, { key: 'ttslist', kind: 'tts' }),
-        h('div', { key: 'note', className: 'dshic-hint' }, 'DeepSeek Harness · @local/infinite-canvas v0.16.0'),
+        h('div', { key: 'note', className: 'dshic-hint' }, 'DeepSeek Harness · dsh-infinite-canvas v0.16.0'),
       ];
     }
 

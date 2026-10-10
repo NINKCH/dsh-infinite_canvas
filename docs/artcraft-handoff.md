@@ -2,7 +2,7 @@
 
 > 供 dsh-artcraft 侧对照实施/实测。本文只描述**画布侧发起的调用与期望**，
 > 契约基础：`dsh-artcraft/README.md`（已实现并验证其 HTTP 形状）。
-> 画布侧代码：`dsh-infinite_canvas/client.js` 中 `craft*` 相关段（v0.16.0）。
+> 画布侧代码：`dsh-infinite_canvas/client.js`（dsh-infinite-canvas v0.16+）中 `craft*` 相关段。
 
 ## 1. 环境配置（artcraft.config.json）
 

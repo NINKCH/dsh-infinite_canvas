@@ -1,4 +1,4 @@
 - insert:
     - id: infinite-canvas
-      name: '@local/infinite-canvas'
+      name: 'dsh-infinite-canvas'
       config: {}
