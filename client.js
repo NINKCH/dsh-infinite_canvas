@@ -38,12 +38,13 @@ window.__ModuleLoader__.load({
         outputs: [{ id: 'out', kind: 'image' }],
       },
       'video-gen': {
-        inputs: [{ id: 'prompt', kind: 'text' }, { id: 'frame', kind: 'image' }],
+        inputs: [{ id: 'prompt', kind: 'text' }, { id: 'frame', kind: 'image' }, { id: 'ref', kind: 'image' }],
         outputs: [{ id: 'out', kind: 'video' }],
       },
       'image-asset': { inputs: [{ id: 'in', kind: 'image' }], outputs: [{ id: 'out', kind: 'image' }] },
       'video-asset': { inputs: [{ id: 'in', kind: 'video' }], outputs: [{ id: 'out', kind: 'video' }] },
       'finalcut': { inputs: [{ id: 'in', kind: 'video' }], outputs: [] },
+      'group': { inputs: [], outputs: [] },
     };
     // 允许多条入线的输入端口（参考图类），其余输入端口保持单线
     const MULTI_INPUT_PORTS = new Set(['ref', 'char', 'scene', 'prop']);
@@ -328,6 +329,12 @@ window.__ModuleLoader__.load({
       'ttsCategory': '配音',
       'audioKind': '音频',
       'history': '历史版本',
+      'group': '分组',
+      'createGroup': '创建分组（框住所选）',
+      'collapse': '折叠',
+      'unfold': '展开',
+      'ungroup': '解散分组',
+      'redraw': '重绘',
     };
     const DICT_EN = {
       'panel': 'Infinite Canvas',
@@ -533,6 +540,12 @@ window.__ModuleLoader__.load({
       'ttsCategory': 'Voice',
       'audioKind': 'Audio',
       'history': 'History',
+      'group': 'Group',
+      'createGroup': 'Group selection',
+      'collapse': 'Collapse',
+      'unfold': 'Expand',
+      'ungroup': 'Ungroup',
+      'redraw': 'Redraw from this',
     };
 
     // ============================================================
@@ -731,6 +744,16 @@ window.__ModuleLoader__.load({
   background:var(--dsw-alias-bg-layer-2);display:flex;align-items:center;justify-content:center;color:var(--dsw-alias-label-secondary);}
 .dshic-hist-thumb img{width:100%;height:100%;object-fit:cover;display:block;}
 .dshic-hist-thumb.is-active{border-color:var(--dsw-alias-brand-primary);}
+/* 分组框 */
+.dshic-group{position:absolute;box-sizing:border-box;border:1.5px dashed var(--dsw-alias-brand-primary);border-radius:14px;
+  background:color-mix(in srgb,var(--dsw-alias-brand-primary) 6%,transparent);cursor:grab;pointer-events:auto;}
+.dshic-group.is-selected{box-shadow:0 0 0 2px color-mix(in srgb,var(--dsw-alias-brand-primary) 30%,transparent);}
+.dshic-group.is-collapsed{background:var(--dsw-alias-bg-overlay);}
+.dshic-group-head{display:flex;align-items:center;gap:6px;height:34px;padding:0 8px;color:var(--dsw-alias-brand-primary);
+  cursor:grab;user-select:none;-webkit-user-select:none;}
+/* 对齐参考线 */
+.dshic-guide-v{position:absolute;top:-5000px;width:1px;height:12000px;background:var(--dsw-alias-brand-primary);opacity:.65;pointer-events:none;z-index:40;}
+.dshic-guide-h{position:absolute;left:-5000px;height:1px;width:12000px;background:var(--dsw-alias-brand-primary);opacity:.65;pointer-events:none;z-index:40;}
 /* 小地图 */
 .dshic-minimap{position:absolute;right:12px;bottom:12px;width:160px;height:100px;background:var(--dsw-alias-bg-overlay);
   border:1px solid var(--dsw-alias-border-l2);border-radius:8px;z-index:15;overflow:hidden;cursor:pointer;box-sizing:border-box;
@@ -1138,6 +1161,8 @@ window.__ModuleLoader__.load({
         resolution: o.resolution || '720P',
         ratio: o.ratio || '16:9',
       };
+      // 多参考图（扩展字段）：供支持多参考的视频网关使用
+      if (o.refs && o.refs.length) body.images = await Promise.all(o.refs.map((b) => blobToDataUrl(b)));
       if (frameBlob) {
         try { body.image = await blobToDataUrl(frameBlob); } catch { /* 忽略首帧编码失败 */ }
       }
@@ -1713,6 +1738,16 @@ window.__ModuleLoader__.load({
     const edgePathEls = new Map(); // edgeId -> SVGPathElement
     let tempEdgeEl = null;
     let marqueeEl = null;
+    let vGuidEl = null;
+    let hGuidEl = null;
+    function showGuides(vx, hy) {
+      if (vGuidEl) { if (vx != null) { vGuidEl.style.display = 'block'; vGuidEl.style.left = vx + 'px'; } else vGuidEl.style.display = 'none'; }
+      if (hGuidEl) { if (hy != null) { hGuidEl.style.display = 'block'; hGuidEl.style.top = hy + 'px'; } else hGuidEl.style.display = 'none'; }
+    }
+    function hideGuides() {
+      if (vGuidEl) vGuidEl.style.display = 'none';
+      if (hGuidEl) hGuidEl.style.display = 'none';
+    }
 
     function applyViewToDom() {
       if (worldEl) worldEl.style.transform = `translate(${V.x}px, ${V.y}px) scale(${V.scale})`;
@@ -1772,6 +1807,10 @@ window.__ModuleLoader__.load({
         data.resolution = '720P'; data.ratio = '16:9'; data.transition = 'none';
         data.status = 'idle'; data.error = null; data.progress = null; data.assetId = null;
         data.subs = {}; data.keepAudio = true;
+      }
+      if (type === 'group') {
+        data.members = []; data.collapsed = false; data.hidden = false;
+        data.label = T('group');
       }
       return {
         id: uid('n'), type,
@@ -1989,13 +2028,17 @@ window.__ModuleLoader__.load({
           commitGenResult(n.id, rec.id, demo, 'image');
         } else {
           const frameBlob = await resolveAssetBlob(n.id, 'frame');
+          const refMetas = await resolveRefMetas(n.id, 'ref');
           const bible = loadBible(S.activeId);
+          const bind = refMetas.map((m, i) => `[${T('refCount')}${i + 1}] ${catLabel(m.category)}：${m.name}`).join('；');
           const p = [
             (bible.style || '').trim() ? '风格：' + bible.style.trim() : '',
+            bind ? `${T('refCount')} → ${bind}` : '',
             prompt,
           ].filter(Boolean).join('\n');
           const { blob, demo } = await generateVideo(p, frameBlob, {
             duration: n.data.duration, resolution: n.data.resolution, ratio: n.data.ratio, apiId: n.data.videoApiId,
+            refs: refMetas.map((m) => m.blob),
           });
           const rec = await saveAssetRecord(S.activeId, 'video', blob, { prompt, source: demo ? 'demo' : 'api' });
           commitGenResult(n.id, rec.id, demo, 'video');
@@ -2121,7 +2164,18 @@ window.__ModuleLoader__.load({
       drag.sx = e.clientX; drag.sy = e.clientY;
       drag.moved = false;
       const ids = S.sel.has(n.id) ? [...S.sel] : [n.id];
-      drag.nodeStarts = ids.map((id) => {
+      // 分组拖动时携带其成员
+      const allIds = [];
+      for (const id of ids) {
+        allIds.push(id);
+        const nd = S.graph.nodes[id];
+        if (nd && nd.type === 'group') {
+          for (const mid of (nd.data.members || [])) {
+            if (!allIds.includes(mid) && S.graph.nodes[mid]) allIds.push(mid);
+          }
+        }
+      }
+      drag.nodeStarts = allIds.map((id) => {
         const nd = S.graph.nodes[id];
         return nd ? { id, x: nd.x, y: nd.y } : null;
       }).filter(Boolean);
@@ -2161,7 +2215,33 @@ window.__ModuleLoader__.load({
         drag.sx = e.clientX; drag.sy = e.clientY;
       } else if (drag.mode === 'node') {
         if (Math.abs(dxs) + Math.abs(dys) > 2) drag.moved = true;
-        const dxw = dxs / V.scale, dyw = dys / V.scale;
+        let dxw = dxs / V.scale, dyw = dys / V.scale;
+        // 对齐吸附：以首个拖动节点为基准，与其他节点左/中/右、上/中/下对齐（容差 6px）
+        const prim = drag.nodeStarts[0];
+        const ndP = prim && S.graph.nodes[prim.id];
+        if (ndP && !e.shiftKey && drag.nodeStarts.length) {
+          const snap = 6 / V.scale;
+          const ph = ndP.h || 96;
+          const px = prim.x + dxw, py = prim.y + dyw;
+          const pm = { l: px, cx: px + ndP.w / 2, r: px + ndP.w, t: py, cy: py + ph / 2, b: py + ph };
+          let bestV = null, bestH = null;
+          for (const other of Object.values(S.graph.nodes)) {
+            if (!other || other.id === prim.id || other.type === 'group') continue;
+            const oh = other.h || 96;
+            const om = { l: other.x, cx: other.x + other.w / 2, r: other.x + other.w, t: other.y, cy: other.y + oh / 2, b: other.y + oh };
+            for (const pk of ['l', 'cx', 'r']) for (const ok of ['l', 'cx', 'r']) {
+              const d = Math.abs(pm[pk] - om[ok]);
+              if (d <= snap && (!bestV || d < bestV.d)) bestV = { d, line: om[ok], delta: om[ok] - pm[pk] };
+            }
+            for (const pk of ['t', 'cy', 'b']) for (const ok of ['t', 'cy', 'b']) {
+              const d = Math.abs(pm[pk] - om[ok]);
+              if (d <= snap && (!bestH || d < bestH.d)) bestH = { d, line: om[ok], delta: om[ok] - pm[pk] };
+            }
+          }
+          if (bestV) dxw += bestV.delta;
+          if (bestH) dyw += bestH.delta;
+          showGuides(bestV ? bestV.line : null, bestH ? bestH.line : null);
+        }
         const movedIds = new Set();
         for (const st of drag.nodeStarts) {
           const el = nodeEls.get(st.id);
@@ -2206,6 +2286,7 @@ window.__ModuleLoader__.load({
         notify();
         pushHistory();
         scheduleSave();
+        hideGuides();
       } else if (mode === 'marquee' && drag.marquee) {
         const { x0, y0, x1, y1 } = drag.marquee;
         const rx0 = Math.min(x0, x1), rx1 = Math.max(x0, x1);
@@ -2384,15 +2465,17 @@ window.__ModuleLoader__.load({
       'image-asset': T('nImageAsset'),
       'video-asset': T('nVideoAsset'),
       'finalcut': T('nFinalCut'),
+      'group': T('group'),
     });
-    const TYPE_KIND = { 'text': 'text', 'shot': 'shot', 'script': 'script', 'storyboard': 'shot', 'image-gen': 'image', 'video-gen': 'video', 'image-asset': 'image', 'video-asset': 'video', 'finalcut': 'video' };
+    const TYPE_KIND = { 'text': 'text', 'shot': 'shot', 'script': 'script', 'storyboard': 'shot', 'image-gen': 'image', 'video-gen': 'video', 'image-asset': 'image', 'video-asset': 'video', 'finalcut': 'video', 'group': 'text' };
 
-    // 节点尺寸自适应：RO 上报高度，供连线端口定位
+    /** 节点尺寸自适应：RO 上报高度，供连线端口定位（分组框高度由创建/折叠样式决定，不采集） */
     function observeNodeHeight(id, el) {
       if (!el) return;
       const ro = new ResizeObserver(() => {
         const nd = S.graph.nodes[id];
-        if (nd && el.offsetHeight && Math.abs((nd.h || 0) - el.offsetHeight) > 1) {
+        if (!nd || nd.type === 'group') return;
+        if (el.offsetHeight && Math.abs((nd.h || 0) - el.offsetHeight) > 1) {
           nd.h = el.offsetHeight;
           for (const e of S.graph.edges) {
             if (e.fromNode === id || e.toNode === id) {
@@ -2425,7 +2508,39 @@ window.__ModuleLoader__.load({
       });
     }
 
-    const TYPE_ICON = { 'text': 'text', 'shot': 'shot', 'script': 'script', 'storyboard': 'board', 'image-gen': 'spark', 'video-gen': 'video', 'image-asset': 'image', 'video-asset': 'video' };
+    const TYPE_ICON = { 'text': 'text', 'shot': 'shot', 'script': 'script', 'storyboard': 'board', 'image-gen': 'spark', 'video-gen': 'video', 'image-asset': 'image', 'video-asset': 'video', 'finalcut': 'film', 'group': 'folder' };
+
+    function ungroupNode(id) {
+      update((s) => {
+        const g = s.graph.nodes[id];
+        if (g && g.type === 'group') {
+          for (const mid of (g.data.members || [])) {
+            const m = s.graph.nodes[mid];
+            if (m) m.data.hidden = false;
+          }
+        }
+        delete s.graph.nodes[id];
+        s.sel.delete(id);
+      });
+      pushHistory();
+    }
+    function createGroupFromSelection() {
+      const ids = [...S.sel].filter((id) => S.graph.nodes[id] && S.graph.nodes[id].type !== 'group');
+      if (!ids.length) return;
+      let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+      for (const id of ids) {
+        const nd = S.graph.nodes[id];
+        x0 = Math.min(x0, nd.x); y0 = Math.min(y0, nd.y);
+        x1 = Math.max(x1, nd.x + nd.w); y1 = Math.max(y1, nd.y + (nd.h || 96));
+      }
+      const pad = 24;
+      const g = newNode('group', { x: Math.round(x0 - pad), y: Math.round(y0 - pad) });
+      g.w = Math.round(x1 - x0 + pad * 2);
+      g.h = Math.round(y1 - y0 + pad * 2);
+      g.data.members = ids;
+      update((s) => { s.graph.nodes[g.id] = g; s.sel = new Set([g.id]); });
+      pushHistory();
+    }
 
     function NodeShell({ n }) {
       const st = n.data.status || 'idle';
@@ -2441,6 +2556,8 @@ window.__ModuleLoader__.load({
           nodeEls.delete(n.id);
         }
       }, [n.id]);
+      if (n.data.hidden) return null; // 分组折叠时隐藏成员
+      if (n.type === 'group') return h(GroupShell, { n });
       return h('div', {
         'data-node-id': n.id,
         className: cls('dshic-node', 'type-' + n.type, 'st-' + st, selected && 'is-selected'),
@@ -2466,6 +2583,39 @@ window.__ModuleLoader__.load({
           h('div', { key: 'out-' + p.id, style: { position: 'absolute', right: -5.5, top: 32.5 + i * 22 }, className: 'dshic-port-wrap' },
             h(PortEl, { n, port: p, dir: 'out' }),
             h('span', { className: 'dshic-port-label', style: { right: 14, top: 0 } }, portLabel(p.id)))),
+      );
+    }
+
+    /** 分组框：框住成员一起拖动，可折叠/解散。 */
+    function GroupShell({ n }) {
+      const collapsed = !!n.data.collapsed;
+      const members = (n.data.members || []).filter((id) => S.graph.nodes[id]);
+      const stop = (e) => e.stopPropagation();
+      return h('div', {
+        'data-node-id': n.id,
+        className: cls('dshic-group', S.sel.has(n.id) && 'is-selected', collapsed && 'is-collapsed'),
+        style: { left: n.x, top: n.y, width: n.w, height: collapsed ? 36 : (n.h || 200) },
+        onPointerDown: (e) => onNodePointerDown(e, n),
+      },
+        h('div', { className: 'dshic-group-head' },
+          Ic('folder', 12),
+          h('span', { className: 'dshic-node-title' }, (n.data.label || T('group')) + ' · ' + members.length + ' ' + T('nodes')),
+          h('button', {
+            type: 'button', className: 'dshic-node-x', title: collapsed ? T('unfold') : T('collapse'),
+            onPointerDown: stop,
+            onClick: () => update((s) => {
+              const nd = s.graph.nodes[n.id];
+              if (!nd) return;
+              nd.data.collapsed = !collapsed;
+              for (const id of members) { const m = s.graph.nodes[id]; if (m) m.data.hidden = !collapsed; }
+            }),
+          }, collapsed ? '▸' : '▾'),
+          h('button', {
+            type: 'button', className: 'dshic-node-x', title: T('ungroup'),
+            onPointerDown: stop,
+            onClick: () => ungroupNode(n.id),
+          }, '⟲'),
+        ),
       );
     }
     function portLabel(pid) {
@@ -2566,6 +2716,7 @@ window.__ModuleLoader__.load({
     function GenNodeBody({ n, kind }) {
       const promptEdge = S.graph.edges.some((x) => x.toNode === n.id && x.toPort === 'prompt');
       const refEdges = S.graph.edges.filter((x) => x.toNode === n.id && (kind === 'image' ? x.toPort === 'ref' : x.toPort === 'frame'));
+      const vrCount = S.graph.edges.filter((x) => x.toNode === n.id && x.toPort === 'ref').length;
       const assetUrlV = useAssetUrl(n.data.assetId);
       return [
         h('textarea', {
@@ -2591,6 +2742,9 @@ window.__ModuleLoader__.load({
           ? h('div', { key: 'ref', className: 'dshic-hint' },
               (kind === 'image' ? T('refCount') : T('portFrame')) + ' × ' + refEdges.length + ' · ' + T('connected'))
           : null,
+        kind === 'video' && vrCount
+          ? h('div', { key: 'vref', className: 'dshic-hint' }, T('refCount') + ' × ' + vrCount + ' · ' + T('connected'))
+          : null,
         n.data.error ? h('div', { key: 'err', className: 'dshic-err' }, n.data.error) : null,
         assetUrlV && kind === 'image'
           ? h('img', { key: 'img', className: 'dshic-preview', src: assetUrlV, draggable: false, 'data-no-drag': '1' })
@@ -2610,6 +2764,27 @@ window.__ModuleLoader__.load({
                 onPointerDown: (e) => e.stopPropagation(),
                 onClick: () => { runGenNode(n); },
               }, Ic('spark', 11), T('regen')),
+              kind === 'image'
+                ? h('button', {
+                    type: 'button', className: 'dshic-mini is-ghost', title: T('redraw'),
+                    onPointerDown: (e) => e.stopPropagation(),
+                    onClick: () => {
+                      const c = { x: n.x + 300, y: n.y };
+                      const nn = addNodeAt('image-gen', c);
+                      update((s) => {
+                        const nd2 = s.graph.nodes[nn.id];
+                        if (nd2) {
+                          nd2.data.prompt = n.data.prompt || '';
+                          nd2.data.imageApiId = n.data.imageApiId || '';
+                          nd2.data.size = n.data.size || '2K';
+                          nd2.data.ratio = n.data.ratio || '16:9';
+                        }
+                        s.graph.edges.push({ id: uid('e'), fromNode: n.id, fromPort: 'out', toNode: nn.id, toPort: 'ref' });
+                      });
+                      pushHistory();
+                    },
+                  }, Ic('pencil', 11), T('redraw'))
+                : null,
               h('div', { className: 'dshic-flex' }),
             )
           : null,
@@ -3136,7 +3311,9 @@ window.__ModuleLoader__.load({
         const items = [
           { label: T('copyNode'), icon: 'plus', fn: () => { update((s) => { s.sel = new Set([n.id]); }); duplicateSelection(); } },
           ...(canRun ? [{ label: T('runNode'), icon: 'play', fn: () => { runGenNode(n); } }] : []),
-          { label: T('delete'), icon: 'trash', danger: true, fn: () => removeNodes([n.id]) },
+          ...(S.sel.size >= 2 ? [{ label: T('createGroup'), icon: 'folder', fn: () => createGroupFromSelection() }] : []),
+          ...(n.type === 'group' ? [{ label: T('ungroup'), icon: 'folder', fn: () => ungroupNode(n.id) }] : []),
+          { label: T('delete'), icon: 'trash', danger: true, fn: () => (n.type === 'group' ? ungroupNode(n.id) : removeNodes([n.id])) },
         ];
         return [
           h('div', { key: 'ov', className: 'dshic-overlay', onPointerDown: closeMenu, onContextMenu: (e) => { e.preventDefault(); closeMenu(); } }),
@@ -3731,7 +3908,7 @@ window.__ModuleLoader__.load({
         h(ApiListEditor, { key: 'imglist', kind: 'image' }),
         h(ApiListEditor, { key: 'vidlist', kind: 'video' }),
         h(ApiListEditor, { key: 'ttslist', kind: 'tts' }),
-        h('div', { key: 'note', className: 'dshic-hint' }, 'DeepSeek Harness · @local/infinite-canvas v0.11.0'),
+        h('div', { key: 'note', className: 'dshic-hint' }, 'DeepSeek Harness · @local/infinite-canvas v0.12.0'),
       ];
     }
 
@@ -3938,11 +4115,14 @@ window.__ModuleLoader__.load({
               ref: (el) => { worldEl = el; if (el) applyViewToDom(); },
             },
               h(EdgeLayer),
-              nodes.map((n) => h(NodeShell, { key: n.id, n })),
+              nodes.filter((nd) => nd.type === 'group').map((n) => h(NodeShell, { key: n.id, n })),
+              nodes.filter((nd) => nd.type !== 'group').map((n) => h(NodeShell, { key: n.id, n })),
               h('div', {
                 className: 'dshic-marquee', style: { display: 'none' },
                 ref: (el) => { marqueeEl = el; },
               }),
+              h('div', { className: 'dshic-guide-v', style: { display: 'none' }, ref: (el) => { vGuidEl = el; } }),
+              h('div', { className: 'dshic-guide-h', style: { display: 'none' }, ref: (el) => { hGuidEl = el; } }),
             ),
             h(Minimap),
             nodes.length === 0 ? h('div', { className: 'dshic-empty' },              h('div', { className: 'dshic-empty-card' },
