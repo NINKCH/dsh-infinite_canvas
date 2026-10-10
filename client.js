@@ -314,6 +314,10 @@ window.__ModuleLoader__.load({
       'keepAudio': '保留原声',
       'on': '开',
       'off': '关',
+      'transition': '转场',
+      'transNone': '无',
+      'transFade': '叠化',
+      'transBlack': '黑场',
     };
     const DICT_EN = {
       'panel': 'Infinite Canvas',
@@ -505,6 +509,10 @@ window.__ModuleLoader__.load({
       'keepAudio': 'Keep original audio',
       'on': 'On',
       'off': 'Off',
+      'transition': 'Transition',
+      'transNone': 'None',
+      'transFade': 'Crossfade',
+      'transBlack': 'Black',
     };
 
     // ============================================================
@@ -1177,7 +1185,10 @@ window.__ModuleLoader__.load({
     }
     async function composeFinalCut(segments, opts, onProgress) {
       const W = opts.width, H = opts.height;
+      const transition = opts.transition || 'none';
+      const td = 600; // 叠化时长（毫秒）
       const vids = [];
+      let totalMs = 0;
       for (const seg of segments) {
         const v = document.createElement('video');
         v.src = seg.url; v.preload = 'auto'; v.playsInline = true;
@@ -1186,7 +1197,8 @@ window.__ModuleLoader__.load({
           v.onerror = () => rej(new Error('视频加载失败: ' + seg.name));
           setTimeout(res, 15000);
         });
-        vids.push({ v, name: seg.name, sub: seg.sub || '', withAudio: seg.withAudio !== false });
+        totalMs += isFinite(v.duration) && v.duration > 0 ? v.duration * 1000 : 8000;
+        vids.push({ v, name: seg.name, sub: seg.sub || '', withAudio: seg.withAudio !== false, started: false, srcNode: null });
       }
       const cv = document.createElement('canvas'); cv.width = W; cv.height = H;
       const g = cv.getContext('2d');
@@ -1207,41 +1219,90 @@ window.__ModuleLoader__.load({
       rec.ondataavailable = (e) => { if (e.data && e.data.size) chunks.push(e.data); };
       const stopped = new Promise((res) => { rec.onstop = res; });
       rec.start(200);
-      for (let i = 0; i < vids.length; i++) {
-        const item = vids[i];
-        const { v, name } = item;
-        if (onProgress) onProgress(i / Math.max(1, vids.length), name);
-        let srcNode = null;
+      function startPlayback(item) {
+        if (item.started) return;
+        item.started = true;
+        const v = item.v;
         const wantAudio = !!audio && opts.keepAudio !== false && item.withAudio;
         if (wantAudio) {
           v.muted = false; v.volume = 1;
-          try { srcNode = audio.ac.createMediaElementSource(v); srcNode.connect(audio.dest); } catch { srcNode = null; }
+          try { item.srcNode = audio.ac.createMediaElementSource(v); item.srcNode.connect(audio.dest); } catch { item.srcNode = null; }
         } else {
           v.muted = true;
         }
-        await new Promise((res) => {
-          let done = false;
-          const finish = () => { if (!done) { done = true; res(); } };
-          v.onended = finish;
-          try { v.currentTime = 0; } catch { /* 忽略 */ }
-          const p = v.play();
-          if (p && p.catch) p.catch(finish);
-          function frame() {
+        try { v.currentTime = 0; } catch { /* 忽略 */ }
+        const p = v.play();
+        if (p && p.catch) p.catch(() => { /* 由安全超时兜底 */ });
+      }
+      function stopItem(item) {
+        try { item.v.pause(); } catch { /* 忽略 */ }
+        if (item.srcNode) { try { item.srcNode.disconnect(); } catch { /* 忽略 */ } item.srcNode = null; }
+      }
+      function letterbox(src) {
+        if (src.videoWidth) {
+          const scale = Math.min(W / src.videoWidth, H / src.videoHeight);
+          const dw = src.videoWidth * scale, dh = src.videoHeight * scale;
+          g.drawImage(src, (W - dw) / 2, (H - dh) / 2, dw, dh);
+        }
+      }
+      let idx = 0;
+      let done = false;
+      let blackUntil = 0;
+      let lastProgressIdx = -1;
+      startPlayback(vids[0]);
+      await new Promise((resolve) => {
+        function frame() {
+          if (done) return resolve();
+          const now = performance.now();
+          const item = vids[idx];
+          const v = item.v;
+          // 黑场过渡窗口
+          if (blackUntil && now < blackUntil) {
             g.fillStyle = '#000'; g.fillRect(0, 0, W, H);
-            if (v.videoWidth) {
-              const scale = Math.min(W / v.videoWidth, H / v.videoHeight);
-              const dw = v.videoWidth * scale, dh = v.videoHeight * scale;
-              g.drawImage(v, (W - dw) / 2, (H - dh) / 2, dw, dh);
+            requestAnimationFrame(frame);
+            return;
+          }
+          blackUntil = 0;
+          startPlayback(item);
+          if (lastProgressIdx !== idx) { lastProgressIdx = idx; if (onProgress) onProgress(idx / Math.max(1, vids.length), item.name); }
+          const dur = isFinite(v.duration) && v.duration > 0 ? v.duration : 0;
+          const remainMs = dur ? (dur - v.currentTime) * 1000 : Infinity;
+          // 叠化：临近结束时提前启动下一片段
+          let next = null;
+          if (transition === 'fade' && idx < vids.length - 1 && remainMs <= td) {
+            next = vids[idx + 1];
+            startPlayback(next);
+          }
+          // 绘制当前片段
+          g.fillStyle = '#000'; g.fillRect(0, 0, W, H);
+          letterbox(v);
+          let fadeT = 0;
+          if (next && next.started) {
+            fadeT = clamp(1 - remainMs / td, 0, 1);
+            if (next.v.videoWidth) {
+              g.save(); g.globalAlpha = fadeT; letterbox(next.v); g.restore();
             }
-            drawSubtitle(g, W, H, item.sub);
-            if (!done) requestAnimationFrame(frame);
+          }
+          // 字幕随叠化淡出/淡入
+          if (next && fadeT > 0.5) {
+            g.save(); g.globalAlpha = fadeT; drawSubtitle(g, W, H, next.sub); g.restore();
+          } else {
+            g.save(); g.globalAlpha = 1 - fadeT; drawSubtitle(g, W, H, item.sub); g.restore();
+          }
+          // 推进
+          const ended = v.ended || (dur > 0 && v.currentTime >= dur - 0.03);
+          if (ended) {
+            stopItem(item);
+            idx++;
+            if (idx >= vids.length) { done = true; resolve(); return; }
+            if (transition === 'black') blackUntil = now + 350;
           }
           requestAnimationFrame(frame);
-          setTimeout(finish, (isFinite(v.duration) && v.duration > 0 ? v.duration * 1000 : 30000) + 4000);
-        });
-        v.pause();
-        if (srcNode) { try { srcNode.disconnect(); } catch { /* 忽略 */ } }
-      }
+        }
+        requestAnimationFrame(frame);
+        setTimeout(() => { done = true; resolve(); }, totalMs + 30000);
+      });
+      vids.forEach(stopItem);
       rec.stop();
       await stopped;
       if (audio) { try { audio.ac.close(); } catch { /* 忽略 */ } }
@@ -1658,7 +1719,7 @@ window.__ModuleLoader__.load({
       }
       if (type === 'image-asset' || type === 'video-asset') data.assetId = null;
       if (type === 'finalcut') {
-        data.resolution = '720P'; data.ratio = '16:9';
+        data.resolution = '720P'; data.ratio = '16:9'; data.transition = 'none';
         data.status = 'idle'; data.error = null; data.progress = null; data.assetId = null;
         data.subs = {}; data.keepAudio = true;
       }
@@ -2810,7 +2871,7 @@ window.__ModuleLoader__.load({
         update((s) => { const nd = s.graph.nodes[n.id]; if (nd) { nd.data.status = 'running'; nd.data.error = null; nd.data.progress = '0%'; } });
         try {
           const dims = videoDimsFor({ resolution: n.data.resolution, ratio: n.data.ratio });
-          const blob = await composeFinalCut(metas, { width: dims.w, height: dims.h, keepAudio: n.data.keepAudio !== false }, (frac, name) => {
+          const blob = await composeFinalCut(metas, { width: dims.w, height: dims.h, keepAudio: n.data.keepAudio !== false, transition: n.data.transition }, (frac, name) => {
             update((s) => { const nd = s.graph.nodes[n.id]; if (nd) nd.data.progress = Math.round(frac * 100) + '% · ' + name; });
           });
           const rec = await saveAssetRecord(S.activeId, 'video', blob, {
@@ -2830,23 +2891,32 @@ window.__ModuleLoader__.load({
         }
       };
       return [
-        h('div', { key: 'set', style: { display: 'flex', gap: 6 } },
-          h(MiniSelect, {
-            value: n.data.resolution || '720P', title: T('resolutionLabel'), width: 68,
-            options: VIDEO_RESOLUTIONS.map((x) => ({ value: x, label: x })),
-            onChange: (v) => update((s) => { const nd = s.graph.nodes[n.id]; if (nd) nd.data.resolution = v; }),
-          }),
-          h(MiniSelect, {
-            value: n.data.ratio || '16:9', title: T('ratioLabel'), width: 64,
-            options: RATIOS.map((r) => ({ value: r, label: r })),
-            onChange: (v) => update((s) => { const nd = s.graph.nodes[n.id]; if (nd) nd.data.ratio = v; }),
-          }),
-          h(MiniSelect, {
-            value: n.data.keepAudio === false ? 'off' : 'on', title: T('keepAudio'), width: 60,
-            options: [{ value: 'on', label: T('on') }, { value: 'off', label: T('off') }],
-            onChange: (v) => update((s) => { const nd = s.graph.nodes[n.id]; if (nd) nd.data.keepAudio = v !== 'off'; }),
-          }),
-          h('div', { className: 'dshic-flex' }),
+        h('div', { key: 'set', style: { display: 'flex', flexDirection: 'column', gap: 5 } },
+          h('div', { className: 'dshic-node-row' },
+            h(MiniSelect, {
+              value: n.data.resolution || '720P', title: T('resolutionLabel'), width: 68,
+              options: VIDEO_RESOLUTIONS.map((x) => ({ value: x, label: x })),
+              onChange: (v) => update((s) => { const nd = s.graph.nodes[n.id]; if (nd) nd.data.resolution = v; }),
+            }),
+            h(MiniSelect, {
+              value: n.data.ratio || '16:9', title: T('ratioLabel'), width: 64,
+              options: RATIOS.map((r) => ({ value: r, label: r })),
+              onChange: (v) => update((s) => { const nd = s.graph.nodes[n.id]; if (nd) nd.data.ratio = v; }),
+            }),
+            h(MiniSelect, {
+              value: n.data.transition || 'none', title: T('transition'), width: 64,
+              options: [{ value: 'none', label: T('transNone') }, { value: 'fade', label: T('transFade') }, { value: 'black', label: T('transBlack') }],
+              onChange: (v) => update((s) => { const nd = s.graph.nodes[n.id]; if (nd) nd.data.transition = v; }),
+            }),
+          ),
+          h('div', { className: 'dshic-node-row' },
+            h(MiniSelect, {
+              value: n.data.keepAudio === false ? 'off' : 'on', title: T('keepAudio'), width: 76,
+              options: [{ value: 'on', label: T('keepAudio') + ' ' + T('on') }, { value: 'off', label: T('keepAudio') + ' ' + T('off') }],
+              onChange: (v) => update((s) => { const nd = s.graph.nodes[n.id]; if (nd) nd.data.keepAudio = v !== 'off'; }),
+            }),
+            h('div', { className: 'dshic-flex' }),
+          ),
         ),
         h('span', { key: 'l1', className: 'dshic-shot-label' }, T('segmentsLabel')),
         h('div', { key: 'list', className: 'dshic-shot-list' },
@@ -3539,7 +3609,7 @@ window.__ModuleLoader__.load({
         ),
         h(ApiListEditor, { key: 'imglist', kind: 'image' }),
         h(ApiListEditor, { key: 'vidlist', kind: 'video' }),
-        h('div', { key: 'note', className: 'dshic-hint' }, 'DeepSeek Harness · @local/infinite-canvas v0.8.0'),
+        h('div', { key: 'note', className: 'dshic-hint' }, 'DeepSeek Harness · @local/infinite-canvas v0.9.0'),
       ];
     }
 
