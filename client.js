@@ -330,6 +330,10 @@ window.__ModuleLoader__.load({
       'audioKind': '音频',
       'finalcutCategory': '成片',
       'history': '历史版本',
+      'refList': '参考图（[图N] 按此顺序绑定进提示词）',
+      'moveUp': '上移',
+      'moveDown': '下移',
+      'unbind': '解除连线',
       'group': '分组',
       'createGroup': '创建分组（框住所选）',
       'collapse': '折叠',
@@ -550,6 +554,10 @@ window.__ModuleLoader__.load({
       'audioKind': 'Audio',
       'finalcutCategory': 'Final cut',
       'history': 'History',
+      'refList': 'Refs ([图N] bound to prompt in this order)',
+      'moveUp': 'Move up',
+      'moveDown': 'Move down',
+      'unbind': 'Unlink',
       'group': 'Group',
       'createGroup': 'Group selection',
       'collapse': 'Collapse',
@@ -935,6 +943,7 @@ window.__ModuleLoader__.load({
       });
     }
     async function idbDelete(id) {
+      assetNameCache.delete(id);
       const db = await openDb();
       return new Promise((resolve, reject) => {
         const tx = db.transaction(DB_STORE, 'readwrite');
@@ -961,6 +970,7 @@ window.__ModuleLoader__.load({
       });
     }
     const assetUrlCache = new Map();
+    const assetNameCache = new Map(); // assetId -> name（连线绑定的同步名称查询）
     async function assetUrl(id) {
       if (!id) return null;
       if (assetUrlCache.has(id)) return assetUrlCache.get(id);
@@ -982,6 +992,7 @@ window.__ModuleLoader__.load({
         category: (meta && meta.category) || 'general',
       };
       await idbPut(rec);
+      assetNameCache.set(rec.id, rec.name);
       return rec;
     }
     function useAssetUrl(id) {
@@ -1697,6 +1708,7 @@ window.__ModuleLoader__.load({
         category: (meta && meta.category) || 'script',
       };
       await idbPut(rec);
+      assetNameCache.set(rec.id, rec.name);
       return rec;
     }
 
@@ -2051,16 +2063,16 @@ window.__ModuleLoader__.load({
       const rec = await idbGet(src.data.assetId);
       return rec ? rec.blob : null;
     }
-    // 多参考图：收集接入 ref / char / scene / prop 端口的全部图片（带名称与分类，用于提示词绑定）
-    async function resolveRefBlobs(nodeId, portId) {
-      const metas = await resolveRefMetas(nodeId, portId);
-      return metas.map((m) => m.blob);
-    }
+    // 多参考图：按节点上的显式顺序（refOrder，未排序时按连线先后）解析，带名称/分类供 [图N] 绑定
     async function resolveRefMetas(nodeId, portId) {
+      const n = S.graph.nodes[nodeId];
       const es = S.graph.edges.filter((x) => x.toNode === nodeId && x.toPort === portId);
+      const order = (n && n.data.refOrder ? n.data.refOrder : []).filter((id) => es.some((e) => e.id === id));
+      for (const e of es) if (!order.includes(e.id)) order.push(e.id);
       const metas = [];
-      for (const e of es) {
-        const src = S.graph.nodes[e.fromNode];
+      for (const id of order) {
+        const e = es.find((x) => x.id === id);
+        const src = e && S.graph.nodes[e.fromNode];
         if (!src || !src.data.assetId) continue;
         try {
           const rec = await idbGet(src.data.assetId);
@@ -2093,7 +2105,7 @@ window.__ModuleLoader__.load({
           };
           const bind = metas.map((m, i) => {
             const d = bibleDesc(m.category, m.name);
-            return `[${T('refCount')}${i + 1}] ${catLabel(m.category)}：${m.name}${d ? '（' + d + '）' : ''}`;
+            return `[图${i + 1}] ${catLabel(m.category)}：${m.name}${d ? '（' + d + '）' : ''}`;
           }).join('；');
           const p = [
             (bible.style || '').trim() ? '风格：' + bible.style.trim() : '',
@@ -2107,7 +2119,7 @@ window.__ModuleLoader__.load({
           const frameBlob = await resolveAssetBlob(n.id, 'frame');
           const refMetas = await resolveRefMetas(n.id, 'ref');
           const bible = loadBible(S.activeId);
-          const bind = refMetas.map((m, i) => `[${T('refCount')}${i + 1}] ${catLabel(m.category)}：${m.name}`).join('；');
+          const bind = refMetas.map((m, i) => `[图${i + 1}] ${catLabel(m.category)}：${m.name}`).join('；');
           const p = [
             (bible.style || '').trim() ? '风格：' + bible.style.trim() : '',
             bind ? `${T('refCount')} → ${bind}` : '',
@@ -2940,13 +2952,11 @@ window.__ModuleLoader__.load({
           (!n.data.demo && n.data.assetId) ? h('span', { className: 'dshic-tag api' }, T('apiTag')) : null,
           h(StatusTag, { n }),
         ),
-        refEdges.length
+        refEdges.length && kind === 'video'
           ? h('div', { key: 'ref', className: 'dshic-hint' },
-              (kind === 'image' ? T('refCount') : T('portFrame')) + ' × ' + refEdges.length + ' · ' + T('connected'))
+              T('portFrame') + ' × ' + refEdges.length + ' · ' + T('connected'))
           : null,
-        kind === 'video' && vrCount
-          ? h('div', { key: 'vref', className: 'dshic-hint' }, T('refCount') + ' × ' + vrCount + ' · ' + T('connected'))
-          : null,
+        h(RefRows, { key: 'refrows', n, portId: 'ref' }),
         n.data.error ? h('div', { key: 'err', className: 'dshic-err' }, n.data.error) : null,
         assetUrlV && kind === 'image'
           ? h('img', { key: 'img', className: 'dshic-preview', src: assetUrlV, draggable: false, 'data-no-drag': '1' })
@@ -3021,6 +3031,64 @@ window.__ModuleLoader__.load({
       }, url ? h('img', { src: url, draggable: false }) : h('span', {}, '…'));
     }
 
+    /** 参考图排序列表：[图N] 顺序即提示词绑定顺序，可上移/下移/解除。 */
+    function RefRows({ n, portId }) {
+      const [rows, setRows] = useState([]);
+      const es = S.graph.edges.filter((x) => x.toNode === n.id && x.toPort === portId);
+      const idsKey = es.map((e) => e.id).join(',');
+      useEffect(() => {
+        let ok = true;
+        (async () => {
+          const order = (n.data.refOrder || []).filter((id) => es.some((e) => e.id === id));
+          for (const e of es) if (!order.includes(e.id)) order.push(e.id);
+          const out = [];
+          for (const id of order) {
+            const e = es.find((x) => x.id === id);
+            const src = e && S.graph.nodes[e.fromNode];
+            if (!src) continue;
+            let name = src.data.placeholderName || src.data.label || '';
+            let cat = 'general';
+            if (src.data.assetId) {
+              const cached = assetNameCache.get(src.data.assetId);
+              if (cached != null) name = cached;
+              try {
+                const rec = await idbGet(src.data.assetId);
+                if (rec) { name = rec.name || name; cat = rec.category || 'general'; }
+              } catch { /* 忽略 */ }
+            }
+            out.push({ edgeId: id, name: name || '…', cat });
+          }
+          if (ok) setRows(out);
+        })();
+        return () => { ok = false; };
+      }, [idsKey, S.assetsTick]);
+      if (!es.length) return null;
+      const move = (id, dir) => {
+        update((s) => {
+          const nd = s.graph.nodes[n.id];
+          if (!nd) return;
+          const order = (nd.data.refOrder || []).filter((x2) => es.some((e) => e.id === x2));
+          for (const e of es) if (!order.includes(e.id)) order.push(e.id);
+          const i = order.indexOf(id);
+          const j = i + dir;
+          if (i < 0 || j < 0 || j >= order.length) return;
+          order.splice(j, 0, order.splice(i, 1)[0]);
+          nd.data.refOrder = order;
+        });
+      };
+      const unbind = (edgeId) => update((s) => { s.graph.edges = s.graph.edges.filter((x) => x.id !== edgeId); });
+      return h('div', { className: 'dshic-shot-list' },
+        h('div', { className: 'dshic-shot-label' }, T('refList')),
+        rows.map((r, i) => h('div', { key: r.edgeId, className: 'dshic-row' },
+          h('span', { className: 'dshic-tag api' }, '[图' + (i + 1) + ']'),
+          h('span', { style: { flex: 1, minWidth: 0, fontSize: 11, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, catLabel(r.cat) + '：' + r.name),
+          h('button', { type: 'button', className: 'dshic-iconbtn', disabled: i === 0, title: T('moveUp'), onPointerDown: (e) => e.stopPropagation(), onClick: () => move(r.edgeId, -1) }, '↑'),
+          h('button', { type: 'button', className: 'dshic-iconbtn', disabled: i === rows.length - 1, title: T('moveDown'), onPointerDown: (e) => e.stopPropagation(), onClick: () => move(r.edgeId, 1) }, '↓'),
+          h('button', { type: 'button', className: 'dshic-iconbtn is-danger', title: T('unbind'), onPointerDown: (e) => e.stopPropagation(), onClick: () => unbind(r.edgeId) }, '✕'),
+        )),
+      );
+    }
+
     function AssetNodeBody({ n, kind }) {
       const assetUrlV = useAssetUrl(n.data.assetId);
       const fileRef = useRef(null);
@@ -3075,7 +3143,25 @@ window.__ModuleLoader__.load({
     }
 
     function ShotNodeBody({ n }) {
+      const refLines = [['char', T('portChar')], ['scene', T('portScene')], ['prop', T('portProp')]]
+        .map(([port, lb]) => ({
+          lb,
+          names: S.graph.edges
+            .filter((x) => x.toNode === n.id && x.toPort === port)
+            .map((x) => {
+              const src = S.graph.nodes[x.fromNode];
+              if (!src) return null;
+              if (src.data.assetId) return assetNameCache.get(src.data.assetId) || '…';
+              return src.data.placeholderName || null;
+            })
+            .filter(Boolean),
+        }))
+        .filter((x) => x.names.length);
       return h('div', { className: 'dshic-shot-fields' },
+        refLines.length
+          ? h('div', { key: 'refs', className: 'dshic-hint' },
+              refLines.map((x) => x.lb + '：' + x.names.join('、')).join(' ｜ '))
+          : null,
         h('span', { className: 'dshic-shot-label' }, T('visualLabel')),
         h('textarea', {
           className: 'dshic-textarea', style: { minHeight: 52 }, value: n.data.visual || '',
@@ -4168,7 +4254,7 @@ window.__ModuleLoader__.load({
         h(ApiListEditor, { key: 'imglist', kind: 'image' }),
         h(ApiListEditor, { key: 'vidlist', kind: 'video' }),
         h(ApiListEditor, { key: 'ttslist', kind: 'tts' }),
-        h('div', { key: 'note', className: 'dshic-hint' }, 'DeepSeek Harness · @local/infinite-canvas v0.13.0'),
+        h('div', { key: 'note', className: 'dshic-hint' }, 'DeepSeek Harness · @local/infinite-canvas v0.14.0'),
       ];
     }
 
