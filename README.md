@@ -64,6 +64,14 @@ Text models come from Harness itself (no extra keys). Image, video and TTS backe
 
 When the companion [`dsh-artcraft`](../dsh-artcraft/README.md) plugin is installed, the canvas talks to the local **PhotoCraft / FilmCraft / EffectCraft** toolchain over same-origin HTTP: assets sync to a per-project data folder, images get headless PhotoCraft grading (single or batch), and final cuts export as FCP7 XML + SRT for FilmCraft to render as MP4. Status lights, graceful degradation and a full contract live in [`docs/artcraft-handoff.md`](./docs/artcraft-handoff.md).
 
+## Publishing (maintainers)
+
+Publishing runs through **npm Trusted Publishing** (OIDC) — no npm token exists anywhere:
+
+- **Release flow**: create a GitHub Release (tag `v0.17.0`, …) → Actions publishes that version automatically.
+- **Manual flow**: repo → Actions → *publish* → Run workflow → type a version.
+- The `publish.yml` workflow resolves the version from the release tag (or your input) and publishes with a `provenance` badge.
+
 ## Data & privacy
 
 - Canvas documents, projects, settings and the series bible live in browser `localStorage` (`dsh-ic:*`); assets live in IndexedDB (`dsh-infinite-canvas`).

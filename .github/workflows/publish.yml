@@ -1,0 +1,54 @@
+name: publish
+
+# 发布触发方式（二选一）：
+#   1) GitHub 仓库 → Releases → Draft a new release → 发布（tag 即版本号，如 v0.17.0）
+#   2) Actions 页 → publish → Run workflow → 手动输入版本号
+# 依赖 npm Trusted Publishing（OIDC）：无需任何 npm 令牌。
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to publish (e.g. 0.17.0). Empty = keep package.json version.'
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+  id-token: write # npm Trusted Publishing (OIDC)
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          registry-url: 'https://registry.npmjs.org'
+
+      # Trusted Publishing 需要 npm >= 11.5.1（Node 24 自带 npm 11）
+      - name: Use latest npm
+        run: npm install -g npm@latest
+
+      - name: Resolve version
+        env:
+          EVENT: ${{ github.event_name }}
+          TAG: ${{ github.event.release.tag_name }}
+          INPUT_VERSION: ${{ github.event.inputs.version }}
+        run: |
+          if [ "$EVENT" = "release" ] && [ -n "$TAG" ]; then
+            V="${TAG#v}"
+          elif [ -n "$INPUT_VERSION" ]; then
+            V="$INPUT_VERSION"
+          else
+            V=$(node -p "require('./package.json').version")
+          fi
+          node -e "const f='./package.json',j=require(f);j.version=process.argv[1];require('fs').writeFileSync(f,JSON.stringify(j,null,2)+'\n')" "$V"
+          echo "Publishing version $V"
+
+      - name: Publish to npm
+        run: npm publish --access public --provenance

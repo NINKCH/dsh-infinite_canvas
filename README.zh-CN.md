@@ -64,6 +64,14 @@ flowchart LR
 
 安装配套的 [`dsh-artcraft`](../dsh-artcraft/README.md) 插件后，画布通过同源 HTTP 调用本地 **PhotoCraft / FilmCraft / EffectCraft** 工具链：资产同步到按项目隔离的数据目录，图片走 PhotoCraft 无头调色（单张或批量），成片导出 FCP7 XML + SRT 交给 FilmCraft 渲染 MP4。状态灯、优雅降级与完整契约见 [`docs/artcraft-handoff.md`](./docs/artcraft-handoff.md)。
 
+## 发布（维护者）
+
+发布走 **npm Trusted Publishing**（OIDC）——不依赖任何 npm 令牌：
+
+- **Release 流程**：GitHub 仓库创建 Release（tag `v0.17.0`…）→ Actions 自动发布该版本。
+- **手动流程**：仓库 → Actions → *publish* → Run workflow → 输入版本号。
+- `publish.yml` 从 release tag（或手动输入）解析版本号，发布时带 `provenance` 徽标。
+
 ## 数据与隐私
 
 - 画布文档、项目、设置与设定集存于浏览器 `localStorage`（`dsh-ic:*`）；资产存于 IndexedDB（`dsh-infinite-canvas`）。
