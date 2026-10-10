@@ -50,7 +50,7 @@ window.__ModuleLoader__.load({
     const MULTI_INPUT_PORTS = new Set(['ref', 'char', 'scene', 'prop']);
     // 分镜端口期望的资产分类（仅用于连接时的非阻断提示）
     const PORT_CATEGORY = { char: 'character', scene: 'scene', prop: 'prop' };
-    const CATEGORIES = ['character', 'scene', 'prop', 'script', 'storyboard', 'audio', 'general'];
+    const CATEGORIES = ['character', 'scene', 'prop', 'script', 'storyboard', 'audio', 'finalcut', 'general'];
     const RATIOS = ['16:9', '9:16', '1:1', '4:3', '3:4', '21:9'];
     const IMAGE_SIZES = ['1K', '2K', '4K'];
     const VIDEO_DURATIONS = [4, 5, 6, 8, 10];
@@ -328,6 +328,7 @@ window.__ModuleLoader__.load({
       'errNoTts': '未配置 TTS 配音接口（设置 → TTS 配音）',
       'ttsCategory': '配音',
       'audioKind': '音频',
+      'finalcutCategory': '成片',
       'history': '历史版本',
       'group': '分组',
       'createGroup': '创建分组（框住所选）',
@@ -547,6 +548,7 @@ window.__ModuleLoader__.load({
       'errNoTts': 'No TTS config (Settings → TTS voices)',
       'ttsCategory': 'Voice',
       'audioKind': 'Audio',
+      'finalcutCategory': 'Final cut',
       'history': 'History',
       'group': 'Group',
       'createGroup': 'Group selection',
@@ -1971,7 +1973,7 @@ window.__ModuleLoader__.load({
       const map = {
         character: T('catCharacter'), scene: T('catScene'), prop: T('catProp'),
         script: T('nScript'), storyboard: T('nStoryboard'),
-        audio: T('ttsCategory'), general: T('catGeneral'),
+        audio: T('ttsCategory'), finalcut: T('finalcutCategory'), general: T('catGeneral'),
       };
       return map[c] || c;
     }
@@ -3361,7 +3363,7 @@ window.__ModuleLoader__.load({
           });
           const rec = await saveAssetRecord(S.activeId, 'video', blob, {
             name: T('finalCutDone') + '-' + new Date().toISOString().slice(5, 16).replace('T', ' '),
-            prompt: metas.length + ' segments', source: 'finalcut',
+            prompt: metas.length + ' segments', source: 'finalcut', category: 'finalcut',
           });
           metas.forEach((m) => URL.revokeObjectURL(m.url));
           update((s) => {
