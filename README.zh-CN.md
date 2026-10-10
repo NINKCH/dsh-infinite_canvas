@@ -66,6 +66,8 @@ flowchart LR
 
 ## 发布（维护者）
 
+测试三层漏斗、beta 标签、打包校验与完整发布手册见 [`docs/release.md`](docs/release.md)。
+
 发布走 **npm Trusted Publishing**（OIDC）——不依赖任何 npm 令牌：
 
 - **Release 流程**：GitHub 仓库创建 Release（tag `v0.17.0`…）→ Actions 自动发布该版本。

@@ -66,6 +66,8 @@ When the companion [`dsh-artcraft`](../dsh-artcraft/README.md) plugin is install
 
 ## Publishing (maintainers)
 
+Testing funnel, beta tags, pack validation and the full release runbook live in [`docs/release.md`](docs/release.md).
+
 Publishing runs through **npm Trusted Publishing** (OIDC) — no npm token exists anywhere:
 
 - **Release flow**: create a GitHub Release (tag `v0.17.0`, …) → Actions publishes that version automatically.

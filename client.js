@@ -333,6 +333,9 @@ window.__ModuleLoader__.load({
       'updateAvailable': '新版本可用',
       'updateNow': '一键更新',
       'updateUpToDate': '已是最新版本',
+      'updateCurrent': '当前',
+      'updateGo': '去升级',
+      'npmUpgradeHint': '请在 DSH 插件管理 中升级到最新版（本插件绝不自动安装或重启）；安装完成后重启 Harness 生效',
       'releaseNotes': '发布说明',
       'reloadPage': '刷新页面',
       'history': '历史版本',
@@ -587,6 +590,9 @@ window.__ModuleLoader__.load({
       'updateAvailable': 'New version available',
       'updateNow': 'Update now',
       'updateUpToDate': 'Up to date',
+      'updateCurrent': 'current',
+      'updateGo': 'Upgrade',
+      'npmUpgradeHint': 'Please upgrade via the DSH Plugin Manager (this plugin never auto-installs or restarts); restart Harness after installing',
       'releaseNotes': 'release notes',
       'reloadPage': 'Reload page',
       'history': 'History',
@@ -1827,9 +1833,9 @@ window.__ModuleLoader__.load({
     //  实现时复用 craft.jobStart/craft.file 与 PhotoCraftDialog 的任务轮询模式。
 
     // ============================================================
-    // 自动更新：npm/git 双信息源，一键 git pull（Host RPC）
+    // 自动更新：当前副本版本 vs npm registry latest（与安装方式无关）
+    // 有新版本 → 横幅提示；安装一律引导到 DSH 插件管理，绝不自动安装/重启
     // ============================================================
-    const PLUGIN_VERSION = '0.17.1';
     async function checkUpdate(silent) {
       update((s) => { s.updateInfo = null; s.updateChecking = true; s.updateMsg = null; });
       try {
@@ -1842,23 +1848,10 @@ window.__ModuleLoader__.load({
         return null;
       }
     }
-    async function applyUpdate() {
-      update((s) => { s.updateBusy = true; s.updateMsg = '正在拉取更新…'; s.updateReloadable = false; });
-      try {
-        const res = await hostRpc('updateApply');
-        if (!res.ok) {
-          update((s) => { s.updateBusy = false; s.updateMsg = '更新失败：' + (res.output || '').slice(-300); });
-          return;
-        }
-        // 绝不自动刷新/重启：更新落盘后由用户决定何时生效
-        update((s) => {
-          s.updateBusy = false;
-          s.updateReloadable = !res.hostChanged;
-          s.updateMsg = '已更新到 v' + res.version + (res.hostChanged ? ' — 后台已变更，重启 Harness 后生效' : ' — 刷新页面后生效');
-        });
-      } catch (e) {
-        update((s) => { s.updateBusy = false; s.updateMsg = '更新失败：' + (e.message || e); });
-      }
+    function applyUpdate() {
+      // 仅引导：插件不修改用户 profile、不执行任何安装动作、不刷新不重启
+      const target = S.updateInfo && S.updateInfo.remoteVersion ? S.updateInfo.remoteVersion : '';
+      update((s) => { s.updateBusy = false; s.updateMsg = T('npmUpgradeHint') + (target ? ' → v' + target : ''); });
     }
 
     // ============================================================
@@ -5141,7 +5134,7 @@ window.__ModuleLoader__.load({
       }, []);
       const nodes = Object.values(S.graph.nodes);
       const upd = S.updateInfo;
-      const updAvail = upd && upd.behind > 0; // 只有真正落后上游才提示；本地领先/版本相同不提示
+      const updAvail = upd && upd.behind > 0; // 仅真正落后（npm latest 更新）才提示；本地版本相同/更新则不提示
       return h('div', { className: 'dshic-page' },
         !S.hostOk && S.hostError
           ? h('div', {
@@ -5163,14 +5156,14 @@ window.__ModuleLoader__.load({
                 color: 'var(--dsw-alias-state-success-primary)', fontSize: 12, lineHeight: '18px',
               },
             },
-              h('span', {}, '🚀 ' + T('updateAvailable') + ' v' + (upd.remoteVersion || '') + (upd.behind ? '（落后 ' + upd.behind + ' 个提交）' : '')),
+              h('span', {}, '🚀 ' + T('updateAvailable') + ' v' + (upd.remoteVersion || '') + (upd.runningVersion ? '（' + T('updateCurrent') + ' v' + upd.runningVersion + '）' : '')),
               S.updateBusy
                 ? h('span', { className: 'dshic-spin' })
                 : h('button', {
                     type: 'button', className: 'dshic-mini',
                     onPointerDown: (e) => e.stopPropagation(),
                     onClick: applyUpdate,
-                  }, Ic('download', 11), T('updateNow')),
+                  }, Ic('download', 11), T('updateGo')),
               h('a', {
                 href: 'https://github.com/NINKCH/dsh-infinite_canvas/releases', target: '_blank', rel: 'noreferrer',
                 style: { color: 'inherit', opacity: 0.8, fontSize: 11 },

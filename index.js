@@ -6,80 +6,75 @@
  * through the Harness `llm` Service — the same providers/models the user has
  * configured for the Harness itself, no extra API key handling here.
  */
-import { spawn } from 'node:child_process';
-import fs from 'node:fs/promises';
+import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const NAME = 'infinite-canvas';
-const VERSION = '0.17.0';
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 
-/** 运行 git 子命令（cwd = 插件目录 = 仓库根）。 */
-function runGit(args, timeoutMs = 90000) {
-  return new Promise((resolve) => {
-    const started = Date.now();
-    const stdout = [];
-    const stderr = [];
-    let child;
-    try {
-      child = spawn('git', args.map(String), { cwd: HERE, windowsHide: true });
-    } catch (e) {
-      resolve({ ok: false, stdout: '', stderr: String(e?.message ?? e) });
-      return;
-    }
-    const timer = setTimeout(() => { try { child.kill(); } catch { /* ignore */ } }, Math.max(5000, timeoutMs));
-    child.stdout?.setEncoding('utf8');
-    child.stderr?.setEncoding('utf8');
-    child.stdout?.on('data', (d) => stdout.push(String(d)));
-    child.stderr?.on('data', (d) => stderr.push(String(d)));
-    child.on('error', (e) => { clearTimeout(timer); resolve({ ok: false, stdout: stdout.join(''), stderr: String(e?.message ?? e) }); });
-    child.on('close', (code) => {
-      clearTimeout(timer);
-      resolve({ ok: code === 0, code, stdout: stdout.join(''), stderr: stderr.join(''), ms: Date.now() - started });
-    });
+// 版本单一来源 = 当前副本的 package.json（硬编码常量曾与包版本漂移）
+let VERSION = '0.0.0';
+try {
+  VERSION = JSON.parse(readFileSync(path.join(HERE, 'package.json'), 'utf8')).version || VERSION;
+} catch { /* 保留默认值 */ }
+
+// 更新检查的唯一信息源 = npm registry latest（与安装方式无关：
+// npm 在线安装 / 本地 link 开发态 / 其它方式，一律走同一条逻辑）。
+const NPM_LATEST_URL = 'https://registry.npmjs.org/' + encodeURIComponent('@ninkch/dsh-infinite-canvas') + '/latest';
+
+/** 读取 npm registry 上 latest dist-tag 的版本号。 */
+async function npmLatestVersion() {
+  const res = await fetch(NPM_LATEST_URL, {
+    headers: { accept: 'application/json' },
+    signal: AbortSignal.timeout(15000),
   });
+  if (!res.ok) throw new Error('npm registry 返回 HTTP ' + res.status);
+  const meta = await res.json();
+  if (!meta || typeof meta.version !== 'string') throw new Error('npm registry 响应缺少 version 字段');
+  return meta.version;
 }
 
-/** 更新检查：fetch 当前分支上游 + 对比；本地领先（ahead）不算待更新。 */
-async function updateCheck() {
-  const branch = (await runGit(['rev-parse', '--abbrev-ref', 'HEAD'])).stdout.trim() || 'main';
-  const upstream = branch === 'HEAD' ? 'origin/main' : 'origin/' + branch;
-  const fetchRes = await runGit(['fetch', 'origin', branch, '--quiet'], 60000);
-  if (!fetchRes.ok) throw new Error('git fetch 失败：' + (fetchRes.stderr || '').slice(0, 300));
-  const head = (await runGit(['rev-parse', '--short', 'HEAD'])).stdout.trim();
-  const remoteHead = (await runGit(['rev-parse', '--short', upstream])).stdout.trim();
-  const behind = Number((await runGit(['rev-list', '--count', 'HEAD..' + upstream])).stdout.trim()) || 0;
-  const ahead = Number((await runGit(['rev-list', '--count', upstream + '..HEAD'])).stdout.trim()) || 0;
-  let remoteVersion = null;
-  try {
-    const pj = await runGit(['show', upstream + ':package.json']);
-    remoteVersion = JSON.parse(pj.stdout).version ?? null;
-  } catch { /* 远端无 package.json 时忽略 */ }
-  let runningVersion = null;
-  try { runningVersion = JSON.parse(await fs.readFile(path.join(HERE, 'package.json'), 'utf8')).version ?? null; } catch { /* 忽略 */ }
-  return { branch, head, remoteHead, behind, ahead, remoteVersion, runningVersion, upToDate: behind === 0 };
-}
-
-/** 应用更新：merge --ff-only 当前分支上游；绝不自动重启/刷新；报告 index.js 是否变更。 */
-async function updateApply() {
-  const branch = (await runGit(['rev-parse', '--abbrev-ref', 'HEAD'])).stdout.trim() || 'main';
-  const upstream = 'origin/' + (branch === 'HEAD' ? 'origin/main' : 'origin/' + branch);
-  const before = (await runGit(['rev-parse', 'HEAD:index.js'])).stdout.trim();
-  await runGit(['fetch', 'origin', branch, '--quiet'], 60000);
-  const pull = await runGit(['merge', '--ff-only', upstream], 180000);
-  const after = (await runGit(['rev-parse', 'HEAD:index.js'])).stdout.trim();
-  let version = null;
-  try { version = JSON.parse(await fs.readFile(path.join(HERE, 'package.json'), 'utf8')).version ?? null; } catch { /* 忽略 */ }
-  return {
-    ok: pull.ok,
-    output: ((pull.stdout || '') + '\n' + (pull.stderr || '')).trim().slice(-1500),
-    hostChanged: pull.ok && before !== after,
-    version,
+/** 语义化版本比较：a<b → -1，a>b → 1，相等或无法解析 → 0；prerelease 低于同号正式版。 */
+function cmpVer(a, b) {
+  const parse = (v) => {
+    const m = /^v?(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?(?:\+[0-9A-Za-z.-]+)?$/.exec(String(v ?? '').trim());
+    return m ? { core: [+m[1], +m[2], +m[3]], pre: m[4] ?? null } : null;
   };
+  const A = parse(a);
+  const B = parse(b);
+  if (!A || !B) return 0;
+  for (let i = 0; i < 3; i++) {
+    if (A.core[i] !== B.core[i]) return A.core[i] < B.core[i] ? -1 : 1;
+  }
+  if (A.pre === B.pre) return 0;
+  if (A.pre === null) return 1;
+  if (B.pre === null) return -1;
+  return A.pre < B.pre ? -1 : A.pre > B.pre ? 1 : 0;
+}
+
+function readLocalVersion() {
+  try {
+    return JSON.parse(readFileSync(path.join(HERE, 'package.json'), 'utf8')).version ?? VERSION;
+  } catch { return VERSION; }
+}
+
+/**
+ * 更新检查（与安装方式无关）：当前副本版本 vs npm registry latest。
+ * 本地版本 ≥ 远端 → 最新；仅真正落后才提示。
+ * 插件绝不自动安装、绝不自动重启/刷新 —— 安装一律引导到 DSH 插件管理。
+ */
+async function updateCheck() {
+  const runningVersion = readLocalVersion();
+  const remoteVersion = await npmLatestVersion();
+  const behind = cmpVer(runningVersion, remoteVersion) < 0 ? 1 : 0;
+  return { source: 'npm', runningVersion, remoteVersion, behind, upToDate: behind === 0 };
 }
 
 export const inject = ['webServer'];
+
+// 仅供诊断 / 自动化测试（不属于 RPC 面，运行时行为不受影响）
+export const _internals = { updateCheck, npmLatestVersion, cmpVer, getVersion: () => VERSION };
 
 function resolveModel(providers, want) {
   const byProvider = want && want.provider
@@ -161,7 +156,6 @@ export function apply(ctx) {
       async llmOptions() { return listLlmOptions(); },
       async llmComplete(args) { return complete(args); },
       async updateCheck() { return updateCheck(); },
-      async updateApply() { return updateApply(); },
       async listSkills() {
         const skills = ctx.get('skills');
         if (!skills) return { skills: [], error: 'skills 服务不可用' };
