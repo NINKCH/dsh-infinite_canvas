@@ -329,6 +329,11 @@ window.__ModuleLoader__.load({
       'ttsCategory': '配音',
       'audioKind': '音频',
       'finalcutCategory': '成片',
+      'updateBtn': '检查更新',
+      'updateAvailable': '新版本可用',
+      'updateNow': '一键更新',
+      'updateUpToDate': '已是最新版本',
+      'releaseNotes': '发布说明',
       'history': '历史版本',
       'refList': '参考图（[图N] 按此顺序绑定进提示词）',
       'moveUp': '上移',
@@ -577,6 +582,11 @@ window.__ModuleLoader__.load({
       'ttsCategory': 'Voice',
       'audioKind': 'Audio',
       'finalcutCategory': 'Final cut',
+      'updateBtn': 'Check updates',
+      'updateAvailable': 'New version available',
+      'updateNow': 'Update now',
+      'updateUpToDate': 'Up to date',
+      'releaseNotes': 'release notes',
       'history': 'History',
       'refList': 'Refs ([图N] bound to prompt in this order)',
       'moveUp': 'Move up',
@@ -1815,6 +1825,41 @@ window.__ModuleLoader__.load({
     //  实现时复用 craft.jobStart/craft.file 与 PhotoCraftDialog 的任务轮询模式。
 
     // ============================================================
+    // 自动更新：npm/git 双信息源，一键 git pull（Host RPC）
+    // ============================================================
+    const PLUGIN_VERSION = '0.16.0';
+    async function checkUpdate(silent) {
+      update((s) => { s.updateInfo = null; s.updateChecking = true; s.updateMsg = null; });
+      try {
+        const info = await hostRpc('updateCheck');
+        update((s) => { s.updateInfo = info; s.updateChecking = false; });
+        return info;
+      } catch (e) {
+        update((s) => { s.updateInfo = null; s.updateChecking = false; s.updateMsg = silent ? null : String(e.message || e); });
+        if (!silent) toast('更新检查失败：' + (e.message || e));
+        return null;
+      }
+    }
+    async function applyUpdate() {
+      update((s) => { s.updateBusy = true; s.updateMsg = '正在拉取更新…'; });
+      try {
+        const res = await hostRpc('updateApply');
+        if (!res.ok) {
+          update((s) => { s.updateBusy = false; s.updateMsg = '更新失败：' + (res.output || '').slice(-300); });
+          return;
+        }
+        if (res.hostChanged) {
+          update((s) => { s.updateBusy = false; s.updateMsg = '已更新到 v' + res.version + ' — 后台已变更，请重启一次 Harness 后刷新页面'; });
+        } else {
+          update((s) => { s.updateBusy = false; s.updateMsg = '已更新到 v' + res.version + ' — 正在刷新页面…'; });
+          setTimeout(() => location.reload(), 1200);
+        }
+      } catch (e) {
+        update((s) => { s.updateBusy = false; s.updateMsg = '更新失败：' + (e.message || e); });
+      }
+    }
+
+    // ============================================================
     // 尺寸 / 比例（Toonflow 式：清晰度 × 比例 → 像素）
     // ============================================================
     function dimsFromRatio(ratio, longSide, shortSide) {
@@ -2071,6 +2116,11 @@ window.__ModuleLoader__.load({
       assetsTick: 0,
       tick: 0,
       craftStatus: null, // {at, data} | {at, error}
+      updateInfo: null,      // Host updateCheck 结果
+      updateChecking: false,
+      updateBusy: false,
+      updateMsg: null,
+      updateDismissed: false,
     };
     const listeners = new Set();
     let saveTimer = null;
@@ -4146,6 +4196,12 @@ window.__ModuleLoader__.load({
           : h('button', { type: 'button', className: 'dshic-btn', style: { fontWeight: 600, maxWidth: 180, overflow: 'hidden' }, onDoubleClick: () => setNaming(true), title: T('renameHint') },
               h('span', { style: { overflow: 'hidden', textOverflow: 'ellipsis' } }, proj ? proj.name : '')),
         h('div', { className: 'dshic-toolbar-sep' }),
+        h('button', {
+          type: 'button', className: cls('dshic-btn'), style: { fontSize: 11, color: 'var(--dsw-alias-label-secondary)', gap: 4 },
+          title: T('updateBtn'), disabled: S.updateChecking,
+          onClick: () => { checkUpdate(false).then((info) => { if (info && info.upToDate) toast(T('updateUpToDate')); }); },
+        }, 'v' + PLUGIN_VERSION, S.updateChecking ? h('span', { className: 'dshic-spin' }) : (updAvail ? ' ⬆' : '')),
+        h('div', { className: 'dshic-toolbar-sep' }),
         h(Btn, {
           active: S.rightOpen, title: T('toggleRight'),
           onClick: () => update((s) => { s.rightOpen = !s.rightOpen; }),
@@ -4905,7 +4961,7 @@ window.__ModuleLoader__.load({
         h(ApiListEditor, { key: 'imglist', kind: 'image' }),
         h(ApiListEditor, { key: 'vidlist', kind: 'video' }),
         h(ApiListEditor, { key: 'ttslist', kind: 'tts' }),
-        h('div', { key: 'note', className: 'dshic-hint' }, 'DeepSeek Harness · dsh-infinite-canvas v0.16.0'),
+        h('div', { key: 'note', className: 'dshic-hint' }, 'DeepSeek Harness · dsh-infinite-canvas v0.17.0'),
       ];
     }
 
@@ -5082,6 +5138,8 @@ window.__ModuleLoader__.load({
         return () => el.removeEventListener('wheel', fn);
       }, []);
       const nodes = Object.values(S.graph.nodes);
+      const upd = S.updateInfo;
+      const updAvail = upd && !upd.upToDate;
       return h('div', { className: 'dshic-page' },
         !S.hostOk && S.hostError
           ? h('div', {
@@ -5094,6 +5152,44 @@ window.__ModuleLoader__.load({
               h('span', {}, '⚠ ' + T('restartHint')),
               h('span', { style: { opacity: 0.75, fontSize: 11 } }, '(' + S.hostError + ')'),
             )
+          : null,
+        updAvail && !S.updateDismissed
+          ? h('div', {
+              style: {
+                flex: 'none', display: 'flex', alignItems: 'center', gap: 8, padding: '6px 12px',
+                background: 'color-mix(in srgb, var(--dsw-alias-state-success-primary) 14%, transparent)',
+                color: 'var(--dsw-alias-state-success-primary)', fontSize: 12, lineHeight: '18px',
+              },
+            },
+              h('span', {}, '🚀 ' + T('updateAvailable') + ' v' + (upd.remoteVersion || '') + (upd.behind ? '（落后 ' + upd.behind + ' 个提交）' : '')),
+              S.updateBusy
+                ? h('span', { className: 'dshic-spin' })
+                : h('button', {
+                    type: 'button', className: 'dshic-mini',
+                    onPointerDown: (e) => e.stopPropagation(),
+                    onClick: applyUpdate,
+                  }, Ic('download', 11), T('updateNow')),
+              h('a', {
+                href: 'https://github.com/NINKCH/dsh-infinite_canvas/releases', target: '_blank', rel: 'noreferrer',
+                style: { color: 'inherit', opacity: 0.8, fontSize: 11 },
+                onPointerDown: (e) => e.stopPropagation(),
+              }, T('releaseNotes') + ' ↗'),
+              h('span', { style: { flex: 1 } }),
+              h('button', {
+                type: 'button', className: 'dshic-node-x', title: T('cancel'),
+                onPointerDown: (e) => e.stopPropagation(),
+                onClick: () => update((s) => { s.updateDismissed = true; }),
+              }, '✕'),
+            )
+          : null,
+        S.updateMsg
+          ? h('div', {
+              style: {
+                flex: 'none', padding: '6px 12px', fontSize: 12,
+                background: 'color-mix(in srgb, var(--dsw-alias-brand-primary) 12%, transparent)',
+                color: 'var(--dsw-alias-brand-primary)',
+              },
+            }, S.updateMsg)
           : null,
         h(Toolbar),
         h('div', { className: 'dshic-main' },
@@ -5188,6 +5284,8 @@ window.__ModuleLoader__.load({
           const unsub = ctx.locale.subscribe(() => notify());
           // ArtCraft 后期工具链状态探测（失败静默，Craft 功能各自降级）
           probeCraft();
+          // 检查更新（Host RPC；Host 旧版未带此方法时静默）
+          checkUpdate(true);
           // 后台路由探活：失败时在画布顶部给出可操作的提示
           hostRpc('ping').then(() => { S.hostOk = true; S.hostError = null; notify(); }).catch((e) => {
             S.hostOk = false;

@@ -6,7 +6,72 @@
  * through the Harness `llm` Service — the same providers/models the user has
  * configured for the Harness itself, no extra API key handling here.
  */
+import { spawn } from 'node:child_process';
+import fs from 'node:fs/promises';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
 const NAME = 'infinite-canvas';
+const VERSION = '0.17.0';
+const HERE = path.dirname(fileURLToPath(import.meta.url));
+
+/** 运行 git 子命令（cwd = 插件目录 = 仓库根）。 */
+function runGit(args, timeoutMs = 90000) {
+  return new Promise((resolve) => {
+    const started = Date.now();
+    const stdout = [];
+    const stderr = [];
+    let child;
+    try {
+      child = spawn('git', args.map(String), { cwd: HERE, windowsHide: true });
+    } catch (e) {
+      resolve({ ok: false, stdout: '', stderr: String(e?.message ?? e) });
+      return;
+    }
+    const timer = setTimeout(() => { try { child.kill(); } catch { /* ignore */ } }, Math.max(5000, timeoutMs));
+    child.stdout?.setEncoding('utf8');
+    child.stderr?.setEncoding('utf8');
+    child.stdout?.on('data', (d) => stdout.push(String(d)));
+    child.stderr?.on('data', (d) => stderr.push(String(d)));
+    child.on('error', (e) => { clearTimeout(timer); resolve({ ok: false, stdout: stdout.join(''), stderr: String(e?.message ?? e) }); });
+    child.on('close', (code) => {
+      clearTimeout(timer);
+      resolve({ ok: code === 0, code, stdout: stdout.join(''), stderr: stderr.join(''), ms: Date.now() - started });
+    });
+  });
+}
+
+/** 更新检查：fetch origin + 对比本地/远端版本。 */
+async function updateCheck() {
+  const fetchRes = await runGit(['fetch', 'origin', '--quiet'], 60000);
+  if (!fetchRes.ok) throw new Error('git fetch 失败：' + (fetchRes.stderr || '').slice(0, 300));
+  const head = (await runGit(['rev-parse', '--short', 'HEAD'])).stdout.trim();
+  const remoteHead = (await runGit(['rev-parse', '--short', 'origin/main'])).stdout.trim();
+  const behind = Number((await runGit(['rev-list', '--count', 'HEAD..origin/main'])).stdout.trim()) || 0;
+  let remoteVersion = null;
+  try {
+    const pj = await runGit(['show', 'origin/main:package.json']);
+    remoteVersion = JSON.parse(pj.stdout).version ?? null;
+  } catch { /* 远端无 package.json 时忽略 */ }
+  let runningVersion = null;
+  try { runningVersion = JSON.parse(await fs.readFile(path.join(HERE, 'package.json'), 'utf8')).version ?? null; } catch { /* 忽略 */ }
+  return { head, remoteHead, behind, remoteVersion, runningVersion, upToDate: head === remoteHead };
+}
+
+/** 应用更新：git pull --ff-only；报告 index.js 是否变更（决定是否需要重启 Harness）。 */
+async function updateApply() {
+  const before = (await runGit(['rev-parse', 'HEAD:index.js'])).stdout.trim();
+  const pull = await runGit(['pull', '--ff-only', 'origin', 'main'], 180000);
+  const after = (await runGit(['rev-parse', 'HEAD:index.js'])).stdout.trim();
+  let version = null;
+  try { version = JSON.parse(await fs.readFile(path.join(HERE, 'package.json'), 'utf8')).version ?? null; } catch { /* 忽略 */ }
+  return {
+    ok: pull.ok,
+    output: ((pull.stdout || '') + '\n' + (pull.stderr || '')).trim().slice(-1500),
+    hostChanged: pull.ok && before !== after,
+    version,
+  };
+}
 
 export const inject = ['webServer'];
 
@@ -86,9 +151,11 @@ export function apply(ctx) {
     }
 
     const methods = {
-      async ping() { return { ok: true, version: '0.5.0' }; },
+      async ping() { return { ok: true, version: VERSION }; },
       async llmOptions() { return listLlmOptions(); },
       async llmComplete(args) { return complete(args); },
+      async updateCheck() { return updateCheck(); },
+      async updateApply() { return updateApply(); },
       async listSkills() {
         const skills = ctx.get('skills');
         if (!skills) return { skills: [], error: 'skills 服务不可用' };
