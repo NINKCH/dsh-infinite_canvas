@@ -327,6 +327,7 @@ window.__ModuleLoader__.load({
       'errNoTts': '未配置 TTS 配音接口（设置 → TTS 配音）',
       'ttsCategory': '配音',
       'audioKind': '音频',
+      'history': '历史版本',
     };
     const DICT_EN = {
       'panel': 'Infinite Canvas',
@@ -531,6 +532,7 @@ window.__ModuleLoader__.load({
       'errNoTts': 'No TTS config (Settings → TTS voices)',
       'ttsCategory': 'Voice',
       'audioKind': 'Audio',
+      'history': 'History',
     };
 
     // ============================================================
@@ -723,6 +725,20 @@ window.__ModuleLoader__.load({
 /* 节点悬停阴影 */
 .dshic-node{transition:box-shadow .15s, border-color .15s;}
 .dshic-node:hover{box-shadow:0 8px 22px color-mix(in srgb,var(--dsw-alias-bg-base) 55%,transparent);}
+/* 媒体历史 */
+.dshic-hist{display:flex;gap:4px;overflow-x:auto;}
+.dshic-hist-thumb{width:44px;height:44px;border-radius:6px;border:2px solid var(--dsw-alias-border-l2);overflow:hidden;cursor:pointer;flex:none;
+  background:var(--dsw-alias-bg-layer-2);display:flex;align-items:center;justify-content:center;color:var(--dsw-alias-label-secondary);}
+.dshic-hist-thumb img{width:100%;height:100%;object-fit:cover;display:block;}
+.dshic-hist-thumb.is-active{border-color:var(--dsw-alias-brand-primary);}
+/* 小地图 */
+.dshic-minimap{position:absolute;right:12px;bottom:12px;width:160px;height:100px;background:var(--dsw-alias-bg-overlay);
+  border:1px solid var(--dsw-alias-border-l2);border-radius:8px;z-index:15;overflow:hidden;cursor:pointer;box-sizing:border-box;
+  box-shadow:0 6px 18px color-mix(in srgb,var(--dsw-alias-bg-base) 45%,transparent);touch-action:none;}
+.dshic-mm-node{position:absolute;background:color-mix(in srgb,var(--dsw-alias-label-primary) 40%,transparent);border-radius:1px;}
+.dshic-mm-node.is-sel{background:var(--dsw-alias-brand-primary);}
+.dshic-mm-view{position:absolute;border:1.5px solid var(--dsw-alias-brand-primary);border-radius:2px;
+  background:color-mix(in srgb,var(--dsw-alias-brand-primary) 10%,transparent);pointer-events:none;}
 /* 连线悬停删除 */
 .dshic-edge-delwrap{opacity:0;cursor:pointer;pointer-events:all;transition:opacity .12s;}
 .dshic-edge-g:hover .dshic-edge-delwrap{opacity:1;}
@@ -1997,7 +2013,12 @@ window.__ModuleLoader__.load({
       const downstream = [];
       update((s) => {
         const nd = s.graph.nodes[nodeId];
-        if (nd) { nd.data.status = 'done'; nd.data.assetId = assetId; nd.data.demo = !!demo; }
+        if (nd) {
+          nd.data.status = 'done'; nd.data.assetId = assetId; nd.data.demo = !!demo;
+          // 媒体历史：保留最近 8 次结果，可在节点内切换
+          const h = [{ assetId, ts: Date.now() }].concat(nd.data.history || []);
+          nd.data.history = h.filter((x, i, arr) => arr.findIndex((y) => y.assetId === x.assetId) === i).slice(0, 8);
+        }
         for (const e of s.graph.edges) {
           if (e.fromNode === nodeId && e.fromPort === 'out') downstream.push(e.toNode);
         }
@@ -2592,8 +2613,26 @@ window.__ModuleLoader__.load({
               h('div', { className: 'dshic-flex' }),
             )
           : null,
+        (n.data.history || []).length > 1
+          ? h('div', { key: 'hist', className: 'dshic-hist' },
+              (n.data.history || []).map((hh) => h(HistThumb, {
+                key: hh.assetId, assetId: hh.assetId, active: hh.assetId === n.data.assetId,
+                onClick: () => update((s) => { const nd = s.graph.nodes[n.id]; if (nd) nd.data.assetId = hh.assetId; }),
+              })),
+            )
+          : null,
         !assetUrlV && !n.data.error && n.data.status !== 'running' ? h('div', { key: 'none', className: 'dshic-hint' }, T('noResult')) : null,
       ];
+    }
+
+    function HistThumb({ assetId, active, onClick }) {
+      const url = useAssetUrl(assetId);
+      return h('div', {
+        className: cls('dshic-hist-thumb', active && 'is-active'),
+        title: T('history'),
+        onClick: (e) => { e.stopPropagation(); onClick(); },
+        onPointerDown: (e) => e.stopPropagation(),
+      }, url ? h('img', { src: url, draggable: false }) : h('span', {}, '…'));
     }
 
     function AssetNodeBody({ n, kind }) {
@@ -3692,7 +3731,7 @@ window.__ModuleLoader__.load({
         h(ApiListEditor, { key: 'imglist', kind: 'image' }),
         h(ApiListEditor, { key: 'vidlist', kind: 'video' }),
         h(ApiListEditor, { key: 'ttslist', kind: 'tts' }),
-        h('div', { key: 'note', className: 'dshic-hint' }, 'DeepSeek Harness · @local/infinite-canvas v0.10.0'),
+        h('div', { key: 'note', className: 'dshic-hint' }, 'DeepSeek Harness · @local/infinite-canvas v0.11.0'),
       ];
     }
 
@@ -3769,6 +3808,62 @@ window.__ModuleLoader__.load({
           S.rightTab === 'bible' ? h(BibleTab) : null,
           S.rightTab === 'settings' ? h(SettingsTab) : null,
         ),
+      );
+    }
+
+    /** 小地图：节点总览 + 视口指示 + 点击/拖拽导航。 */
+    function Minimap() {
+      const nodes = Object.values(S.graph.nodes);
+      const dragRef = useRef(false);
+      if (!nodes.length || !canvasEl) return null;
+      const MW = 160, MH = 100, pad = 6;
+      const r = containerRect();
+      let bx0 = Infinity, by0 = Infinity, bx1 = -Infinity, by1 = -Infinity;
+      for (const nd of nodes) {
+        bx0 = Math.min(bx0, nd.x); by0 = Math.min(by0, nd.y);
+        bx1 = Math.max(bx1, nd.x + nd.w); by1 = Math.max(by1, nd.y + (nd.h || 96));
+      }
+      const vx = -V.x / V.scale, vy = -V.y / V.scale;
+      const vw = r.width / V.scale, vh = r.height / V.scale;
+      bx0 = Math.min(bx0, vx); by0 = Math.min(by0, vy);
+      bx1 = Math.max(bx1, vx + vw); by1 = Math.max(by1, vy + vh);
+      const bw = Math.max(1, bx1 - bx0), bh = Math.max(1, by1 - by0);
+      const s2 = Math.min((MW - pad * 2) / bw, (MH - pad * 2) / bh);
+      const ox = pad + (MW - pad * 2 - bw * s2) / 2;
+      const oy = pad + (MH - pad * 2 - bh * s2) / 2;
+      const navigateTo = (clientX, clientY, commit) => {
+        const rect = canvasEl.getBoundingClientRect();
+        const mx = clientX - rect.left - (r.width - MW), my = clientY - rect.top - (r.height - MH);
+        const wx = bx0 + (mx - ox) / s2, wy = by0 + (my - oy) / s2;
+        setView(r.width / 2 - wx * V.scale, r.height / 2 - wy * V.scale, V.scale, !!commit);
+      };
+      return h('div', {
+        className: 'dshic-minimap',
+        onPointerDown: (e) => {
+          e.stopPropagation();
+          try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* 忽略 */ }
+          dragRef.current = true;
+          navigateTo(e.clientX, e.clientY, false);
+        },
+        onPointerMove: (e) => { if (dragRef.current) { e.stopPropagation(); navigateTo(e.clientX, e.clientY, false); } },
+        onPointerUp: (e) => { dragRef.current = false; e.stopPropagation(); setView(V.x, V.y, V.scale, true); },
+        onPointerCancel: (e) => { dragRef.current = false; },
+      },
+        nodes.map((nd) => {
+          const px = ox + (nd.x - bx0) * s2, py = oy + (nd.y - by0) * s2;
+          return h('div', {
+            key: nd.id,
+            className: cls('dshic-mm-node', S.sel.has(nd.id) && 'is-sel'),
+            style: { left: px, top: py, width: Math.max(3, nd.w * s2), height: Math.max(2, (nd.h || 96) * s2) },
+          });
+        }),
+        h('div', {
+          className: 'dshic-mm-view',
+          style: {
+            left: ox + (vx - bx0) * s2, top: oy + (vy - by0) * s2,
+            width: Math.max(6, vw * s2), height: Math.max(6, vh * s2),
+          },
+        }),
       );
     }
 
@@ -3849,8 +3944,8 @@ window.__ModuleLoader__.load({
                 ref: (el) => { marqueeEl = el; },
               }),
             ),
-            nodes.length === 0 ? h('div', { className: 'dshic-empty' },
-              h('div', { className: 'dshic-empty-card' },
+            h(Minimap),
+            nodes.length === 0 ? h('div', { className: 'dshic-empty' },              h('div', { className: 'dshic-empty-card' },
                 h('div', { className: 'dshic-empty-title' }, T('emptyNodeTitle')),
                 h('div', { className: 'dshic-hint', style: { maxWidth: 320 } }, T('emptyNodeHint')),
                 h('div', { className: 'dshic-empty-row' },
