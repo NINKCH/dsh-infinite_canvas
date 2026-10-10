@@ -39,7 +39,7 @@ window.__ModuleLoader__.load({
       },
       'video-gen': {
         inputs: [{ id: 'prompt', kind: 'text' }, { id: 'frame', kind: 'image' }, { id: 'ref', kind: 'image' }],
-        outputs: [{ id: 'out', kind: 'video' }],
+        outputs: [{ id: 'out', kind: 'video' }, { id: 'last', kind: 'image' }],
       },
       'image-asset': { inputs: [{ id: 'in', kind: 'image' }], outputs: [{ id: 'out', kind: 'image' }] },
       'video-asset': { inputs: [{ id: 'in', kind: 'video' }], outputs: [{ id: 'out', kind: 'video' }] },
@@ -340,6 +340,8 @@ window.__ModuleLoader__.load({
       'unfold': '展开',
       'ungroup': '解散分组',
       'redraw': '重绘',
+      'lastFrame': '尾帧',
+      'chainNext': '接续下一镜',
       'maskRedraw': '蒙版重绘',
       'brushSize': '笔刷大小',
       'clearMask': '清除蒙版',
@@ -564,6 +566,8 @@ window.__ModuleLoader__.load({
       'unfold': 'Expand',
       'ungroup': 'Ungroup',
       'redraw': 'Redraw from this',
+      'lastFrame': 'Last frame',
+      'chainNext': 'Chain next shot',
       'maskRedraw': 'Mask inpaint',
       'brushSize': 'Brush size',
       'clearMask': 'Clear mask',
@@ -1293,6 +1297,57 @@ window.__ModuleLoader__.load({
       const cfg = resolveApiCfg(settings.videoApis, settings.videoApiId, opts && opts.apiId);
       const blob = cfg ? await apiVideo(prompt, frameBlob, cfg, opts || {}) : await demoVideoBlob(prompt, videoDimsFor(opts), ((opts && opts.duration) || 5) * 1000);
       return { blob, demo: !cfg };
+    }
+
+    /** 从视频 Blob 提取最后一帧为 PNG（通用：任何 API 生成的视频都能取尾帧）。 */
+    async function extractLastFrame(videoBlob) {
+      const url = URL.createObjectURL(videoBlob);
+      try {
+        const v = document.createElement('video');
+        v.src = url; v.muted = true; v.preload = 'auto';
+        await new Promise((res, rej) => {
+          v.onloadedmetadata = () => res();
+          v.onerror = () => rej(new Error('视频解码失败'));
+          setTimeout(res, 10000);
+        });
+        if (!isFinite(v.duration) || v.duration <= 0) throw new Error('视频时长不可用');
+        await new Promise((res) => {
+          v.onseeked = res;
+          try { v.currentTime = Math.max(0, v.duration - 0.05); } catch { res(); }
+          setTimeout(res, 5000);
+        });
+        await new Promise((res) => {
+          if (v.readyState >= 2) return res();
+          v.oncanplay = res;
+          setTimeout(res, 3000);
+        });
+        const cv = document.createElement('canvas');
+        cv.width = v.videoWidth; cv.height = v.videoHeight;
+        cv.getContext('2d').drawImage(v, 0, 0);
+        const blob = await new Promise((res) => cv.toBlob(res, 'image/png'));
+        if (!blob) throw new Error('尾帧提取失败');
+        return blob;
+      } finally {
+        URL.revokeObjectURL(url);
+      }
+    }
+    /** 链式下一镜：以本镜尾帧为首帧，克隆一个视频生成节点并自动连线。 */
+    function chainNext(n) {
+      const c = { x: n.x + 320, y: n.y + 60 };
+      const nn = addNodeAt('video-gen', c);
+      update((s) => {
+        const nd2 = s.graph.nodes[nn.id];
+        if (nd2) {
+          nd2.data.prompt = n.data.prompt || '';
+          nd2.data.duration = n.data.duration || 5;
+          nd2.data.resolution = n.data.resolution || '720P';
+          nd2.data.ratio = n.data.ratio || '16:9';
+          nd2.data.videoApiId = n.data.videoApiId || '';
+        }
+        s.graph.edges.push({ id: uid('e'), fromNode: n.id, fromPort: 'last', toNode: nn.id, toPort: 'frame' });
+      });
+      pushHistory();
+      toast(T('lastFrame') + ' → ' + T('portFrame') + ' ✓');
     }
 
     // ============================================================
@@ -2055,12 +2110,20 @@ window.__ModuleLoader__.load({
       }
       return (n.data.prompt || '').trim();
     }
+    // 节点输出端口所服务的资产（视频生成 last 端口 → 尾帧图资产）
+    function servedAssetId(src, fromPort) {
+      if (!src || !src.data) return null;
+      if (fromPort === 'last') return src.data.lastAssetId || null;
+      return src.data.assetId || null;
+    }
     async function resolveAssetBlob(nodeId, portId) {
       const e = S.graph.edges.find((x) => x.toNode === nodeId && x.toPort === portId);
       if (!e) return null;
       const src = S.graph.nodes[e.fromNode];
-      if (!src || !src.data.assetId) return null;
-      const rec = await idbGet(src.data.assetId);
+      if (!src) return null;
+      const aid = servedAssetId(src, e.fromPort);
+      if (!aid) return null;
+      const rec = await idbGet(aid);
       return rec ? rec.blob : null;
     }
     // 多参考图：按节点上的显式顺序（refOrder，未排序时按连线先后）解析，带名称/分类供 [图N] 绑定
@@ -2073,9 +2136,11 @@ window.__ModuleLoader__.load({
       for (const id of order) {
         const e = es.find((x) => x.id === id);
         const src = e && S.graph.nodes[e.fromNode];
-        if (!src || !src.data.assetId) continue;
+        if (!src) continue;
+        const aid = servedAssetId(src, e.fromPort);
+        if (!aid) continue;
         try {
-          const rec = await idbGet(src.data.assetId);
+          const rec = await idbGet(aid);
           if (rec && rec.blob) metas.push({ blob: rec.blob, name: rec.name || '', category: rec.category || 'general' });
         } catch { /* 单个参考图读取失败不影响其余 */ }
       }
@@ -2131,6 +2196,19 @@ window.__ModuleLoader__.load({
           });
           const rec = await saveAssetRecord(S.activeId, 'video', blob, { prompt, source: demo ? 'demo' : 'api' });
           commitGenResult(n.id, rec.id, demo, 'video');
+          // 尾帧提取（通用）：供 last 端口输出与链式下一镜使用
+          try {
+            const fBlob = await extractLastFrame(blob);
+            const fRec = await saveAssetRecord(S.activeId, 'image', fBlob, {
+              name: T('lastFrame') + '-' + (n.data.label || n.id.slice(-4)),
+              prompt: 'last frame of ' + prompt.slice(0, 60), source: demo ? 'demo' : 'api', category: 'general',
+            });
+            update((s) => {
+              const nd = s.graph.nodes[n.id];
+              if (nd) nd.data.lastAssetId = fRec.id;
+              s.assetsTick++;
+            });
+          } catch { /* 尾帧提取失败不影响主流程 */ }
         }
         return true;
       } catch (err) {
@@ -2710,7 +2788,7 @@ window.__ModuleLoader__.load({
     function portLabel(pid) {
       const map = {
         prompt: T('portPrompt'), ref: T('portRef'), frame: T('portFrame'),
-        in: T('portIn'), out: T('portOut'),
+        in: T('portIn'), out: T('portOut'), last: T('lastFrame'),
         char: T('portChar'), scene: T('portScene'), prop: T('portProp'),
         visual: T('portVisual'), motion: T('portMotion'), script: T('portScript'),
       };
@@ -3005,6 +3083,13 @@ window.__ModuleLoader__.load({
                     onClick: () => setShowMask(true),
                   }, Ic('pencil', 11), T('maskRedraw'))
                 : null,
+              kind === 'video' && n.data.lastAssetId
+                ? h('button', {
+                    type: 'button', className: 'dshic-mini is-ghost', title: T('chainNext') + '（' + T('lastFrame') + ' → ' + T('portFrame') + '）',
+                    onPointerDown: (e) => e.stopPropagation(),
+                    onClick: () => chainNext(n),
+                  }, Ic('film', 11), T('chainNext'))
+                : null,
               h('div', { className: 'dshic-flex' }),
             )
           : null,
@@ -3048,11 +3133,12 @@ window.__ModuleLoader__.load({
             if (!src) continue;
             let name = src.data.placeholderName || src.data.label || '';
             let cat = 'general';
-            if (src.data.assetId) {
-              const cached = assetNameCache.get(src.data.assetId);
+            const aid = servedAssetId(src, e.fromPort);
+            if (aid) {
+              const cached = assetNameCache.get(aid);
               if (cached != null) name = cached;
               try {
-                const rec = await idbGet(src.data.assetId);
+                const rec = await idbGet(aid);
                 if (rec) { name = rec.name || name; cat = rec.category || 'general'; }
               } catch { /* 忽略 */ }
             }
@@ -3151,7 +3237,8 @@ window.__ModuleLoader__.load({
             .map((x) => {
               const src = S.graph.nodes[x.fromNode];
               if (!src) return null;
-              if (src.data.assetId) return assetNameCache.get(src.data.assetId) || '…';
+              const aid = servedAssetId(src, x.fromPort);
+              if (aid) return assetNameCache.get(aid) || '…';
               return src.data.placeholderName || null;
             })
             .filter(Boolean),
@@ -4254,7 +4341,7 @@ window.__ModuleLoader__.load({
         h(ApiListEditor, { key: 'imglist', kind: 'image' }),
         h(ApiListEditor, { key: 'vidlist', kind: 'video' }),
         h(ApiListEditor, { key: 'ttslist', kind: 'tts' }),
-        h('div', { key: 'note', className: 'dshic-hint' }, 'DeepSeek Harness · @local/infinite-canvas v0.14.0'),
+        h('div', { key: 'note', className: 'dshic-hint' }, 'DeepSeek Harness · @local/infinite-canvas v0.15.0'),
       ];
     }
 
