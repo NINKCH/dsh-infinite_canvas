@@ -1,0 +1,4 @@
+- insert:
+    - id: infinite-canvas
+      name: '@local/infinite-canvas'
+      config: {}

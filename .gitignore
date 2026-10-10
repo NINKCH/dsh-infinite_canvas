@@ -1,0 +1,6 @@
+.noteboard/
+node_modules/
+*.log
+.smoke*.cjs
+.ht.mjs
+.s.cjs
