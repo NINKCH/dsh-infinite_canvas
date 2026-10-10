@@ -6,7 +6,10 @@
  * through the Harness `llm` Service — the same providers/models the user has
  * configured for the Harness itself, no extra API key handling here.
  */
-import { readFileSync } from 'node:fs';
+import { spawn } from 'node:child_process';
+import fs from 'node:fs/promises';
+import { readFileSync, existsSync, readdirSync } from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -22,6 +25,86 @@ try {
 // 更新检查的唯一信息源 = npm registry latest（与安装方式无关：
 // npm 在线安装 / 本地 link 开发态 / 其它方式，一律走同一条逻辑）。
 const NPM_LATEST_URL = 'https://registry.npmjs.org/' + encodeURIComponent('@ninkch/dsh-infinite-canvas') + '/latest';
+const PKG_NAME = '@ninkch/dsh-infinite-canvas';
+
+// ---------- 安装形态探测（用于"点击即更新"） ----------
+// 受管安装 = 本副本位于某个 DSH profile 的 node_modules 下（向上找带 dsh.profile.bundles 的 package.json）。
+// 开发态（目录含 .git）不受管 → 点击更新时降级为纯引导。
+const PROFILE_DIR = (() => {
+  if (existsSync(path.join(HERE, '.git'))) return null;
+  let dir = HERE;
+  for (let i = 0; i < 6; i++) {
+    dir = path.dirname(dir);
+    try {
+      const m = JSON.parse(readFileSync(path.join(dir, 'package.json'), 'utf8'));
+      if (m && m.dsh && m.dsh.profile && Array.isArray(m.dsh.profile.bundles)) return dir;
+    } catch { /* 继续向上 */ }
+  }
+  return null;
+})();
+
+/** 定位 pnpm：Desktop 安装布局 → 用户运行时目录 → PATH。返回 { execPath, args 前缀 } 或 null。 */
+function findPnpm() {
+  const candidates = [];
+  try {
+    candidates.push(path.join(path.dirname(process.execPath), 'resources', 'runtime', 'pnpm', 'bin', 'pnpm.mjs'));
+  } catch { /* execPath 不可用 */ }
+  try {
+    const runtimes = path.join(os.homedir(), '.dsh', 'dsh-runtimes');
+    for (const entry of readdirSync(runtimes)) {
+      candidates.push(path.join(runtimes, entry, 'dependencies', 'pnpm', 'bin', 'pnpm.mjs'));
+    }
+  } catch { /* 无运行时目录 */ }
+  for (const c of candidates) {
+    try { if (existsSync(c)) return { kind: 'script', node: process.execPath, script: c }; } catch { /* 跳过 */ }
+  }
+  try { if (existsSync('C:\\Program Files\\nodejs\\pnpm.cmd')) return { kind: 'path', command: 'pnpm' }; } catch { /* 跳过 */ }
+  return { kind: 'path', command: 'pnpm' }; // 交给 spawn 兜底（PATH 上有就用）
+}
+
+/** 在 profile 目录执行 pnpm add <spec> --save-exact。opts.relaxReleaseAge → 跳过 24h 新版本冷却期。 */
+function runPnpmAdd(pnpm, spec, opts = {}) {
+  return new Promise((resolve) => {
+    const started = Date.now();
+    const stdout = [];
+    const stderr = [];
+    let child;
+    const relax = opts.relaxReleaseAge ? ['--config.minimum-release-age=0'] : [];
+    const args = pnpm.kind === 'script'
+      ? ['--expose-internals', pnpm.script, 'add', spec, '--save-exact', ...relax]
+      : ['add', spec, '--save-exact', ...relax];
+    try {
+      child = pnpm.kind === 'script'
+        ? spawn(pnpm.node, args, { cwd: PROFILE_DIR, windowsHide: true, env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' } })
+        : spawn(pnpm.command, args, { cwd: PROFILE_DIR, windowsHide: true, shell: process.platform === 'win32' });
+    } catch (e) {
+      resolve({ ok: false, stdout: '', stderr: String(e?.message ?? e) });
+      return;
+    }
+    const timer = setTimeout(() => { try { child.kill(); } catch { /* 忽略 */ } }, 240000);
+    child.stdout?.setEncoding('utf8');
+    child.stderr?.setEncoding('utf8');
+    child.stdout?.on('data', (d) => stdout.push(String(d)));
+    child.stderr?.on('data', (d) => stderr.push(String(d)));
+    child.on('error', (e) => { clearTimeout(timer); resolve({ ok: false, stdout: stdout.join(''), stderr: String(e?.message ?? e) }); });
+    child.on('close', (code) => {
+      clearTimeout(timer);
+      resolve({ ok: code === 0, code, stdout: stdout.join(''), stderr: stderr.join(''), ms: Date.now() - started });
+    });
+  });
+}
+
+/** pnpm add 成功后同步 bundles 列表（等价 DSH reconcile 的 add 分支：新依赖必须成为 bundle 层）。 */
+async function ensureBundleEntry(profileDir, pkg) {
+  const manifestPath = path.join(profileDir, 'package.json');
+  const m = JSON.parse(await fs.readFile(manifestPath, 'utf8'));
+  const bundles = (m.dsh && m.dsh.profile && m.dsh.profile.bundles) || [];
+  if (bundles.includes(pkg)) return false;
+  bundles.push(pkg);
+  m.dsh = { ...(m.dsh || {}), profile: { ...(m.dsh.profile || {}), bundles } };
+  await fs.writeFile(manifestPath, JSON.stringify(m, null, 2) + '\n', 'utf8');
+  return true;
+}
 
 /** 读取 npm registry 上 latest dist-tag 的版本号。 */
 async function npmLatestVersion() {
@@ -62,7 +145,6 @@ function readLocalVersion() {
 /**
  * 更新检查（与安装方式无关）：当前副本版本 vs npm registry latest。
  * 本地版本 ≥ 远端 → 最新；仅真正落后才提示。
- * 插件绝不自动安装、绝不自动重启/刷新 —— 安装一律引导到 DSH 插件管理。
  */
 async function updateCheck() {
   const runningVersion = readLocalVersion();
@@ -71,10 +153,49 @@ async function updateCheck() {
   return { source: 'npm', runningVersion, remoteVersion, behind, upToDate: behind === 0 };
 }
 
+/**
+ * 点击即更新（仅在用户显式点击时由客户端调用，无 RPC 参数）：
+ * 安装 registry latest 的精确版本到所属 profile，绝不自动重启/刷新。
+ * - 已是最新 → { ok:true, changed:false }
+ * - 受管安装 + pnpm 可用 → pnpm add <pkg>@<exact> --save-exact + 同步 bundles 列表
+ * - 开发态 / pnpm 不可用 / 安装失败 → { ok:false, guide:true }（客户端回退为纯引导文案）
+ */
+async function updateInstall() {
+  const runningVersion = readLocalVersion();
+  const latest = await npmLatestVersion();
+  if (cmpVer(runningVersion, latest) >= 0) {
+    return { ok: true, changed: false, version: runningVersion };
+  }
+  if (!PROFILE_DIR) {
+    return { ok: false, guide: true, version: latest, output: '开发态安装，请自行更新工作区' };
+  }
+  const pnpm = findPnpm();
+  const spec = PKG_NAME + '@' + latest;
+  let res = await runPnpmAdd(pnpm, spec);
+  let policyRelaxed = false;
+  if (!res.ok && /MINIMUM_RELEASE_AGE_VIOLATION/.test((res.stdout || '') + (res.stderr || ''))) {
+    // pnpm 11 供应链保护对 24h 内新发布间歇性拦截；用户点击已是明确同意 → 放宽重试一次
+    policyRelaxed = true;
+    res = await runPnpmAdd(pnpm, spec, { relaxReleaseAge: true });
+  }
+  const output = ((res.stdout || '') + '\n' + (res.stderr || '')).trim().slice(-1500);
+  if (!res.ok) {
+    return { ok: false, guide: true, version: latest, output };
+  }
+  try {
+    await ensureBundleEntry(PROFILE_DIR, PKG_NAME);
+  } catch { /* bundles 同步失败不阻塞安装结果 */ }
+  let installed = latest;
+  try {
+    installed = JSON.parse(readFileSync(path.join(PROFILE_DIR, 'node_modules', ...PKG_NAME.split('/'), 'package.json'), 'utf8')).version || latest;
+  } catch { /* 保留 latest */ }
+  return { ok: true, changed: true, version: installed, output, policyRelaxed };
+}
+
 export const inject = ['webServer'];
 
 // 仅供诊断 / 自动化测试（不属于 RPC 面，运行时行为不受影响）
-export const _internals = { updateCheck, npmLatestVersion, cmpVer, getVersion: () => VERSION };
+export const _internals = { updateCheck, updateInstall, npmLatestVersion, cmpVer, findPnpm, getProfileDir: () => PROFILE_DIR, getVersion: () => VERSION };
 
 function resolveModel(providers, want) {
   const byProvider = want && want.provider
@@ -156,6 +277,7 @@ export function apply(ctx) {
       async llmOptions() { return listLlmOptions(); },
       async llmComplete(args) { return complete(args); },
       async updateCheck() { return updateCheck(); },
+      async updateInstall() { return updateInstall(); },
       async listSkills() {
         const skills = ctx.get('skills');
         if (!skills) return { skills: [], error: 'skills 服务不可用' };

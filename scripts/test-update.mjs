@@ -55,6 +55,24 @@ try {
   console.log('✗ updateCheck 失败（网络/registry）：' + (e && e.message) || e);
 }
 
+// 4) 点击安装（updateInstall）：仅在没有落后时执行 no-op 路径 —— 已是最新 → ok:true, changed:false，
+//    用于验证 profile 探测 / pnpm 定位 / spawn 链路；若落后则跳过（测试绝不偷偷升级安装）
+let check = null;
+try { check = await i.updateCheck(); } catch { /* 网络失败已在上面统计 */ }
+if (check && check.upToDate) {
+  const pdir = i.getProfileDir();
+  console.log('profileDir =', pdir);
+  if (!pdir) {
+    console.log('（开发态安装：updateInstall 走引导分支，跳过 no-op 验证）');
+  } else {
+    const inst = await i.updateInstall();
+    console.log('updateInstall →', JSON.stringify({ ...inst, output: inst.output ? '…' : inst.output }));
+    if (!inst || inst.ok !== true || inst.changed !== false) { bad++; console.log('✗ no-op 安装路径应返回 ok:true, changed:false'); }
+  }
+} else if (check) {
+  console.log('（当前落后 registry：跳过 updateInstall 测试，避免测试期间真实升级）');
+}
+
 console.log(bad === 0 ? '\n✓ 更新检查功能测试通过' : `\n✗ ${bad} 项失败`);
 // 给挂起的 AbortSignal 计时器一个落定机会，避免 Windows 上 process.exit 与 libuv 拆除竞态
 setTimeout(() => process.exit(bad === 0 ? 0 : 1), 200).unref();

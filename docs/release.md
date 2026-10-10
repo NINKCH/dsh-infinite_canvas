@@ -107,10 +107,11 @@ GET /infinite-canvas/api/rpc ping               # 安装重启后 version 应为
 - **当前版本** = 当前加载副本的 `package.json`（Host 启动时读取）
 - **最新版本** = npm registry `…/@ninkch%2Fdsh-infinite-canvas/latest`（即 `latest` dist-tag，beta 不会出现）
 - 本地版本 ≥ 远端 → 视为最新；仅真正落后 → 画布顶部横幅"新版本可用 vX（当前 vY）"
-- 横幅"去升级"按钮 → **仅提示**："请在 DSH 插件管理 中升级…重启 Harness 生效"
-- **绝不自动安装、绝不自动刷新、绝不自动重启**；网络失败静默（手动点击才提示错误）
+- 横幅"去升级"按钮 → **真实安装**：Host 在所属 profile 内执行 `pnpm add <pkg>@<精确版本> --save-exact` 并同步 bundles 列表；完成后仅提示"已安装 vX — 重启 Harness 后生效"
+- **降级为纯引导**的情形：开发态（link/.git）、找不到 pnpm、安装失败、旧 Host 无 `updateInstall` RPC
+- **绝不自动刷新、绝不自动重启**；网络失败静默（手动点击才提示错误）
 
-实现位置：`index.js` `updateCheck()`（RPC `updateCheck`）；文案 key：`updateGo` / `npmUpgradeHint` / `updateCurrent`。
+实现位置：`index.js` `updateCheck()` / `updateInstall()`（RPC 同名）；文案 key：`updateGo` / `updateInstalling` / `updateInstalled` / `updateInstalledHint` / `updateFailGuide` / `updateCurrent`。
 
 ## 7. 发布日检查清单
 

@@ -333,6 +333,11 @@ window.__ModuleLoader__.load({
       'updateAvailable': '新版本可用',
       'updateNow': '一键更新',
       'updateUpToDate': '已是最新版本',
+      'updateInstalling': '正在安装更新…',
+      'updateInstalled': '已安装',
+      'updateInstalledHint': '重启 Harness 后生效（网页部分刷新页面即可）',
+      'updateFailGuide': '自动安装未成功，请在 DSH 插件管理 中升级',
+      'updatePolicySkipped': '（已按你的点击跳过 24 小时新版本冷却期）',
       'updateCurrent': '当前',
       'updateGo': '去升级',
       'npmUpgradeHint': '请在 DSH 插件管理 中升级到最新版（本插件绝不自动安装或重启）；安装完成后重启 Harness 生效',
@@ -590,6 +595,11 @@ window.__ModuleLoader__.load({
       'updateAvailable': 'New version available',
       'updateNow': 'Update now',
       'updateUpToDate': 'Up to date',
+      'updateInstalling': 'Installing update…',
+      'updateInstalled': 'Installed',
+      'updateInstalledHint': 'restart Harness to take effect (refresh the page for the web part)',
+      'updateFailGuide': 'Auto-install failed — please upgrade via the DSH Plugin Manager',
+      'updatePolicySkipped': '(skipped the 24-hour release cool-down at your click)',
       'updateCurrent': 'current',
       'updateGo': 'Upgrade',
       'npmUpgradeHint': 'Please upgrade via the DSH Plugin Manager (this plugin never auto-installs or restarts); restart Harness after installing',
@@ -1834,7 +1844,8 @@ window.__ModuleLoader__.load({
 
     // ============================================================
     // 自动更新：当前副本版本 vs npm registry latest（与安装方式无关）
-    // 有新版本 → 横幅提示；安装一律引导到 DSH 插件管理，绝不自动安装/重启
+    // 有新版本 → 横幅 + "去升级"；点击后由 Host 在所属 profile 内
+    // pnpm add 精确版本（绝不自动重启/刷新）；旧 Host / 开发态 / 失败 → 回退为纯引导
     // ============================================================
     async function checkUpdate(silent) {
       update((s) => { s.updateInfo = null; s.updateChecking = true; s.updateMsg = null; });
@@ -1851,10 +1862,23 @@ window.__ModuleLoader__.load({
         return null;
       }
     }
-    function applyUpdate() {
-      // 仅引导：插件不修改用户 profile、不执行任何安装动作、不刷新不重启
-      const target = S.updateInfo && S.updateInfo.remoteVersion ? S.updateInfo.remoteVersion : '';
-      update((s) => { s.updateBusy = false; s.updateMsg = T('npmUpgradeHint') + (target ? ' → v' + target : ''); });
+    async function applyUpdate() {
+      update((s) => { s.updateBusy = true; s.updateMsg = T('updateInstalling'); });
+      try {
+        const res = await hostRpc('updateInstall');
+        if (res && res.ok && res.changed) {
+          const relaxed = res.policyRelaxed ? ' ' + T('updatePolicySkipped') : '';
+          update((s) => { s.updateBusy = false; s.updateMsg = T('updateInstalled') + ' v' + res.version + ' — ' + T('updateInstalledHint') + relaxed; });
+        } else if (res && res.ok) {
+          update((s) => { s.updateBusy = false; s.updateMsg = T('updateUpToDate') + (res.version ? ' v' + res.version : ''); });
+        } else {
+          const reason = res && res.output ? '（' + String(res.output).slice(-120) + '）' : '';
+          update((s) => { s.updateBusy = false; s.updateMsg = T('updateFailGuide') + (res && res.version ? ' → v' + res.version : '') + reason; });
+        }
+      } catch (e) {
+        // 旧 Host 没有 updateInstall RPC → 回退为纯引导（方案 A 兜底）
+        update((s) => { s.updateBusy = false; s.updateMsg = T('npmUpgradeHint') + ((S.updateInfo && S.updateInfo.remoteVersion) ? ' → v' + S.updateInfo.remoteVersion : ''); });
+      }
     }
 
     // ============================================================
