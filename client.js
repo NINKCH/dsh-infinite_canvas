@@ -1827,7 +1827,7 @@ window.__ModuleLoader__.load({
     // ============================================================
     // 自动更新：npm/git 双信息源，一键 git pull（Host RPC）
     // ============================================================
-    const PLUGIN_VERSION = '0.17.0';
+    const PLUGIN_VERSION = '0.17.1';
     async function checkUpdate(silent) {
       update((s) => { s.updateInfo = null; s.updateChecking = true; s.updateMsg = null; });
       try {
@@ -4961,7 +4961,7 @@ window.__ModuleLoader__.load({
         h(ApiListEditor, { key: 'imglist', kind: 'image' }),
         h(ApiListEditor, { key: 'vidlist', kind: 'video' }),
         h(ApiListEditor, { key: 'ttslist', kind: 'tts' }),
-        h('div', { key: 'note', className: 'dshic-hint' }, 'DeepSeek Harness · dsh-infinite-canvas v0.17.0'),
+        h('div', { key: 'note', className: 'dshic-hint' }, 'DeepSeek Harness · dsh-infinite-canvas v0.17.1'),
       ];
     }
 
@@ -5310,3 +5310,4 @@ window.__ModuleLoader__.load({
     };
   },
 });
+
