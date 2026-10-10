@@ -49,7 +49,7 @@ window.__ModuleLoader__.load({
     const MULTI_INPUT_PORTS = new Set(['ref', 'char', 'scene', 'prop']);
     // 分镜端口期望的资产分类（仅用于连接时的非阻断提示）
     const PORT_CATEGORY = { char: 'character', scene: 'scene', prop: 'prop' };
-    const CATEGORIES = ['character', 'scene', 'prop', 'script', 'storyboard', 'general'];
+    const CATEGORIES = ['character', 'scene', 'prop', 'script', 'storyboard', 'audio', 'general'];
     const RATIOS = ['16:9', '9:16', '1:1', '4:3', '3:4', '21:9'];
     const IMAGE_SIZES = ['1K', '2K', '4K'];
     const VIDEO_DURATIONS = [4, 5, 6, 8, 10];
@@ -318,6 +318,15 @@ window.__ModuleLoader__.load({
       'transNone': '无',
       'transFade': '叠化',
       'transBlack': '黑场',
+      'ttsApisLabel': 'TTS 配音（可配多个）',
+      'defaultTtsCfg': '默认TTS',
+      'tts': '配音',
+      'ttsGen': '生成配音',
+      'ttsRunning': '生成中',
+      'voice': '音色',
+      'errNoTts': '未配置 TTS 配音接口（设置 → TTS 配音）',
+      'ttsCategory': '配音',
+      'audioKind': '音频',
     };
     const DICT_EN = {
       'panel': 'Infinite Canvas',
@@ -513,6 +522,15 @@ window.__ModuleLoader__.load({
       'transNone': 'None',
       'transFade': 'Crossfade',
       'transBlack': 'Black',
+      'ttsApisLabel': 'TTS voices (multiple)',
+      'defaultTtsCfg': 'Default TTS',
+      'tts': 'Voice',
+      'ttsGen': 'Generate voice',
+      'ttsRunning': 'Generating',
+      'voice': 'Voice',
+      'errNoTts': 'No TTS config (Settings → TTS voices)',
+      'ttsCategory': 'Voice',
+      'audioKind': 'Audio',
     };
 
     // ============================================================
@@ -734,8 +752,10 @@ window.__ModuleLoader__.load({
       textLlm: { provider: '', model: '' },
       imageApis: [],   // [{id, name, baseUrl, apiKey, model, mode}]
       videoApis: [],   // [{id, name, url, apiKey, model}]
+      ttsApis: [],     // [{id, name, baseUrl, apiKey, model, voice}]
       imageApiId: '',
       videoApiId: '',
+      ttsApiId: '',
       lang: '',        // '' = 跟随 Harness
       skillScript: '',       // '' = 内置编剧专家
       skillStoryboard: '',   // '' = 内置分镜专家
@@ -746,8 +766,10 @@ window.__ModuleLoader__.load({
         textLlm: { ...DEFAULT_SETTINGS.textLlm, ...(s.textLlm || {}) },
         imageApis: Array.isArray(s.imageApis) ? s.imageApis : [],
         videoApis: Array.isArray(s.videoApis) ? s.videoApis : [],
+        ttsApis: Array.isArray(s.ttsApis) ? s.ttsApis : [],
         imageApiId: s.imageApiId || '',
         videoApiId: s.videoApiId || '',
+        ttsApiId: s.ttsApiId || '',
         lang: s.lang || '',
         skillScript: s.skillScript || '',
         skillStoryboard: s.skillStoryboard || '',
@@ -1198,7 +1220,7 @@ window.__ModuleLoader__.load({
           setTimeout(res, 15000);
         });
         totalMs += isFinite(v.duration) && v.duration > 0 ? v.duration * 1000 : 8000;
-        vids.push({ v, name: seg.name, sub: seg.sub || '', withAudio: seg.withAudio !== false, started: false, srcNode: null });
+        vids.push({ v, name: seg.name, sub: seg.sub || '', withAudio: seg.withAudio !== false, ttsUrl: seg.ttsUrl || null, ttsEl: null, ttsSrc: null, started: false, srcNode: null });
       }
       const cv = document.createElement('canvas'); cv.width = W; cv.height = H;
       const g = cv.getContext('2d');
@@ -1230,13 +1252,25 @@ window.__ModuleLoader__.load({
         } else {
           v.muted = true;
         }
+        // TTS 配音与画面同步播放（经同一 AudioContext 汇聚录制）
+        if (item.ttsUrl && audio) {
+          try {
+            const el = new Audio(item.ttsUrl);
+            const sn = audio.ac.createMediaElementSource(el);
+            sn.connect(audio.dest);
+            item.ttsEl = el; item.ttsSrc = sn;
+          } catch { item.ttsEl = null; }
+        }
         try { v.currentTime = 0; } catch { /* 忽略 */ }
         const p = v.play();
         if (p && p.catch) p.catch(() => { /* 由安全超时兜底 */ });
+        if (item.ttsEl) { try { item.ttsEl.currentTime = 0; item.ttsEl.play().catch(() => { /* 忽略 */ }); } catch { /* 忽略 */ } }
       }
       function stopItem(item) {
         try { item.v.pause(); } catch { /* 忽略 */ }
         if (item.srcNode) { try { item.srcNode.disconnect(); } catch { /* 忽略 */ } item.srcNode = null; }
+        if (item.ttsEl) { try { item.ttsEl.pause(); } catch { /* 忽略 */ } }
+        if (item.ttsSrc) { try { item.ttsSrc.disconnect(); } catch { /* 忽略 */ } item.ttsSrc = null; }
       }
       function letterbox(src) {
         if (src.videoWidth) {
@@ -1806,7 +1840,8 @@ window.__ModuleLoader__.load({
     function catLabel(c) {
       const map = {
         character: T('catCharacter'), scene: T('catScene'), prop: T('catProp'),
-        script: T('nScript'), storyboard: T('nStoryboard'), general: T('catGeneral'),
+        script: T('nScript'), storyboard: T('nStoryboard'),
+        audio: T('ttsCategory'), general: T('catGeneral'),
       };
       return map[c] || c;
     }
@@ -2302,6 +2337,7 @@ window.__ModuleLoader__.load({
       sidebar: 'M4 5h16v14H4zM14 5v14',
       spark: 'M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8L12 3z',
       shot: 'M4 8h16v11H4zM4 8l1.8-3.5L10 5.6 8.2 9M10 5.6l4.2 1.1-1.8 3.4M14.2 6.7l4.2 1.1-1.8 3.3M4 12h16',
+      audio: 'M11 5L6 9H3v6h3l5 4V5zM15.5 8.5a5 5 0 010 7M18.5 6a9 9 0 010 12',
       film: 'M4 5h16v14H4zM10 9.5l5 3.5-5 3.5zM4 8h16',
       pencil: 'M4 20l1-4L16.5 4.5a2.1 2.1 0 013 3L8 19l-4 1z',
       script: 'M6 3h9l4 4v14H6zM15 3v4h4M9 12h7M9 16h7M9 8h3',
@@ -2852,19 +2888,45 @@ window.__ModuleLoader__.load({
         .filter((x) => x.nd)
         .sort((a, b) => (a.nd.y - b.nd.y) || (a.nd.x - b.nd.x));
       const assetUrlV = useAssetUrl(n.data.assetId);
+      const getSub = (x) => {
+        const defSub = x.nd.type === 'video-gen' ? (x.nd.data.prompt || '') : (x.nd.data.label || TYPE_LABEL()[x.nd.type]);
+        const v = n.data.subs && n.data.subs[x.e.id];
+        return v != null ? v : defSub;
+      };
+      const genTts = async (x) => {
+        const settings = loadSettings();
+        const cfg = resolveApiCfg(settings.ttsApis, settings.ttsApiId, null);
+        if (!cfg) { toast(T('errNoTts')); return; }
+        const text = String(getSub(x) || '').trim();
+        if (!text) { toast(T('subPlaceholder')); return; }
+        update((s) => { const nd = s.graph.nodes[n.id]; if (nd) { nd.data.tts = nd.data.tts || {}; nd.data.tts[x.e.id] = { status: 'running' }; } });
+        try {
+          const res = await fetch((cfg.baseUrl || '').replace(/\/+$/, '') + '/audio/speech', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...(cfg.apiKey ? { Authorization: 'Bearer ' + cfg.apiKey } : {}) },
+            body: JSON.stringify({ ...(cfg.model ? { model: cfg.model } : {}), input: text, voice: cfg.voice || 'alloy', response_format: 'mp3' }),
+          });
+          if (!res.ok) throw new Error('TTS HTTP ' + res.status + '：' + (await res.text()).slice(0, 200));
+          const buf = await res.arrayBuffer();
+          const blob = new Blob([buf], { type: res.headers.get('content-type') || 'audio/mpeg' });
+          const rec = await saveAssetRecord(S.activeId, 'audio', blob, { name: 'TTS-' + text.slice(0, 12), prompt: text, source: 'api', category: 'audio' });
+          update((s) => { const nd = s.graph.nodes[n.id]; if (nd) { nd.data.tts = nd.data.tts || {}; nd.data.tts[x.e.id] = { status: 'done', assetId: rec.id }; } s.assetsTick++; });
+        } catch (e) {
+          update((s) => { const nd = s.graph.nodes[n.id]; if (nd) { nd.data.tts = nd.data.tts || {}; nd.data.tts[x.e.id] = { status: 'error', error: String(e.message || e) }; } });
+        }
+      };
       const compose = async () => {
         if (!segs.length) { toast(T('noSegments')); return; }
-        const defSub = (x) => (x.nd.type === 'video-gen' ? (x.nd.data.prompt || '') : (x.nd.data.label || TYPE_LABEL()[x.nd.type]));
-        const getSub = (x) => {
-          const v = n.data.subs && n.data.subs[x.e.id];
-          return v != null ? v : defSub(x);
-        };
         const metas = [];
         for (const x of segs) {
           if (!x.nd.data.assetId) continue;
           try {
             const rec = await idbGet(x.nd.data.assetId);
-            if (rec && rec.blob) metas.push({ url: URL.createObjectURL(rec.blob), name: rec.name || 'seg', sub: getSub(x), withAudio: n.data.keepAudio !== false });
+            if (rec && rec.blob) {
+              const ttsId = n.data.tts && n.data.tts[x.e.id] && n.data.tts[x.e.id].assetId;
+              const ttsUrl = ttsId ? await assetUrl(ttsId) : null;
+              metas.push({ url: URL.createObjectURL(rec.blob), name: rec.name || 'seg', sub: getSub(x), ttsUrl });
+            }
           } catch { /* 跳过加载失败的片段 */ }
         }
         if (!metas.length) { toast(T('noSegments')); return; }
@@ -2924,6 +2986,7 @@ window.__ModuleLoader__.load({
             ? segs.map((x, i) => {
                 const defSub = x.nd.type === 'video-gen' ? (x.nd.data.prompt || '') : (x.nd.data.label || TYPE_LABEL()[x.nd.type]);
                 const val = (n.data.subs && n.data.subs[x.e.id] != null) ? n.data.subs[x.e.id] : defSub;
+                const tts = (n.data.tts && n.data.tts[x.e.id]) || {};
                 return h('div', { key: x.e.id, style: { display: 'flex', flexDirection: 'column', gap: 3 } },
                   h('div', { className: 'dshic-shot-item' },
                     h('strong', {}, (i + 1) + '. '), x.nd.data.label || TYPE_LABEL()[x.nd.type]),
@@ -2935,6 +2998,18 @@ window.__ModuleLoader__.load({
                     }),
                     onPointerDown: (e) => e.stopPropagation(),
                   }),
+                  h('div', { className: 'dshic-node-row' },
+                    h('button', {
+                      type: 'button', className: 'dshic-mini is-ghost',
+                      disabled: tts.status === 'running',
+                      onPointerDown: (e) => e.stopPropagation(),
+                      onClick: () => genTts(x),
+                    }, Ic('audio', 11),
+                      tts.status === 'running' ? T('ttsRunning')
+                        : tts.assetId ? T('tts') + ' ✓'
+                        : T('ttsGen')),
+                    tts.error ? h('span', { className: 'dshic-err' }, tts.error) : null,
+                  ),
                 );
               })
             : h('div', { className: 'dshic-hint' }, T('noSegments')),
@@ -3296,6 +3371,7 @@ window.__ModuleLoader__.load({
         return p ? p.name : '';
       };
       const addNodeFor = (a) => {
+        if (a.kind === 'audio') return; // 音频资产在卡片内直接试听
         if (a.kind === 'text') {
           const c = worldCenter();
           const nd = addNodeAt('text', { x: c.x - 120, y: c.y - 60 });
@@ -3381,13 +3457,16 @@ window.__ModuleLoader__.load({
     }
     function AssetCard({ a, onAdd, onDel, onCat, showProject, projectName }) {
       const url = useAssetUrl(a.kind === 'text' ? null : a.id);
-      const downloadName = (a.name || 'asset') + (a.kind === 'image' ? '.png' : a.kind === 'video' ? '.webm' : '.md');
-      return h('div', { className: 'dshic-asset', onClick: () => onAdd(a), title: a.kind === 'text' ? T('textAssetHint') : T('addAssetNode') },
+      const downloadName = (a.name || 'asset') + (a.kind === 'image' ? '.png' : a.kind === 'video' ? '.webm' : a.kind === 'audio' ? '.mp3' : '.md');
+      return h('div', { className: 'dshic-asset', onClick: a.kind === 'audio' ? undefined : () => onAdd(a), title: a.kind === 'text' ? T('textAssetHint') : a.kind === 'audio' ? '' : T('addAssetNode') },
         a.kind === 'text'
           ? h('div', { className: 'dshic-textcard' }, (a.text || '').slice(0, 260) || '…')
           : a.kind === 'image'
             ? h('img', { className: 'dshic-asset-thumb', src: url || '', draggable: false })
-            : h('video', { className: 'dshic-asset-thumb', src: url ? url + '#t=0.1' : '', muted: true, preload: 'metadata' }),
+            : a.kind === 'video'
+              ? h('video', { className: 'dshic-asset-thumb', src: url ? url + '#t=0.1' : '', muted: true, preload: 'metadata' })
+              : h('div', { className: 'dshic-asset-thumb', style: { display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--dsw-alias-brand-primary)' } },
+                  Ic('audio', 26)),
         h('div', { className: 'dshic-asset-actions' },
           h('button', {
             type: 'button', className: 'dshic-iconbtn', title: T('download'),
@@ -3401,6 +3480,9 @@ window.__ModuleLoader__.load({
             type: 'button', className: 'dshic-iconbtn is-danger', title: T('delAsset'),
             onClick: (e) => { e.stopPropagation(); onDel(a); },
           }, Ic('trash', 11))),
+        a.kind === 'audio' && url
+          ? h('audio', { src: url, controls: true, style: { width: '100%', height: 30 }, onPointerDown: (e) => e.stopPropagation(), onClick: (e) => e.stopPropagation(), preload: 'metadata' })
+          : null,
         h('div', { className: 'dshic-asset-meta' },
           h('select', {
             className: 'dshic-cat', title: T('catLabel'), value: a.category || 'general',
@@ -3609,7 +3691,8 @@ window.__ModuleLoader__.load({
         ),
         h(ApiListEditor, { key: 'imglist', kind: 'image' }),
         h(ApiListEditor, { key: 'vidlist', kind: 'video' }),
-        h('div', { key: 'note', className: 'dshic-hint' }, 'DeepSeek Harness · @local/infinite-canvas v0.9.0'),
+        h(ApiListEditor, { key: 'ttslist', kind: 'tts' }),
+        h('div', { key: 'note', className: 'dshic-hint' }, 'DeepSeek Harness · @local/infinite-canvas v0.10.0'),
       ];
     }
 
