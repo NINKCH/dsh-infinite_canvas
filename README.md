@@ -76,7 +76,7 @@ Publishing runs through **npm Trusted Publishing** (OIDC) — no npm token exist
 
 ## Data & privacy
 
-- Canvas documents, projects, settings and the series bible live in browser `localStorage` (`dsh-ic:*`); assets live in IndexedDB (`dsh-infinite-canvas`).
+- Canvas documents, projects, settings and the series bible live in browser `localStorage` (`dsh-ic:*`); assets live in IndexedDB (`dsh-infinite-canvas`) — **or on disk** once a data root is set in Settings (per-project folders under the configured root, served by the plugin backend with HTTP Range support for video seeking).
 - AI text generation runs through the Harness host process (your configured models, no extra keys).
 - Image/video/TTS calls go directly from the browser to the endpoints you configure — mind CORS and key handling.
 - Nothing is uploaded anywhere by the plugin itself.

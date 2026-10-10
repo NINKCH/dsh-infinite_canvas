@@ -76,7 +76,7 @@ flowchart LR
 
 ## 数据与隐私
 
-- 画布文档、项目、设置与设定集存于浏览器 `localStorage`（`dsh-ic:*`）；资产存于 IndexedDB（`dsh-infinite-canvas`）。
+- 画布文档、项目、设置与设定集存于浏览器 `localStorage`（`dsh-ic:*`）；资产存于 IndexedDB（`dsh-infinite-canvas`）——**或在设置中配置数据根目录后落盘**（按项目分目录存放，由插件后台以 HTTP Range 方式服务，支持视频拖动进度条）。
 - AI 文本经 Harness 宿主进程调用（使用你已配置的模型，无需额外 Key）。
 - 图片/视频/TTS 请求由浏览器直连你配置的地址——请注意 CORS 与密钥保管。
 - 插件自身不向任何第三方上传数据。

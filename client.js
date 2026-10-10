@@ -338,6 +338,17 @@ window.__ModuleLoader__.load({
       'updateInstalledHint': '重启 Harness 后生效（网页部分刷新页面即可）',
       'updateFailGuide': '自动安装未成功，请在 DSH 插件管理 中升级',
       'updatePolicySkipped': '（已按你的点击跳过 24 小时新版本冷却期）',
+      'dataRootLabel': '数据根目录',
+      'dataRootPlaceholder': '如 D:\\canvas-data',
+      'dataRootHint': '资产与视频按项目落盘到该目录（不再占用 C 盘 IndexedDB）。留空 = 浏览器 IndexedDB。',
+      'dataRootSave': '设置此目录',
+      'dataRootOpen': '打开目录',
+      'dataRootMigrate': '迁移历史资产',
+      'dataRootMigrated': '已迁移 {n} 个资产到数据根目录',
+      'dataRootMigratedDone': '已迁移',
+      'dataRootMigrating': '迁移中',
+      'dataRootUnsupported': '当前插件后台版本较旧（不支持数据根目录）：重启 Harness 后可用',
+      'dataRootSaved': '数据根目录已设置',
       'updateCurrent': '当前',
       'updateGo': '去升级',
       'npmUpgradeHint': '请在 DSH 插件管理 中升级到最新版（本插件绝不自动安装或重启）；安装完成后重启 Harness 生效',
@@ -600,6 +611,17 @@ window.__ModuleLoader__.load({
       'updateInstalledHint': 'restart Harness to take effect (refresh the page for the web part)',
       'updateFailGuide': 'Auto-install failed — please upgrade via the DSH Plugin Manager',
       'updatePolicySkipped': '(skipped the 24-hour release cool-down at your click)',
+      'dataRootLabel': 'Data root',
+      'dataRootPlaceholder': 'e.g. D:\\canvas-data',
+      'dataRootHint': 'Assets and videos are stored per project under this folder (no more C: IndexedDB). Empty = browser IndexedDB.',
+      'dataRootSave': 'Set directory',
+      'dataRootOpen': 'Open folder',
+      'dataRootMigrate': 'Migrate existing assets',
+      'dataRootMigrated': 'Migrated {n} assets to the data root',
+      'dataRootMigratedDone': 'Migrated',
+      'dataRootMigrating': 'Migrating',
+      'dataRootUnsupported': 'The plugin backend is older and lacks data-root support — restart Harness to enable',
+      'dataRootSaved': 'Data root set',
       'updateCurrent': 'current',
       'updateGo': 'Upgrade',
       'npmUpgradeHint': 'Please upgrade via the DSH Plugin Manager (this plugin never auto-installs or restarts); restart Harness after installing',
@@ -1047,29 +1069,80 @@ window.__ModuleLoader__.load({
     }
     const assetUrlCache = new Map();
     const assetNameCache = new Map(); // assetId -> name（连线绑定的同步名称查询）
+    function fileUrlFor(rel) { return '/' + NS + '/api/file?rel=' + encodeURIComponent(rel); }
+    function extFromMime(mime) {
+      const sub = String(mime || '').split(';')[0].split('/')[1] || 'bin';
+      return /^[a-z0-9]{1,8}$/i.test(sub) ? sub : 'bin';
+    }
     async function assetUrl(id) {
       if (!id) return null;
       if (assetUrlCache.has(id)) return assetUrlCache.get(id);
       const rec = await idbGet(id);
-      if (!rec || !rec.blob) return null;
-      const url = URL.createObjectURL(rec.blob);
-      assetUrlCache.set(id, url);
+      if (!rec) return null;
+      let url = null;
+      if (rec.rel) url = fileUrlFor(rec.rel);              // 磁盘资产：Host 文件服务（支持 Range）
+      else if (rec.blob) url = URL.createObjectURL(rec.blob); // 旧资产：IndexedDB blob
+      if (url) assetUrlCache.set(id, url);
       return url;
     }
+    /** 取资产 Blob：磁盘资产经 Host 文件服务拉取，旧资产直接读 IndexedDB。 */
+    async function assetBlob(id) {
+      const rec = await idbGet(id);
+      if (!rec) return null;
+      if (rec.blob) return rec.blob;
+      if (rec.rel) {
+        const r = await fetch(fileUrlFor(rec.rel));
+        if (!r.ok) throw new Error('资产读取失败 HTTP ' + r.status);
+        return await r.blob();
+      }
+      return null;
+    }
     async function saveAssetRecord(projectId, kind, blob, meta) {
+      const id = uid('a');
+      const mime = blob.type || (kind === 'image' ? 'image/png' : 'video/webm');
       const rec = {
-        id: uid('a'), projectId, kind,
-        mime: blob.type || (kind === 'image' ? 'image/png' : 'video/webm'),
+        id, projectId, kind,
+        mime,
         name: (meta && meta.name) || (kind === 'image' ? 'image' : 'video') + '-' + Date.now().toString(36),
-        blob,
         createdAt: Date.now(),
         prompt: (meta && meta.prompt) || '',
         source: (meta && meta.source) || 'demo',
         category: (meta && meta.category) || 'general',
       };
+      if (S.dataRoot) {
+        // 数据根目录已配置：落盘到 <root>/projects/<项目>/<类型>/<id>.<ext>，IndexedDB 只存元数据
+        const rel = `projects/${projectId}/${kind}/${id}.${extFromMime(mime)}`;
+        const r = await fetch('/' + NS + '/api/asset?rel=' + encodeURIComponent(rel), { method: 'POST', body: blob });
+        if (!r.ok) throw new Error('资产落盘失败: ' + (await r.text()));
+        rec.rel = rel;
+        rec.size = blob.size;
+        rec.stored = 'disk';
+      } else {
+        rec.blob = blob;
+        rec.stored = 'idb';
+      }
       await idbPut(rec);
       assetNameCache.set(rec.id, rec.name);
       return rec;
+    }
+    /** 一次性把 IndexedDB 里的历史资产迁移到数据根目录（保留元数据，移除 blob）。 */
+    async function migrateAssetsToDisk(onProgress) {
+      if (!S.dataRoot) throw new Error('请先设置数据根目录');
+      const all = await idbAll();
+      const targets = all.filter((r) => r.blob && !r.rel);
+      let done = 0;
+      for (const rec of targets) {
+        const rel = `projects/${rec.projectId}/${rec.kind}/${rec.id}.${extFromMime(rec.mime)}`;
+        const r = await fetch('/' + NS + '/api/asset?rel=' + encodeURIComponent(rel), { method: 'POST', body: rec.blob });
+        if (!r.ok) throw new Error('迁移失败: ' + rel + ' — ' + (await r.text()));
+        const next = { ...rec, rel, size: rec.blob.size, stored: 'disk' };
+        delete next.blob;
+        await idbPut(next);
+        assetUrlCache.delete(rec.id); // 旧 objectURL 失效，改走文件 URL
+        done++;
+        if (onProgress) onProgress(done, targets.length);
+      }
+      return { migrated: done, total: targets.length };
     }
     function useAssetUrl(id) {
       const [url, setUrl] = useState(null);
@@ -1696,7 +1769,9 @@ window.__ModuleLoader__.load({
       const map = craftMapLoad(pid);
       if (!opts.force && map[rec.id]) return map[rec.id];
       const rel = craftProjectSlug() + '/media/' + rec.id + extForMime(rec.mime, rec.name);
-      await craft.write(rel, rec.blob);
+      const blob = rec.blob || await assetBlob(rec.id);
+      if (!blob) throw new Error('资产内容不可用: ' + rec.id);
+      await craft.write(rel, blob);
       craftMapSet(pid, rec.id, rel);
       return rel;
     }
@@ -1878,6 +1953,15 @@ window.__ModuleLoader__.load({
       } catch (e) {
         // 旧 Host 没有 updateInstall RPC → 回退为纯引导（方案 A 兜底）
         update((s) => { s.updateBusy = false; s.updateMsg = T('npmUpgradeHint') + ((S.updateInfo && S.updateInfo.remoteVersion) ? ' → v' + S.updateInfo.remoteVersion : ''); });
+      }
+    }
+    /** 从 Host 拉取数据根目录配置（Host 旧版无此 RPC → 标记不支持）。 */
+    async function refreshDataRoot() {
+      try {
+        const r = await hostRpc('dataRootGet');
+        update((s) => { s.dataRoot = r.dataRoot || null; s.dataRootExists = !!r.exists; s.dataRootSupported = true; });
+      } catch (e) {
+        update((s) => { s.dataRoot = null; s.dataRootSupported = !/未知操作/.test(String((e && e.message) || e)); });
       }
     }
 
@@ -2138,6 +2222,9 @@ window.__ModuleLoader__.load({
       assetsTick: 0,
       tick: 0,
       craftStatus: null, // {at, data} | {at, error}
+      dataRoot: null,        // 数据根目录（Host 配置）；null = 未设置（资产走 IndexedDB）
+      dataRootExists: false,
+      dataRootSupported: true,
       updateInfo: null,      // Host updateCheck 结果
       updateChecking: false,
       updateBusy: false,
@@ -2483,8 +2570,7 @@ window.__ModuleLoader__.load({
       if (!src) return null;
       const aid = servedAssetId(src, e.fromPort);
       if (!aid) return null;
-      const rec = await idbGet(aid);
-      return rec ? rec.blob : null;
+      return await assetBlob(aid);
     }
     // 多参考图：按节点上的显式顺序（refOrder，未排序时按连线先后）解析，带名称/分类供 [图N] 绑定
     async function resolveRefMetas(nodeId, portId) {
@@ -2501,7 +2587,8 @@ window.__ModuleLoader__.load({
         if (!aid) continue;
         try {
           const rec = await idbGet(aid);
-          if (rec && rec.blob) metas.push({ blob: rec.blob, name: rec.name || '', category: rec.category || 'general' });
+          const blob = await assetBlob(aid);
+          if (blob) metas.push({ blob, name: (rec && rec.name) || '', category: (rec && rec.category) || 'general' });
         } catch { /* 单个参考图读取失败不影响其余 */ }
       }
       return metas;
@@ -3894,10 +3981,11 @@ window.__ModuleLoader__.load({
           if (!x.nd.data.assetId) continue;
           try {
             const rec = await idbGet(x.nd.data.assetId);
-            if (rec && rec.blob) {
+            const blob = await assetBlob(x.nd.data.assetId);
+            if (blob) {
               const ttsId = n.data.tts && n.data.tts[x.e.id] && n.data.tts[x.e.id].assetId;
               const ttsUrl = ttsId ? await assetUrl(ttsId) : null;
-              metas.push({ url: URL.createObjectURL(rec.blob), name: rec.name || 'seg', sub: getSub(x), ttsUrl });
+              metas.push({ url: URL.createObjectURL(blob), name: (rec && rec.name) || 'seg', sub: getSub(x), ttsUrl });
             }
           } catch { /* 跳过加载失败的片段 */ }
         }
@@ -3933,9 +4021,10 @@ window.__ModuleLoader__.load({
           if (!x.nd.data.assetId) continue;
           try {
             const rec = await idbGet(x.nd.data.assetId);
-            if (!(rec && rec.blob)) continue;
-            const rel = await ensureAssetOnDisk(rec);
-            items.push({ rel, name: rec.name || 'seg', sub: getSub(x), dur: await videoDurationOf(rec.blob) });
+            const blob = await assetBlob(x.nd.data.assetId);
+            if (!blob) continue;
+            const rel = await ensureAssetOnDisk({ ...(rec || {}), id: x.nd.data.assetId, blob });
+            items.push({ rel, name: (rec && rec.name) || 'seg', sub: getSub(x), dur: await videoDurationOf(blob) });
           } catch (e) { toast('Craft: ' + (e.message || e)); return; }
         }
         if (!items.length) { toast(T('noSegments')); return; }
@@ -4297,7 +4386,12 @@ window.__ModuleLoader__.load({
         lsSet(LS_ACTIVE, S.activeId);
         try {
           const recs = await idbByProject(pid);
-          for (const r of recs) { try { await idbDelete(r.id); } catch { /* 逐个容错 */ } }
+          for (const r of recs) {
+            try {
+              if (r.rel) { try { await hostRpc('assetDelete', { rel: r.rel }); } catch { /* 磁盘清理失败不阻塞 */ } }
+              await idbDelete(r.id);
+            } catch { /* 逐个容错 */ }
+          }
         } catch { /* 资产清理失败不影响项目删除 */ }
         setDelTarget(null);
       };
@@ -4455,6 +4549,7 @@ window.__ModuleLoader__.load({
         if (files.length) setTick((x) => x + 1);
       };
       const del = async (a) => {
+        if (a.rel) { try { await hostRpc('assetDelete', { rel: a.rel }); } catch { /* 磁盘清理失败不阻塞 */ } }
         await idbDelete(a.id);
         update((s) => {
           for (const nd of Object.values(s.graph.nodes)) {
@@ -4468,7 +4563,7 @@ window.__ModuleLoader__.load({
       const syncAll = async () => {
         const st = await craftStatusSafe();
         if (!st) return;
-        const recs = assets.filter((a) => a.blob);
+        const recs = assets.filter((a) => a.blob || a.rel);
         let okN = 0, failN = 0;
         for (const a of recs) {
           try { await syncAssetToDisk(a, { force: true }); okN++; } catch { failN++; }
@@ -4838,7 +4933,7 @@ window.__ModuleLoader__.load({
         if (!(st.bins && st.bins.photocraft && st.bins.photocraft.found)) { toast(T('craftCliMissing').replace('{name}', 'photocraft')); return; }
         let paramsObj;
         try { paramsObj = JSON.parse(paramsText || '{}'); } catch { toast(T('craftInvalidJson')); return; }
-        if (!rec || !rec.blob) { toast(T('noResult')); return; }
+        if (!rec || (!rec.blob && !rec.rel)) { toast(T('noResult')); return; }
         setRunning(true); setErr(null); setProgress('…');
         try {
           const mediaRel = await ensureAssetOnDisk(rec);
@@ -4945,6 +5040,54 @@ window.__ModuleLoader__.load({
         ));
     }
 
+    /** 数据根目录卡片：设置/打开/迁移历史资产。 */
+    function DataRootCard() {
+      const [val, setVal] = useState('');
+      const [busy, setBusy] = useState(false);
+      const [mig, setMig] = useState(null); // null | {done,total} | 'done'
+      useEffect(() => { if (S.dataRoot) setVal(S.dataRoot); }, [S.dataRoot]);
+      const save = async () => {
+        if (busy) return;
+        setBusy(true);
+        try {
+          await hostRpc('dataRootSet', { root: val.trim() });
+          await refreshDataRoot();
+          toast(T('dataRootSaved') + (S.dataRoot ? '：' + S.dataRoot : ''));
+        } catch (e) { toast('设置失败：' + ((e && e.message) || e)); }
+        setBusy(false);
+      };
+      const openDir = async () => { try { await hostRpc('dataRootReveal'); } catch (e) { toast((e && e.message) || e); } };
+      const migrate = async () => {
+        if (busy || mig) return;
+        setBusy(true); setMig({ done: 0, total: 0 });
+        try {
+          const r = await migrateAssetsToDisk((done, total) => setMig({ done, total }));
+          setMig('done');
+          toast(T('dataRootMigrated').replace('{n}', String(r.migrated)));
+        } catch (e) { setMig(null); toast('迁移失败：' + ((e && e.message) || e)); }
+        setBusy(false);
+      };
+      return h('div', { key: 'dataroot', className: 'dshic-card' },
+        h('div', { className: 'dshic-row' }, Ic('image', 12), h('strong', { style: { fontSize: 12 } }, T('dataRootLabel'))),
+        S.dataRootSupported === false
+          ? h('div', { className: 'dshic-hint' }, T('dataRootUnsupported'))
+          : [
+              h('div', { className: 'dshic-row', key: 'row1' },
+                h('input', {
+                  className: 'dshic-input', value: val, placeholder: T('dataRootPlaceholder'),
+                  onChange: (e) => setVal(e.target.value), onPointerDown: (e) => e.stopPropagation(),
+                }),
+                h('button', { type: 'button', className: 'dshic-mini', disabled: busy, onPointerDown: (e) => e.stopPropagation(), onClick: save }, T('dataRootSave')),
+              ),
+              h('div', { className: 'dshic-hint', key: 'hint' }, T('dataRootHint')),
+              h('div', { className: 'dshic-row', key: 'row2' },
+                S.dataRoot ? h('button', { type: 'button', className: 'dshic-mini', onPointerDown: (e) => e.stopPropagation(), onClick: openDir }, T('dataRootOpen')) : null,
+                S.dataRoot ? h('button', { type: 'button', className: 'dshic-mini', disabled: busy || !!mig, onPointerDown: (e) => e.stopPropagation(), onClick: migrate }, mig === 'done' ? T('dataRootMigratedDone') : T('dataRootMigrate')) : null,
+                (mig && mig !== 'done') ? h('span', { style: { fontSize: 11, opacity: 0.85 } }, T('dataRootMigrating') + ' ' + mig.done + '/' + mig.total) : null,
+              ),
+            ],
+      );
+    }
     function SettingsTab() {
       const [s, setS] = useState(loadSettings);
       const apply = (fn) => {
@@ -4958,6 +5101,7 @@ window.__ModuleLoader__.load({
       const field = (label, value, onChange, placeholder, password) => h(Field, { label, value, onChange, placeholder, password });
       return [
         h(CraftCard, { key: 'craft' }),
+        h(DataRootCard, { key: 'dataroot' }),
         h('div', { key: 'lang', className: 'dshic-card' },
           h('div', { className: 'dshic-row' }, Ic('text', 12), h('strong', { style: { fontSize: 12 } }, T('langLabel'))),
           h('select', {
@@ -4983,7 +5127,7 @@ window.__ModuleLoader__.load({
         h(ApiListEditor, { key: 'imglist', kind: 'image' }),
         h(ApiListEditor, { key: 'vidlist', kind: 'video' }),
         h(ApiListEditor, { key: 'ttslist', kind: 'tts' }),
-        h('div', { key: 'note', className: 'dshic-hint' }, 'DeepSeek Harness · dsh-infinite-canvas v0.17.1'),
+        h('div', { key: 'note', className: 'dshic-hint' }, 'DeepSeek Harness · dsh-infinite-canvas' + ((S.updateInfo && S.updateInfo.runningVersion) ? ' v' + S.updateInfo.runningVersion : '')),
       ];
     }
 
@@ -5317,6 +5461,8 @@ window.__ModuleLoader__.load({
           probeCraft();
           // 检查更新（Host RPC；Host 旧版未带此方法时静默）
           checkUpdate(true);
+          // 数据根目录（Host 旧版静默降级为 IndexedDB 模式）
+          refreshDataRoot();
           // 后台路由探活：失败时在画布顶部给出可操作的提示
           hostRpc('ping').then(() => { S.hostOk = true; S.hostError = null; notify(); }).catch((e) => {
             S.hostOk = false;

@@ -8,7 +8,7 @@
  */
 import { spawn } from 'node:child_process';
 import fs from 'node:fs/promises';
-import { readFileSync, existsSync, readdirSync } from 'node:fs';
+import { createReadStream, createWriteStream, existsSync, mkdirSync, readFileSync, readdirSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -106,6 +106,42 @@ async function ensureBundleEntry(profileDir, pkg) {
   return true;
 }
 
+// ---------- 数据根目录（资产落盘）----------
+// 配置存在 ~/.dsh/infinite-canvas/config.json：跨重装/重启稳定，绝不放进包目录。
+const CONFIG_PATH = path.join(os.homedir(), '.dsh', 'infinite-canvas', 'config.json');
+
+function readIcConfig() {
+  try { return JSON.parse(readFileSync(CONFIG_PATH, 'utf8')) || {}; } catch { return {}; }
+}
+function writeIcConfig(cfg) {
+  mkdirSync(path.dirname(CONFIG_PATH), { recursive: true });
+  writeFileSync(CONFIG_PATH, JSON.stringify(cfg, null, 2) + '\n', 'utf8');
+}
+function dataRoot() {
+  const r = readIcConfig().dataRoot;
+  return (typeof r === 'string' && r.trim()) ? path.resolve(r.trim()) : null;
+}
+/** rel 限定在 dataRoot 之内：拒绝绝对路径 / 盘符 / 上级跳转，返回 { abs, clean }。 */
+function safeJoin(root, rel) {
+  const clean = String(rel || '').replace(/\\/g, '/').replace(/^\/+/, '').trim();
+  if (!clean) throw new Error('缺少相对路径');
+  if (/(^|\/)\.\.(\/|$)/.test(clean) || /^[a-z]:/i.test(clean)) throw new Error('非法路径: ' + rel);
+  const rootAbs = path.resolve(root);
+  const abs = path.resolve(rootAbs, ...clean.split('/'));
+  if (abs !== rootAbs && !abs.startsWith(rootAbs + path.sep)) throw new Error('路径越界');
+  return { abs, clean };
+}
+const MIME_BY_EXT = {
+  png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp', gif: 'image/gif', svg: 'image/svg+xml',
+  webm: 'video/webm', mp4: 'video/mp4', mov: 'video/quicktime', mkv: 'video/x-matroska',
+  wav: 'audio/wav', mp3: 'audio/mpeg', m4a: 'audio/mp4', ogg: 'audio/ogg',
+  json: 'application/json', srt: 'text/plain; charset=utf-8', txt: 'text/plain; charset=utf-8',
+};
+function mimeOf(p) {
+  const m = /\.([a-z0-9]+)$/i.exec(p);
+  return m ? (MIME_BY_EXT[m[1].toLowerCase()] || 'application/octet-stream') : 'application/octet-stream';
+}
+
 /** 读取 npm registry 上 latest dist-tag 的版本号。 */
 async function npmLatestVersion() {
   const res = await fetch(NPM_LATEST_URL, {
@@ -195,7 +231,7 @@ async function updateInstall() {
 export const inject = ['webServer'];
 
 // 仅供诊断 / 自动化测试（不属于 RPC 面，运行时行为不受影响）
-export const _internals = { updateCheck, updateInstall, npmLatestVersion, cmpVer, findPnpm, getProfileDir: () => PROFILE_DIR, getVersion: () => VERSION };
+export const _internals = { updateCheck, updateInstall, npmLatestVersion, cmpVer, findPnpm, getProfileDir: () => PROFILE_DIR, getVersion: () => VERSION, dataRoot, safeJoin, mimeOf, getIcConfigPath: () => CONFIG_PATH };
 
 function resolveModel(providers, want) {
   const byProvider = want && want.provider
@@ -278,6 +314,38 @@ export function apply(ctx) {
       async llmComplete(args) { return complete(args); },
       async updateCheck() { return updateCheck(); },
       async updateInstall() { return updateInstall(); },
+      async dataRootGet() {
+        const root = dataRoot();
+        let exists = false;
+        if (root) { try { exists = statSync(root).isDirectory(); } catch { /* 不存在 */ } }
+        return { dataRoot: root, exists, configPath: CONFIG_PATH };
+      },
+      async dataRootSet(args) {
+        const raw = String((args && args.root) ?? '').trim();
+        if (!raw) throw new Error('需要数据根目录路径');
+        const root = path.resolve(raw);
+        if (!path.isAbsolute(root)) throw new Error('需要绝对路径（如 D:\\canvas-data）');
+        mkdirSync(root, { recursive: true });
+        const cfg = readIcConfig();
+        cfg.dataRoot = root;
+        writeIcConfig(cfg);
+        return { ok: true, dataRoot: root };
+      },
+      async dataRootReveal() {
+        const root = dataRoot();
+        if (!root) throw new Error('未设置数据根目录');
+        mkdirSync(root, { recursive: true });
+        const open = process.platform === 'win32' ? 'explorer.exe' : process.platform === 'darwin' ? 'open' : 'xdg-open';
+        try { spawn(open, [root], { detached: true, stdio: 'ignore' }).unref(); } catch { /* 打开失败不阻塞 */ }
+        return { ok: true, dataRoot: root };
+      },
+      async assetDelete(args) {
+        const root = dataRoot();
+        if (!root) throw new Error('未设置数据根目录');
+        const { abs } = safeJoin(root, (args && args.rel) || '');
+        try { unlinkSync(abs); } catch { /* 已不存在视为成功 */ }
+        return { ok: true };
+      },
       async listSkills() {
         const skills = ctx.get('skills');
         if (!skills) return { skills: [], error: 'skills 服务不可用' };
@@ -307,31 +375,108 @@ export function apply(ctx) {
       },
     };
 
-    return ctx.webServer.register({
-      kind: 'exact',
-      path: `/${NAME}/api/rpc`,
-      async handler(req, res) {
-        res.setHeader('content-type', 'application/json; charset=utf-8');
-        try {
-          if (req.method !== 'POST') {
-            res.statusCode = 405;
-            res.end(JSON.stringify({ error: '仅接受 POST' }));
-            return;
+    const registrations = [
+      ctx.webServer.register({
+        kind: 'exact',
+        path: `/${NAME}/api/rpc`,
+        async handler(req, res) {
+          res.setHeader('content-type', 'application/json; charset=utf-8');
+          try {
+            if (req.method !== 'POST') {
+              res.statusCode = 405;
+              res.end(JSON.stringify({ error: '仅接受 POST' }));
+              return;
+            }
+            let raw = '';
+            for await (const chunk of req) {
+              raw += chunk;
+              if (raw.length > 2e6) throw new Error('请求过大');
+            }
+            const { method, args } = JSON.parse(raw);
+            const fn = methods[method];
+            if (!fn) throw new Error('未知操作: ' + method);
+            res.end(JSON.stringify(await fn(args ?? {})));
+          } catch (e) {
+            res.statusCode = 400;
+            res.end(JSON.stringify({ error: String((e && e.message) || e) }));
           }
-          let raw = '';
-          for await (const chunk of req) {
-            raw += chunk;
-            if (raw.length > 2e6) throw new Error('请求过大');
+        },
+      }),
+      ctx.webServer.register({
+        kind: 'exact',
+        path: `/${NAME}/api/asset`,
+        async handler(req, res) {
+          res.setHeader('content-type', 'application/json; charset=utf-8');
+          try {
+            if (req.method !== 'POST' && req.method !== 'PUT') {
+              res.statusCode = 405;
+              res.end(JSON.stringify({ error: '仅接受 POST/PUT' }));
+              return;
+            }
+            const root = dataRoot();
+            if (!root) throw new Error('未设置数据根目录');
+            const u = new URL(req.url, 'http://localhost');
+            const { abs, clean } = safeJoin(root, u.searchParams.get('rel') || '');
+            mkdirSync(path.dirname(abs), { recursive: true });
+            let size = 0;
+            await new Promise((resolve, reject) => {
+              const ws = createWriteStream(abs);
+              req.on('data', (c) => { size += c.length; });
+              req.on('error', reject);
+              ws.on('error', reject);
+              ws.on('finish', resolve);
+              req.pipe(ws);
+            });
+            res.end(JSON.stringify({ ok: true, rel: clean, size }));
+          } catch (e) {
+            res.statusCode = 400;
+            res.end(JSON.stringify({ error: String((e && e.message) || e) }));
           }
-          const { method, args } = JSON.parse(raw);
-          const fn = methods[method];
-          if (!fn) throw new Error('未知操作: ' + method);
-          res.end(JSON.stringify(await fn(args ?? {})));
-        } catch (e) {
-          res.statusCode = 400;
-          res.end(JSON.stringify({ error: String((e && e.message) || e) }));
-        }
-      },
-    });
-  }, `${NAME}: api route`);
+        },
+      }),
+      ctx.webServer.register({
+        kind: 'exact',
+        path: `/${NAME}/api/file`,
+        async handler(req, res) {
+          try {
+            if (req.method !== 'GET') { res.statusCode = 405; res.end('仅接受 GET'); return; }
+            const root = dataRoot();
+            if (!root) { res.statusCode = 404; res.end('未设置数据根目录'); return; }
+            const u = new URL(req.url, 'http://localhost');
+            const { abs } = safeJoin(root, u.searchParams.get('rel') || '');
+            let st;
+            try { st = statSync(abs); } catch { res.statusCode = 404; res.end('not found'); return; }
+            if (!st.isFile()) { res.statusCode = 404; res.end('not found'); return; }
+            res.setHeader('content-type', mimeOf(abs));
+            res.setHeader('accept-ranges', 'bytes');
+            res.setHeader('cache-control', 'no-cache');
+            const m = /^bytes=(\d*)-(\d*)$/.exec(String(req.headers.range || ''));
+            if (m && (m[1] !== '' || m[2] !== '')) {
+              let start;
+              let end;
+              if (m[1] === '') { start = Math.max(0, st.size - Number(m[2])); end = st.size - 1; }
+              else { start = parseInt(m[1], 10); end = m[2] === '' ? st.size - 1 : Math.min(parseInt(m[2], 10), st.size - 1); }
+              if (!Number.isFinite(start) || !Number.isFinite(end) || start > end || start >= st.size) {
+                res.statusCode = 416;
+                res.setHeader('content-range', 'bytes */' + st.size);
+                res.end();
+                return;
+              }
+              res.statusCode = 206;
+              res.setHeader('content-range', `bytes ${start}-${end}/${st.size}`);
+              res.setHeader('content-length', String(end - start + 1));
+              createReadStream(abs, { start, end }).pipe(res);
+            } else {
+              res.setHeader('content-length', String(st.size));
+              createReadStream(abs).pipe(res);
+            }
+          } catch (e) {
+            res.statusCode = 400;
+            res.end(String((e && e.message) || e));
+          }
+        },
+      }),
+    ];
+    return () => { for (const off of registrations) { try { if (off) off(); } catch { /* 忽略 */ } } };
+  }, `${NAME}: api routes`);
 }
