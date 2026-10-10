@@ -4197,10 +4197,10 @@ window.__ModuleLoader__.load({
               h('span', { style: { overflow: 'hidden', textOverflow: 'ellipsis' } }, proj ? proj.name : '')),
         h('div', { className: 'dshic-toolbar-sep' }),
         h('button', {
-          type: 'button', className: cls('dshic-btn'), style: { fontSize: 11, color: 'var(--dsw-alias-label-secondary)', gap: 4 },
-          title: T('updateBtn'), disabled: S.updateChecking,
+          type: 'button', className: cls('dshic-btn'), style: { fontSize: 12, color: 'var(--dsw-alias-label-secondary)', gap: 4 },
+          title: T('updateBtn') + ((S.updateInfo && S.updateInfo.runningVersion) ? '（当前 v' + S.updateInfo.runningVersion + '）' : ''), disabled: S.updateChecking,
           onClick: () => { checkUpdate(false).then((info) => { if (info && info.upToDate) toast(T('updateUpToDate')); }); },
-        }, 'v' + ((S.updateInfo && S.updateInfo.runningVersion) || PLUGIN_VERSION), S.updateChecking ? h('span', { className: 'dshic-spin' }) : ((S.updateInfo && !S.updateInfo.upToDate) ? ' ⬆' : '')),
+        }, T('updateBtn'), S.updateChecking ? h('span', { className: 'dshic-spin' }) : ((S.updateInfo && !S.updateInfo.upToDate) ? ' ⬆' : '')),
         h('div', { className: 'dshic-toolbar-sep' }),
         h(Btn, {
           active: S.rightOpen, title: T('toggleRight'),
