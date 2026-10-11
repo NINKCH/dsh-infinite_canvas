@@ -869,6 +869,11 @@ window.__ModuleLoader__.load({
 .dshic-shot-item strong{color:var(--dsw-alias-label-primary);font-size:11px;}
 .dshic-textcard{width:100%;height:86px;box-sizing:border-box;border:none;background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-secondary);
   font:inherit;font-size:11px;line-height:15px;padding:6px 7px;overflow:hidden;text-align:left;display:block;white-space:pre-wrap;}
+/* 文本（剧本等）资产卡：只展示标题与项目标签，不展开正文 */
+.dshic-textcard.is-title{display:flex;flex-direction:column;gap:6px;justify-content:center;padding:10px 9px;color:inherit;}
+.dshic-textcard-title{font-size:12px;font-weight:600;line-height:17px;color:var(--dsw-alias-label-primary);word-break:break-word;
+  display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;}
+.dshic-textcard-sub{font-size:10px;line-height:14px;color:var(--dsw-alias-label-secondary);}
 .dshic-projchip{flex:none;height:15px;padding:0 5px;border-radius:4px;font-size:9px;line-height:15px;
   background:color-mix(in srgb,var(--dsw-alias-state-warn-primary) 16%,transparent);color:var(--dsw-alias-state-warn-primary);max-width:72px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 /* 节点类型色条：左缘 accent */
@@ -4879,7 +4884,13 @@ window.__ModuleLoader__.load({
       const downloadName = (a.name || 'asset') + (a.kind === 'image' ? '.png' : a.kind === 'video' ? '.webm' : a.kind === 'audio' ? '.mp3' : '.md');
       return h('div', { className: 'dshic-asset', onClick: a.kind === 'audio' ? undefined : () => onAdd(a), title: a.kind === 'text' ? T('textAssetHint') : a.kind === 'audio' ? '' : T('addAssetNode') },
         a.kind === 'text'
-          ? h('div', { className: 'dshic-textcard' }, (a.text || '').slice(0, 260) || '…')
+          ? h('div', { className: 'dshic-textcard is-title' },
+              h('div', { className: 'dshic-textcard-title', title: a.name || '' }, a.name || T('scriptAssetPrefix')),
+              h('div', { className: 'dshic-textcard-sub' },
+                projectName
+                  ? h('span', { className: 'dshic-projchip', title: projectName }, projectName)
+                  : h('span', { className: 'dshic-projchip' }, catLabel(a.category || 'script'))),
+            )
           : a.kind === 'image'
             ? h('img', { className: 'dshic-asset-thumb', src: url || '', draggable: false })
             : a.kind === 'video'
@@ -4924,7 +4935,7 @@ window.__ModuleLoader__.load({
             onChange: (e) => { e.stopPropagation(); onCat(a, e.target.value); },
           },
             CATEGORIES.map((c) => h('option', { key: c, value: c }, catLabel(c)))),
-          showProject && a.projectId ? h('span', { className: 'dshic-projchip', title: projectName }, projectName) : null,
+          showProject && a.projectId && a.kind !== 'text' ? h('span', { className: 'dshic-projchip', title: projectName }, projectName) : null,
           h('div', { style: { flex: 1 } }),
           h('span', {}, fmtTime(a.createdAt))),
         craftFor ? h(PhotoCraftDialog, { key: 'pc', assetId: a.id, onClose: () => setCraftFor(false) }) : null,
