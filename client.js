@@ -377,6 +377,10 @@ window.__ModuleLoader__.load({
       'bibleDrafted': '已根据创作意图起草设定集，请检查后再生成本',
       'bibleDraftEmpty': '没能起草出设定集：请先在剧本/文本节点写点创作意图，或检查文本模型配置',
       'bibleOrderHint': '设定集先行：世界观/风格/角色/场景/道具先定好 → 生成剧本 → 为角色/场景/道具生成参考图 → 再拆解分镜',
+      'mentionRefs': '@引用命中',
+      'mentionAssets': '可用参考图 {n} 张',
+      'mentionNoAsset': '暂无参考图',
+      'mentionNoAssetHint': '该实体还没有参考图：先建一个图片节点生成（建议命名「角色-名称 多视图」），之后所有 @名称 的提示词都会自动带上它',
       'dataRootBrowse': '浏览选择目录',
       'dataRootPicking': '请在弹出的窗口中选择目录（可直接取消）…',
       'dataRootPickUnsupported': '当前平台不支持目录选择器，请手动填写路径',
@@ -680,6 +684,10 @@ window.__ModuleLoader__.load({
       'bibleDrafted': 'Bible drafted from your intent — review it before generating the script',
       'bibleDraftEmpty': 'Nothing drafted: write some intent in a script/text node first, or check the text model',
       'bibleOrderHint': 'Bible first: set worldview/style/characters/scenes/props → generate the script → generate reference images → then break down the storyboard',
+      'mentionRefs': '@mention hits',
+      'mentionAssets': '{n} reference image(s) available',
+      'mentionNoAsset': 'no reference image yet',
+      'mentionNoAssetHint': 'No reference image for this entity yet: create an image node (name it like "角色-张山 多视图") and every later @mention will pick it up automatically',
       'dataRootBrowse': 'Browse for folder',
       'dataRootPicking': 'Pick a folder in the dialog (cancel anytime)…',
       'dataRootPickUnsupported': 'No folder picker on this platform — type the path instead',
@@ -911,6 +919,17 @@ window.__ModuleLoader__.load({
 .dshic-textcard-title{font-size:12px;font-weight:600;line-height:17px;color:var(--dsw-alias-label-primary);word-break:break-word;
   display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;}
 .dshic-textcard-sub{font-size:10px;line-height:14px;color:var(--dsw-alias-label-secondary);}
+/* @引用高亮输入框：背景层与 textarea 严格对齐（同字体/内距/行高/换行规则） */
+.dshic-prompt{position:relative;display:block;width:100%;}
+.dshic-prompt-back,.dshic-prompt-input{font:inherit;font-size:11px;line-height:16px;padding:6px 7px;box-sizing:border-box;
+  white-space:pre-wrap;word-break:break-word;overflow-wrap:anywhere;}
+.dshic-prompt-back{position:absolute;inset:0;overflow:hidden;pointer-events:none;color:var(--dsw-alias-label-primary);
+  border:1px solid transparent;border-radius:6px;}
+.dshic-prompt-ph{color:var(--dsw-alias-label-tertiary);}
+.dshic-prompt-input{position:relative;background:transparent;color:transparent;caret-color:var(--dsw-alias-label-primary);
+  resize:vertical;}
+.dshic-prompt-input::placeholder{color:transparent;}
+.dshic-mention{color:#2f7cf6;font-weight:700;}
 .dshic-projchip{flex:none;height:15px;padding:0 5px;border-radius:4px;font-size:9px;line-height:15px;
   background:color-mix(in srgb,var(--dsw-alias-state-warn-primary) 16%,transparent);color:var(--dsw-alias-state-warn-primary);max-width:72px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 /* 节点类型色条：左缘 accent */
@@ -1082,6 +1101,157 @@ window.__ModuleLoader__.load({
       for (const c of b.props || []) if ((c.name || '').trim()) lines.push(`道具 ${c.name.trim()}：${(c.desc || '').trim()}`);
       return lines.join('\n');
     }
+
+    // ============================================================
+    // @ 引用（mention）：提示词里写 @张山 → 自动带上该实体的设定集描述与其参考图资产
+    // 以下为纯函数（无副作用），供 scripts/test-mentions.mjs 抽取单测
+    // <<<MENTION_PURE_BEGIN>>>
+    /** @名称 的词法：到空白或常见标点为止（支持中英文名与 - _ ·） */
+    const MENTION_RE = /@([^\s@，。；：、,.;:!?！？()（）\[\]【】"'“”<>《》/\\|]{1,24})/g;
+    /** 解析提示词里的 @名称（含位置，按出现顺序）。 */
+    function parseMentions(text) {
+      const out = [];
+      const src = String(text || '');
+      const re = new RegExp(MENTION_RE.source, 'g');
+      let m;
+      while ((m = re.exec(src)) !== null) {
+        const name = String(m[1] || '').trim();
+        if (name) out.push({ name, start: m.index, end: m.index + m[0].length });
+      }
+      return out;
+    }
+    function escapeHtml(s) {
+      return String(s || '')
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    }
+    /** 把提示词转成高亮 HTML：@名称 用 .dshic-mention（蓝色加粗）标记。 */
+    function highlightMentions(text) {
+      const src = String(text || '');
+      let out = '';
+      let last = 0;
+      const re = new RegExp(MENTION_RE.source, 'g');
+      let m;
+      while ((m = re.exec(src)) !== null) {
+        out += escapeHtml(src.slice(last, m.index));
+        out += '<span class="dshic-mention">' + escapeHtml(m[0]) + '</span>';
+        last = m.index + m[0].length;
+      }
+      out += escapeHtml(src.slice(last));
+      return out === '' ? '' : out + '\n'; // 末尾补换行，保证背景层与 textarea 行高对齐
+    }
+    /** 送给模型前去掉 @ 标记（保留名称本体）。 */
+    function stripMentionMarks(text) {
+      return String(text || '').replace(new RegExp(MENTION_RE.source, 'g'), '$1');
+    }
+    function entityLabelOf(kind) {
+      return kind === 'character' ? '角色' : kind === 'scene' ? '场景' : kind === 'prop' ? '道具' : '元素';
+    }
+    function entityCategoryOf(kind) {
+      return kind === 'character' ? 'character' : kind === 'scene' ? 'scene' : kind === 'prop' ? 'prop' : 'general';
+    }
+    /** 在设定集里按名称找实体（角色/场景/道具）。 */
+    function matchBibleEntity(name, bible) {
+      const want = String(name || '').trim().toLowerCase();
+      if (!want) return null;
+      for (const [kind, key] of [['character', 'characters'], ['scene', 'scenes'], ['prop', 'props']]) {
+        for (const it of (bible && bible[key]) || []) {
+          if (String((it && it.name) || '').trim().toLowerCase() === want) {
+            return { kind, name: String(it.name).trim(), desc: String((it.desc || '')).trim() };
+          }
+        }
+      }
+      return null;
+    }
+    /** 资产是否属于某实体：优先显式 entity 字段，其次标准命名「角色-名称 …」（名称后须为边界，避免张山/张山峰混淆）。 */
+    function assetBelongsToEntity(rec, ent) {
+      if (!rec || !ent) return false;
+      if (rec.entity && String(rec.entity).trim().toLowerCase() === ent.name.toLowerCase()) return true;
+      const nm = String(rec.name || '').trim();
+      if (!nm) return false;
+      if (nm.toLowerCase() === ent.name.toLowerCase()) return true;
+      const pref = entityLabelOf(ent.kind) + '-' + ent.name;
+      if (!nm.startsWith(pref)) return false;
+      const rest = nm.slice(pref.length);
+      return rest === '' || !/[\p{L}\p{N}]/u.test(rest[0]);
+    }
+    /** 生成用提示词：@标记去掉 + [图N] 绑定 + 命中实体的设定描述。 */
+    function buildEffectivePrompt(prompt, refs, entities, bible) {
+      const zh = effLang() !== 'en';
+      const bind = refs.map((r, i) => {
+        if (r.entity) {
+          const ent = matchBibleEntity(r.entity, bible);
+          const desc = ent ? ent.desc : '';
+          return `[图${i + 1}] ${entityLabelOf(ent ? ent.kind : 'prop')} ${r.entity}${desc ? '（' + desc + '）' : ''}`;
+        }
+        return `[图${i + 1}] ${catLabel(r.category)}：${r.name}`;
+      }).join('；');
+      const entLines = entities.map((e) => `${entityLabelOf(e.kind)} ${e.name}：${e.desc}`);
+      return [
+        (bible.style || '').trim() ? (zh ? '风格：' : 'Style: ') + bible.style.trim() : '',
+        bind ? (zh ? '参考图 → ' : 'Refs -> ') + bind : '',
+        stripMentionMarks(prompt),
+        entLines.length ? (zh ? '设定集：' : 'Series bible: ') + entLines.join('；') : '',
+      ].filter(Boolean).join('\n');
+    }
+    /** 资产命名：优先节点名（如「角色-张山 多视图」），否则用命中实体，最后兜底。 */
+    function assetNameFor(node, entities, fallbackKind) {
+      const label = String((node && node.data && node.data.label) || '').trim();
+      if (label) return label;
+      if (entities && entities.length) return entityLabelOf(entities[0].kind) + '-' + entities[0].name;
+      return (fallbackKind === 'video' ? '视频' : '图片') + '-' + new Date().toISOString().slice(5, 16).replace('T', ' ');
+    }
+    // <<<MENTION_PURE_END>>>
+
+    /** 解析提示词里的 @引用：返回命中实体 + 其名下的参考图资产（按实体出现顺序、各实体内按生成时间）。 */
+    async function resolveMentionBundle(prompt, bible, projectId) {
+      const entities = [];
+      for (const m of parseMentions(prompt)) {
+        const hit = matchBibleEntity(m.name, bible);
+        if (hit && !entities.some((e) => e.name === hit.name)) entities.push(hit);
+      }
+      if (!entities.length) return { entities: [], refs: [] };
+      let all = [];
+      try { all = await idbByProject(projectId); } catch { all = []; }
+      const refs = [];
+      for (const ent of entities) {
+        const owned = all
+          .filter((r) => r.kind === 'image' && assetBelongsToEntity(r, ent))
+          .sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
+        for (const r of owned) if (!refs.some((x) => x.assetId === r.id)) refs.push({ assetId: r.id, entity: ent.name, kind: ent.kind, name: r.name });
+      }
+      return { entities, refs };
+    }
+    /** 合成参考图列表：连线（用户显式顺序）优先，其后追加 @引用命中的设定集资产（去重）。 */
+    async function collectRefs(n, prompt, bible) {
+      const out = [];
+      const edges = S.graph.edges.filter((x) => x.toNode === n.id && x.toPort === 'ref');
+      const order = (n.data.refOrder || []).filter((id) => edges.some((e) => e.id === id));
+      for (const e of edges) if (!order.includes(e.id)) order.push(e.id);
+      for (const id of order) {
+        const e = edges.find((x) => x.id === id);
+        const src = e && S.graph.nodes[e.fromNode];
+        if (!src) continue;
+        const aid = servedAssetId(src, e.fromPort);
+        if (!aid) continue;
+        try {
+          const rec = await idbGet(aid);
+          const blob = await assetBlob(aid);
+          if (blob) out.push({ assetId: aid, blob, name: (rec && rec.name) || '', category: (rec && rec.category) || 'general', source: 'wired' });
+        } catch { /* 单个失败不影响其余 */ }
+      }
+      const bundle = await resolveMentionBundle(prompt, bible, S.activeId);
+      for (const r of bundle.refs) {
+        if (out.some((x) => x.assetId === r.assetId)) continue;
+        try {
+          const rec = await idbGet(r.assetId);
+          const blob = await assetBlob(r.assetId);
+          if (blob) out.push({ assetId: r.assetId, blob, name: (rec && rec.name) || r.name, category: (rec && rec.category) || 'general', source: 'mention', entity: r.entity });
+        } catch { /* 忽略 */ }
+      }
+      return { refs: out, entities: bundle.entities };
+    }
+
     function outLangLine() {
       return effLang() === 'en'
         ? 'Write all narrative content in English.'
@@ -1194,6 +1364,11 @@ window.__ModuleLoader__.load({
         source: (meta && meta.source) || 'demo',
         category: (meta && meta.category) || 'general',
       };
+      // 设定集绑定（@引用解析依据）：entity=主实体名，entities=全部命中实体，nodeLabel=来源节点名
+      if (meta && meta.entity) rec.entity = meta.entity;
+      if (meta && Array.isArray(meta.entities) && meta.entities.length) rec.entities = meta.entities;
+      if (meta && meta.nodeLabel) rec.nodeLabel = meta.nodeLabel;
+      if (meta && meta.effectivePrompt) rec.effectivePrompt = meta.effectivePrompt;
       if (S.dataRoot) {
         // 数据根目录已配置：落盘到 <root>/projects/<项目>/<类型>/<id>.<ext>，IndexedDB 只存元数据
         const rel = `projects/${projectId}/${kind}/${id}.${extFromMime(mime)}`;
@@ -2342,8 +2517,9 @@ window.__ModuleLoader__.load({
             '只输出一个 JSON 对象：{"shots":[{"title":"…","visual":"…","motion":"…","characters":["…"],"scene":"…","props":["…"],"duration":5}]}。',
             '规则：',
             '- visual 是首帧静态画面描述（景别、人物外观与站位、场景、光线、构图，60 字内），供图片生成当提示词；',
+            '- **visual 与 motion 里的角色/场景/道具必须写成 @名称 引用形式**（如 `@张山`、`@褶皱巷`），插件会自动带上该实体的设定描述与其参考图资产，保证跨镜跨集一致；',
             '- motion 是本镜动作与运镜（动作节拍、镜头运动、节奏，50 字内），供视频生成当提示词；两者不重复；',
-            '- characters/scene/props 使用剧本与设定集中的名称，便于匹配资产；无道具给空数组；',
+            '- characters/scene/props 使用剧本与设定集中的名称（不带 @），便于匹配资产；无道具给空数组；',
             '- duration 为该镜视频秒数，3-10 的整数；镜头之间保持剧情连续；',
             '- 只输出 JSON，不要输出任何其他内容。',
           ].join('\n')
@@ -2352,8 +2528,9 @@ window.__ModuleLoader__.load({
             'Output only one JSON object: {"shots":[{"title":"…","visual":"…","motion":"…","characters":["…"],"scene":"…","props":["…"],"duration":5}]}.',
             'Rules:',
             '- visual = static first-frame description (shot size, wardrobe, staging, light, framing, <=60 words) used as the image prompt;',
+            '- **characters/scenes/props inside visual and motion must be written as @name references** (e.g. `@ZhangSan`); the plugin then attaches that entity\'s bible description and reference images automatically;',
             '- motion = action & camera for the video prompt (<=50 words); do not repeat visual;',
-            '- characters/scene/props must use names from the script and series bible so assets match; empty props array if none;',
+            '- characters/scene/props arrays must use plain names from the script and series bible (no @) so assets match; empty props array if none;',
             '- duration is seconds per shot, an integer 3-10; keep narrative continuity;',
             '- Output JSON only.',
           ].join('\n');
@@ -2782,19 +2959,6 @@ window.__ModuleLoader__.load({
       return order;
     }
 
-    /** 提示词里出现的设定集条目（角色/场景/道具）→ 附带其描述，保证画面一致。 */
-    function bibleEntriesIn(bible, prompt) {
-      const text = String(prompt || '');
-      const out = [];
-      const groups = [['characters', '角色'], ['scenes', '场景'], ['props', '道具']];
-      for (const [key, label] of groups) {
-        for (const it of (bible && bible[key]) || []) {
-          const name = String((it && it.name) || '').trim();
-          if (name && text.includes(name)) out.push(label + ' ' + name + '：' + String((it.desc || '').trim()));
-        }
-      }
-      return out;
-    }
     // 输入解析：生成节点的实际 prompt（文本节点 / 分镜节点的画面、动作输出）
     function resolvePrompt(n) {
       const e = S.graph.edges.find((x) => x.toNode === n.id && x.toPort === 'prompt');
@@ -2988,46 +3152,40 @@ window.__ModuleLoader__.load({
         if (type === 'finalcut') { await genFinalCutNode(n); return true; }
         if (type !== 'image-gen' && type !== 'video-gen') throw new Error(T('nodeNotRunnable'));
         const prompt = resolvePrompt(n);
+        const bible = loadBible(S.activeId);
         if (type === 'image-gen') {
-          const metas = await resolveRefMetas(n.id, 'ref');
-          const bible = loadBible(S.activeId);
-          const bibleDesc = (cat, name) => {
-            const key = cat === 'character' ? 'characters' : cat === 'scene' ? 'scenes' : 'props';
-            const hit = (bible[key] || []).find((x) => (x.name || '').trim() === String(name || '').trim());
-            return hit && hit.desc ? hit.desc.trim() : '';
-          };
-          const bind = metas.map((m, i) => {
-            const d = bibleDesc(m.category, m.name);
-            return `[图${i + 1}] ${catLabel(m.category)}：${m.name}${d ? '（' + d + '）' : ''}`;
-          }).join('；');
-          // 设定集一致性：提示词里出现的角色/场景/道具名 → 自动附上其设定描述
-          const bibleHits = bibleEntriesIn(bible, prompt);
-          const p = [
-            (bible.style || '').trim() ? '风格：' + bible.style.trim() : '',
-            bind ? `${T('refCount')} → ${bind}` : '',
-            prompt,
-            bibleHits.length ? (effLang() === 'en' ? 'Series bible: ' : '设定集：') + bibleHits.join('；') : '',
-          ].filter(Boolean).join('\n');
+          // 参考图 = 连线（用户顺序）+ @引用命中的设定集资产（按出现顺序）
+          const { refs, entities } = await collectRefs(n, prompt, bible);
+          const metas = refs.map((r) => ({ blob: r.blob, name: r.name, category: r.category }));
+          const p = buildEffectivePrompt(prompt, refs, entities, bible);
           const { blob, demo } = await generateImage(p, metas, { size: n.data.size, ratio: n.data.ratio, apiId: n.data.imageApiId });
-          const rec = await saveAssetRecord(S.activeId, 'image', blob, { prompt, source: demo ? 'demo' : 'api' });
+          const rec = await saveAssetRecord(S.activeId, 'image', blob, {
+            name: assetNameFor(n, entities, 'image'),
+            prompt: stripMentionMarks(prompt), effectivePrompt: p,
+            source: demo ? 'demo' : 'api',
+            entity: entities.length ? entities[0].name : undefined,
+            entities: entities.map((e) => e.name),
+            nodeLabel: (n.data && n.data.label) || '',
+            category: entities.length ? entityCategoryOf(entities[0].kind) : 'general',
+          });
           commitGenResult(n.id, rec.id, demo, 'image');
         } else {
           const frameBlob = await resolveAssetBlob(n.id, 'frame');
-          const refMetas = await resolveRefMetas(n.id, 'ref');
-          const bible = loadBible(S.activeId);
-          const bind = refMetas.map((m, i) => `[图${i + 1}] ${catLabel(m.category)}：${m.name}`).join('；');
-          const bibleHitsV = bibleEntriesIn(bible, prompt);
-          const p = [
-            (bible.style || '').trim() ? '风格：' + bible.style.trim() : '',
-            bind ? `${T('refCount')} → ${bind}` : '',
-            prompt,
-            bibleHitsV.length ? (effLang() === 'en' ? 'Series bible: ' : '设定集：') + bibleHitsV.join('；') : '',
-          ].filter(Boolean).join('\n');
+          const { refs, entities } = await collectRefs(n, prompt, bible);
+          const p = buildEffectivePrompt(prompt, refs, entities, bible);
           const { blob, demo } = await generateVideo(p, frameBlob, {
             duration: n.data.duration, resolution: n.data.resolution, ratio: n.data.ratio, apiId: n.data.videoApiId,
-            refs: refMetas.map((m) => m.blob),
+            refs: refs.map((r) => r.blob),
           });
-          const rec = await saveAssetRecord(S.activeId, 'video', blob, { prompt, source: demo ? 'demo' : 'api' });
+          const rec = await saveAssetRecord(S.activeId, 'video', blob, {
+            name: assetNameFor(n, entities, 'video'),
+            prompt: stripMentionMarks(prompt), effectivePrompt: p,
+            source: demo ? 'demo' : 'api',
+            entity: entities.length ? entities[0].name : undefined,
+            entities: entities.map((e) => e.name),
+            nodeLabel: (n.data && n.data.label) || '',
+            category: entities.length ? entityCategoryOf(entities[0].kind) : 'general',
+          });
           commitGenResult(n.id, rec.id, demo, 'video');
           // 尾帧提取（通用）：供 last 端口输出与链式下一镜使用
           try {
@@ -3904,13 +4062,17 @@ window.__ModuleLoader__.load({
       const vrCount = S.graph.edges.filter((x) => x.toNode === n.id && x.toPort === 'ref').length;
       const assetUrlV = useAssetUrl(n.data.assetId);
       return [
-        h('textarea', {
-          key: 'p', className: 'dshic-textarea', value: n.data.prompt || '',
-          placeholder: promptEdge ? T('connected') : T('promptPlaceholder'),
-          disabled: !!promptEdge,
-          onChange: (e) => update((s) => { const nd = s.graph.nodes[n.id]; if (nd) nd.data.prompt = e.target.value; }),
-          onPointerDown: (e) => e.stopPropagation(),
-        }),
+        promptEdge
+          ? h('textarea', {
+              key: 'p', className: 'dshic-textarea', value: n.data.prompt || '',
+              placeholder: T('connected'), disabled: true,
+              onPointerDown: (e) => e.stopPropagation(),
+            })
+          : h(PromptArea, {
+              key: 'p', value: n.data.prompt || '', minHeight: 72,
+              placeholder: T('promptPlaceholder'),
+              onChange: (v) => update((s) => { const nd = s.graph.nodes[n.id]; if (nd) nd.data.prompt = v; }),
+            }),
         h(GenSettingsRow, { key: 'set', n, kind }),
         h('button', {
           key: 'gen', type: 'button', className: 'dshic-gen', disabled: S.running || n.data.status === 'running',
@@ -3928,6 +4090,7 @@ window.__ModuleLoader__.load({
               T('portFrame') + ' × ' + refEdges.length + ' · ' + T('connected'))
           : null,
         h(RefRows, { key: 'refrows', n, portId: 'ref' }),
+        h(MentionInfo, { key: 'mn', n }),
         n.data.error ? h('div', { key: 'err', className: 'dshic-err' }, n.data.error) : null,
         assetUrlV && kind === 'image'
           ? h('img', { key: 'img', className: 'dshic-preview', src: assetUrlV, draggable: false, 'data-no-drag': '1' })
@@ -4019,6 +4182,36 @@ window.__ModuleLoader__.load({
     }
 
     /** 参考图排序列表：[图N] 顺序即提示词绑定顺序，可上移/下移/解除。 */
+    /** @引用解析预览：提示词里 @名称 命中的设定集条目与其参考图资产（标注将成为第几张）。
+     *  连线参考图排在前面，故 @ 资产的序号从连线数之后开始。 */
+    function MentionInfo({ n }) {
+      const prompt = n.data.prompt || '';
+      const wiredCount = S.graph.edges.filter((x) => x.toNode === n.id && x.toPort === 'ref').length;
+      const [rows, setRows] = useState([]);
+      useEffect(() => {
+        let ok = true;
+        (async () => {
+          try {
+            const bible = loadBible(S.activeId);
+            const bundle = await resolveMentionBundle(prompt, bible, S.activeId);
+            if (ok) setRows(bundle.entities.map((e) => ({ ...e, count: bundle.refs.filter((r) => r.entity === e.name).length })));
+          } catch { if (ok) setRows([]); }
+        })();
+        return () => { ok = false; };
+      }, [prompt, S.assetsTick, S.activeId]);
+      if (!rows.length) return null;
+      const all = rows.reduce((a, r) => a + r.count, 0);
+      return h('div', { className: 'dshic-shot-list' },
+        h('div', { className: 'dshic-shot-label' }, T('mentionRefs') + '（' + rows.length + '）'),
+        ...rows.map((r, i) => h('div', { key: r.name, className: 'dshic-row', style: { gap: 5 } },
+          h('span', { className: 'dshic-mention' }, '@' + r.name),
+          h('span', { style: { flex: 1, minWidth: 0, fontSize: 11, color: 'var(--dsw-alias-label-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } },
+            entityLabelOf(r.kind) + ' · ' + (r.count ? T('mentionAssets').replace('{n}', String(r.count)) : T('mentionNoAsset'))),
+        )),
+        all === 0 ? h('div', { className: 'dshic-hint' }, T('mentionNoAssetHint')) : null,
+      );
+    }
+
     function RefRows({ n, portId }) {
       const [rows, setRows] = useState([]);
       const es = S.graph.edges.filter((x) => x.toNode === n.id && x.toPort === portId);
@@ -4164,6 +4357,40 @@ window.__ModuleLoader__.load({
           placeholder: T('shotMotionPlaceholder'),
           onChange: (e) => update((s) => { const nd = s.graph.nodes[n.id]; if (nd) nd.data.motion = e.target.value; }),
           onPointerDown: (e) => e.stopPropagation(),
+        }),
+      );
+    }
+
+    /**
+     * 提示词输入框：@名称 蓝色加粗高亮。
+     * 与主流工具同一做法——透明文字的 textarea 叠在同步滚动的背景层上，
+     * 背景层渲染同一段文本并给 @名称 上色，光标/选区/中文输入法都不受影响。
+     */
+    function PromptArea({ value, onChange, placeholder, minHeight, style }) {
+      const taRef = useRef(null);
+      const backRef = useRef(null);
+      const sync = () => {
+        if (backRef.current && taRef.current) {
+          backRef.current.scrollTop = taRef.current.scrollTop;
+          backRef.current.scrollLeft = taRef.current.scrollLeft;
+        }
+      };
+      const html = highlightMentions(value || '');
+      const ph = placeholder ? '<span class="dshic-prompt-ph">' + escapeHtml(placeholder) + '</span>' : '';
+      return h('div', { className: 'dshic-prompt' },
+        h('div', {
+          ref: backRef, className: 'dshic-prompt-back', 'aria-hidden': 'true',
+          dangerouslySetInnerHTML: { __html: html || ph },
+        }),
+        h('textarea', {
+          ref: taRef, className: 'dshic-textarea dshic-prompt-input', value: value || '',
+          placeholder: html ? undefined : placeholder,
+          style: { minHeight: minHeight || 72, ...(style || {}) },
+          onChange: (e) => onChange(e.target.value),
+          onScroll: sync,
+          onPointerDown: (e) => e.stopPropagation(),
+          onKeyUp: sync,
+          onClick: sync,
         }),
       );
     }

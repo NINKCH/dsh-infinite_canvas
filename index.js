@@ -1115,7 +1115,7 @@ export function apply(ctx) {
         });
         reg({
           name: 'canvas_create_node',
-          description: '在项目画布上新建指定类型的节点（image-gen 图片生成 / video-gen 视频生成 / storyboard 分镜表 / finalcut 成片 / script 剧本 / text 文本），可同时写入提示词。用于按设定集生成角色/场景/道具参考图：先用 canvas_get_bible 取设定，再为每个角色/场景/道具建一个 image-gen 节点（prompt 写外观特征）并 canvas_run_node 触发。',
+          description: '在项目画布上新建指定类型的节点（image-gen 图片生成 / video-gen 视频生成 / storyboard 分镜表 / finalcut 成片 / script 剧本 / text 文本），可同时写入提示词。用于按设定集生成角色/场景/道具参考图：先用 canvas_get_bible 取设定，再为每个角色/场景/道具建一个 image-gen 节点（name 用规范命名如「角色-张山 多视图」，prompt 用 @张山 引用设定集条目）并 canvas_run_node 触发。',
           parameters: {
             type: 'object',
             properties: {
