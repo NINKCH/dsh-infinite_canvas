@@ -353,13 +353,7 @@ window.__ModuleLoader__.load({
       'resizeHint': '拖动左右上下边可调宽高（右键头调宽、底边调高、右下角同时）',
       'resizeHeightHint': '拖动调高；双击恢复「随内容自适应」',
       'aiEmptyResult': '模型返回了空内容——请检查画布设置里的文本模型，或换一个模型重试',
-      'aiInterrupted': '上次生成被页面刷新或关闭中断，请重新生成',
-      'copy': '复制',
-      'copied': '已复制到剪贴板',
-      'copyFailed': '复制失败，请手动选中文本复制',
-      'fill': '填入',
-      'copyName': '复制项目名',
-      'fillName': '一键填入输入框',
+      'aiInterrupted': '上次生成被页面刷新或关闭中断，请重新生成',
       'skillHint': '默认已含内置专家 + 创作方法论（canvas-craft）；也可选择其它已安装技能覆盖',
       'nodeNotRunnable': '该节点类型不支持运行（请用画布上的对应按钮）',
       'llmMaxTokens': '输出上限 maxTokens',
@@ -671,12 +665,6 @@ window.__ModuleLoader__.load({
       'resizeHeightHint': 'Drag to set height; double-click to fit content again',
       'aiEmptyResult': 'The model returned empty content — check the text model in canvas settings or try another model',
       'aiInterrupted': 'The previous generation was interrupted by a page reload; please run it again',
-      'copy': 'Copy',
-      'copied': 'Copied to clipboard',
-      'copyFailed': 'Copy failed — please select the text and copy manually',
-      'fill': 'Fill',
-      'copyName': 'Copy project name',
-      'fillName': 'Fill the input with this name',
       'skillHint': 'Defaults to built-in experts plus the canvas-craft methodology; pick another installed skill to override',
       'nodeNotRunnable': 'This node type cannot be run (use its button on the canvas)',
       'llmMaxTokens': 'Output cap (maxTokens)',
@@ -5409,36 +5397,8 @@ window.__ModuleLoader__.load({
       ];
     }
 
-    /** 复制文本到剪贴板：优先 clipboard API，不可用时回退临时 textarea + execCommand。 */
-    async function copyText(text) {
-      const s = String(text ?? '');
-      if (!s) return false;
-      try {
-        if (navigator.clipboard && navigator.clipboard.writeText) {
-          await navigator.clipboard.writeText(s);
-          toast(T('copied'));
-          return true;
-        }
-      } catch { /* 回退 */ }
-      try {
-        const ta = document.createElement('textarea');
-        ta.value = s;
-        ta.style.position = 'fixed';
-        ta.style.top = '-1000px';
-        ta.style.opacity = '0';
-        document.body.appendChild(ta);
-        ta.select();
-        const ok = !!(document.execCommand && document.execCommand('copy'));
-        document.body.removeChild(ta);
-        toast(ok ? T('copied') : T('copyFailed'));
-        return ok;
-      } catch {
-        toast(T('copyFailed'));
-        return false;
-      }
-    }
-
-    function DeleteProjectModal({ target, name, setName, count, onCancel, onConfirm }) {      const matched = name.trim() === target.name && name.trim() !== '';
+    function DeleteProjectModal({ target, name, setName, count, onCancel, onConfirm }) {
+      const matched = name.trim() === target.name && name.trim() !== '';
       useEffect(() => {
         const fn = (e) => { if (e.key === 'Escape') onCancel(); };
         window.addEventListener('keydown', fn);
@@ -5449,19 +5409,7 @@ window.__ModuleLoader__.load({
           h('div', { className: 'dshic-modal-title' }, T('delProjectTitle')),
           h('div', { className: 'dshic-modal-warn' },
             T('delProjectWarn').replace('{n}', String(count)),
-            h('div', { className: 'dshic-modal-name', style: { marginTop: 4, display: 'flex', alignItems: 'center', gap: 6 } },
-              h('span', { style: { flex: 1, minWidth: 0, wordBreak: 'break-all' } }, target.name),
-              h('button', {
-                type: 'button', className: 'dshic-mini is-ghost', title: T('copyName'),
-                onPointerDown: (e) => e.stopPropagation(),
-                onClick: () => copyText(target.name),
-              }, T('copy')),
-              h('button', {
-                type: 'button', className: 'dshic-mini is-ghost', title: T('fillName'),
-                onPointerDown: (e) => e.stopPropagation(),
-                onClick: () => setName(target.name),
-              }, T('fill')),
-            )),
+            h('div', { className: 'dshic-modal-name', style: { marginTop: 4 } }, target.name)),
           h('div', { className: 'dshic-field' },
             h('span', { className: 'dshic-field-label' }, T('delProjectInput')),
             h('input', {
