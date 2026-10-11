@@ -1,12 +1,14 @@
 #!/usr/bin/env node
 /**
- * LLM 流式与"推理模型只出思考"重试逻辑的确定性测试（dev-only）。
+ * LLM 流式与"无正文"重试逻辑的确定性测试（dev-only）。
  *
- * 用假 llm 服务模拟真实故障：
- *  - 只有 reasoning-delta、finish=length（用户实测的 glm-5.3-flash 现象）
- *  - 只有在按「模型配置的输出上限」重试时才吐正文
- * 验证：① /api/llm-stream 会实时推送思考增量 ② 重试链能拿到正文
- *       ③ 全部尝试失败时返回可读原因（含 finish/直方图），而不是静默空文本
+ * 用假 llm 服务模拟真实故障（适配器真实 finish 形态：reason 是对象 {kind, failure?}）：
+ *  - 只有 reasoning-delta、finish={kind:'max-tokens'}
+ *  - 只有在「追问正文」重试时才吐正文
+ * 验证：① /api/llm-stream 实时推送思考增量 ② 重试拿到正文
+ *       ③ 全部失败时返回可读原因（含 finish/直方图）
+ *       ④ 【用户铁律】任何尝试都不得携带模型参数（reasoningEffort / maxTokens / temperature）——
+ *          思考强度与输出上限一律以用户配置为准，插件绝不插手
  *
  * 运行：node scripts/test-llm-stream.mjs；退出码 0=通过 1=失败
  */
@@ -25,31 +27,33 @@ const errs = [];
 const ok = (cond, msg) => { if (!cond) errs.push(msg); };
 
 const routes = [];
-const CAP = 32000; // 模拟"用户在 Harness 里为模型配置的输出上限"
 let scenario = 'retry-succeeds';
+const seenOptions = [];
 function makeStream(options) {
+  seenOptions.push(options);
   return (async function* gen() {
     if (scenario === 'ok') {
       yield { type: 'text-delta', index: 0, text: '正文内容' };
-      yield { type: 'finish', reason: 'stop' };
+      yield { type: 'finish', reason: { kind: 'stop' } };
       return;
     }
-    // 只有"按模型配置的输出上限重试"时才吐正文；其余情况思考吃满预算（finish=length）
-    const givesBody = scenario === 'retry-succeeds' && options.maxTokens === CAP;
+    // 只有「追问正文」重试（messages 里出现两条 user）时才吐正文；其余情况只出思考
+    const isNudge = Array.isArray(options.messages) && options.messages.filter((m) => m.role === 'user').length >= 2;
+    const givesBody = scenario === 'retry-succeeds' && isNudge;
     yield { type: 'block-start', index: 0 };
     for (let i = 0; i < 3; i++) yield { type: 'reasoning-delta', index: i, text: '思考片段' + i };
     if (!givesBody) {
-      yield { type: 'finish', reason: 'length' };
+      yield { type: 'finish', reason: { kind: 'max-tokens' } };
       return;
     }
     yield { type: 'text-delta', index: 1, text: '正文内容' };
-    yield { type: 'finish', reason: 'stop' };
+    yield { type: 'finish', reason: { kind: 'stop' } };
   })();
 }
 const fakeLlm = {
   listProviders: () => [{ id: 'p-test', name: 'TestProvider' }],
   listModels: () => [{ id: 'm-test', name: 'TestModel' }],
-  resolveModel: () => Promise.resolve({ provider: 'p-test', id: 'm-test', name: 'TestModel', maxTokens: CAP }),
+  resolveModel: () => Promise.resolve({ provider: 'p-test', id: 'm-test', name: 'TestModel' }),
   stream: (options) => makeStream(options),
 };
 const fakeCtx = {
@@ -98,36 +102,43 @@ async function callStream(body) {
   return { status, ctype, frames };
 }
 
-// ---------- 1) 重试成功：思考实时可见 + 最终拿到正文 ----------
+// ---------- 1) 重试成功：思考实时可见 + 追问后拿到正文 ----------
 {
   scenario = 'retry-succeeds';
+  seenOptions.length = 0;
   const r = await callStream({ system: 's', user: 'u' });
   ok(/text\/event-stream/.test(r.ctype), '流式路由未返回 SSE content-type：' + r.ctype);
   const reasoning = r.frames.filter((f) => f.t === 'r');
   ok(reasoning.length >= 3, '思考增量没有推送出来（画布上看不到"在思考"）：' + reasoning.length);
   const attempts = r.frames.filter((f) => f.t === 'attempt');
   ok(attempts.length >= 2, '没有尝试记录（重试链未生效）：' + attempts.length);
-  ok(attempts.some((a) => a.d && a.d.maxTokens === CAP), '重试未使用模型配置的输出上限 ' + CAP + '：' + JSON.stringify(attempts.map((a) => a.d)));
   const done = r.frames.find((f) => f.t === 'done');
   ok(done && done.d && done.d.text === '正文内容', '重试后未拿到正文：' + JSON.stringify(done));
-  ok(!r.frames.some((f) => f.t === 'fail'), '重试成功却报告了失败帧');
+  // 【用户铁律】任何一次尝试都不得携带模型参数：思考强度/输出上限/温度绝不插手
+  for (const o of seenOptions) {
+    ok(o.reasoningEffort === undefined, '发现插件擅自设置 reasoningEffort=' + o.reasoningEffort + '（必须只用用户配置）');
+    ok(o.maxTokens === undefined, '发现插件擅自设置 maxTokens=' + o.maxTokens + '（必须只用用户配置）');
+    ok(o.temperature === undefined, '发现插件擅自设置 temperature=' + o.temperature + '（必须只用用户配置）');
+  }
 }
 
-// ---------- 2) 全部失败：可读原因（含 finish/直方图），不是空文本 ----------
+// ---------- 2) 全部失败：可读原因（含 finish kind/直方图），不是空文本 ----------
 {
   scenario = 'always-reasoning';
+  seenOptions.length = 0;
   const r = await callStream({ system: 's', user: 'u' });
   const fail = r.frames.find((f) => f.t === 'fail');
   ok(!!fail, '全部尝试失败时未返回失败帧（会静默当成空结果）');
   const msg = String((fail && fail.d) || '');
-  ok(/输出预算|思考/.test(msg), '失败原因未说明"思考吃满预算"：' + msg.slice(0, 120));
-  ok(/reasoning-delta/.test(msg), '失败原因未附 chunk 直方图：' + msg.slice(0, 160));
-  ok(/finish=length/.test(msg), '失败原因未包含 finish 原因：' + msg.slice(0, 160));
+  ok(/max-tokens/.test(msg), '失败原因未包含真实 finish 类型（max-tokens）：' + msg.slice(0, 200));
+  ok(/reasoning-delta/.test(msg), '失败原因未附 chunk 直方图：' + msg.slice(0, 200));
+  ok(/未修改任何模型参数/.test(msg), '失败原因未说明"未修改任何模型参数"：' + msg.slice(0, 200));
 }
 
 // ---------- 3) 一次性 RPC 也走同一套重试逻辑 ----------
 {
   scenario = 'retry-succeeds';
+  seenOptions.length = 0;
   const out = await new Promise((resolve) => {
     const req = {
       method: 'POST', url: '/infinite-canvas/api/rpc',
@@ -139,13 +150,13 @@ async function callStream(body) {
     Promise.resolve(rpc.handler(req, res)).catch((e) => resolve({ error: String(e && e.message) }));
   });
   ok(out && out.text === '正文内容', 'llmComplete 未复用重试逻辑：' + JSON.stringify(out));
-  ok(out && out.variant === 'reasoning-retry', 'llmComplete 未标记为重试成功：' + JSON.stringify(out));
+  ok(out && out.variant === 'retry', 'llmComplete 未标记为重试成功：' + JSON.stringify(out));
 }
 
 fs.rmSync(SANDBOX, { recursive: true, force: true });
 if (errs.length) {
-  console.error('✗ LLM 流式/推理重试测试未通过（' + errs.length + ' 项）：');
+  console.error('✗ LLM 流式/重试测试未通过（' + errs.length + ' 项）：');
   for (const e of errs) console.error('  - ' + e);
   process.exit(1);
 }
-console.log('✓ LLM 流式/推理重试测试通过（思考实时推送 / 按模型配置上限重试 / 失败原因可读）');
+console.log('✓ LLM 流式/重试测试通过（思考实时推送 / 追问正文重试 / 失败原因可读 / 不携带任何模型参数）');

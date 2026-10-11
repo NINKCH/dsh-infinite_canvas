@@ -867,20 +867,14 @@ export function apply(ctx) {
         ...(temperature === undefined ? {} : { temperature }),
         ...(maxTokens === undefined ? {} : { maxTokens }),
       };
-      // 模型元数据里的输出上限 = 用户在 Harness 里为该模型配置的值（不是插件编的数字）
-      let configuredCap;
-      try {
-        const info = await service.resolveModel(resolved.provider, resolved.model);
-        const cap = info && (info.maxTokens ?? info.maxOutputTokens ?? info.maxTokensOutput);
-        if (typeof cap === 'number' && Number.isFinite(cap) && cap > 0) configuredCap = cap;
-      } catch { /* 取不到就算了 */ }
       const userMessage = { role: 'user', content: [{ type: 'text', text: user }] };
       /** 跑一次流：统计 chunk 类型，返回文本与失败原因（单次尝试抛错不致命，便于逐级回退）。 */
       const run = async (options, label) => {
         const kinds = [];
         let text = '';
-        let finish = null;
-        emit('onAttempt', { label, maxTokens: options.maxTokens, reasoningEffort: options.reasoningEffort });
+        let finishKind = null;
+        let finishMsg = null;
+        emit('onAttempt', { label });
         try {
           for await (const chunk of service.stream(options)) {
             const type = chunk && chunk.type;
@@ -888,11 +882,16 @@ export function apply(ctx) {
             if (type === 'reasoning-delta' && typeof chunk.text === 'string') emit('onReasoning', chunk.text);
             else if (type === 'text-delta' || type === 'text') {
               if (typeof chunk.text === 'string') { text += chunk.text; emit('onText', chunk.text); }
-            } else if (type === 'finish') finish = chunk.reason ?? chunk.finishReason ?? chunk.reasonCode ?? null;
+            } else if (type === 'finish') {
+              // 适配器的 finish.reason 是对象：{kind:'stop'|'max-tokens'|'error', failure?}
+              const r = chunk.reason;
+              if (r && typeof r === 'object') { finishKind = r.kind || null; finishMsg = (r.failure && r.failure.message) || null; }
+              else if (typeof r === 'string') finishKind = r;
+            }
           }
-          return { text, kinds, finish, error: null };
+          return { text, kinds, finishKind, finishMsg, error: null };
         } catch (e) {
-          return { text: '', kinds, finish, error: String((e && e.message) || e) };
+          return { text: '', kinds, finishKind, finishMsg, error: String((e && e.message) || e) };
         }
       };
       const histogram = (kinds) => {
@@ -913,48 +912,31 @@ export function apply(ctx) {
       // 1) 规范信封（system 独立字段 + sessionId；参数按调用方配置，不发插件自造的数值）
       const primary = await run(base, '默认');
       if (primary.text.trim()) return { text: primary.text, provider: resolved.provider, model: resolved.model, variant: 'system' };
-      // 2) 只出思考不出正文（推理模型）：逐级重试
-      //    优先用**该模型配置的输出上限**（用户配置值），再尝试关掉思考，最后退回老式信封。
-      if (primary.kinds.includes('reasoning-delta')) {
-        const attempts = [];
-        if (configuredCap && configuredCap !== maxTokens) {
-          attempts.push({ label: '按模型配置的输出上限 ' + configuredCap, options: { ...base, maxTokens: configuredCap } });
-        }
-        attempts.push({ label: '关闭思考', options: { ...base, reasoningEffort: 'off' } });
-        if (configuredCap) attempts.push({ label: '输出上限 ' + configuredCap + ' + 关闭思考', options: { ...base, maxTokens: configuredCap, reasoningEffort: 'off' } });
-        attempts.push({ label: '老式信封', options: { provider: resolved.provider, model: resolved.model, messages: system ? [{ role: 'system', content: [{ type: 'text', text: system }] }, userMessage] : [userMessage], ...tuned } });
-        const tried = [];
-        for (const a of attempts) {
-          const opts = { ...a.options };
-          if (opts.system === undefined) delete opts.system;
-          const r = await run(opts, a.label);
-          if (r.text.trim()) return { text: r.text, provider: resolved.provider, model: resolved.model, variant: 'reasoning-retry', attempt: a.label };
-          tried.push(a.label + ': ' + histogram(r.kinds) + (r.finish ? ' finish=' + r.finish : '') + (r.error ? ' / 错误: ' + r.error : ''));
-        }
-        const why = primary.finish === 'length'
-          ? '输出预算被思考耗尽（finish=length）'
-          : '模型只输出思考内容';
-        throw new Error(
-          why + '（provider=' + resolved.provider + ' model=' + resolved.model
-          + (configuredCap ? '，该模型配置的输出上限 ' + configuredCap : '，未能读到该模型的输出上限配置')
-          + '）。可到画布设置里把「输出上限」调大，或改用非推理模型（如 deepseek-flash）。'
-          + '（chunk 统计 → 首次: ' + histogram(primary.kinds) + (primary.finish ? ' finish=' + primary.finish : '') + '；重试: ' + tried.join(' | ') + '）',
-        );
+      // 2) 没拿到正文时的重试 —— **绝不修改任何模型参数**（思考强度/输出上限/温度都不碰）：
+      //    a) 老式信封（system 放进 messages）：只是换一种转写方式
+      //    b) 追问一次："请把最终答案作为正文输出" —— 只追加对话内容，
+      //       适用于"模型把结果写进了思考、正文为空"的情况；思考质量原封不动
+      const nudgeMessage = { role: 'user', content: [{ type: 'text', text: '（继续）请把你的最终答案完整地作为正文输出，不要只输出思考内容。' }] };
+      const attempts = [
+        { label: '老式信封', options: { provider: resolved.provider, model: resolved.model, messages: system ? [{ role: 'system', content: [{ type: 'text', text: system }] }, userMessage] : [userMessage], ...tuned } },
+        { label: '追问正文', options: { ...base, messages: [userMessage, nudgeMessage] } },
+      ];
+      const tried = [];
+      for (const a of attempts) {
+        const r = await run(a.options, a.label);
+        if (r.text.trim()) return { text: r.text, provider: resolved.provider, model: resolved.model, variant: 'retry', attempt: a.label };
+        tried.push(a.label + ': ' + histogram(r.kinds) + (r.finishKind ? ' finish=' + r.finishKind + (r.finishMsg ? '（' + r.finishMsg + '）' : '') : '') + (r.error ? ' / 错误: ' + r.error : ''));
       }
-      // 3) 回退：老式写法（system 作为 messages 首条，不带附加字段）
-      const fallback = await run({
-        provider: resolved.provider,
-        model: resolved.model,
-        messages: system ? [{ role: 'system', content: [{ type: 'text', text: system }] }, userMessage] : [userMessage],
-        ...tuned,
-      }, '老式信封');
-      if (fallback.text.trim()) return { text: fallback.text, provider: resolved.provider, model: resolved.model, variant: 'system-in-messages' };
+      const why = primary.finishKind === 'max-tokens'
+        ? '输出在预算内被截断（finish=max-tokens）'
+        : primary.finishKind
+          ? '模型结束而未输出正文（finish=' + primary.finishKind + (primary.finishMsg ? '：' + primary.finishMsg : '') + '）'
+          : '模型未返回正文';
       throw new Error(
-        '模型未返回文本（provider=' + resolved.provider + ' model=' + resolved.model
-        + '；chunk 统计 → 规范信封: ' + histogram(primary.kinds) + ' / 回退: ' + histogram(fallback.kinds)
-        + (primary.error ? '；规范信封错误: ' + primary.error : '')
-        + (fallback.error ? '；回退错误: ' + fallback.error : '')
-        + '）。插件未覆盖任何生成参数；请检查该模型在 Harness 中的可用性与输出上限设置。',
+        why + '（provider=' + resolved.provider + ' model=' + resolved.model + '）。'
+        + '插件未修改任何模型参数（思考强度/输出上限/温度都按你的配置）；已尝试追问正文仍未得到。'
+        + '建议：换一个文本模型试试。'
+        + '（chunk 统计 → 首次: ' + histogram(primary.kinds) + (primary.finishKind ? ' finish=' + primary.finishKind : '') + '；重试: ' + tried.join(' | ') + '）',
       );
     }
 
