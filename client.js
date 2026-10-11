@@ -353,9 +353,14 @@ window.__ModuleLoader__.load({
       'resizeHint': '拖动左右上下边可调宽高（右键头调宽、底边调高、右下角同时）',
       'resizeHeightHint': '拖动调高；双击恢复「随内容自适应」',
       'aiEmptyResult': '模型返回了空内容——请检查画布设置里的文本模型，或换一个模型重试',
-      'aiInterrupted': '上次生成被页面刷新或关闭中断，请重新生成',
+      'aiInterrupted': '上次生成被页面刷新或关闭中断，请重新生成',
       'skillHint': '默认已含内置专家 + 创作方法论（canvas-craft）；也可选择其它已安装技能覆盖',
       'nodeNotRunnable': '该节点类型不支持运行（请用画布上的对应按钮）',
+      'delAssetTitle': '删除资产',
+      'delAssetWarn': '将删除该资产及其文件，且无法恢复；引用它的节点会清空引用。请输入资产名以确认：',
+      'delAssetInput': '资产名',
+      'renameAsset': '重命名',
+      'renamed': '已重命名',
       'llmMaxTokens': '输出上限 maxTokens',
       'llmTemperature': '温度 temperature',
       'llmParamAuto': '留空 = 用 Harness/模型默认',
@@ -667,6 +672,11 @@ window.__ModuleLoader__.load({
       'aiInterrupted': 'The previous generation was interrupted by a page reload; please run it again',
       'skillHint': 'Defaults to built-in experts plus the canvas-craft methodology; pick another installed skill to override',
       'nodeNotRunnable': 'This node type cannot be run (use its button on the canvas)',
+      'delAssetTitle': 'Delete asset',
+      'delAssetWarn': 'The asset and its file will be deleted permanently; nodes referencing it will lose the reference. Type the asset name to confirm:',
+      'delAssetInput': 'Asset name',
+      'renameAsset': 'Rename',
+      'renamed': 'Renamed',
       'llmMaxTokens': 'Output cap (maxTokens)',
       'llmTemperature': 'Temperature',
       'llmParamAuto': 'empty = Harness/model default',
@@ -881,6 +891,11 @@ window.__ModuleLoader__.load({
 .dshic-asset-meta{display:flex;align-items:center;gap:4px;padding:3px 6px;font-size:10px;color:var(--dsw-alias-label-secondary);flex-wrap:wrap;}
 .dshic-asset-actions{position:absolute;top:4px;right:4px;display:flex;gap:3px;opacity:0;transition:opacity .12s;}
 .dshic-asset:hover .dshic-asset-actions{opacity:1;}
+/* 资产名称行：所有媒体类资产统一显示名称，旁边 ✎ 重命名（与节点改名同一支笔图标） */
+.dshic-asset-name{display:flex;align-items:center;gap:4px;padding:0 7px 6px;}
+.dshic-asset-name-text{flex:1;min-width:0;font-size:11px;line-height:15px;color:var(--dsw-alias-label-primary);
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;user-select:text;-webkit-user-select:text;}
+.dshic-asset-name .dshic-input{height:24px;font-size:11px;padding:0 6px;}
 .dshic-asset-actions .dshic-iconbtn{width:20px;height:20px;background:color-mix(in srgb,var(--dsw-alias-bg-base) 70%,transparent);
   color:var(--dsw-alias-label-primary);backdrop-filter:blur(4px);}
 .dshic-field{display:flex;flex-direction:column;gap:3px;}
@@ -5498,6 +5513,17 @@ window.__ModuleLoader__.load({
         });
         setTick((x) => x + 1);
       };
+      // 资产重命名：写回 IndexedDB 记录并刷新名称缓存（@引用与连线名称都吃这份缓存）
+      const rename = async (a, name) => {
+        const rec = await idbGet(a.id);
+        if (!rec) return;
+        rec.name = name;
+        await idbPut(rec);
+        assetNameCache.set(a.id, name);
+        update((s) => { s.assetsTick++; });
+        setTick((x) => x + 1);
+        toast(T('renamed'));
+      };
       const q = search.trim().toLowerCase();
       const syncAll = async () => {
         const st = await craftStatusSafe();
@@ -5547,24 +5573,85 @@ window.__ModuleLoader__.load({
           ? h('div', { key: 'empty', className: 'dshic-hint' }, T('emptyAssets'))
           : h('div', { key: 'grid', className: 'dshic-asset-grid' },
               shown.map((a) => h(AssetCard, {
-                key: a.id, a, onAdd: addNodeFor, onDel: del, onCat: changeCategory,
+                key: a.id, a, onAdd: addNodeFor, onDel: (x) => setDelTarget(x), onCat: changeCategory,
+                onRename: rename,
                 showProject: scope !== 'current', projectName: projectName(a.projectId),
               })),
             ),
+        delTarget ? h(DeleteAssetModal, {
+          key: 'delasset', target: delTarget, onCancel: () => setDelTarget(null),
+          onConfirm: async () => { const t = delTarget; setDelTarget(null); await del(t); },
+        }) : null,
       ];
     }
-    function AssetCard({ a, onAdd, onDel, onCat, showProject, projectName }) {
+    /** 删除资产确认框：与项目删除同一套交互 —— 名字可选中，手打确认，不做一键填入。 */
+    function DeleteAssetModal({ target, name, setName, onCancel, onConfirm }) {
+      const matched = name.trim() === (target.name || '') && name.trim() !== '';
+      useEffect(() => {
+        const fn = (e) => { if (e.key === 'Escape') onCancel(); };
+        window.addEventListener('keydown', fn);
+        return () => window.removeEventListener('keydown', fn);
+      }, [onCancel]);
+      return h('div', { className: 'dshic-modal-overlay', onPointerDown: (e) => { if (e.target === e.currentTarget) onCancel(); } },
+        h('div', { className: 'dshic-modal' },
+          h('div', { className: 'dshic-modal-title' }, T('delAssetTitle')),
+          h('div', { className: 'dshic-modal-warn' },
+            T('delAssetWarn'),
+            h('div', { className: 'dshic-modal-name', style: { marginTop: 4 } }, target.name || '—')),
+          h('div', { className: 'dshic-field' },
+            h('span', { className: 'dshic-field-label' }, T('delAssetInput')),
+            h('input', {
+              className: 'dshic-input', autoFocus: true, value: name,
+              placeholder: target.name,
+              onChange: (e) => setName(e.target.value),
+              onKeyDown: (e) => { if (e.key === 'Enter' && matched) onConfirm(); },
+              onPointerDown: (e) => e.stopPropagation(),
+            })),
+          h('div', { className: 'dshic-modal-actions' },
+            h('button', { type: 'button', className: 'dshic-btn dshic-btn-outline', onClick: onCancel }, T('cancel')),
+            h('button', {
+              type: 'button', className: 'dshic-btn is-danger dshic-btn-outline', disabled: !matched,
+              style: matched ? { borderColor: 'var(--dsw-alias-state-error-primary)', color: 'var(--dsw-alias-state-error-primary)' } : null,
+              onClick: () => { if (matched) onConfirm(); },
+            }, T('doDelete'))),
+        ));
+    }
+
+    function AssetCard({ a, onAdd, onDel, onCat, onRename, showProject, projectName }) {
       const url = useAssetUrl(a.kind === 'text' ? null : a.id);
       const [craftFor, setCraftFor] = useState(false);
+      const [renaming, setRenaming] = useState(false);
+      const [nameVal, setNameVal] = useState('');
+      const startRename = (e) => { e.stopPropagation(); setNameVal(a.name || ''); setRenaming(true); };
+      const commitRename = () => {
+        const v = nameVal.trim();
+        setRenaming(false);
+        if (v && v !== (a.name || '')) onRename(a, v);
+      };
+      const nameInput = h('input', {
+        className: 'dshic-input', autoFocus: true, value: nameVal,
+        onChange: (e) => setNameVal(e.target.value),
+        onKeyDown: (e) => { if (e.key === 'Enter') commitRename(); if (e.key === 'Escape') setRenaming(false); },
+        onBlur: commitRename,
+        onPointerDown: (e) => e.stopPropagation(),
+        onClick: (e) => e.stopPropagation(),
+      });
+      const renameBtn = h('button', {
+        type: 'button', className: 'dshic-iconbtn', title: T('renameAsset'),
+        onPointerDown: (e) => e.stopPropagation(),
+        onClick: startRename,
+      }, Ic('pencil', 11));
       const downloadName = (a.name || 'asset') + (a.kind === 'image' ? '.png' : a.kind === 'video' ? '.webm' : a.kind === 'audio' ? '.mp3' : '.md');
       return h('div', { className: 'dshic-asset', onClick: a.kind === 'audio' ? undefined : () => onAdd(a), title: a.kind === 'text' ? T('textAssetHint') : a.kind === 'audio' ? '' : T('addAssetNode') },
         a.kind === 'text'
           ? h('div', { className: 'dshic-textcard is-title' },
-              h('div', { className: 'dshic-textcard-title', title: a.name || '' }, a.name || T('scriptAssetPrefix')),
+              renaming ? nameInput : h('div', { className: 'dshic-textcard-title', title: a.name || '' }, a.name || T('scriptAssetPrefix')),
               h('div', { className: 'dshic-textcard-sub' },
                 projectName
                   ? h('span', { className: 'dshic-projchip', title: projectName }, projectName)
-                  : h('span', { className: 'dshic-projchip' }, catLabel(a.category || 'script'))),
+                  : h('span', { className: 'dshic-projchip' }, catLabel(a.category || 'script')),
+                h('span', { style: { flex: 1 } }),
+                renameBtn),
             )
           : a.kind === 'image'
             ? h('img', { className: 'dshic-asset-thumb', src: url || '', draggable: false })
@@ -5572,6 +5659,11 @@ window.__ModuleLoader__.load({
               ? h('video', { className: 'dshic-asset-thumb', src: url ? url + '#t=0.1' : '', muted: true, preload: 'metadata' })
               : h('div', { className: 'dshic-asset-thumb', style: { display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--dsw-alias-brand-primary)' } },
                   Ic('audio', 26)),
+        a.kind !== 'text'
+          ? h('div', { className: 'dshic-asset-name' },
+              renaming ? nameInput : h('span', { className: 'dshic-asset-name-text', title: a.name || '' }, a.name || '—'),
+              renameBtn)
+          : null,
         h('div', { className: 'dshic-asset-actions' },
           a.kind === 'image'
             ? h('button', {
