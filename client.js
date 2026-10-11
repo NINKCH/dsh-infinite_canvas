@@ -349,6 +349,9 @@ window.__ModuleLoader__.load({
       'dataRootMigrating': '迁移中',
       'dataRootUnsupported': '当前插件后台版本较旧（不支持数据根目录）：重启 Harness 后可用',
       'dataRootSaved': '数据根目录已设置',
+      'dataRootBrowse': '浏览选择目录',
+      'dataRootPicking': '请在弹出的窗口中选择目录（可直接取消）…',
+      'dataRootPickUnsupported': '当前平台不支持目录选择器，请手动填写路径',
       'updateCurrent': '当前',
       'updateGo': '去升级',
       'npmUpgradeHint': '请在 DSH 插件管理 中升级到最新版（本插件绝不自动安装或重启）；安装完成后重启 Harness 生效',
@@ -622,6 +625,9 @@ window.__ModuleLoader__.load({
       'dataRootMigrating': 'Migrating',
       'dataRootUnsupported': 'The plugin backend is older and lacks data-root support — restart Harness to enable',
       'dataRootSaved': 'Data root set',
+      'dataRootBrowse': 'Browse for folder',
+      'dataRootPicking': 'Pick a folder in the dialog (cancel anytime)…',
+      'dataRootPickUnsupported': 'No folder picker on this platform — type the path instead',
       'updateCurrent': 'current',
       'updateGo': 'Upgrade',
       'npmUpgradeHint': 'Please upgrade via the DSH Plugin Manager (this plugin never auto-installs or restarts); restart Harness after installing',
@@ -5044,6 +5050,7 @@ window.__ModuleLoader__.load({
     function DataRootCard() {
       const [val, setVal] = useState('');
       const [busy, setBusy] = useState(false);
+      const [picking, setPicking] = useState(false);
       const [mig, setMig] = useState(null); // null | {done,total} | 'done'
       useEffect(() => { if (S.dataRoot) setVal(S.dataRoot); }, [S.dataRoot]);
       const save = async () => {
@@ -5056,9 +5063,29 @@ window.__ModuleLoader__.load({
         } catch (e) { toast('设置失败：' + ((e && e.message) || e)); }
         setBusy(false);
       };
+      const applyRoot = async (root) => {
+        await hostRpc('dataRootSet', { root });
+        await refreshDataRoot();
+        setVal(S.dataRoot || root);
+        toast(T('dataRootSaved') + '：' + S.dataRoot);
+      };
+      const browse = async () => {
+        if (busy || picking) return;
+        setBusy(true); setPicking(true);
+        try {
+          const r = await hostRpc('pickFolder');
+          if (r && r.ok && r.path) await applyRoot(r.path);
+          else if (r && r.unsupported) toast(T('dataRootPickUnsupported'));
+          // cancelled → 静默
+        } catch (e) {
+          const msg = String((e && e.message) || e);
+          toast(/未知操作/.test(msg) ? T('dataRootUnsupported') : '目录选择失败：' + msg);
+        }
+        setPicking(false); setBusy(false);
+      };
       const openDir = async () => { try { await hostRpc('dataRootReveal'); } catch (e) { toast((e && e.message) || e); } };
       const migrate = async () => {
-        if (busy || mig) return;
+        if (busy || picking || mig) return;
         setBusy(true); setMig({ done: 0, total: 0 });
         try {
           const r = await migrateAssetsToDisk((done, total) => setMig({ done, total }));
@@ -5077,12 +5104,14 @@ window.__ModuleLoader__.load({
                   className: 'dshic-input', value: val, placeholder: T('dataRootPlaceholder'),
                   onChange: (e) => setVal(e.target.value), onPointerDown: (e) => e.stopPropagation(),
                 }),
-                h('button', { type: 'button', className: 'dshic-mini', disabled: busy, onPointerDown: (e) => e.stopPropagation(), onClick: save }, T('dataRootSave')),
+                h('button', { type: 'button', className: 'dshic-mini', title: T('dataRootBrowse'), disabled: busy || picking, onPointerDown: (e) => e.stopPropagation(), onClick: browse }, Ic('folder', 12)),
+                h('button', { type: 'button', className: 'dshic-mini', disabled: busy || picking, onPointerDown: (e) => e.stopPropagation(), onClick: save }, T('dataRootSave')),
               ),
+              picking ? h('div', { className: 'dshic-hint', key: 'picking' }, T('dataRootPicking')) : null,
               h('div', { className: 'dshic-hint', key: 'hint' }, T('dataRootHint')),
               h('div', { className: 'dshic-row', key: 'row2' },
                 S.dataRoot ? h('button', { type: 'button', className: 'dshic-mini', onPointerDown: (e) => e.stopPropagation(), onClick: openDir }, T('dataRootOpen')) : null,
-                S.dataRoot ? h('button', { type: 'button', className: 'dshic-mini', disabled: busy || !!mig, onPointerDown: (e) => e.stopPropagation(), onClick: migrate }, mig === 'done' ? T('dataRootMigratedDone') : T('dataRootMigrate')) : null,
+                S.dataRoot ? h('button', { type: 'button', className: 'dshic-mini', disabled: busy || picking || !!mig, onPointerDown: (e) => e.stopPropagation(), onClick: migrate }, mig === 'done' ? T('dataRootMigratedDone') : T('dataRootMigrate')) : null,
                 (mig && mig !== 'done') ? h('span', { style: { fontSize: 11, opacity: 0.85 } }, T('dataRootMigrating') + ' ' + mig.done + '/' + mig.total) : null,
               ),
             ],

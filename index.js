@@ -142,6 +142,51 @@ function mimeOf(p) {
   return m ? (MIME_BY_EXT[m[1].toLowerCase()] || 'application/octet-stream') : 'application/octet-stream';
 }
 
+/**
+ * 弹出系统"选择目录"对话框（阻塞至用户选择/取消）。
+ * Windows = PowerShell + WinForms FolderBrowserDialog（TopMost，可新建文件夹）；
+ * macOS = osascript choose folder；Linux = zenity（若安装）。均不可用 → { ok:false, unsupported:true }。
+ */
+function pickFolderDialog() {
+  return new Promise((resolve) => {
+    const collect = (child) => {
+      const stdout = [];
+      child.stdout?.setEncoding('utf8');
+      child.stdout?.on('data', (d) => stdout.push(String(d)));
+      const timer = setTimeout(() => { try { child.kill(); } catch { /* 忽略 */ } }, 600000);
+      child.on('error', (e) => { clearTimeout(timer); resolve({ ok: false, unsupported: e.code === 'ENOENT', error: String(e?.message ?? e) }); });
+      child.on('close', (code) => {
+        clearTimeout(timer);
+        const picked = stdout.join('').trim().split(/\r?\n/).filter(Boolean).pop() || '';
+        if (code === 0 && picked) resolve({ ok: true, path: picked });
+        else resolve({ ok: false, cancelled: true });
+      });
+    };
+    try {
+      if (process.platform === 'win32') {
+        const script = [
+          '$ErrorActionPreference="Stop"',
+          '[Console]::OutputEncoding=[System.Text.Encoding]::UTF8',
+          'Add-Type -AssemblyName System.Windows.Forms | Out-Null',
+          '$o = New-Object System.Windows.Forms.Form',
+          '$o.TopMost = $true',
+          '$d = New-Object System.Windows.Forms.FolderBrowserDialog',
+          "$d.Description = '选择数据根目录（资产与视频将存到该目录）'",
+          '$d.ShowNewFolderButton = $true',
+          'if ($d.ShowDialog($o) -eq [System.Windows.Forms.DialogResult]::OK) { Write-Output $d.SelectedPath }',
+        ].join('; ');
+        collect(spawn('powershell.exe', ['-NoProfile', '-STA', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden', '-Command', script], { windowsHide: true }));
+      } else if (process.platform === 'darwin') {
+        collect(spawn('osascript', ['-e', 'POSIX path of (choose folder with prompt "选择数据根目录")'], { windowsHide: true }));
+      } else {
+        collect(spawn('zenity', ['--file-selection', '--directory', '--title=选择数据根目录'], { windowsHide: true }));
+      }
+    } catch (e) {
+      resolve({ ok: false, unsupported: true, error: String((e && e.message) || e) });
+    }
+  });
+}
+
 /** 读取 npm registry 上 latest dist-tag 的版本号。 */
 async function npmLatestVersion() {
   const res = await fetch(NPM_LATEST_URL, {
@@ -338,6 +383,10 @@ export function apply(ctx) {
         const open = process.platform === 'win32' ? 'explorer.exe' : process.platform === 'darwin' ? 'open' : 'xdg-open';
         try { spawn(open, [root], { detached: true, stdio: 'ignore' }).unref(); } catch { /* 打开失败不阻塞 */ }
         return { ok: true, dataRoot: root };
+      },
+      async pickFolder() {
+        const r = await pickFolderDialog();
+        return r; // { ok, path } | { ok:false, cancelled } | { ok:false, unsupported }
       },
       async assetDelete(args) {
         const root = dataRoot();
