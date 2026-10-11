@@ -5451,6 +5451,7 @@ window.__ModuleLoader__.load({
       const [scope, setScope] = useState('current');
       const [search, setSearch] = useState('');
       const [craftFor, setCraftFor] = useState(null);
+      const [delTarget, setDelTarget] = useState(null); // 待确认删除的资产（确认框见 DeleteAssetModal）
       const fileRef = useRef(null);
       useEffect(() => {
         probeCraft();
@@ -6671,6 +6672,11 @@ window.__ModuleLoader__.load({
           key: PANEL_ID,
           locale: NS,
         }, CanvasPage));
+        // 冒烟测试专用缝隙（仅在 smoke-render.mjs 设置了该标记时存在）：
+        // 直接暴露各页签组件，让测试能逐个渲染，抓"某个页签一渲染就崩"的白屏问题
+        if (typeof window !== 'undefined' && window.__DSH_IC_SMOKE__) {
+          window.__DSH_IC_TABS__ = { ProjectsTab, AssetsTab, BibleTab, SettingsTab, CanvasPage };
+        }
       },
     };
   },

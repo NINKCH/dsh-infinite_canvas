@@ -116,6 +116,7 @@ const windowStub = {
   removeEventListener: noop,
   AudioContext: undefined,
   webkitAudioContext: undefined,
+  __DSH_IC_SMOKE__: true, // 让 client.js 暴露各页签组件供冒烟直渲染
 };
 
 const sandbox = {
@@ -215,6 +216,18 @@ try {
 await new Promise((r) => setTimeout(r, 120));
 
 for (const { meta, Comp } of roots) walk(Comp, {}, meta.id || meta.key || 'root');
+
+// 逐个直接渲染各页签：抓"某个页签一渲染就崩（如引用未定义变量）→ 面板白屏"的问题
+// （画布默认只渲染激活的页签，切到资产/设定集/设置时的崩溃此前测不到）
+if (windowStub.__DSH_IC_TABS__) {
+  for (const [name, Comp] of Object.entries(windowStub.__DSH_IC_TABS__)) {
+    walk(Comp, name === 'CanvasPage' ? {} : {}, 'tab:' + name);
+  }
+  console.log('页签直渲染：' + Object.keys(windowStub.__DSH_IC_TABS__).join(', '));
+} else {
+  console.error('✗ 未找到 __DSH_IC_TABS__（冒烟缝隙被移除？）');
+  process.exit(1);
+}
 
 console.log(`组件遍历：${walkedCount} 个（根组件 ${roots.length} 个：${roots.map((r) => r.meta.id || r.meta.key || '?').join(', ')}）`);
 if (errors.length) {
