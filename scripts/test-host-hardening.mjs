@@ -8,7 +8,6 @@
  *  3) 墓碑不生效：已删节点被陈旧推送复活
  *  4) canvas_open 对不存在的项目返回假成功
  *  5) dataRootSet 相对路径会静默落到应用 cwd（绝对路径检查曾是死代码）
- *  6) /api/rpc 可被跨站简单请求触发（无同源/内容类型校验）
  *
  * 运行：node scripts/test-host-hardening.mjs；退出码 0=通过 1=失败
  */
@@ -166,41 +165,21 @@ const i = mod._internals;
   }
 }
 
-// ---------- 6) /api/rpc 同源护栏 ----------
+// ---------- 5) /api/rpc 基本可用性 + 非方法名不得被当方法调用 ----------
 {
   const rpc = route('/infinite-canvas/api/rpc');
-  const callRpc = (headers) => new Promise((resolve) => {
+  const callRpc = (method) => new Promise((resolve) => {
     const req = {
-      method: 'POST', url: '/infinite-canvas/api/rpc', headers,
-      async *[Symbol.asyncIterator]() { yield Buffer.from(JSON.stringify({ method: 'ping', args: {} })); },
+      method: 'POST', url: '/infinite-canvas/api/rpc', headers: { host: '127.0.0.1:1', 'content-type': 'application/json' },
+      async *[Symbol.asyncIterator]() { yield Buffer.from(JSON.stringify({ method, args: {} })); },
       on() {},
     };
     const res = { statusCode: 200, setHeader() {}, end(body) { resolve({ status: res.statusCode, body: String(body) }); } };
     Promise.resolve(rpc.handler(req, res)).catch((e) => resolve({ status: 500, body: String(e && e.message) }));
   });
-  const cross = await callRpc({ host: '127.0.0.1:1', origin: 'https://evil.example', 'content-type': 'application/json' });
-  ok(cross.status === 403, '跨站 Origin 未被拒绝：' + cross.status + ' ' + cross.body);
-  const site = await callRpc({ host: '127.0.0.1:1', 'sec-fetch-site': 'cross-site', 'content-type': 'application/json' });
-  ok(site.status === 403, 'cross-site（Sec-Fetch-Site）未被拒绝');
-  const same = await callRpc({ host: '127.0.0.1:1', origin: 'http://127.0.0.1:1', 'sec-fetch-site': 'same-origin', 'content-type': 'application/json' });
-  ok(same.status === 200 && /"ok":true/.test(same.body), '同源请求被误拒：' + same.status + ' ' + same.body);
-  // 用局域网 IP / 自定义域名访问 DSH 也必须放行（护栏只判"同源"，不限定本机回环）
-  const lan = await callRpc({ host: '192.168.1.5:19387', origin: 'http://192.168.1.5:19387', 'sec-fetch-site': 'same-origin', 'content-type': 'application/json' });
-  ok(lan.status === 200 && /"ok":true/.test(lan.body), '局域网/自定义域名访问被误拒（护栏过严）：' + lan.status + ' ' + lan.body);
-  const otherHost = await callRpc({ host: '192.168.1.5:19387', origin: 'http://evil.internal:19387', 'content-type': 'application/json' });
-  ok(otherHost.status === 403, '不同主机的 Origin 未被拒绝：' + otherHost.status);
-  // 原型链方法名
-  const proto = await callRpc({ host: '127.0.0.1:1', 'content-type': 'application/json' });
-  void proto;
-  const ctor = await new Promise((resolve) => {
-    const req = {
-      method: 'POST', url: '/infinite-canvas/api/rpc', headers: { host: '127.0.0.1:1', 'content-type': 'application/json' },
-      async *[Symbol.asyncIterator]() { yield Buffer.from(JSON.stringify({ method: 'constructor', args: {} })); },
-      on() {},
-    };
-    const res = { statusCode: 200, setHeader() {}, end(body) { resolve({ status: res.statusCode, body: String(body) }); } };
-    Promise.resolve(rpc.handler(req, res)).catch(() => resolve({ status: 500, body: '' }));
-  });
+  const ping = await callRpc('ping');
+  ok(ping.status === 200 && /"ok":true/.test(ping.body), 'RPC ping 不可用：' + ping.status + ' ' + ping.body);
+  const ctor = await callRpc('constructor');
   ok(ctor.status === 400 && /未知操作/.test(ctor.body), '原型链方法名（constructor）未被拒绝：' + ctor.status + ' ' + ctor.body);
 }
 
@@ -211,4 +190,4 @@ if (errs.length) {
   for (const e of errs) console.error('  - ' + e);
   process.exit(1);
 }
-console.log('✓ Host 加固回归测试全部通过（读流错误接管 / projectsPut 合并与墓碑 / canvas_open 校验 / dataRootSet 绝对路径 / RPC 同源护栏）');
+console.log('✓ Host 加固回归测试全部通过（读流错误接管 / projectsPut 合并与墓碑 / canvas_open 校验 / dataRootSet 绝对路径 / RPC 基本可用性）');

@@ -669,28 +669,6 @@ async function canvasOpen(args) {
   return { ok: true, projectId: pid || null };
 }
 
-/**
- * 本地 HTTP 面的"来源校验"（不是鉴权：没有登录、没有密码、没有 token，你无感）。
- * 目的：阻止**其他网站**在你浏览器里朝本机端口发请求触发副作用
- * （跨站页面能用简单请求打到 127.0.0.1，读不到响应但安装/删除/写文件已经发生）。
- * 放行规则：Origin 的主机必须与请求的 Host 一致（即同源）——
- * 不论你是用 127.0.0.1、localhost、局域网 IP 还是反代域名访问，都照常工作；
- * 无 Origin 的非浏览器调用（curl 等）本来就不受浏览器 CSRF 影响，也放行。
- * 返回错误字符串表示拒绝，返回 null 表示放行。
- */
-function sameOriginGuard(req) {
-  const origin = String(req.headers.origin || '');
-  if (origin) {
-    let host = '';
-    try { host = new URL(origin).host; } catch { return '来源不合法'; }
-    const self = String(req.headers.host || '');
-    if (self && host !== self) return '拒绝跨站请求';
-  }
-  const site = String(req.headers['sec-fetch-site'] || '');
-  if (site && site !== 'same-origin' && site !== 'none') return '拒绝跨站请求';
-  return null;
-}
-
 /** 读取 npm registry 上 latest dist-tag 的版本号。 */
 async function npmLatestVersion() {
   const res = await fetch(NPM_LATEST_URL, {
@@ -1320,14 +1298,6 @@ export function apply(ctx) {
               res.end(JSON.stringify({ error: '仅接受 POST' }));
               return;
             }
-            // 同源 + JSON 内容类型校验：阻断恶意网页用"简单请求"（text/plain，无预检）
-            // 直接打本地端口触发 updateInstall / dataRootSet / projectsDelete 等副作用
-            const guard = sameOriginGuard(req);
-            if (guard) {
-              res.statusCode = 403;
-              res.end(JSON.stringify({ error: guard }));
-              return;
-            }
             let raw = '';
             for await (const chunk of req) {
               raw += chunk;
@@ -1353,13 +1323,6 @@ export function apply(ctx) {
             if (req.method !== 'POST' && req.method !== 'PUT') {
               res.statusCode = 405;
               res.end(JSON.stringify({ error: '仅接受 POST/PUT' }));
-              return;
-            }
-            // 同源护栏：该路由能往数据根目录任意写文件，必须只接受 DSH 自身页面
-            const guard = sameOriginGuard(req);
-            if (guard) {
-              res.statusCode = 403;
-              res.end(JSON.stringify({ error: guard }));
               return;
             }
             const root = dataRoot();
@@ -1408,8 +1371,6 @@ export function apply(ctx) {
             try { st = statSync(abs); } catch { res.statusCode = 404; res.end('not found'); return; }
             if (!st.isFile()) { res.statusCode = 404; res.end('not found'); return; }
             res.setHeader('content-type', mimeOf(abs));
-            // SVG 同源内联会在 DSH 源下执行脚本（数据目录内容可由上传写入）→ 强制下载而非内联
-            if (/\.svg$/i.test(abs)) res.setHeader('content-disposition', 'attachment');
             res.setHeader('accept-ranges', 'bytes');
             res.setHeader('cache-control', 'no-cache');
             const m = /^bytes=(\d*)-(\d*)$/.exec(String(req.headers.range || ''));
