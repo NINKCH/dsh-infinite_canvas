@@ -554,7 +554,7 @@ export function apply(ctx) {
           parameters: {
             type: 'object',
             properties: {
-              name: { type: 'string', required: true, description: '项目名称' },
+              name: { type: 'string', description: '项目名称' },
               scriptText: { type: 'string', description: '可选：初始创作意图/剧本文本' },
             },
             required: ['name'],
@@ -573,8 +573,8 @@ export function apply(ctx) {
           parameters: {
             type: 'object',
             properties: {
-              projectId: { type: 'string', required: true, description: '项目 id（来自 canvas_list_projects 或 canvas_create_project）' },
-              text: { type: 'string', required: true, description: '节点内容' },
+              projectId: { type: 'string', description: '项目 id（来自 canvas_list_projects 或 canvas_create_project）' },
+              text: { type: 'string', description: '节点内容' },
               kind: { type: 'string', enum: ['script', 'text'], description: '节点类型：script=剧本（默认），text=纯文本' },
             },
             required: ['projectId', 'text'],

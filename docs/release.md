@@ -43,12 +43,13 @@ node scripts/smoke-render.mjs   # 渲染冒烟：抓渲染期 ReferenceError（�
 - index.js 改动 → 需手动重启 Harness
 - 测完切回正式版：依赖改回版本号 → `pnpm install` → 重启
 
-## 3. 发布前校验（两个脚本都必须绿）
+## 3. 发布前校验（脚本全绿才算过）
 
 ```
 node scripts/check-pack.mjs     # 打包清单 + 元数据核对（npm pack --dry-run）
 node scripts/smoke-render.mjs   # 渲染冒烟：假 React 走真实组件树
 node scripts/test-update.mjs    # 更新检查功能测试（真实 registry 比对）
+node scripts/test-tools.mjs     # 对话工具 schema 校验（标准 JSON Schema，防方言错误）
 ```
 
 `check-pack` 防的三类事故：漏打包（如 locale/icon 没进包）、多打包（`.github`/`scripts` 混入）、元数据漂移（版本/exports/`dsh.bundle.patch`）。
