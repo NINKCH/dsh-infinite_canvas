@@ -239,14 +239,28 @@ try {
     if (!String(t0.data.output || '').trim()) errs.push('成稿未写入 output');
     if (!String(t0.data.idea || '').trim()) errs.push('复用后该剧本节点仍缺少 idea（出现"只有结果"的半残节点）');
   }
-  const w2 = await byName.get('canvas_write_node').execute({ projectId, nodeId: w.nodeId, text: '第二版成稿', target: 'output', idea: '第二版意图' }, {});
+  // 已写成稿的节点：不带 overwrite 必须拒绝覆盖（防止对话静默吃掉用户稿件）
+  let blocked = false;
+  try {
+    await byName.get('canvas_write_node').execute({ projectId, nodeId: w.nodeId, text: '误覆盖', target: 'output' }, {});
+  } catch { blocked = true; }
+  if (!blocked) errs.push('已写成稿的节点被无 overwrite 的写入覆盖：应拒绝并提示');
+  const w2 = await byName.get('canvas_write_node').execute({ projectId, nodeId: w.nodeId, text: '第二版成稿', target: 'output', idea: '第二版意图', overwrite: true }, {});
   const doc2 = await mod._internals.projectsGet({ id: projectId });
   const n2 = doc2.nodes[w2.nodeId];
   if (!n2 || n2.data.output !== '第二版成稿' || n2.data.idea !== '第二版意图') errs.push('idea 参数未与 text/target 同时生效（无法一次写全意图与成稿）');
+  // name 匹配不到时必须新建节点（而不是给旧节点改名后覆盖）
+  const before3 = Object.values(doc2.nodes).filter((n) => n.type === 'script').length;
+  const w3 = await byName.get('canvas_write_node').execute({ projectId, text: '第二节创作意图', name: '第二节' }, {});
+  const doc3 = await mod._internals.projectsGet({ id: projectId });
+  const after3 = Object.values(doc3.nodes).filter((n) => n.type === 'script').length;
+  if (after3 !== before3 + 1) errs.push(`name 匹配不到时应新建剧本节点（${before3} → ${after3}）`);
+  if (w3.nodeId === w.nodeId) errs.push('name 匹配不到时复用了旧节点（会给旧节点改名并覆盖稿件）');
+  if (String(doc3.nodes[w.nodeId].data.output || '') !== '第二版成稿') errs.push('新建节点时旧节点的成稿被改动');
 } catch (e) {
   errs.push('剧本节点语义校验失败 → ' + ((e && e.message) || e));
 }
-await run('canvas_write_node', { projectId, nodeId, text: '成稿内容……', target: 'output' });
+await run('canvas_write_node', { projectId, nodeId, text: '成稿内容……', target: 'output', overwrite: true });
 await run('canvas_run_node', { projectId, nodeId });
 await run('canvas_node_status', { projectId, nodeId });
 await run('canvas_open', { projectId });

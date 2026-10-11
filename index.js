@@ -8,7 +8,7 @@
  */
 import { spawn } from 'node:child_process';
 import fs from 'node:fs/promises';
-import { createReadStream, createWriteStream, existsSync, mkdirSync, readFileSync, readdirSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
+import { createReadStream, createWriteStream, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -135,6 +135,33 @@ function normalizeBible(raw) {
     props: arr(b.props),
   };
 }
+/**
+ * 把文件流安全地写进响应。
+ * createReadStream 的 open/read 错误是**异步事件**，回到不了路由的 try/catch ——
+ * 不接管就会变成宿主进程级 uncaughtException（DSH 会按 fatal 退出），
+ * 而这条路径非常日常：前端把资产 URL 交给 <img>/<video>，文件被删/被占用即命中。
+ */
+function pipeFile(abs, opts, res) {
+  const rs = createReadStream(abs, opts);
+  let headersSent = false;
+  const onSent = () => { headersSent = true; };
+  try { res.on('finish', onSent); } catch { /* 忽略 */ }
+  rs.on('error', (err) => {
+    const code = err && err.code;
+    try {
+      if (!res.headersSent && !headersSent) {
+        res.statusCode = code === 'ENOENT' ? 404 : 500;
+        res.end(code === 'ENOENT' ? 'not found' : 'read failed');
+      } else {
+        res.destroy(); // 已发头：只能中断连接，绝不能让异常冒到进程层
+      }
+    } catch { /* 忽略 */ }
+  });
+  // 客户端提前断开（切页面/取消播放）时主动关掉读流，避免句柄悬挂
+  res.on('close', () => { try { rs.destroy(); } catch { /* 忽略 */ } });
+  rs.pipe(res);
+}
+
 /** rel 限定在 dataRoot 之内：拒绝绝对路径 / 盘符 / 上级跳转，返回 { abs, clean }。 */
 function safeJoin(root, rel) {
   const clean = String(rel || '').replace(/\\/g, '/').replace(/^\/+/, '').trim();
@@ -215,7 +242,14 @@ function projectsList() {
   for (const f of files) {
     const id = f.slice(0, -5);
     try {
-      const d = JSON.parse(readFileSync(path.join(PROJECTS_DIR, f), 'utf8'));
+      let d;
+      try {
+        d = JSON.parse(readFileSync(path.join(PROJECTS_DIR, f), 'utf8'));
+      } catch {
+        // 损坏/半写的项目文件：显式标记后仍列出，避免用户看到"项目凭空消失"
+        list.push({ id: f.replace(/\.json$/, ''), name: f.replace(/\.json$/, '') + '（文件损坏）', corrupted: true, nodeIds: [], nodes: {}, tombstones: [] });
+        continue;
+      }
       const nodes = Object.values(d.nodes || {}).map((n) => ({
         id: n.id, type: n.type, label: (n.data && n.data.label) || '',
         status: (n.data && n.data.status) || 'idle',
@@ -231,16 +265,35 @@ async function projectsPut(args) {
   const doc = (args && args.doc) || {};
   let prev = {};
   try { prev = JSON.parse(readFileSync(f, 'utf8')); } catch { /* 新项目 */ }
+  // 墓碑：对话删除的节点 + 客户端本地删除的节点（客户端删除时也会写入 tombstones）
+  const tombstones = [...new Set([...(prev.tombstones || []), ...((doc && doc.tombstones) || [])])].slice(-200);
+  const dead = new Set(tombstones);
+  // 节点合并：客户端推来的为准，但**保留 Host 上客户端还没有的节点**（对话刚建的节点
+  // 在客户端下一次轮询拉回之前不能被 450ms 的全量推送抹掉）；墓碑标记的节点一律丢弃。
+  const merged = {};
+  for (const [nid, n] of Object.entries(prev.nodes || {})) {
+    if (!dead.has(nid)) merged[nid] = n;
+  }
+  for (const [nid, n] of Object.entries(doc.nodes || {})) {
+    if (!dead.has(nid)) merged[nid] = n;
+    else delete merged[nid];
+  }
+  const edgeOk = (e) => e && merged[e.fromNode] && merged[e.toNode];
+  const clientEdges = (doc.edges || []).filter(edgeOk);
+  const prevEdges = (prev.edges || []).filter(edgeOk);
+  const edgeKey = (e) => e.fromNode + '>' + (e.fromPort || '') + '>' + e.toNode + '>' + (e.toPort || '');
+  const seen = new Set(clientEdges.map(edgeKey));
+  const edges = clientEdges.concat(prevEdges.filter((e) => !seen.has(edgeKey(e))));
   const out = {
     id,
     name: String((args && args.name) || prev.name || id).slice(0, 80),
     createdAt: prev.createdAt || (doc && doc.createdAt) || Date.now(),
     updatedAt: Date.now(),
     source: prev.source || 'app',
-    nodes: doc.nodes || {},
-    edges: doc.edges || [],
-    view: doc.view || { x: 60, y: 40, scale: 1 },
-    tombstones: (prev.tombstones || []).slice(-100), // 对话删过的节点：保留墓碑，避免客户端推送时复活
+    nodes: merged,
+    edges,
+    view: doc.view || prev.view || { x: 60, y: 40, scale: 1 },
+    tombstones,
   };
   // 设定集（世界观/风格/角色/场景/道具）：随文档一起同步，对话侧可读写
   if (doc.bible !== undefined) {
@@ -255,7 +308,7 @@ async function projectsPut(args) {
   return { ok: true, id, updatedAt: out.updatedAt };
 }
 async function projectsGet(args) {
-  return JSON.parse(readFileSync(projectFile(args && args.id), 'utf8'));
+  return readDoc(String((args && args.id) || ''));
 }
 async function projectsDelete(args) {
   try { unlinkSync(projectFile(args && args.id)); } catch { /* 已不存在视为成功 */ }
@@ -366,7 +419,7 @@ function canvasCreateProject(args) {
     doc.nodes[n.id] = n;
   }
   mkdirSync(PROJECTS_DIR, { recursive: true });
-  writeFileSync(projectFile(id), JSON.stringify(doc, null, 1), 'utf8');
+  writeIcDoc(id, doc);
   return { ok: true, projectId: id, name: doc.name, nodeId: Object.keys(doc.nodes)[0] || null };
 }
 /**
@@ -374,19 +427,23 @@ function canvasCreateProject(args) {
  * - 带 nodeId：更新该节点（target=output 写成稿，target=idea 写提示词；text 节点写正文）
  * - 不带 nodeId：
  *   · text 节点 → 追加新节点
- *   · 剧本节点 → **优先复用项目里已有的剧本节点**：先按名字匹配，其次"有意图没成稿"的，
- *     再退化为最近更新的剧本节点；只有项目里没有任何剧本节点时才新建。
- *     这样 idea 与 output 会落在同一个节点上，不会出现"一个节点只有提示词、另一个只有结果"。
+ *   · 剧本节点 → 复用规则**严格区分"定位"与"命名"**：
+ *     1) 给了 name 且能匹配已有节点名 → 更新该节点（这是"定位"）
+ *     2) 给了 name 但匹配不到 → **新建节点**（这是"命名"新章节；绝不改旧节点的名，
+ *        否则多集/多节写作会一路把旧稿覆盖掉且无任何报错）
+ *     3) 没给 name → 只复用"有 idea 没 output"或"output 为空"的剧本节点（补全半成品）
+ *     4) 其余情况新建，避免静默覆盖已经写完的成稿
  */
 function canvasWriteNode(args) {
   const id = String((args && args.projectId) || '');
   const f = projectFile(id);
-  const doc = JSON.parse(readFileSync(f, 'utf8'));
+  const doc = readDoc(id);
   const text = String((args && args.text) || '');
   const target = (args && args.target) === 'output' ? 'output' : 'idea';
   const nodeId = String((args && args.nodeId) || '');
   const name = args && args.name ? String(args.name).slice(0, 40) : '';
   const idea = args && args.idea !== undefined ? String(args.idea) : null;
+  const overwrite = args && args.overwrite === true;
   const writeInto = (node) => {
     if (node.type === 'text') node.data.text = text;
     else if (target === 'output') { node.data.output = text; node.data.aiStatus = 'idle'; node.data.aiError = null; }
@@ -394,32 +451,39 @@ function canvasWriteNode(args) {
     if (idea !== null && node.type === 'script') node.data.idea = idea;
     if (name) node.data.label = name;
   };
+  const save = () => { doc.updatedAt = Date.now(); writeIcDoc(id, doc); };
   if (nodeId) {
     const node = doc.nodes[nodeId];
     if (!node) throw new Error('节点不存在: ' + nodeId);
+    if (target === 'output' && !overwrite && String((node.data && node.data.output) || '').trim() && String((node.data && node.data.output) || '') !== text) {
+      throw new Error('节点「' + ((node.data && node.data.label) || nodeId) + '」已有成稿，覆盖会丢失原文；确认要覆盖请传 overwrite:true，或换个 name 新建节点。');
+    }
     writeInto(node);
-    doc.updatedAt = Date.now();
-    writeFileSync(f, JSON.stringify(doc, null, 1), 'utf8');
+    save();
     return { ok: true, projectId: id, nodeId, updated: true, label: node.data.label || '' };
   }
   if ((args && args.kind) === 'text') {
     const pos = nextNodePos(doc);
     const n = agentNode('text', text, pos.x, pos.y, name || defaultLabel(text));
     doc.nodes[n.id] = n;
-    doc.updatedAt = Date.now();
-    writeFileSync(f, JSON.stringify(doc, null, 1), 'utf8');
+    save();
     return { ok: true, projectId: id, nodeId: n.id, label: n.data.label || '' };
   }
-  // 剧本：优先复用已有剧本节点（同名 → 缺成稿 → 最近更新）
   const scripts = Object.values(doc.nodes || {}).filter((n) => n.type === 'script');
   let reuse = null;
-  if (name) reuse = scripts.find((n) => String((n.data && n.data.label) || '').trim() === name) || null;
-  if (!reuse && target === 'output') reuse = scripts.find((n) => String((n.data && n.data.idea) || '').trim() && !String((n.data && n.data.output) || '').trim()) || null;
-  if (!reuse) reuse = scripts[scripts.length - 1] || null;
+  if (name) {
+    reuse = scripts.find((n) => String((n.data && n.data.label) || '').trim() === name) || null; // 仅"定位"
+  } else {
+    reuse = scripts.find((n) => String((n.data && n.data.idea) || '').trim() && !String((n.data && n.data.output) || '').trim())
+      || scripts.find((n) => !String((n.data && n.data.output) || '').trim())
+      || null;
+  }
   if (reuse) {
+    if (target === 'output' && !overwrite && String((reuse.data && reuse.data.output) || '').trim()) {
+      throw new Error('剧本节点「' + ((reuse.data && reuse.data.label) || reuse.id) + '」已有成稿：传 overwrite:true 覆盖，或给 name 新建一节。');
+    }
     writeInto(reuse);
-    doc.updatedAt = Date.now();
-    writeFileSync(f, JSON.stringify(doc, null, 1), 'utf8');
+    save();
     return { ok: true, projectId: id, nodeId: reuse.id, updated: true, reused: true, label: reuse.data.label || '' };
   }
   const pos = nextNodePos(doc);
@@ -427,14 +491,35 @@ function canvasWriteNode(args) {
   if (target === 'output') n.data.output = text;
   if (idea !== null) n.data.idea = idea;
   doc.nodes[n.id] = n;
-  doc.updatedAt = Date.now();
-  writeFileSync(f, JSON.stringify(doc, null, 1), 'utf8');
+  save();
   return { ok: true, projectId: id, nodeId: n.id, label: n.data.label || '' };
+}
+/** 读取项目文档：把"文件不存在/内容损坏"变成用户和模型都读得懂的报错（不泄漏绝对路径）。 */
+function readDoc(id) {
+  const f = projectFile(id);
+  let raw;
+  try {
+    raw = readFileSync(f, 'utf8');
+  } catch {
+    throw new Error('项目不存在：' + id + '（先用 canvas_list_projects 查看可用项目 id）');
+  }
+  try {
+    return JSON.parse(raw);
+  } catch {
+    throw new Error('项目文件损坏，无法解析：' + id + '（可考虑重建该项目）');
+  }
+}
+/** 原子写项目文档：先写临时文件再改名，避免半写导致项目"消失"。 */
+function writeIcDoc(id, doc) {
+  const f = projectFile(id);
+  const tmp = f + '.' + process.pid + '.tmp';
+  writeFileSync(tmp, JSON.stringify(doc, null, 1), 'utf8');
+  renameSync(tmp, f);
 }
 /** 读取设定集（对话侧"设定集先行"的前提）。 */
 async function canvasGetBible(args) {
   const id = String((args && args.projectId) || '');
-  const doc = JSON.parse(readFileSync(projectFile(id), 'utf8'));
+  const doc = readDoc(id);
   return { projectId: id, name: doc.name || id, bible: normalizeBible(doc.bible || {}), bibleUpdatedAt: doc.bibleUpdatedAt || 0 };
 }
 /**
@@ -444,7 +529,7 @@ async function canvasGetBible(args) {
 async function canvasUpdateBible(args) {
   const id = String((args && args.projectId) || '');
   const f = projectFile(id);
-  const doc = JSON.parse(readFileSync(f, 'utf8'));
+  const doc = readDoc(id);
   const cur = normalizeBible(doc.bible || {});
   const inc = (args && args.bible) || {};
   const mergeList = (base, incoming) => {
@@ -471,14 +556,14 @@ async function canvasUpdateBible(args) {
   doc.bible = normalizeBible(next);
   doc.bibleUpdatedAt = Date.now();
   doc.updatedAt = Date.now();
-  writeFileSync(f, JSON.stringify(doc, null, 1), 'utf8');
+  writeIcDoc(id, doc);
   return { projectId: id, bible: doc.bible, bibleUpdatedAt: doc.bibleUpdatedAt };
 }
 /** 通用建节点（供对话建角色/场景/道具参考图等）；支持 script/text/image-gen/video-gen/storyboard/finalcut。 */
 function canvasCreateNode(args) {
   const id = String((args && args.projectId) || '');
   const f = projectFile(id);
-  const doc = JSON.parse(readFileSync(f, 'utf8'));
+  const doc = readDoc(id);
   const type = String((args && args.type) || 'text');
   if (!['script', 'text', 'image-gen', 'video-gen', 'storyboard', 'finalcut'].includes(type)) throw new Error('不支持的节点类型: ' + type);
   const label = args && args.name ? String(args.name).slice(0, 40) : '';
@@ -512,7 +597,7 @@ function canvasCreateNode(args) {
   }
   doc.nodes[node.id] = node;
   doc.updatedAt = Date.now();
-  writeFileSync(f, JSON.stringify(doc, null, 1), 'utf8');
+  writeIcDoc(id, doc);
   return { ok: true, projectId: id, nodeId: node.id, type: node.type, label: (node.data && node.data.label) || '' };
 }
 
@@ -533,20 +618,20 @@ async function canvasDeleteNode(args) {
   const id = String((args && args.projectId) || '');
   const nodeId = String((args && args.nodeId) || '');
   const f = projectFile(id);
-  const doc = JSON.parse(readFileSync(f, 'utf8'));
+  const doc = readDoc(id);
   if (!doc.nodes[nodeId]) throw new Error('节点不存在: ' + nodeId);
   delete doc.nodes[nodeId];
   doc.edges = (doc.edges || []).filter((e) => e.fromNode !== nodeId && e.toNode !== nodeId);
   doc.tombstones = [...new Set([...(doc.tombstones || []), nodeId])].slice(-100);
   doc.updatedAt = Date.now();
-  writeFileSync(f, JSON.stringify(doc, null, 1), 'utf8');
+  writeIcDoc(id, doc);
   return { ok: true, projectId: id, nodeId };
 }
 /** 运行节点：写一次性请求，画布客户端轮询消费后用画布内配置的模型/接口真实执行。 */
 async function canvasRunNode(args) {
   const pid = String((args && args.projectId) || '');
   const nodeId = String((args && args.nodeId) || '');
-  const doc = JSON.parse(readFileSync(projectFile(pid), 'utf8'));
+  const doc = readDoc(pid);
   const node = doc.nodes[nodeId];
   if (!node) throw new Error('节点不存在: ' + nodeId);
   const cfg = readIcConfig();
@@ -558,7 +643,7 @@ async function canvasRunNode(args) {
 async function canvasNodeStatus(args) {
   const pid = String((args && args.projectId) || '');
   const nodeId = String((args && args.nodeId) || '');
-  const doc = JSON.parse(readFileSync(projectFile(pid), 'utf8'));
+  const doc = readDoc(pid);
   const n = doc.nodes[nodeId];
   if (!n) throw new Error('节点不存在: ' + nodeId);
   return {
@@ -573,11 +658,35 @@ async function canvasNodeStatus(args) {
 }
 async function canvasOpen(args) {
   const pid = String((args && args.projectId) || '');
-  if (pid) projectFile(pid); // 校验 id 合法性
+  if (pid) {
+    const f = projectFile(pid); // 校验 id 合法性
+    // 项目必须真实存在：否则工具回"✅ 已打开"，而前端因为找不到项目什么都不做（假成功）
+    if (!existsSync(f)) throw new Error('项目不存在：' + pid + '（先用 canvas_list_projects 查看可用项目 id）');
+  }
   const cfg = readIcConfig();
   cfg.ui = { ...(cfg.ui || {}), openRequest: { projectId: pid || null, at: Date.now() } };
   writeIcConfig(cfg);
   return { ok: true, projectId: pid || null };
+}
+
+/**
+ * 本地 HTTP 面的同源护栏：本插件的写操作（安装/删除/写文件）只能由 DSH 自身的页面触发。
+ * 返回错误字符串表示拒绝，返回 null 表示放行。
+ * 依据：跨站页面发起的请求会带 Origin（且 Sec-Fetch-Site 为 cross-site）；
+ * 同源的 DSH Web UI 请求带 Application/JSON 内容类型（会触发预检，跨站无法伪造）。
+ */
+function sameOriginGuard(req) {
+  const origin = String(req.headers.origin || '');
+  if (origin) {
+    let host = '';
+    try { host = new URL(origin).host; } catch { return '来源不合法'; }
+    const self = String(req.headers.host || '');
+    const localOk = /^(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/i.test(host);
+    if (!localOk || (self && host !== self)) return '拒绝跨站请求';
+  }
+  const site = String(req.headers['sec-fetch-site'] || '');
+  if (site && site !== 'same-origin' && site !== 'none') return '拒绝跨站请求';
+  return null;
 }
 
 /** 读取 npm registry 上 latest dist-tag 的版本号。 */
@@ -589,25 +698,47 @@ async function npmLatestVersion() {
   if (!res.ok) throw new Error('npm registry 返回 HTTP ' + res.status);
   const meta = await res.json();
   if (!meta || typeof meta.version !== 'string') throw new Error('npm registry 响应缺少 version 字段');
-  return meta.version;
+  // 版本号会被拼进安装命令（Windows 下经 shell 执行）→ 必须先校验形态，防止 registry 污染注入
+  const v = meta.version.trim();
+  if (!/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/.test(v)) throw new Error('npm registry 返回了非法的版本号');
+  return v;
 }
 
-/** 语义化版本比较：a<b → -1，a>b → 1，相等或无法解析 → 0；prerelease 低于同号正式版。 */
+/**
+ * 语义化版本比较：a<b → -1，a>b → 1，相等 → 0，**无法解析 → null（未知，不能当成"相等"）**。
+ * prerelease 按 semver 规则逐段比较：数字段按数值（rc.10 > rc.9），数字段优先于字母段。
+ */
 function cmpVer(a, b) {
   const parse = (v) => {
     const m = /^v?(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?(?:\+[0-9A-Za-z.-]+)?$/.exec(String(v ?? '').trim());
-    return m ? { core: [+m[1], +m[2], +m[3]], pre: m[4] ?? null } : null;
+    return m ? { core: [+m[1], +m[2], +m[3]], pre: m[4] === undefined ? null : m[4].split('.') } : null;
   };
   const A = parse(a);
   const B = parse(b);
-  if (!A || !B) return 0;
+  if (!A || !B) return null;
   for (let i = 0; i < 3; i++) {
     if (A.core[i] !== B.core[i]) return A.core[i] < B.core[i] ? -1 : 1;
   }
-  if (A.pre === B.pre) return 0;
-  if (A.pre === null) return 1;
+  if (A.pre === null && B.pre === null) return 0;
+  if (A.pre === null) return 1;  // 正式版 > 预发布版
   if (B.pre === null) return -1;
-  return A.pre < B.pre ? -1 : A.pre > B.pre ? 1 : 0;
+  for (let i = 0; i < Math.max(A.pre.length, B.pre.length); i++) {
+    const x = A.pre[i];
+    const y = B.pre[i];
+    if (x === undefined) return -1;
+    if (y === undefined) return 1;
+    const xn = /^\d+$/.test(x);
+    const yn = /^\d+$/.test(y);
+    if (xn && yn) {
+      const d = Number(x) - Number(y);
+      if (d !== 0) return d < 0 ? -1 : 1;
+    } else if (xn !== yn) {
+      return xn ? -1 : 1; // 数字标识符优先级低于字母标识符
+    } else if (x !== y) {
+      return x < y ? -1 : 1;
+    }
+  }
+  return 0;
 }
 
 function readLocalVersion() {
@@ -623,7 +754,12 @@ function readLocalVersion() {
 async function updateCheck() {
   const runningVersion = readLocalVersion();
   const remoteVersion = await npmLatestVersion();
-  const behind = cmpVer(runningVersion, remoteVersion) < 0 ? 1 : 0;
+  const cmp = cmpVer(runningVersion, remoteVersion);
+  if (cmp === null) {
+    // 版本号无法解析（本地被改成非规范三段等）：如实报"未知"，绝不谎称已是最新
+    return { source: 'npm', runningVersion, remoteVersion, behind: 0, upToDate: false, unknown: true, note: '版本号无法解析，无法判断是否需要更新' };
+  }
+  const behind = cmp < 0 ? 1 : 0;
   return { source: 'npm', runningVersion, remoteVersion, behind, upToDate: behind === 0 };
 }
 
@@ -637,7 +773,12 @@ async function updateCheck() {
 async function updateInstall() {
   const runningVersion = readLocalVersion();
   const latest = await npmLatestVersion();
-  if (cmpVer(runningVersion, latest) >= 0) {
+  const cmp = cmpVer(runningVersion, latest);
+  if (cmp === null) {
+    // 无法比较时不能假装"已是最新"（按钮会显示成功但什么都没装）→ 回退为引导
+    return { ok: false, guide: true, version: latest, output: '当前版本号无法解析，无法自动判断；请手动更新到 ' + latest };
+  }
+  if (cmp >= 0) {
     return { ok: true, changed: false, version: runningVersion };
   }
   if (!PROFILE_DIR) {
@@ -669,7 +810,7 @@ async function updateInstall() {
 export const inject = ['webServer', 'tools'];
 
 // 仅供诊断 / 自动化测试（不属于 RPC 面，运行时行为不受影响）
-export const _internals = { updateCheck, updateInstall, npmLatestVersion, cmpVer, findPnpm, getProfileDir: () => PROFILE_DIR, getVersion: () => VERSION, dataRoot, safeJoin, mimeOf, getIcConfigPath: () => CONFIG_PATH, canvasCreateProject, canvasWriteNode, canvasDeleteProject, canvasDeleteNode, canvasRunNode, canvasNodeStatus, canvasGetBible, canvasUpdateBible, canvasCreateNode, projectsList, projectsGet, projectsSync, canvasOpen };
+export const _internals = { updateCheck, updateInstall, npmLatestVersion, cmpVer, findPnpm, getProfileDir: () => PROFILE_DIR, getVersion: () => VERSION, dataRoot, safeJoin, mimeOf, pipeFile, getIcConfigPath: () => CONFIG_PATH, canvasCreateProject, canvasWriteNode, canvasDeleteProject, canvasDeleteNode, canvasRunNode, canvasNodeStatus, canvasGetBible, canvasUpdateBible, canvasCreateNode, canvasOpen, projectsList, projectsPut, projectsGet, projectsDelete, projectsSync };
 
 function resolveModel(providers, want) {
   const byProvider = want && want.provider
@@ -826,8 +967,10 @@ export function apply(ctx) {
       async dataRootSet(args) {
         const raw = String((args && args.root) ?? '').trim();
         if (!raw) throw new Error('需要数据根目录路径');
+        // 必须在 resolve 之前判绝对路径：resolve 之后恒为绝对路径，检查就成了死代码，
+        // 相对路径会静默落到应用 cwd（升级即丢数据）
+        if (!path.isAbsolute(raw)) throw new Error('需要绝对路径（如 D:\\canvas-data）');
         const root = path.resolve(raw);
-        if (!path.isAbsolute(root)) throw new Error('需要绝对路径（如 D:\\canvas-data）');
         mkdirSync(root, { recursive: true });
         const cfg = readIcConfig();
         cfg.dataRoot = root;
@@ -839,7 +982,12 @@ export function apply(ctx) {
         if (!root) throw new Error('未设置数据根目录');
         mkdirSync(root, { recursive: true });
         const open = process.platform === 'win32' ? 'explorer.exe' : process.platform === 'darwin' ? 'open' : 'xdg-open';
-        try { spawn(open, [root], { detached: true, stdio: 'ignore' }).unref(); } catch { /* 打开失败不阻塞 */ }
+        // spawn 的失败是**异步 error 事件**（ENOENT 等），不挂监听就会冒成进程级未捕获异常
+        try {
+          const child = spawn(open, [root], { detached: true, stdio: 'ignore' });
+          child.on('error', () => { /* 打不开目录不算致命错误，忽略 */ });
+          child.unref();
+        } catch { /* 同步抛错同样忽略 */ }
         return { ok: true, dataRoot: root };
       },
       async pickFolder() {
@@ -961,7 +1109,7 @@ export function apply(ctx) {
         });
         reg({
           name: 'canvas_write_node',
-          description: '写入无限画布的项目内容。【硬约束】绝不要为了加节点而新建项目——一律指定已有 projectId。剧本节点的 idea（创作意图）与 output（剧本成稿）必须在同一个节点里：不传 nodeId 写 target=output 时会自动落到项目里已有的剧本节点上（不会另建半残节点）。可用 idea 参数在同一次调用里同时写意图与成稿。target：idea=提示词（默认），output=成稿。',
+          description: '写入无限画布的项目内容。【硬约束】绝不要为了加节点而新建项目——一律指定已有 projectId。剧本节点的 idea（创作意图）与 output（剧本成稿）必须在同一个节点里。复用规则：给 name 且能匹配已有节点名 → 更新该节点；给 name 但匹配不到 → **新建节点**（写新一集/新一节时就这样用）；不给 name → 只会复用"有意图没成稿"的剧本节点补全。已写成稿的节点默认拒绝覆盖，确认要覆盖请传 overwrite:true（否则报错而不是静默吃掉稿件）。target：idea=提示词（默认），output=成稿。',
           parameters: {
             type: 'object',
             properties: {
@@ -969,9 +1117,10 @@ export function apply(ctx) {
               text: { type: 'string', description: '要写入的内容（按 target 决定写 idea 还是 output）' },
               kind: { type: 'string', enum: ['script', 'text'], description: '新节点类型：script=剧本（默认），text=纯文本' },
               target: { type: 'string', enum: ['idea', 'output'], description: '写哪一部分：idea=提示词/创作意图（默认），output=成稿' },
-              nodeId: { type: 'string', description: '可选：指定要更新的节点；不传则复用/新建剧本节点' },
-              name: { type: 'string', description: '可选：节点名字（建议填写；更新时会改名）' },
+              nodeId: { type: 'string', description: '可选：指定要更新的节点（最精确的定位方式）' },
+              name: { type: 'string', description: '可选：节点名字。匹配到同名节点就更新它；匹配不到会新建节点（写新章节用这个）' },
               idea: { type: 'string', description: '可选：同时设置该剧本节点的创作意图（与 text/target 配合，一次写全意图与成稿）' },
+              overwrite: { type: 'boolean', description: '可选：目标节点已有成稿时是否允许覆盖（默认 false，会报错保护稿件）' },
             },
             required: ['projectId', 'text'],
             additionalProperties: false,
@@ -1169,14 +1318,23 @@ export function apply(ctx) {
               res.end(JSON.stringify({ error: '仅接受 POST' }));
               return;
             }
+            // 同源 + JSON 内容类型校验：阻断恶意网页用"简单请求"（text/plain，无预检）
+            // 直接打本地端口触发 updateInstall / dataRootSet / projectsDelete 等副作用
+            const guard = sameOriginGuard(req);
+            if (guard) {
+              res.statusCode = 403;
+              res.end(JSON.stringify({ error: guard }));
+              return;
+            }
             let raw = '';
             for await (const chunk of req) {
               raw += chunk;
-              if (raw.length > 2e6) throw new Error('请求过大');
+              if (raw.length > 8e6) throw new Error('请求过大');
             }
             const { method, args } = JSON.parse(raw);
+            if (typeof method !== 'string' || !Object.hasOwn(methods, method)) throw new Error('未知操作: ' + method);
             const fn = methods[method];
-            if (!fn) throw new Error('未知操作: ' + method);
+            if (typeof fn !== 'function') throw new Error('未知操作: ' + method);
             res.end(JSON.stringify(await fn(args ?? {})));
           } catch (e) {
             res.statusCode = 400;
@@ -1195,17 +1353,35 @@ export function apply(ctx) {
               res.end(JSON.stringify({ error: '仅接受 POST/PUT' }));
               return;
             }
+            // 同源护栏：该路由能往数据根目录任意写文件，必须只接受 DSH 自身页面
+            const guard = sameOriginGuard(req);
+            if (guard) {
+              res.statusCode = 403;
+              res.end(JSON.stringify({ error: guard }));
+              return;
+            }
             const root = dataRoot();
             if (!root) throw new Error('未设置数据根目录');
             const u = new URL(req.url, 'http://localhost');
             const { abs, clean } = safeJoin(root, u.searchParams.get('rel') || '');
             mkdirSync(path.dirname(abs), { recursive: true });
             let size = 0;
+            const MAX_UPLOAD = 512 * 1024 * 1024; // 512MB 上限：避免无界写盘
             await new Promise((resolve, reject) => {
               const ws = createWriteStream(abs);
-              req.on('data', (c) => { size += c.length; });
-              req.on('error', reject);
-              ws.on('error', reject);
+              const fail = (err) => {
+                // 中断/超限：销毁写流并删掉半截文件，避免数据目录累积垃圾与"截断但仍 200"的资产
+                try { ws.destroy(); } catch { /* 忽略 */ }
+                try { unlinkSync(abs); } catch { /* 忽略 */ }
+                reject(err);
+              };
+              req.on('data', (c) => {
+                size += c.length;
+                if (size > MAX_UPLOAD) fail(new Error('文件过大（上限 512MB）'));
+              });
+              req.on('error', fail);
+              req.on('aborted', () => fail(new Error('上传中断')));
+              ws.on('error', fail);
               ws.on('finish', resolve);
               req.pipe(ws);
             });
@@ -1230,6 +1406,8 @@ export function apply(ctx) {
             try { st = statSync(abs); } catch { res.statusCode = 404; res.end('not found'); return; }
             if (!st.isFile()) { res.statusCode = 404; res.end('not found'); return; }
             res.setHeader('content-type', mimeOf(abs));
+            // SVG 同源内联会在 DSH 源下执行脚本（数据目录内容可由上传写入）→ 强制下载而非内联
+            if (/\.svg$/i.test(abs)) res.setHeader('content-disposition', 'attachment');
             res.setHeader('accept-ranges', 'bytes');
             res.setHeader('cache-control', 'no-cache');
             const m = /^bytes=(\d*)-(\d*)$/.exec(String(req.headers.range || ''));
@@ -1247,10 +1425,10 @@ export function apply(ctx) {
               res.statusCode = 206;
               res.setHeader('content-range', `bytes ${start}-${end}/${st.size}`);
               res.setHeader('content-length', String(end - start + 1));
-              createReadStream(abs, { start, end }).pipe(res);
+              pipeFile(abs, { start, end }, res);
             } else {
               res.setHeader('content-length', String(st.size));
-              createReadStream(abs).pipe(res);
+              pipeFile(abs, {}, res);
             }
           } catch (e) {
             res.statusCode = 400;

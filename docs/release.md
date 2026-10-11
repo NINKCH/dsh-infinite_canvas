@@ -51,6 +51,8 @@ node scripts/smoke-render.mjs   # 渲染冒烟：假 React 走真实组件树
 node scripts/test-update.mjs    # 更新检查功能测试（真实 registry 比对）
 node scripts/test-tools.mjs     # 对话工具 schema 校验（标准 JSON Schema，防方言错误）
 node scripts/test-mentions.mjs  # @引用解析单测（解析/高亮转义/设定集匹配/[图N]绑定/命名）
+node scripts/audit.mjs          # 机械化体检（i18n 键对齐/CSS 类/节点类型覆盖/RPC 与工具一致）
+node scripts/test-host-hardening.mjs # Host 加固回归（读流错误接管/项目合并与墓碑/同源护栏等）
 ```
 
 `check-pack` 防的三类事故：漏打包（如 locale/icon 没进包）、多打包（`.github`/`scripts` 混入）、元数据漂移（版本/exports/`dsh.bundle.patch`）。

@@ -386,6 +386,10 @@ window.__ModuleLoader__.load({
       'photoCmd': 'Craft 命令',
       'bitrate': '码率',
       'bitrateAuto': '自动（浏览器默认）',
+      'runRequestFailed': '对话触发的生成未能执行',
+      'apiTimeout': '请求超时（毫秒）',
+      'uploadFailed': '导入失败',
+      'syncFailed': '与 Host 同步失败',
       'dataRootBrowse': '浏览选择目录',
       'dataRootPicking': '请在弹出的窗口中选择目录（可直接取消）…',
       'dataRootPickUnsupported': '当前平台不支持目录选择器，请手动填写路径',
@@ -698,6 +702,10 @@ window.__ModuleLoader__.load({
       'photoCmd': 'Craft command',
       'bitrate': 'Bitrate',
       'bitrateAuto': 'Auto (browser default)',
+      'runRequestFailed': 'Chat-triggered generation failed',
+      'apiTimeout': 'Request timeout (ms)',
+      'uploadFailed': 'Import failed',
+      'syncFailed': 'Failed to sync with Host',
       'dataRootBrowse': 'Browse for folder',
       'dataRootPicking': 'Pick a folder in the dialog (cancel anytime)…',
       'dataRootPickUnsupported': 'No folder picker on this platform — type the path instead',
@@ -1047,20 +1055,22 @@ window.__ModuleLoader__.load({
         skillStoryboard: s.skillStoryboard || '',
       };
       // v0.3 及以前的单配置自动迁移为列表
+      // 注意：id 必须**确定性**——loadSettings 是高频调用（每次渲染/生成都会走），
+      // 若这里用 uid() 每次生成新 id，节点上保存的 apiId 会永远匹配不上、默认项也会漂移
       if (!out.imageApis.length && s.imageApi && s.imageApi.baseUrl) {
         out.imageApis = [{
-          id: uid('cfg'), name: T('defaultImageCfg'),
+          id: 'legacy-image', name: T('defaultImageCfg'),
           baseUrl: s.imageApi.baseUrl || '', apiKey: s.imageApi.apiKey || '',
           model: s.imageApi.model || '', mode: s.imageApi.mode || 'generations',
         }];
-        out.imageApiId = out.imageApis[0].id;
+        out.imageApiId = s.imageApiId || 'legacy-image';
       }
       if (!out.videoApis.length && s.videoApi && s.videoApi.url) {
         out.videoApis = [{
-          id: uid('cfg'), name: T('defaultVideoCfg'),
+          id: 'legacy-video', name: T('defaultVideoCfg'),
           url: s.videoApi.url || '', apiKey: s.videoApi.apiKey || '', model: s.videoApi.model || '',
         }];
-        out.videoApiId = out.videoApis[0].id;
+        out.videoApiId = s.videoApiId || 'legacy-video';
       }
       return out;
     }
@@ -1331,6 +1341,12 @@ window.__ModuleLoader__.load({
     }
     async function idbDelete(id) {
       assetNameCache.delete(id);
+      // 释放该资产的 objectURL：否则 Blob（视频可达几十 MB）会被 URL 钉在内存里直到刷新
+      if (assetUrlCache.has(id)) {
+        const u = assetUrlCache.get(id);
+        assetUrlCache.delete(id);
+        if (typeof u === 'string' && u.startsWith('blob:')) { try { URL.revokeObjectURL(u); } catch { /* 忽略 */ } }
+      }
       const db = await openDb();
       return new Promise((resolve, reject) => {
         const tx = db.transaction(DB_STORE, 'readwrite');
@@ -1370,7 +1386,18 @@ window.__ModuleLoader__.load({
       if (!rec) return null;
       let url = null;
       if (rec.rel) url = fileUrlFor(rec.rel);              // 磁盘资产：Host 文件服务（支持 Range）
-      else if (rec.blob) url = URL.createObjectURL(rec.blob); // 旧资产：IndexedDB blob
+      else if (rec.blob) {
+        // IndexedDB 资产：objectURL 有内存成本 → 缓存总量设上限，超出时释放最早的一批
+        if (assetUrlCache.size >= 60) {
+          const first = assetUrlCache.keys().next();
+          if (!first.done) {
+            const oldUrl = assetUrlCache.get(first.value);
+            assetUrlCache.delete(first.value);
+            if (typeof oldUrl === 'string' && oldUrl.startsWith('blob:')) { try { URL.revokeObjectURL(oldUrl); } catch { /* 忽略 */ } }
+          }
+        }
+        url = URL.createObjectURL(rec.blob);
+      }
       if (url) assetUrlCache.set(id, url);
       return url;
     }
@@ -1569,13 +1596,13 @@ window.__ModuleLoader__.load({
         fd.append('n', '1');
         if (s.size) fd.append('size', s.size);
         refs.forEach((b, i) => fd.append('image[]', b, 'ref-' + i + '.png'));
-        const res = await fetch(base + '/images/edits', { method: 'POST', headers: auth, body: fd });
+        const res = await fetchT(base + '/images/edits', { method: 'POST', headers: auth, body: fd }, s.timeoutMs, '图片编辑 API');
         if (!res.ok) throw new Error('图片编辑 API HTTP ' + res.status + '：' + (await res.text()).slice(0, 300));
         const j = await res.json();
         const d = j && j.data && j.data[0];
         if (d && d.b64_json) return base64ToBlob(d.b64_json, 'image/png');
         if (d && d.url) {
-          const r2 = await fetch(d.url);
+          const r2 = await fetchT(d.url, null, 60000, '下载图片');
           if (!r2.ok) throw new Error('下载生成图片失败 HTTP ' + r2.status);
           return await r2.blob();
         }
@@ -1591,25 +1618,38 @@ window.__ModuleLoader__.load({
       const sizeOverride = String(s.size || '').trim();
       if (sizeOverride) body.size = sizeOverride;
       else { const dims = imageDimsFor(opts); body.size = `${dims.w}x${dims.h}`; }
-      // 文生图模式下参考图以扩展字段附带，由网关自行取舍
-      if (refs.length) body.images = await Promise.all(refs.map((b) => blobToDataUrl(b)));
-      const res = await fetch(base + '/images/generations', {
+      // 文生图模式（generations）按界面说明**忽略参考图**；参考图只在 edits 模式使用，
+      // 否则会把大体积 base64 数组发给不识别的网关 → HTTP 400，用户看到的却是"没反应"
+      if (refs.length && (s.mode === 'edits')) body.images = await Promise.all(refs.map((b) => blobToDataUrl(b)));
+      const res = await fetchT(base + '/images/generations', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...auth },
         body: JSON.stringify(body),
-      });
+      }, s.timeoutMs, '图片 API');
       if (!res.ok) throw new Error('图片 API HTTP ' + res.status + '：' + (await res.text()).slice(0, 300));
       const j = await res.json();
       const d = j && j.data && j.data[0];
       if (d && d.b64_json) return base64ToBlob(d.b64_json, 'image/png');
       if (d && d.url) {
-        const r2 = await fetch(d.url);
+        const r2 = await fetchT(d.url, null, 60000, '下载图片');
         if (!r2.ok) throw new Error('下载生成图片失败 HTTP ' + r2.status);
         return await r2.blob();
       }
       throw new Error('图片 API 响应中没有 data[0].b64_json / url');
     }
 
+    /** 带超时的 fetch：网关挂住时不会让节点永久处于 running（停止/刷新仍能恢复）。 */
+    async function fetchT(url, init, timeoutMs, label) {
+      const ms = Number(timeoutMs) > 0 ? Number(timeoutMs) : 120000;
+      const ctrl = typeof AbortController === 'function' ? new AbortController() : null;
+      const timer = setTimeout(() => { try { if (ctrl) ctrl.abort(); } catch { /* 忽略 */ } }, ms);
+      try {
+        return await fetch(url, { ...(init || {}), ...(ctrl ? { signal: ctrl.signal } : {}) });
+      } catch (e) {
+        if (ctrl && ctrl.signal && ctrl.signal.aborted) throw new Error((label || '请求') + '超时（' + Math.round(ms / 1000) + ' 秒）');
+        throw e;
+      } finally { clearTimeout(timer); }
+    }
     function extractVideoUrl(j) {
       if (typeof j === 'string' && /^https?:/.test(j)) return j;
       if (!j || typeof j !== 'object') return null;
@@ -1629,7 +1669,7 @@ window.__ModuleLoader__.load({
         ?? (j.output && (j.output.task_id ?? j.output.id));
     }
     async function downloadVideo(url, headers) {
-      const r = await fetch(url, { headers });
+      const r = await fetchT(url, { headers }, 300000, '下载视频');
       if (!r.ok) throw new Error('下载视频失败 HTTP ' + r.status);
       return await r.blob();
     }
@@ -1657,7 +1697,7 @@ window.__ModuleLoader__.load({
         generate_audio: s.generateAudio !== false,
       };
       body.ratio = frameBlob ? 'adaptive' : (o.ratio || '16:9');
-      const res = await fetch(base, { method: 'POST', headers, body: JSON.stringify(body) });
+      const res = await fetchT(base, { method: 'POST', headers, body: JSON.stringify(body) }, s.timeoutMs, 'Seedance 视频 API');
       if (!res.ok) throw new Error('Seedance HTTP ' + res.status + '：' + (await res.text()).slice(0, 300));
       const j = await res.json();
       const taskId = j && j.id;
@@ -1665,7 +1705,7 @@ window.__ModuleLoader__.load({
       const deadline = Date.now() + 15 * 60 * 1000;
       while (Date.now() < deadline) {
         await sleep(10000);
-        const r2 = await fetch(base + '/' + taskId, { headers });
+        const r2 = await fetchT(base + '/' + taskId, { headers }, 60000, '查询视频任务');
         if (!r2.ok) throw new Error('查询 Seedance 任务失败 HTTP ' + r2.status);
         const st = await r2.json();
         if (st.status === 'succeeded') {
@@ -1673,7 +1713,7 @@ window.__ModuleLoader__.load({
           if (!u) throw new Error('Seedance 任务成功但未返回视频地址');
           return await downloadVideo(u, {});
         }
-        if (st.status === 'failed' || st.status === 'expired') {
+        if (['failed', 'expired', 'canceled', 'cancelled', 'error'].includes(st.status)) {
           throw new Error('Seedance 任务失败：' + ((st.error && st.error.message) || st.status));
         }
       }
@@ -1700,7 +1740,7 @@ window.__ModuleLoader__.load({
       if (frameBlob) {
         try { body.image = await blobToDataUrl(frameBlob); } catch { /* 忽略首帧编码失败 */ }
       }
-      const res = await fetch(base, { method: 'POST', headers, body: JSON.stringify(body) });
+      const res = await fetchT(base, { method: 'POST', headers, body: JSON.stringify(body) }, s.timeoutMs, '视频 API');
       if (!res.ok) throw new Error('视频 API HTTP ' + res.status + '：' + (await res.text()).slice(0, 300));
       let j = null;
       try { j = await res.json(); } catch { /* 非 JSON 响应 */ }
@@ -1711,16 +1751,43 @@ window.__ModuleLoader__.load({
       const deadline = Date.now() + 15 * 60 * 1000;
       while (Date.now() < deadline) {
         await sleep(3000);
-        const r2 = await fetch(base + '/' + taskId, { headers });
+        const r2 = await fetchT(base + '/' + taskId, { headers }, 60000, '查询视频任务');
         if (!r2.ok) throw new Error('查询视频任务失败 HTTP ' + r2.status);
         let st = null;
         try { st = await r2.json(); } catch { /* 忽略 */ }
         const u = extractVideoUrl(st);
         if (u) return await downloadVideo(u, {});
-        const raw = JSON.stringify(st || {}).toLowerCase();
-        if (raw.includes('"fail') || raw.includes('"error"')) throw new Error('视频任务失败：' + raw.slice(0, 200));
+        // 失败判定必须看状态字段，不能拿整串 JSON 做子串匹配：
+        // 很多网关在 processing 阶段返回 {"status":"processing","error":null}，子串匹配会误判失败
+        const failed = taskFailureOf(st);
+        if (failed) throw new Error('视频任务失败：' + failed);
       }
       throw new Error('视频生成超时（15 分钟）');
+    }
+    /** 从任务轮询响应里判断是否真的失败（白名单状态 + 显式错误信息），返回失败原因或 null。 */
+    function taskFailureOf(st) {
+      if (!st || typeof st !== 'object') return null;
+      const pick = (v) => {
+        if (typeof v === 'string') return v.toLowerCase();
+        if (v && typeof v === 'object' && typeof v.status === 'string') return v.status.toLowerCase();
+        return '';
+      };
+      const status = pick(st.status) || pick(st.state) || pick(st.task_status)
+        || pick(st.data && st.data.status) || pick(st.output && st.output.status) || pick(st.result && st.result.status);
+      const FAIL = ['failed', 'fail', 'error', 'canceled', 'cancelled', 'expired', 'rejected'];
+      const DONE = ['succeeded', 'success', 'completed', 'complete', 'done', 'finished'];
+      if (status && FAIL.includes(status)) {
+        const msg = (st.error && (st.error.message || st.error.msg)) || st.message || st.msg || st.reason
+          || (st.data && st.data.error && (st.data.error.message || st.data.error)) || status;
+        return String(msg).slice(0, 300);
+      }
+      if (status && DONE.includes(status)) return null; // 成功但没解析出地址：交给调用方超时/后续处理
+      // 状态未知（如 processing/queued/running/空）：仅在明确带有错误对象时才算失败
+      const errObj = st.error || (st.data && st.data.error) || (st.output && st.output.error);
+      if (errObj && (typeof errObj === 'string' ? errObj.trim() : Object.keys(errObj).length)) {
+        return typeof errObj === 'string' ? errObj.slice(0, 300) : JSON.stringify(errObj).slice(0, 300);
+      }
+      return null;
     }
 
     function resolveApiCfg(list, defId, wantId) {
@@ -2178,7 +2245,12 @@ window.__ModuleLoader__.load({
     }
     /** FilmCraft 任务后台轮询：状态写回节点，done 后回收产物入资产库。 */
     async function pollFilmcraftJob(nodeId, jobId, outRel) {
+      const deadline = Date.now() + 30 * 60 * 1000; // 与 jobStart 的 timeoutMs 对齐：绝不无限轮询
       for (;;) {
+        if (Date.now() > deadline) {
+          update((s) => { const nd = s.graph.nodes[nodeId]; if (nd) { nd.data.fcStatus = T('craftTimeout'); nd.data.fcJobId = null; } });
+          return;
+        }
         await sleep(2000);
         let snap;
         try { snap = await craft.jobGet(jobId, 10); } catch (e) {
@@ -2208,7 +2280,7 @@ window.__ModuleLoader__.load({
           }
           return;
         }
-        if (snap.status === 'failed' || snap.status === 'timeout') {
+        if (['failed', 'timeout', 'canceled', 'cancelled', 'error'].includes(snap.status)) {
           const detail = (snap.stderr || '').split('\n').filter(Boolean).slice(-3).join(' | ').slice(0, 300);
           update((s) => { const nd = s.graph.nodes[nodeId]; if (nd) nd.data.fcStatus = snap.status + '：' + detail; nd.data.fcJobId = null; });
           return;
@@ -2274,6 +2346,8 @@ window.__ModuleLoader__.load({
     }
     // ---------- 对话 ↔ 画布同步：轮询 Host 项目索引 + 跳转请求 ----------
     let hostSyncStopped = false;
+    let hostSyncBusy = false; // hostSyncTick 互斥：单次 tick 可能超过 3 秒
+    let syncWarned = false;   // 同步失败只提示一次，避免刷屏
     async function importHostProject(hp) {
       const full = await hostRpc('projectsGet', { id: hp.id });
       update((s) => {
@@ -2290,6 +2364,8 @@ window.__ModuleLoader__.load({
     }
     async function hostSyncTick() {
       if (hostSyncStopped) return;
+      if (hostSyncBusy) return; // 单次 tick 可能超过 3 秒：加互斥，避免两个 tick 交错写回旧文档副本
+      hostSyncBusy = true;
       try {
         const r = await hostRpc('projectsSync');
         // 对话删除的项目：从本地一并移除（否则本地下次推送会把它复活）
@@ -2352,42 +2428,52 @@ window.__ModuleLoader__.load({
           }
           const missing = (hp.nodeIds || []).filter((nid) => !doc || !doc.nodes[nid]);
           if (!known) await importHostProject(hp);
-          else if (missing.length) {
+          else if (missing.length && doc) {
             const full = await hostRpc('projectsGet', { id: hp.id });
             for (const nid of missing) { if (full.nodes && full.nodes[nid]) doc.nodes[nid] = full.nodes[nid]; }
             saveGraphDoc(hp.id, doc);
             if (hp.id === S.activeId) update((s) => { for (const nid of missing) { if (full.nodes && full.nodes[nid]) s.graph.nodes[nid] = full.nodes[nid]; } s.assetsTick++; });
           }
         }
-        if (r.runRequest) {
-          // 对话触发节点执行：切到目标项目 → 用画布内配置的模型/接口真实运行 → 结果回写 Host
-          const pid = r.runRequest.projectId;
-          const nodeId = r.runRequest.nodeId;
-          try {
-            if (pid && pid !== S.activeId && S.projects.some((p) => p.id === pid)) {
-              switchProject(pid);
+        // 一次性请求（Host 读取即清空，绝不能因后面出错而丢失）：
+        // 放在逐项目循环之后、独立 try —— 循环里任何异常都不会让 runRequest 被静默吞掉
+        try {
+          if (r.runRequest) await handleRunRequest(r.runRequest);
+        } catch (e) {
+          toast(T('runRequestFailed') + '：' + String((e && e.message) || e));
+        }
+        try {
+          if (r.openRequest) {
+            const pid = r.openRequest.projectId || null;
+            if (pid && !S.projects.some((p) => p.id === pid)) {
+              const hp = (r.projects || []).find((x) => x.id === pid);
+              if (hp) await importHostProject(hp);
+            }
+            if (!pid || S.projects.some((p) => p.id === pid)) {
+              if (pid && pid !== S.activeId) switchProject(pid);
               try { if (CTX && CTX.layout && CTX.layout.selectPanel) CTX.layout.selectPanel(PANEL_ID); } catch { /* 忽略 */ }
             }
-            const node = S.graph.nodes[nodeId];
-            if (node) {
-              runGenNode(node).then(() => { flushSave(); }).catch(() => { flushSave(); });
-            }
-          } catch { /* 忽略 */ }
-        }
-        if (r.openRequest) {
-          const pid = r.openRequest.projectId || null;
-          if (pid && !S.projects.some((p) => p.id === pid)) {
-            const hp = (r.projects || []).find((x) => x.id === pid);
-            if (hp) await importHostProject(hp);
           }
-          if (!pid || S.projects.some((p) => p.id === pid)) {
-            if (pid && pid !== S.activeId) switchProject(pid);
-            try { if (CTX && CTX.layout && CTX.layout.selectPanel) CTX.layout.selectPanel(PANEL_ID); } catch { /* 忽略 */ }
-          }
-        }
+        } catch { /* 打开失败不阻断后续同步 */ }
       } catch (e) {
         if (/未知操作/.test(String((e && e.message) || e))) hostSyncStopped = true; // 旧 Host：停止轮询
+      } finally {
+        hostSyncBusy = false;
       }
+    }
+    /** 处理对话触发的节点执行：切到目标项目 → 用画布内配置的模型/接口真实运行 → 结果回写 Host。 */
+    async function handleRunRequest(runRequest) {
+      const pid = runRequest.projectId;
+      const nodeId = runRequest.nodeId;
+      if (pid && pid !== S.activeId && S.projects.some((p) => p.id === pid)) {
+        switchProject(pid);
+        try { if (CTX && CTX.layout && CTX.layout.selectPanel) CTX.layout.selectPanel(PANEL_ID); } catch { /* 忽略 */ }
+      }
+      const node = S.graph.nodes[nodeId];
+      if (!node) throw new Error('节点不存在: ' + nodeId);
+      if (node.data && node.data.status === 'running') return; // 已在运行：不重复触发
+      await runGenNode(node);
+      flushSave();
     }
     /** 启动时把本地全部项目推给 Host：让对话能看到并操作画布上已有的项目（客户端为内容权威）。 */
     async function pushAllProjectsToHost() {
@@ -2709,13 +2795,20 @@ window.__ModuleLoader__.load({
         const bibleField = bibleFieldForPush(S.activeId);
         hostRpc('projectsPut', {
           id: S.activeId, name: (proj && proj.name) || S.activeId,
-          doc: { nodes: S.graph.nodes, edges: S.graph.edges, view: S.graph.view, ...(bibleField.__bibleChanged ? { bible: bibleField.bible } : {}) },
+          doc: {
+            nodes: S.graph.nodes, edges: S.graph.edges, view: S.graph.view,
+            tombstones: S.graph.tombstones || [], // 本地删除标记：Host 依据它判定节点真的被删
+            ...(bibleField.__bibleChanged ? { bible: bibleField.bible } : {}),
+          },
         }).then((r) => {
           if (bibleField.__bibleChanged && r && r.bibleUpdatedAt) {
             lsSet(LS_BIBLE_SYNC + S.activeId, r.bibleUpdatedAt);
             biblePushSnap.set(S.activeId, JSON.stringify(bibleField.bible));
           }
-        }).catch(() => { /* 同步失败静默 */ });
+        }).catch((err) => {
+          // 同步失败必须让用户知道：否则对话侧看到的是旧内容，用户以为"刚写的对话里查不到"
+          if (!syncWarned) { syncWarned = true; toast(T('syncFailed') + '：' + String((err && err.message) || err)); }
+        });
       } catch { /* 忽略 */ }
     }
     function initStore() {
@@ -2751,10 +2844,15 @@ window.__ModuleLoader__.load({
       update((s) => {
         s.activeId = pid;
         s.graph = { nodes: doc.nodes || {}, edges: doc.edges || [], view: doc.view || { x: 60, y: 40, scale: 1 } };
-        s.sel = new Set(); s.selEdge = null; s.running = false;
+        s.sel = new Set(); s.selEdge = null;
+        // 注意：不复位 s.running —— 否则运行中切项目会让"运行工作流"重新可点，并发跑同一节点
         V.x = s.graph.view.x; V.y = s.graph.view.y; V.scale = s.graph.view.scale;
         applyViewToDom();
       });
+      // 撤销栈必须按项目隔离：否则在新项目里按 Ctrl+Z 会把上一个项目的节点写进来（覆盖数据）
+      history.stack = [];
+      history.idx = -1;
+      pushHistory();
     }
 
     // ============================================================
@@ -2898,6 +2996,9 @@ window.__ModuleLoader__.load({
         s.graph.edges = s.graph.edges.filter((e) => !ids.includes(e.fromNode) && !ids.includes(e.toNode));
         s.sel = new Set([...s.sel].filter((x) => ids.includes(x) === false));
         if (s.selEdge && !s.graph.edges.some((e) => e.id === s.selEdge)) s.selEdge = null;
+        // 本地删除也要留墓碑：Host 侧据此判定"真的被删了"，
+        // 否则 Host 合并（保留对话新节点）会把用户刚删的节点又留下来
+        s.graph.tombstones = [...new Set([...(s.graph.tombstones || []), ...ids])].slice(-200);
       });
       pushHistory();
     }
@@ -3085,7 +3186,7 @@ window.__ModuleLoader__.load({
     }
     const setNodeAiError = (nodeId, message) => update((s) => {
       const nd = s.graph.nodes[nodeId];
-      if (nd) { nd.data.aiStatus = 'error'; nd.data.aiError = String(message || ''); }
+      if (nd) { nd.data.aiStatus = 'error'; nd.data.aiError = String(message || ''); nd.data.status = 'error'; }
     });
 
     /** 剧本节点：idea → 成稿。按钮与对话触发的 canvas_run_node 共用同一实现。 */
@@ -3096,7 +3197,7 @@ window.__ModuleLoader__.load({
       try {
         const text = await aiScriptNodes(n.data.idea, n.data.model);
         if (!String(text || '').trim()) throw new Error(T('aiEmptyResult'));
-        update((s) => { const nd = s.graph.nodes[n.id]; if (nd) { nd.data.output = text; nd.data.aiStatus = 'idle'; } s.assetsTick++; });
+        update((s) => { const nd = s.graph.nodes[n.id]; if (nd) { nd.data.output = text; nd.data.aiStatus = 'idle'; nd.data.status = 'done'; nd.data.error = null; } s.assetsTick++; });
         await saveTextAssetRecord(S.activeId, {
           name: T('scriptAssetPrefix') + new Date().toISOString().slice(5, 16).replace('T', ' '),
           text, category: 'script', prompt: n.data.idea,
@@ -3122,7 +3223,7 @@ window.__ModuleLoader__.load({
         const warnings = await checkShotConsistency(shots);
         update((s) => {
           const nd = s.graph.nodes[n.id];
-          if (nd) { nd.data.shots = shots; nd.data.aiStatus = 'idle'; nd.data.warnings = warnings; }
+          if (nd) { nd.data.shots = shots; nd.data.aiStatus = 'idle'; nd.data.warnings = warnings; nd.data.status = 'done'; nd.data.error = null; }
           s.assetsTick++;
         });
         await saveTextAssetRecord(S.activeId, {
@@ -3310,7 +3411,9 @@ window.__ModuleLoader__.load({
           if (cancelRef.cancelled) break;
           const n = S.graph.nodes[id];
           if (!n) continue;
-          if (n.type === 'image-gen' || n.type === 'video-gen') {
+          // 已在生成中的节点跳过：避免与对话触发的 canvas_run_node 并发调用同一节点（重复计费/重复资产）
+          if (n.data && n.data.status === 'running') continue;
+          if (n.type === 'image-gen' || n.type === 'video-gen' || n.type === 'script' || n.type === 'storyboard' || n.type === 'finalcut') {
             await runGenNode(n);
           }
         }
@@ -3776,8 +3879,8 @@ window.__ModuleLoader__.load({
           nodeEls.delete(n.id);
         }
       }, [n.id]);
-      if (n.data.hidden) return null; // 分组折叠时隐藏成员
-      if (n.type === 'group') return h(GroupShell, { n });
+      // 【顺序要求】所有 hook 必须先无条件执行，再决定渲染什么：
+      // 否则分组折叠切换 data.hidden 时 hook 数量变化，React 会抛错并卸载整个画布（白屏）
       const [renaming, setRenaming] = useState(false);
       const [nameVal, setNameVal] = useState('');
       // 节点内所有文本域随内容自动增高：内容溢出就撑开（上限 600），用户手动拉大过的不会被缩回去
@@ -3790,6 +3893,8 @@ window.__ModuleLoader__.load({
           } catch { /* 忽略 */ }
         }
       });
+      if (n.data.hidden) return null; // 分组折叠时隐藏成员
+      if (n.type === 'group') return h(GroupShell, { n });
       const commitName = () => {
         const v = nameVal.trim();
         update((s) => { const nd = s.graph.nodes[n.id]; if (nd) nd.data.label = v; });
@@ -4303,7 +4408,7 @@ window.__ModuleLoader__.load({
           if (ok) setRows(out);
         })();
         return () => { ok = false; };
-      }, [idsKey, S.assetsTick]);
+      }, [idsKey, S.assetsTick, (n.data.refOrder || []).join(',')]); // refOrder 变化必须重建：否则 [图N] 与实际上送顺序不一致
       if (!es.length) return null;
       const move = (id, dir) => {
         update((s) => {
@@ -4341,7 +4446,11 @@ window.__ModuleLoader__.load({
         const isImg = f.type.startsWith('image/');
         const isVid = f.type.startsWith('video/');
         if (kind === 'image' ? !isImg : !isVid) { toast(kind === 'image' ? T('pickImageFile') : T('pickVideoFile')); return; }
-        const rec = await saveAssetRecord(S.activeId, kind, f, { name: f.name, source: 'upload', category: 'general' });
+        const rec = await saveAssetRecord(S.activeId, kind, f, { name: f.name, source: 'upload', category: 'general' }).catch((err) => {
+          toast(T('uploadFailed') + '：' + String((err && err.message) || err));
+          return null;
+        });
+        if (!rec) return;
         update((s) => {
           const nd = s.graph.nodes[n.id];
           if (nd) { nd.data.assetId = rec.id; nd.data.status = 'done'; nd.data.placeholderName = null; }
@@ -4662,11 +4771,11 @@ window.__ModuleLoader__.load({
         if (!text) { toast(T('subPlaceholder')); return; }
         update((s) => { const nd = s.graph.nodes[n.id]; if (nd) { nd.data.tts = nd.data.tts || {}; nd.data.tts[x.e.id] = { status: 'running' }; } });
         try {
-          const res = await fetch((cfg.baseUrl || '').replace(/\/+$/, '') + '/audio/speech', {
+          const res = await fetchT((cfg.baseUrl || '').replace(/\/+$/, '') + '/audio/speech', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', ...(cfg.apiKey ? { Authorization: 'Bearer ' + cfg.apiKey } : {}) },
             body: JSON.stringify({ ...(cfg.model ? { model: cfg.model } : {}), input: text, voice: cfg.voice || 'alloy', response_format: 'mp3' }),
-          });
+          }, cfg.timeoutMs, 'TTS API');
           if (!res.ok) throw new Error('TTS HTTP ' + res.status + '：' + (await res.text()).slice(0, 200));
           const buf = await res.arrayBuffer();
           const blob = new Blob([buf], { type: res.headers.get('content-type') || 'audio/mpeg' });
@@ -5265,11 +5374,15 @@ window.__ModuleLoader__.load({
       const onImport = async (e) => {
         const files = [...((e.target.files) || [])];
         e.target.value = '';
+        let failed = 0;
         for (const f of files) {
           const kind = f.type.startsWith('video/') ? 'video' : f.type.startsWith('image/') ? 'image' : null;
           if (!kind) continue;
-          await saveAssetRecord(S.activeId, kind, f, { name: f.name, source: 'upload', category: 'general' });
+          try {
+            await saveAssetRecord(S.activeId, kind, f, { name: f.name, source: 'upload', category: 'general' });
+          } catch { failed++; } // 单个失败不影响其余文件
         }
+        if (failed) toast(T('uploadFailed') + '（' + failed + '/' + files.length + '）');
         if (files.length) setTick((x) => x + 1);
       };
       const del = async (a) => {
@@ -5579,6 +5692,11 @@ window.__ModuleLoader__.load({
               h(Field, { key: 'u', label: T('baseUrl'), value: cfg[kcUrlKey(kind)] || '', onChange: (v) => patch(cfg.id, urlKey, v), placeholder: urlPh }),
               h(Field, { key: 'k', label: T('apiKey'), value: cfg.apiKey || '', onChange: (v) => patch(cfg.id, 'apiKey', v), placeholder: 'sk-…', password: true }),
               h(Field, { key: 'm', label: T('model'), value: cfg.model || '', onChange: (v) => patch(cfg.id, 'model', v) }),
+              h(Field, {
+                key: 'to', label: T('apiTimeout'), value: cfg.timeoutMs || '',
+                placeholder: T('llmParamAuto'),
+                onChange: (v) => patch(cfg.id, 'timeoutMs', v),
+              }),
               kind === 'image'
                 ? h(Field, { key: 'size', label: T('imgSizeOverride'), value: cfg.size || '', onChange: (v) => patch(cfg.id, 'size', v), placeholder: T('imgSizePlaceholder') })
                 : null,

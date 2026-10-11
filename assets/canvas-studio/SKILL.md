@@ -43,8 +43,11 @@ description: 用无限画布（Infinite Canvas）做短剧/视频创作时使用
 2. 需要新项目才 `canvas_create_project({ name, scriptText, scriptOutput, nodeName })`；否则复用已有 projectId
 3. **生成剧本** → `canvas_write_node({ projectId, text, target, name, idea })`
    - `target: 'idea'`：提示词、创作意图、约束
-   - `target: 'output'`：**成稿**（剧本正文、分镜结果）；不传 nodeId 时会自动落到项目里已有的剧本节点，不另建节点
+   - `target: 'output'`：**成稿**（剧本正文、分镜结果）
    - 同一次调用可用 `idea` 参数把创作意图与成稿一起写进同一个剧本节点
+   - **多集/多节写作**：给 `name`（如「第二节剧本」）。名字匹配到已有节点 → 更新它；匹配不到 →
+     **自动新建节点**，绝不会给旧节点改名（改名+覆盖会吃掉前面的稿子）
+   - 已写成稿的节点**默认拒绝覆盖**：确实要重写同一节点时传 `overwrite: true`
 4. **生成角色/场景/道具参考图**：为设定集里的每个条目
    `canvas_create_node({ projectId, type: 'image-gen', name: '角色-陈拾 参考图', prompt: '按设定集写外观关键词' })`
    → `canvas_run_node({ projectId, nodeId })` 触发（画布用它配置的图片接口）
