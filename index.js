@@ -670,10 +670,13 @@ async function canvasOpen(args) {
 }
 
 /**
- * 本地 HTTP 面的同源护栏：本插件的写操作（安装/删除/写文件）只能由 DSH 自身的页面触发。
+ * 本地 HTTP 面的"来源校验"（不是鉴权：没有登录、没有密码、没有 token，你无感）。
+ * 目的：阻止**其他网站**在你浏览器里朝本机端口发请求触发副作用
+ * （跨站页面能用简单请求打到 127.0.0.1，读不到响应但安装/删除/写文件已经发生）。
+ * 放行规则：Origin 的主机必须与请求的 Host 一致（即同源）——
+ * 不论你是用 127.0.0.1、localhost、局域网 IP 还是反代域名访问，都照常工作；
+ * 无 Origin 的非浏览器调用（curl 等）本来就不受浏览器 CSRF 影响，也放行。
  * 返回错误字符串表示拒绝，返回 null 表示放行。
- * 依据：跨站页面发起的请求会带 Origin（且 Sec-Fetch-Site 为 cross-site）；
- * 同源的 DSH Web UI 请求带 Application/JSON 内容类型（会触发预检，跨站无法伪造）。
  */
 function sameOriginGuard(req) {
   const origin = String(req.headers.origin || '');
@@ -681,8 +684,7 @@ function sameOriginGuard(req) {
     let host = '';
     try { host = new URL(origin).host; } catch { return '来源不合法'; }
     const self = String(req.headers.host || '');
-    const localOk = /^(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/i.test(host);
-    if (!localOk || (self && host !== self)) return '拒绝跨站请求';
+    if (self && host !== self) return '拒绝跨站请求';
   }
   const site = String(req.headers['sec-fetch-site'] || '');
   if (site && site !== 'same-origin' && site !== 'none') return '拒绝跨站请求';

@@ -184,6 +184,11 @@ const i = mod._internals;
   ok(site.status === 403, 'cross-site（Sec-Fetch-Site）未被拒绝');
   const same = await callRpc({ host: '127.0.0.1:1', origin: 'http://127.0.0.1:1', 'sec-fetch-site': 'same-origin', 'content-type': 'application/json' });
   ok(same.status === 200 && /"ok":true/.test(same.body), '同源请求被误拒：' + same.status + ' ' + same.body);
+  // 用局域网 IP / 自定义域名访问 DSH 也必须放行（护栏只判"同源"，不限定本机回环）
+  const lan = await callRpc({ host: '192.168.1.5:19387', origin: 'http://192.168.1.5:19387', 'sec-fetch-site': 'same-origin', 'content-type': 'application/json' });
+  ok(lan.status === 200 && /"ok":true/.test(lan.body), '局域网/自定义域名访问被误拒（护栏过严）：' + lan.status + ' ' + lan.body);
+  const otherHost = await callRpc({ host: '192.168.1.5:19387', origin: 'http://evil.internal:19387', 'content-type': 'application/json' });
+  ok(otherHost.status === 403, '不同主机的 Origin 未被拒绝：' + otherHost.status);
   // 原型链方法名
   const proto = await callRpc({ host: '127.0.0.1:1', 'content-type': 'application/json' });
   void proto;
