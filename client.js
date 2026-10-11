@@ -361,6 +361,16 @@ window.__ModuleLoader__.load({
       'fillName': '一键填入输入框',
       'skillHint': '默认已含内置专家 + 创作方法论（canvas-craft）；也可选择其它已安装技能覆盖',
       'nodeNotRunnable': '该节点类型不支持运行（请用画布上的对应按钮）',
+      'llmMaxTokens': '输出上限 maxTokens',
+      'llmTemperature': '温度 temperature',
+      'llmParamAuto': '留空 = 用 Harness/模型默认',
+      'llmParamHint': '留空则不下发该参数，直接使用你在 Harness 里为该模型配置的默认值（插件不会写死任何生成参数）',
+      'imgSizeOverride': '尺寸覆盖 size',
+      'imgSizePlaceholder': '如 1024x1024（留空=按清晰度×比例）',
+      'imgResponseFormat': '响应格式 response_format',
+      'seedanceAudio': '生成音频（Seedance）',
+      'seedanceWatermark': '添加水印（Seedance）',
+      'seedanceHint': '仅 Seedance 协议生效；模型名必填（协议要求显式指定）',
       'dataRootBrowse': '浏览选择目录',
       'dataRootPicking': '请在弹出的窗口中选择目录（可直接取消）…',
       'dataRootPickUnsupported': '当前平台不支持目录选择器，请手动填写路径',
@@ -648,6 +658,16 @@ window.__ModuleLoader__.load({
       'fillName': 'Fill the input with this name',
       'skillHint': 'Defaults to built-in experts plus the canvas-craft methodology; pick another installed skill to override',
       'nodeNotRunnable': 'This node type cannot be run (use its button on the canvas)',
+      'llmMaxTokens': 'Output cap (maxTokens)',
+      'llmTemperature': 'Temperature',
+      'llmParamAuto': 'empty = Harness/model default',
+      'llmParamHint': 'Left empty, the parameter is not sent at all — the model uses the default you configured in Harness. The plugin never hardcodes generation parameters.',
+      'imgSizeOverride': 'Size override',
+      'imgSizePlaceholder': 'e.g. 1024x1024 (empty = clarity × ratio)',
+      'imgResponseFormat': 'response_format',
+      'seedanceAudio': 'Generate audio (Seedance)',
+      'seedanceWatermark': 'Watermark (Seedance)',
+      'seedanceHint': 'Seedance protocol only; the model name is required by the protocol',
       'dataRootBrowse': 'Browse for folder',
       'dataRootPicking': 'Pick a folder in the dialog (cancel anytime)…',
       'dataRootPickUnsupported': 'No folder picker on this platform — type the path instead',
@@ -958,9 +978,10 @@ window.__ModuleLoader__.load({
       try { localStorage.setItem(key, JSON.stringify(value)); } catch { /* 忽略配额错误 */ }
     }
     const DEFAULT_SETTINGS = {
-      textLlm: { provider: '', model: '' },
-      imageApis: [],   // [{id, name, baseUrl, apiKey, model, mode}]
-      videoApis: [],   // [{id, name, url, apiKey, model}]
+      // 生成参数一律"留空即不发送"，由 Harness 适配器/模型用已配置的默认值（不在代码里写死）
+      textLlm: { provider: '', model: '', maxTokens: '', temperature: '' },
+      imageApis: [],   // [{id, name, baseUrl, apiKey, model, mode, size?, responseFormat?}]
+      videoApis: [],   // [{id, name, url, apiKey, model, protocol?, watermark?, generateAudio?}]
       ttsApis: [],     // [{id, name, baseUrl, apiKey, model, voice}]
       imageApiId: '',
       videoApiId: '',
@@ -1326,11 +1347,13 @@ window.__ModuleLoader__.load({
       const body = {
         ...(s.model ? { model: s.model } : {}),
         prompt, n: 1,
-        response_format: 'b64_json',
       };
-      // 分辨率 × 比例 → 像素尺寸（WxH），节点上可调
-      const dims = imageDimsFor(opts);
-      body.size = `${dims.w}x${dims.h}`;
+      // 响应格式：留空 = 用 API 默认（响应解析同时支持 b64_json 与 url）
+      if (String(s.responseFormat || '').trim()) body.response_format = String(s.responseFormat).trim();
+      // 尺寸：留空 = 按节点上的「清晰度 × 比例」计算；填了就用你配置的值
+      const sizeOverride = String(s.size || '').trim();
+      if (sizeOverride) body.size = sizeOverride;
+      else { const dims = imageDimsFor(opts); body.size = `${dims.w}x${dims.h}`; }
       // 文生图模式下参考图以扩展字段附带，由网关自行取舍
       if (refs.length) body.images = await Promise.all(refs.map((b) => blobToDataUrl(b)));
       const res = await fetch(base + '/images/generations', {
@@ -1376,6 +1399,7 @@ window.__ModuleLoader__.load({
     /** 火山方舟 Seedance 官方协议：创建任务 → 轮询 → 下载（支持首帧 + 最多 4 张参考图）。 */
     async function seedanceVideo(prompt, frameBlob, refs, s, opts) {
       if (!s.url) throw new Error('未配置视频 API');
+      if (!s.model) throw new Error('请在设置里为该视频 API 填写模型名（Seedance 协议要求显式指定模型）');
       const base = s.url.replace(/\/+$/, '');
       const headers = { 'Content-Type': 'application/json', ...(s.apiKey ? { Authorization: 'Bearer ' + s.apiKey } : {}) };
       const o = opts || {};
@@ -1388,12 +1412,12 @@ window.__ModuleLoader__.load({
       if (frameBlob) content.push({ type: 'image_url', image_url: { url: await blobToDataUrl(frameBlob) }, role: 'first_frame' });
       for (const b of refBlobs) content.push({ type: 'image_url', image_url: { url: await blobToDataUrl(b) }, role: 'reference_image' });
       const body = {
-        model: s.model || 'doubao-seedance-1-5-pro-251215',
+        model: s.model,
         content,
         duration: Number(o.duration) || 5,
         resolution: (o.resolution || '720P').toLowerCase(),
-        watermark: false,
-        generate_audio: true,
+        watermark: s.watermark === true,
+        generate_audio: s.generateAudio !== false,
       };
       body.ratio = frameBlob ? 'adaptive' : (o.ratio || '16:9');
       const res = await fetch(base, { method: 'POST', headers, body: JSON.stringify(body) });
@@ -1476,7 +1500,7 @@ window.__ModuleLoader__.load({
     async function generateVideo(prompt, frameBlob, opts) {
       const settings = loadSettings();
       const cfg = resolveApiCfg(settings.videoApis, settings.videoApiId, opts && opts.apiId);
-      const blob = cfg ? await apiVideo(prompt, frameBlob, cfg, opts || {}) : await demoVideoBlob(prompt, videoDimsFor(opts), ((opts && opts.duration) || 5) * 1000);
+      const blob = cfg ? await apiVideo(prompt, frameBlob, cfg, opts || {}) : await demoVideoBlob(prompt, videoDimsFor(opts, { capLong: 1280 }), ((opts && opts.duration) || 5) * 1000);
       return { blob, demo: !cfg };
     }
 
@@ -2129,13 +2153,15 @@ window.__ModuleLoader__.load({
       const base = { '1K': 1024, '2K': 2048, '4K': 4096 }[(opts && opts.size) || '2K'] || 2048;
       return dimsFromRatio(opts && opts.ratio, base, base);
     }
-    function videoDimsFor(opts) {
+    function videoDimsFor(opts, limits) {
       const base = { '480P': 480, '720P': 720, '1080P': 1080 }[(opts && opts.resolution) || '720P'] || 720;
       const d = dimsFromRatio(opts && opts.ratio, base, base);
-      // 演示合成性能保护：长边不超过 1280
+      // 仅演示/本地合成路径限制长边（浏览器合成性能保护）；真实 API 与成片按你选的分辨率
+      const cap = limits && Number(limits.capLong);
+      if (!cap) return d;
       const long = Math.max(d.w, d.h);
-      if (long > 1280) {
-        const k = 1280 / long;
+      if (long > cap) {
+        const k = cap / long;
         return { w: Math.round(d.w * k / 2) * 2, h: Math.round(d.h * k / 2) * 2 };
       }
       return d;
@@ -2194,7 +2220,7 @@ window.__ModuleLoader__.load({
       }
       return null;
     }
-    async function aiComplete({ system, user, temperature, maxTokens, model }) {
+    async function aiComplete({ system, user, model }) {
       const settings = loadSettings();
       let provider;
       let modelId;
@@ -2204,9 +2230,14 @@ window.__ModuleLoader__.load({
         provider = settings.textLlm.provider || undefined;
         modelId = settings.textLlm.model || undefined;
       }
-      const res = await hostRpc('llmComplete', {
-        provider, model: modelId, system, user, temperature, maxTokens,
-      });
+      // 生成参数一律来自设置；留空则**不发该字段**，由 Harness 适配器/模型用已配置的默认值
+      const cfg = settings.textLlm || {};
+      const args = { provider, model: modelId, system, user };
+      const maxTokens = Number(String(cfg.maxTokens ?? '').trim());
+      if (String(cfg.maxTokens ?? '').trim() !== '' && Number.isFinite(maxTokens) && maxTokens > 0) args.maxTokens = maxTokens;
+      const temperature = Number(String(cfg.temperature ?? '').trim());
+      if (String(cfg.temperature ?? '').trim() !== '' && Number.isFinite(temperature)) args.temperature = temperature;
+      const res = await hostRpc('llmComplete', args);
       return res.text;
     }
 
@@ -2256,7 +2287,7 @@ window.__ModuleLoader__.load({
         '- Visual actions only, no inner thoughts; dialogue on its own lines; mark sounds in brackets;',
         '- End with "Characters:" and "Locations/Props:" lists for asset production.',
       ].join('\n');
-      return await aiComplete({ system, user, temperature: 0.7, maxTokens: 8000, model });
+      return await aiComplete({ system, user, model });
     }
     async function aiStoryboardShots(scriptText, requirement, count, model) {
       const settings = loadSettings();
@@ -2297,7 +2328,7 @@ window.__ModuleLoader__.load({
         `${zh ? '额外要求' : 'Extra requirements'}：${String(requirement ?? '').trim() || (zh ? '无' : 'none')}`,
         `${zh ? '目标分镜数量' : 'Shot count'}：${count}`,
       ].join('\n\n');
-      const text = await aiComplete({ system, user, temperature: 0.5, maxTokens: 8000, model });
+      const text = await aiComplete({ system, user, model });
       const parsed = parseJsonBalanced(text);
       const shots = parsed && Array.isArray(parsed.shots) ? parsed.shots : null;
       if (!shots || !shots.length) throw new Error(T('errParseStoryboard'));
@@ -5190,6 +5221,12 @@ window.__ModuleLoader__.load({
               h(Field, { key: 'k', label: T('apiKey'), value: cfg.apiKey || '', onChange: (v) => patch(cfg.id, 'apiKey', v), placeholder: 'sk-…', password: true }),
               h(Field, { key: 'm', label: T('model'), value: cfg.model || '', onChange: (v) => patch(cfg.id, 'model', v) }),
               kind === 'image'
+                ? h(Field, { key: 'size', label: T('imgSizeOverride'), value: cfg.size || '', onChange: (v) => patch(cfg.id, 'size', v), placeholder: T('imgSizePlaceholder') })
+                : null,
+              kind === 'image'
+                ? h(Field, { key: 'rf', label: T('imgResponseFormat'), value: cfg.responseFormat || '', onChange: (v) => patch(cfg.id, 'responseFormat', v), placeholder: 'b64_json / url（留空=API 默认）' })
+                : null,
+              kind === 'image'
                 ? h('div', { key: 'mode', className: 'dshic-field' },
                     h('span', { className: 'dshic-field-label' }, T('imgMode')),
                     h('select', {
@@ -5213,6 +5250,24 @@ window.__ModuleLoader__.load({
                 : null,
               kind === 'tts'
                 ? h(Field, { key: 'voice', label: T('voice'), value: cfg.voice || '', onChange: (v) => patch(cfg.id, 'voice', v), placeholder: 'alloy' })
+                : null,
+              (kind === 'video' && (cfg.protocol === 'seedance'))
+                ? h('div', { key: 'seedopts', className: 'dshic-field' },
+                    h('label', { className: 'dshic-row', style: { gap: 6, fontSize: 11 } },
+                      h('input', {
+                        type: 'checkbox', checked: cfg.generateAudio !== false,
+                        onChange: (e) => patch(cfg.id, 'generateAudio', e.target.checked),
+                        onPointerDown: (e) => e.stopPropagation(),
+                      }),
+                      h('span', {}, T('seedanceAudio'))),
+                    h('label', { className: 'dshic-row', style: { gap: 6, fontSize: 11 } },
+                      h('input', {
+                        type: 'checkbox', checked: cfg.watermark === true,
+                        onChange: (e) => patch(cfg.id, 'watermark', e.target.checked),
+                        onPointerDown: (e) => e.stopPropagation(),
+                      }),
+                      h('span', {}, T('seedanceWatermark'))),
+                    h('div', { className: 'dshic-hint' }, T('seedanceHint')))
                 : null,
             ] : null,
           );
@@ -5485,6 +5540,17 @@ window.__ModuleLoader__.load({
         h('div', { key: 'llm', className: 'dshic-card' },
           h('div', { className: 'dshic-row' }, Ic('spark', 12), h('strong', { style: { fontSize: 12 } }, T('llmLabel'))),
           h(LlmModelSelect),
+          h('div', { className: 'dshic-row' },
+            h(Field, {
+              label: T('llmMaxTokens'), value: s.textLlm.maxTokens || '', placeholder: T('llmParamAuto'),
+              onChange: (v) => apply((d) => { d.textLlm.maxTokens = v; }),
+            }),
+            h(Field, {
+              label: T('llmTemperature'), value: s.textLlm.temperature || '', placeholder: T('llmParamAuto'),
+              onChange: (v) => apply((d) => { d.textLlm.temperature = v; }),
+            }),
+          ),
+          h('div', { className: 'dshic-hint' }, T('llmParamHint')),
           h('div', { className: 'dshic-hint' }, T('skillEnhance')),
           h(SkillSelect, { label: T('skillScript'), value: s.skillScript, onChange: (v) => apply((d) => { d.skillScript = v; }) }),
           h(SkillSelect, { label: T('skillStoryboard'), value: s.skillStoryboard, onChange: (v) => apply((d) => { d.skillStoryboard = v; }) }),

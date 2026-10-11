@@ -64,7 +64,17 @@ description: 用无限画布（Infinite Canvas）做短剧/视频创作时使用
 4. **生成需要时间**：图片/视频可能几十秒到数分钟。触发后用 `canvas_node_status` 间隔轮询
    （建议 ≥10 秒一次），不要反复触发同一个节点。
 
-## 五、ArtCraft 后期全流程（PhotoCraft / FilmCraft / EffectCraft）
+## 五、生成参数来源（不要臆造参数）
+
+- **文本模型**：走 Harness 里已配置的 provider/model 与其默认参数。画布设置里可填「输出上限」「温度」，
+  **留空即不下发该字段**（用 Harness/模型的默认值）。
+- **图片 / 视频 / 配音**：走用户在画布设置里配置的 API 与其参数；仅当用户填写了覆盖项
+  （如图片 `size`、`response_format`、Seedance 的音频/水印）才发送，否则用 API 默认。
+- **不要**向用户断言某个模型的上下文/输出上限数值——以 Harness 配置与厂商文档为准
+  （例：GLM-5.3 / GLM-5.3-Flash 为 1M 上下文、最大输出 128K）。
+- 生成失败时，插件会回传真实原因（含 chunk 类型统计）；如实转达，不要猜测。
+
+## 六、ArtCraft 后期全流程（PhotoCraft / FilmCraft / EffectCraft）
 
 前置：用户需安装 `dsh-artcraft` 插件并配置三个 CLI 路径（画布设置 → Craft 后期 卡片会显示
 就绪/缺失状态与数据目录）。资产会同步到 Craft 工作区按项目分目录存放。

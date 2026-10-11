@@ -624,8 +624,14 @@ export function apply(ctx) {
       if (!resolved) throw new Error('没有可用模型，请先在 Harness 设置中配置模型提供方');
       const system = String(want.system ?? '');
       const user = String(want.user ?? '');
-      const temperature = typeof want.temperature === 'number' ? want.temperature : 0.7;
-      const maxTokens = typeof want.maxTokens === 'number' ? want.maxTokens : 4000;
+      // 只透传调用方显式给出的参数；不给就不发 —— 让适配器/模型用 Harness 里配置的默认值
+      // （此前插件写死 maxTokens 会覆盖用户在 Harness 里的输出上限，推理模型思考一吃就没了）
+      const temperature = typeof want.temperature === 'number' && Number.isFinite(want.temperature) ? want.temperature : undefined;
+      const maxTokens = typeof want.maxTokens === 'number' && Number.isFinite(want.maxTokens) && want.maxTokens > 0 ? want.maxTokens : undefined;
+      const tuned = {
+        ...(temperature === undefined ? {} : { temperature }),
+        ...(maxTokens === undefined ? {} : { maxTokens }),
+      };
       const userMessage = { role: 'user', content: [{ type: 'text', text: user }] };
       /** 跑一次流：统计 chunk 类型，返回文本与失败原因（单次尝试抛错不致命，便于逐级回退）。 */
       const run = async (options) => {
@@ -653,30 +659,31 @@ export function apply(ctx) {
         model: resolved.model,
         ...(system ? { system } : {}),
         messages: [userMessage],
-        temperature,
-        maxTokens,
+        ...tuned,
         sessionId: 'infinite-canvas',
         purpose: 'infinite-canvas',
       };
-      // 1) 规范信封（system 独立字段 + sessionId）
+      // 1) 规范信封（system 独立字段 + sessionId；参数按调用方配置，不发插件自造的数值）
       const primary = await run(base);
       if (primary.text.trim()) return { text: primary.text, provider: resolved.provider, model: resolved.model, variant: 'system' };
-      // 2) 推理模型：思考可能吃满输出预算 → 放大预算并降低推理强度重试
+      // 2) 推理模型：只出思考不出正文 → 降低推理强度重试（不擅自放大/改写输出上限）
       if (primary.kinds.includes('reasoning-delta')) {
-        const bigTokens = Math.min(32000, Math.max(maxTokens * 3, 16000));
-        const retries = [
-          { ...base, maxTokens: bigTokens, reasoningEffort: 'low' },
-          { ...base, maxTokens: bigTokens },
+        const attempts = [
+          { label: '降低推理强度', options: { ...base, reasoningEffort: 'low' } },
+          { label: '降低推理强度+老式信封', options: { ...base, reasoningEffort: 'low', messages: system ? [{ role: 'system', content: [{ type: 'text', text: system }] }, userMessage] : [userMessage], system: undefined } },
         ];
         const tried = [];
-        for (const options of retries) {
-          const r = await run(options);
+        for (const a of attempts) {
+          const opts = { ...a.options };
+          if (opts.system === undefined) delete opts.system;
+          const r = await run(opts);
           if (r.text.trim()) return { text: r.text, provider: resolved.provider, model: resolved.model, variant: 'reasoning-retry' };
-          tried.push(histogram(r.kinds) + (r.error ? ' / 错误: ' + r.error : ''));
+          tried.push(a.label + ': ' + histogram(r.kinds) + (r.error ? ' / 错误: ' + r.error : ''));
         }
         throw new Error(
-          '模型只输出了思考内容、没有正文（provider=' + resolved.provider + ' model=' + resolved.model + '，推理模型思考占满了输出预算）。'
-          + '已自动放大预算到 ' + bigTokens + ' 并重试仍未拿到正文。建议：在画布设置里改用非推理模型（如 deepseek-flash），或提高该模型的输出上限。'
+          '该模型只输出了思考内容、没有正文（provider=' + resolved.provider + ' model=' + resolved.model + '）。'
+          + '插件没有覆盖任何参数，输出上限按你在 Harness 里的配置生效；若仍失败，请检查该模型在 Harness 里的输出上限配置，'
+          + '或改用非推理模型（如 deepseek-flash）。'
           + '（chunk 统计 → 首次: ' + histogram(primary.kinds) + '；重试: ' + tried.join(' | ') + '）',
         );
       }
@@ -685,8 +692,7 @@ export function apply(ctx) {
         provider: resolved.provider,
         model: resolved.model,
         messages: system ? [{ role: 'system', content: [{ type: 'text', text: system }] }, userMessage] : [userMessage],
-        temperature,
-        maxTokens,
+        ...tuned,
       });
       if (fallback.text.trim()) return { text: fallback.text, provider: resolved.provider, model: resolved.model, variant: 'system-in-messages' };
       throw new Error(
@@ -694,7 +700,7 @@ export function apply(ctx) {
         + '；chunk 统计 → 规范信封: ' + histogram(primary.kinds) + ' / 回退: ' + histogram(fallback.kinds)
         + (primary.error ? '；规范信封错误: ' + primary.error : '')
         + (fallback.error ? '；回退错误: ' + fallback.error : '')
-        + '）。请在画布设置里换一个文本模型，或检查该模型在 Harness 中是否可用。',
+        + '）。插件未覆盖任何生成参数；请检查该模型在 Harness 中的可用性与输出上限设置。',
       );
     }
 
