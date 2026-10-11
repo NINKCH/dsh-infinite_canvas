@@ -360,6 +360,7 @@ window.__ModuleLoader__.load({
       'copyName': '复制项目名',
       'fillName': '一键填入输入框',
       'skillHint': '默认已含内置专家 + 创作方法论（canvas-craft）；也可选择其它已安装技能覆盖',
+      'nodeNotRunnable': '该节点类型不支持运行（请用画布上的对应按钮）',
       'dataRootBrowse': '浏览选择目录',
       'dataRootPicking': '请在弹出的窗口中选择目录（可直接取消）…',
       'dataRootPickUnsupported': '当前平台不支持目录选择器，请手动填写路径',
@@ -646,6 +647,7 @@ window.__ModuleLoader__.load({
       'copyName': 'Copy project name',
       'fillName': 'Fill the input with this name',
       'skillHint': 'Defaults to built-in experts plus the canvas-craft methodology; pick another installed skill to override',
+      'nodeNotRunnable': 'This node type cannot be run (use its button on the canvas)',
       'dataRootBrowse': 'Browse for folder',
       'dataRootPicking': 'Pick a folder in the dialog (cancel anytime)…',
       'dataRootPickUnsupported': 'No folder picker on this platform — type the path instead',
@@ -2254,7 +2256,7 @@ window.__ModuleLoader__.load({
         '- Visual actions only, no inner thoughts; dialogue on its own lines; mark sounds in brackets;',
         '- End with "Characters:" and "Locations/Props:" lists for asset production.',
       ].join('\n');
-      return await aiComplete({ system, user, temperature: 0.7, maxTokens: 4000, model });
+      return await aiComplete({ system, user, temperature: 0.7, maxTokens: 8000, model });
     }
     async function aiStoryboardShots(scriptText, requirement, count, model) {
       const settings = loadSettings();
@@ -2295,7 +2297,7 @@ window.__ModuleLoader__.load({
         `${zh ? '额外要求' : 'Extra requirements'}：${String(requirement ?? '').trim() || (zh ? '无' : 'none')}`,
         `${zh ? '目标分镜数量' : 'Shot count'}：${count}`,
       ].join('\n\n');
-      const text = await aiComplete({ system, user, temperature: 0.5, maxTokens: 4000, model });
+      const text = await aiComplete({ system, user, temperature: 0.5, maxTokens: 8000, model });
       const parsed = parseJsonBalanced(text);
       const shots = parsed && Array.isArray(parsed.shots) ? parsed.shots : null;
       if (!shots || !shots.length) throw new Error(T('errParseStoryboard'));
@@ -2764,6 +2766,128 @@ window.__ModuleLoader__.load({
     // ============================================================
     const cancelRef = { cancelled: false };
 
+    /** 分镜节点的剧本来源：优先连线（script 成稿 / text 正文），否则节点自身的 script 字段。 */
+    function storyboardScriptText(n) {
+      const e = S.graph.edges.find((x) => x.toNode === n.id && x.toPort === 'script');
+      const src = e && S.graph.nodes[e.fromNode];
+      if (src && src.type === 'script' && (src.data.output || '').trim()) return src.data.output.trim();
+      if (src && src.type === 'text' && (src.data.text || '').trim()) return src.data.text.trim();
+      return String(n.data.script || '').trim();
+    }
+    const setNodeAiError = (nodeId, message) => update((s) => {
+      const nd = s.graph.nodes[nodeId];
+      if (nd) { nd.data.aiStatus = 'error'; nd.data.aiError = String(message || ''); }
+    });
+
+    /** 剧本节点：idea → 成稿。按钮与对话触发的 canvas_run_node 共用同一实现。 */
+    async function genScriptNode(n) {
+      if (!String(n.data.idea || '').trim()) throw new Error(T('needIdea'));
+      update((s) => { const nd = s.graph.nodes[n.id]; if (nd) { nd.data.aiStatus = 'running'; nd.data.aiError = null; } });
+      flushSave();
+      try {
+        const text = await aiScriptNodes(n.data.idea, n.data.model);
+        if (!String(text || '').trim()) throw new Error(T('aiEmptyResult'));
+        update((s) => { const nd = s.graph.nodes[n.id]; if (nd) { nd.data.output = text; nd.data.aiStatus = 'idle'; } s.assetsTick++; });
+        await saveTextAssetRecord(S.activeId, {
+          name: T('scriptAssetPrefix') + new Date().toISOString().slice(5, 16).replace('T', ' '),
+          text, category: 'script', prompt: n.data.idea,
+        });
+        update((s) => { s.assetsTick++; });
+        flushSave();
+        return text;
+      } catch (e) {
+        setNodeAiError(n.id, (e && e.message) || e);
+        flushSave();
+        throw e;
+      }
+    }
+
+    /** 分镜节点：剧本 → 镜头列表（含一致性检查）。 */
+    async function genStoryboardNode(n) {
+      const st = storyboardScriptText(n);
+      if (!st) throw new Error(T('aiNeedScript'));
+      update((s) => { const nd = s.graph.nodes[n.id]; if (nd) { nd.data.aiStatus = 'running'; nd.data.aiError = null; nd.data.warnings = []; } });
+      flushSave();
+      try {
+        const shots = await aiStoryboardShots(st, n.data.requirement, n.data.count || 6, n.data.model);
+        const warnings = await checkShotConsistency(shots);
+        update((s) => {
+          const nd = s.graph.nodes[n.id];
+          if (nd) { nd.data.shots = shots; nd.data.aiStatus = 'idle'; nd.data.warnings = warnings; }
+          s.assetsTick++;
+        });
+        await saveTextAssetRecord(S.activeId, {
+          name: T('storyboardAssetPrefix') + new Date().toISOString().slice(5, 16).replace('T', ' '),
+          text: shots.map((x) => `【${x.title}】${x.duration}s\n画面：${x.visual}\n动作：${x.motion}\n角色：${x.characters.join('、') || '-'}｜场景：${x.scene || '-'}｜道具：${x.props.join('、') || '-'}`).join('\n\n'),
+          category: 'storyboard', prompt: st.slice(0, 200),
+        });
+        update((s) => { s.assetsTick++; });
+        flushSave();
+        return shots;
+      } catch (e) {
+        setNodeAiError(n.id, (e && e.message) || e);
+        flushSave();
+        throw e;
+      }
+    }
+
+    /** 成片节点：片段（+配音） → MP4。 */
+    async function genFinalCutNode(n) {
+      const segEdges = S.graph.edges.filter((x) => x.toNode === n.id && x.toPort === 'in');
+      const segs = segEdges
+        .map((e) => ({ e, nd: S.graph.nodes[e.fromNode] }))
+        .filter((x) => x.nd)
+        .sort((a, b) => (a.nd.y - b.nd.y) || (a.nd.x - b.nd.x));
+      if (!segs.length) throw new Error(T('noSegments'));
+      const getSub = (x) => {
+        const defSub = x.nd.type === 'video-gen' ? (x.nd.data.prompt || '') : (x.nd.data.label || TYPE_LABEL()[x.nd.type]);
+        const v = n.data.subs && n.data.subs[x.e.id];
+        return v != null ? v : defSub;
+      };
+      const metas = [];
+      for (const x of segs) {
+        if (!x.nd.data.assetId) continue;
+        try {
+          const rec = await idbGet(x.nd.data.assetId);
+          const blob = await assetBlob(x.nd.data.assetId);
+          if (blob) {
+            const ttsId = n.data.tts && n.data.tts[x.e.id] && n.data.tts[x.e.id].assetId;
+            const ttsUrl = ttsId ? await assetUrl(ttsId) : null;
+            metas.push({ url: URL.createObjectURL(blob), name: (rec && rec.name) || 'seg', sub: getSub(x), ttsUrl });
+          }
+        } catch { /* 跳过加载失败的片段 */ }
+      }
+      if (!metas.length) throw new Error(T('noSegments'));
+      update((s) => { const nd = s.graph.nodes[n.id]; if (nd) { nd.data.status = 'running'; nd.data.error = null; nd.data.progress = '0%'; } });
+      flushSave();
+      try {
+        const dims = videoDimsFor({ resolution: n.data.resolution, ratio: n.data.ratio });
+        const blob = await composeFinalCut(metas, { width: dims.w, height: dims.h, keepAudio: n.data.keepAudio !== false, transition: n.data.transition }, (frac, name) => {
+          update((s) => { const nd = s.graph.nodes[n.id]; if (nd) nd.data.progress = Math.round(frac * 100) + '% · ' + name; });
+        });
+        const rec = await saveAssetRecord(S.activeId, 'video', blob, {
+          name: T('finalCutDone') + '-' + new Date().toISOString().slice(5, 16).replace('T', ' '),
+          prompt: metas.length + ' segments', source: 'finalcut', category: 'finalcut',
+        });
+        metas.forEach((m) => URL.revokeObjectURL(m.url));
+        update((s) => {
+          const nd = s.graph.nodes[n.id];
+          if (nd) { nd.data.status = 'done'; nd.data.assetId = rec.id; nd.data.progress = null; }
+          s.assetsTick++;
+        });
+        flushSave();
+        return rec.id;
+      } catch (e) {
+        metas.forEach((m) => URL.revokeObjectURL(m.url));
+        update((s) => {
+          const nd = s.graph.nodes[n.id];
+          if (nd) { nd.data.status = 'error'; nd.data.error = String((e && e.message) || e); nd.data.progress = null; }
+        });
+        flushSave();
+        throw e;
+      }
+    }
+
     async function runGenNode(n) {
       const type = n.type;
       update((s) => {
@@ -2772,6 +2896,10 @@ window.__ModuleLoader__.load({
       });
       flushSave(); // 立刻落盘 + 推送 Host：切走画面/对话查询都能看到"运行中"
       try {
+        if (type === 'script') { await genScriptNode(n); return true; }
+        if (type === 'storyboard') { await genStoryboardNode(n); return true; }
+        if (type === 'finalcut') { await genFinalCutNode(n); return true; }
+        if (type !== 'image-gen' && type !== 'video-gen') throw new Error(T('nodeNotRunnable'));
         const prompt = resolvePrompt(n);
         if (type === 'image-gen') {
           const metas = await resolveRefMetas(n.id, 'ref');
@@ -2829,6 +2957,7 @@ window.__ModuleLoader__.load({
           const nd = s.graph.nodes[n.id];
           if (nd) { nd.data.status = 'error'; nd.data.error = String((err && err.message) || err); }
         });
+        flushSave(); // 让对话侧的 canvas_node_status 也能读到失败原因
         return false;
       }
     }
@@ -3950,21 +4079,7 @@ window.__ModuleLoader__.load({
     function ScriptNodeBody({ n }) {
       const running = n.data.aiStatus === 'running';
       const generate = async () => {
-        if (!String(n.data.idea || '').trim()) { toast(T('needIdea')); return; }
-        update((s) => { const nd = s.graph.nodes[n.id]; if (nd) { nd.data.aiStatus = 'running'; nd.data.aiError = null; } });
-        try {
-          const text = await aiScriptNodes(n.data.idea, n.data.model);
-          if (!String(text || '').trim()) throw new Error(T('aiEmptyResult'));
-          update((s) => {
-            const nd = s.graph.nodes[n.id];
-            if (nd) { nd.data.output = text; nd.data.aiStatus = 'idle'; }
-            s.assetsTick++;
-          });
-          await saveTextAssetRecord(S.activeId, { name: T('scriptAssetPrefix') + new Date().toISOString().slice(5, 16).replace('T', ' '), text, category: 'script', prompt: n.data.idea });
-          update((s) => { s.assetsTick++; });
-        } catch (e) {
-          update((s) => { const nd = s.graph.nodes[n.id]; if (nd) { nd.data.aiStatus = 'error'; nd.data.aiError = String(e.message || e); } });
-        }
+        try { await genScriptNode(n); } catch (e) { toast(String((e && e.message) || e)); }
       };
       return [
         h('div', { key: 'mrow', className: 'dshic-node-row' },
@@ -4018,24 +4133,7 @@ window.__ModuleLoader__.load({
       const generate = async () => {
         const st = scriptText();
         if (!st) { toast(T('aiNeedScript')); return; }
-        update((s) => { const nd = s.graph.nodes[n.id]; if (nd) { nd.data.aiStatus = 'running'; nd.data.aiError = null; nd.data.warnings = []; } });
-        try {
-          const shots = await aiStoryboardShots(st, n.data.requirement, n.data.count || 6, n.data.model);
-          const warnings = await checkShotConsistency(shots);
-          update((s) => {
-            const nd = s.graph.nodes[n.id];
-            if (nd) { nd.data.shots = shots; nd.data.aiStatus = 'idle'; nd.data.warnings = warnings; }
-            s.assetsTick++;
-          });
-          await saveTextAssetRecord(S.activeId, {
-            name: T('storyboardAssetPrefix') + new Date().toISOString().slice(5, 16).replace('T', ' '),
-            text: shots.map((x) => `【${x.title}】${x.duration}s\n画面：${x.visual}\n动作：${x.motion}\n角色：${x.characters.join('、') || '-'}｜场景：${x.scene || '-'}｜道具：${x.props.join('、') || '-'}`).join('\n\n'),
-            category: 'storyboard', prompt: st.slice(0, 200),
-          });
-          update((s) => { s.assetsTick++; });
-        } catch (e) {
-          update((s) => { const nd = s.graph.nodes[n.id]; if (nd) { nd.data.aiStatus = 'error'; nd.data.aiError = String(e.message || e); } });
-        }
+        try { await genStoryboardNode(n); } catch (e) { toast(String((e && e.message) || e)); }
       };
       const shots = n.data.shots || [];
       return [
@@ -4200,41 +4298,7 @@ window.__ModuleLoader__.load({
       };
       const compose = async () => {
         if (!segs.length) { toast(T('noSegments')); return; }
-        const metas = [];
-        for (const x of segs) {
-          if (!x.nd.data.assetId) continue;
-          try {
-            const rec = await idbGet(x.nd.data.assetId);
-            const blob = await assetBlob(x.nd.data.assetId);
-            if (blob) {
-              const ttsId = n.data.tts && n.data.tts[x.e.id] && n.data.tts[x.e.id].assetId;
-              const ttsUrl = ttsId ? await assetUrl(ttsId) : null;
-              metas.push({ url: URL.createObjectURL(blob), name: (rec && rec.name) || 'seg', sub: getSub(x), ttsUrl });
-            }
-          } catch { /* 跳过加载失败的片段 */ }
-        }
-        if (!metas.length) { toast(T('noSegments')); return; }
-        update((s) => { const nd = s.graph.nodes[n.id]; if (nd) { nd.data.status = 'running'; nd.data.error = null; nd.data.progress = '0%'; } });
-        try {
-          const dims = videoDimsFor({ resolution: n.data.resolution, ratio: n.data.ratio });
-          const blob = await composeFinalCut(metas, { width: dims.w, height: dims.h, keepAudio: n.data.keepAudio !== false, transition: n.data.transition }, (frac, name) => {
-            update((s) => { const nd = s.graph.nodes[n.id]; if (nd) nd.data.progress = Math.round(frac * 100) + '% · ' + name; });
-          });
-          const rec = await saveAssetRecord(S.activeId, 'video', blob, {
-            name: T('finalCutDone') + '-' + new Date().toISOString().slice(5, 16).replace('T', ' '),
-            prompt: metas.length + ' segments', source: 'finalcut', category: 'finalcut',
-          });
-          metas.forEach((m) => URL.revokeObjectURL(m.url));
-          update((s) => {
-            const nd = s.graph.nodes[n.id];
-            if (nd) { nd.data.status = 'done'; nd.data.assetId = rec.id; nd.data.progress = null; }
-            s.assetsTick++;
-          });
-          toast(T('composeDone'));
-        } catch (e) {
-          metas.forEach((m) => URL.revokeObjectURL(m.url));
-          update((s) => { const nd = s.graph.nodes[n.id]; if (nd) { nd.data.status = 'error'; nd.data.error = String(e.message || e); nd.data.progress = null; } });
-        }
+        try { await genFinalCutNode(n); toast(T('composeDone')); } catch (e) { toast(String((e && e.message) || e)); }
       };
       const filmcraftExport = async () => {
         const st = await craftStatusSafe();

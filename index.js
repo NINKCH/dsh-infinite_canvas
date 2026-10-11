@@ -627,16 +627,20 @@ export function apply(ctx) {
       const temperature = typeof want.temperature === 'number' ? want.temperature : 0.7;
       const maxTokens = typeof want.maxTokens === 'number' ? want.maxTokens : 4000;
       const userMessage = { role: 'user', content: [{ type: 'text', text: user }] };
-      /** 跑一次流并统计 chunk 类型（空结果时用于诊断，不再静默返回空文本）。 */
+      /** 跑一次流：统计 chunk 类型，返回文本与失败原因（单次尝试抛错不致命，便于逐级回退）。 */
       const run = async (options) => {
         const kinds = [];
         let text = '';
-        for await (const chunk of service.stream(options)) {
-          const type = chunk && chunk.type;
-          kinds.push(type || 'unknown');
-          if ((type === 'text-delta' || type === 'text') && typeof chunk.text === 'string') text += chunk.text;
+        try {
+          for await (const chunk of service.stream(options)) {
+            const type = chunk && chunk.type;
+            kinds.push(type || 'unknown');
+            if ((type === 'text-delta' || type === 'text') && typeof chunk.text === 'string') text += chunk.text;
+          }
+          return { text, kinds, error: null };
+        } catch (e) {
+          return { text: '', kinds, error: String((e && e.message) || e) };
         }
-        return { text, kinds };
       };
       const histogram = (kinds) => {
         if (!kinds.length) return '（没有任何 chunk）';
@@ -644,8 +648,7 @@ export function apply(ctx) {
         for (const k of kinds) m.set(k, (m.get(k) || 0) + 1);
         return [...m.entries()].map(([k, v]) => k + '×' + v).join(', ');
       };
-      // 首选：适配器规范信封 —— system 走独立字段，messages 只放历史，并带 sessionId
-      const primary = await run({
+      const base = {
         provider: resolved.provider,
         model: resolved.model,
         ...(system ? { system } : {}),
@@ -654,9 +657,30 @@ export function apply(ctx) {
         maxTokens,
         sessionId: 'infinite-canvas',
         purpose: 'infinite-canvas',
-      });
+      };
+      // 1) 规范信封（system 独立字段 + sessionId）
+      const primary = await run(base);
       if (primary.text.trim()) return { text: primary.text, provider: resolved.provider, model: resolved.model, variant: 'system' };
-      // 回退：老式写法（system 作为 messages 首条，不带附加字段）
+      // 2) 推理模型：思考可能吃满输出预算 → 放大预算并降低推理强度重试
+      if (primary.kinds.includes('reasoning-delta')) {
+        const bigTokens = Math.min(32000, Math.max(maxTokens * 3, 16000));
+        const retries = [
+          { ...base, maxTokens: bigTokens, reasoningEffort: 'low' },
+          { ...base, maxTokens: bigTokens },
+        ];
+        const tried = [];
+        for (const options of retries) {
+          const r = await run(options);
+          if (r.text.trim()) return { text: r.text, provider: resolved.provider, model: resolved.model, variant: 'reasoning-retry' };
+          tried.push(histogram(r.kinds) + (r.error ? ' / 错误: ' + r.error : ''));
+        }
+        throw new Error(
+          '模型只输出了思考内容、没有正文（provider=' + resolved.provider + ' model=' + resolved.model + '，推理模型思考占满了输出预算）。'
+          + '已自动放大预算到 ' + bigTokens + ' 并重试仍未拿到正文。建议：在画布设置里改用非推理模型（如 deepseek-flash），或提高该模型的输出上限。'
+          + '（chunk 统计 → 首次: ' + histogram(primary.kinds) + '；重试: ' + tried.join(' | ') + '）',
+        );
+      }
+      // 3) 回退：老式写法（system 作为 messages 首条，不带附加字段）
       const fallback = await run({
         provider: resolved.provider,
         model: resolved.model,
@@ -668,6 +692,8 @@ export function apply(ctx) {
       throw new Error(
         '模型未返回文本（provider=' + resolved.provider + ' model=' + resolved.model
         + '；chunk 统计 → 规范信封: ' + histogram(primary.kinds) + ' / 回退: ' + histogram(fallback.kinds)
+        + (primary.error ? '；规范信封错误: ' + primary.error : '')
+        + (fallback.error ? '；回退错误: ' + fallback.error : '')
         + '）。请在画布设置里换一个文本模型，或检查该模型在 Harness 中是否可用。',
       );
     }
