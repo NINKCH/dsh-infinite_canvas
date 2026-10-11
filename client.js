@@ -384,6 +384,8 @@ window.__ModuleLoader__.load({
       'craftTimeout': 'Craft 任务超时（可在任务面板重试或取消）',
       'errNoImageApi': '未配置图片 API：请到画布设置里添加（未配置时可用演示模式）',
       'photoCmd': 'Craft 命令',
+      'bitrate': '码率',
+      'bitrateAuto': '自动（浏览器默认）',
       'dataRootBrowse': '浏览选择目录',
       'dataRootPicking': '请在弹出的窗口中选择目录（可直接取消）…',
       'dataRootPickUnsupported': '当前平台不支持目录选择器，请手动填写路径',
@@ -694,6 +696,8 @@ window.__ModuleLoader__.load({
       'craftTimeout': 'Craft job timed out (retry or cancel it in the job panel)',
       'errNoImageApi': 'No image API configured — add one in canvas settings (demo mode is available without one)',
       'photoCmd': 'Craft command',
+      'bitrate': 'Bitrate',
+      'bitrateAuto': 'Auto (browser default)',
       'dataRootBrowse': 'Browse for folder',
       'dataRootPicking': 'Pick a folder in the dialog (cancel anytime)…',
       'dataRootPickUnsupported': 'No folder picker on this platform — type the path instead',
@@ -1400,8 +1404,8 @@ window.__ModuleLoader__.load({
       if (meta && meta.nodeLabel) rec.nodeLabel = meta.nodeLabel;
       if (meta && meta.effectivePrompt) rec.effectivePrompt = meta.effectivePrompt;
       if (S.dataRoot) {
-        // 数据根目录已配置：落盘到 <root>/projects/<项目>/<类型>/<id>.<ext>，IndexedDB 只存元数据
-        const rel = `projects/${projectId}/${kind}/${id}.${extFromMime(mime)}`;
+        // 数据根目录已配置：落盘到 <root>/projects/<项目>/<类型>/<可读名>-<id尾号>.<ext>，IndexedDB 只存元数据
+        const rel = `projects/${projectId}/${kind}/${assetFileBase(rec)}.${extFromMime(mime)}`;
         const r = await fetch('/' + NS + '/api/asset?rel=' + encodeURIComponent(rel), { method: 'POST', body: blob });
         if (!r.ok) throw new Error('资产落盘失败: ' + (await r.text()));
         rec.rel = rel;
@@ -1422,7 +1426,7 @@ window.__ModuleLoader__.load({
       const targets = all.filter((r) => r.blob && !r.rel);
       let done = 0;
       for (const rec of targets) {
-        const rel = `projects/${rec.projectId}/${rec.kind}/${rec.id}.${extFromMime(rec.mime)}`;
+        const rel = `projects/${rec.projectId}/${rec.kind}/${assetFileBase(rec)}.${extFromMime(rec.mime)}`;
         const r = await fetch('/' + NS + '/api/asset?rel=' + encodeURIComponent(rel), { method: 'POST', body: rec.blob });
         if (!r.ok) throw new Error('迁移失败: ' + rel + ' — ' + (await r.text()));
         const next = { ...rec, rel, size: rec.blob.size, stored: 'disk' };
@@ -1858,7 +1862,11 @@ window.__ModuleLoader__.load({
         stream.addTrack(dest.stream.getAudioTracks()[0]);
         audio = { ac, dest };
       } catch { audio = null; }
-      const rec = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: opts.bitrate || 6000000 });
+      const rec = new MediaRecorder(stream, {
+        mimeType: mime,
+        // 码率：仅在用户显式选择时指定，否则交给浏览器/编码器默认（不在代码里写死）
+        ...(opts.bitrate ? { videoBitsPerSecond: Number(opts.bitrate) } : {}),
+      });
       const chunks = [];
       rec.ondataavailable = (e) => { if (e.data && e.data.size) chunks.push(e.data); };
       const stopped = new Promise((res) => { rec.onstop = res; });
@@ -3163,7 +3171,10 @@ window.__ModuleLoader__.load({
       flushSave();
       try {
         const dims = videoDimsFor({ resolution: n.data.resolution, ratio: n.data.ratio });
-        const blob = await composeFinalCut(metas, { width: dims.w, height: dims.h, keepAudio: n.data.keepAudio !== false, transition: n.data.transition }, (frac, name) => {
+        const blob = await composeFinalCut(metas, {
+          width: dims.w, height: dims.h, keepAudio: n.data.keepAudio !== false, transition: n.data.transition,
+          bitrate: n.data.bitrate ? Number(n.data.bitrate) : undefined,
+        }, (frac, name) => {
           update((s) => { const nd = s.graph.nodes[n.id]; if (nd) nd.data.progress = Math.round(frac * 100) + '% · ' + name; });
         });
         const rec = await saveAssetRecord(S.activeId, 'video', blob, {
@@ -4732,6 +4743,16 @@ window.__ModuleLoader__.load({
               value: n.data.keepAudio === false ? 'off' : 'on', title: T('keepAudio'), width: 76,
               options: [{ value: 'on', label: T('keepAudio') + ' ' + T('on') }, { value: 'off', label: T('keepAudio') + ' ' + T('off') }],
               onChange: (v) => update((s) => { const nd = s.graph.nodes[n.id]; if (nd) nd.data.keepAudio = v !== 'off'; }),
+            }),
+            h(MiniSelect, {
+              value: n.data.bitrate || '', title: T('bitrate'), width: 92,
+              options: [
+                { value: '', label: T('bitrateAuto') },
+                { value: '4000000', label: '4 Mbps' },
+                { value: '8000000', label: '8 Mbps' },
+                { value: '12000000', label: '12 Mbps' },
+              ],
+              onChange: (v) => update((s) => { const nd = s.graph.nodes[n.id]; if (nd) nd.data.bitrate = v; }),
             }),
             h('div', { className: 'dshic-flex' }),
           ),
