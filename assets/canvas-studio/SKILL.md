@@ -18,8 +18,12 @@ description: 用无限画布（Infinite Canvas）做短剧/视频创作时使用
    已存在就复用，绝不靠"再建一个"来重试。
 4. **每个节点都要有可识别的名字。** 新建节点时传 `name`（如「创作意图」「第一节剧本」「分镜表」「第2集剧本」）；
    同名节点必须加区分后缀。
-5. **用户要剧本就要给完整正文。** 把**完整剧本内容**（分场、场景描述、人物动作、对白）写入 `target: "output"`；
-   创作意图/提示词写入 `target: "idea"`。**禁止只写提纲、计划、或"待生成"占位**。
+5. **一个剧本节点必须同时有 `idea` 与 `output`——绝不把一个剧本拆成两个节点。**
+   - `idea`＝创作意图/提示词；`output`＝**完整剧本正文**（分场、场景描述、人物动作、对白）
+   - 正确：一次调用写全 → `canvas_write_node({ projectId, text: 剧本正文, target: 'output', idea: 创作意图, name: '第一节剧本' })`
+   - 或建项目时写全 → `canvas_create_project({ name, scriptText: 创作意图, scriptOutput: 剧本正文, nodeName: '第一节剧本' })`
+   - **禁止**：一个只有 `idea` 的剧本节点 + 另一个只有 `output` 的剧本节点；**禁止**只写提纲、计划或"待生成"占位
+   - 若要单独记录整体设定/基调，请用 **text 节点**，不要用第二个 script 节点
 6. **删除是破坏性操作。** 先 `canvas_list_projects` 确认 id，且仅在用户明确要求时执行
    （`canvas_delete_node` / `canvas_delete_project`）。
 7. **完成后让用户看到结果**：调用 `canvas_open({ projectId })`，画布会在数秒内自动跳转。
@@ -28,10 +32,11 @@ description: 用无限画布（Infinite Canvas）做短剧/视频创作时使用
 ## 二、标准工作流
 
 1. `canvas_list_projects` —— 查重 + 拿到 projectId 与节点 id
-2. 需要新项目才 `canvas_create_project({ name, scriptText, nodeName })`；否则复用已有 projectId
-3. 产出内容 → `canvas_write_node({ projectId, text, target, name })`
+2. 需要新项目才 `canvas_create_project({ name, scriptText, scriptOutput, nodeName })`；否则复用已有 projectId
+3. 产出内容 → `canvas_write_node({ projectId, text, target, name, idea })`
    - `target: 'idea'`：提示词、创作意图、约束
-   - `target: 'output'`：**成稿**（剧本正文、分镜结果）
+   - `target: 'output'`：**成稿**（剧本正文、分镜结果）；不传 nodeId 时会自动落到项目里已有的剧本节点，不另建节点
+   - 同一次调用可用 `idea` 参数把创作意图与成稿一起写进同一个剧本节点
 4. 需要画布用**自身配置的模型/接口**真实生成（剧本/分镜/图片/视频）：
    `canvas_run_node({ projectId, nodeId })` → 之后用 `canvas_node_status({ projectId, nodeId })` 轮询状态与成稿
 5. `canvas_open({ projectId })` —— 让用户看到画布结果

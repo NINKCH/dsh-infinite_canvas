@@ -177,6 +177,29 @@ try {
 await run('canvas_list_projects', {});
 const written = await run('canvas_write_node', { projectId, text: '第一节剧本：雨夜接信', name: '第一节剧本' });
 const nodeId = written && written.nodeId;
+
+// 剧本节点语义：写 output 不带 nodeId 必须复用已有剧本节点（idea 与 output 落在同一节点），
+// 且 idea 参数能与 text/target 一次写全 —— 直接对应用户反馈的"两个半残节点"问题
+try {
+  const before = await mod._internals.projectsGet({ id: projectId });
+  const beforeScripts = Object.values(before.nodes).filter((n) => n.type === 'script').length;
+  const w = await byName.get('canvas_write_node').execute({ projectId, text: '第一版成稿', target: 'output', name: '第一节剧本' }, {});
+  const after = await mod._internals.projectsGet({ id: projectId });
+  const afterScripts = Object.values(after.nodes).filter((n) => n.type === 'script').length;
+  if (afterScripts !== beforeScripts) errs.push(`写 output 时新建了剧本节点（${beforeScripts} → ${afterScripts}）：应当复用已有剧本节点`);
+  const t0 = after.nodes[w.nodeId];
+  if (!t0) errs.push('写入返回的 nodeId 在文档中不存在');
+  else {
+    if (!String(t0.data.output || '').trim()) errs.push('成稿未写入 output');
+    if (!String(t0.data.idea || '').trim()) errs.push('复用后该剧本节点仍缺少 idea（出现"只有结果"的半残节点）');
+  }
+  const w2 = await byName.get('canvas_write_node').execute({ projectId, nodeId: w.nodeId, text: '第二版成稿', target: 'output', idea: '第二版意图' }, {});
+  const doc2 = await mod._internals.projectsGet({ id: projectId });
+  const n2 = doc2.nodes[w2.nodeId];
+  if (!n2 || n2.data.output !== '第二版成稿' || n2.data.idea !== '第二版意图') errs.push('idea 参数未与 text/target 同时生效（无法一次写全意图与成稿）');
+} catch (e) {
+  errs.push('剧本节点语义校验失败 → ' + ((e && e.message) || e));
+}
 await run('canvas_write_node', { projectId, nodeId, text: '成稿内容……', target: 'output' });
 await run('canvas_run_node', { projectId, nodeId });
 await run('canvas_node_status', { projectId, nodeId });

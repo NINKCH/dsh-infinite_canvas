@@ -331,9 +331,11 @@ function canvasCreateProject(args) {
   const id = 'p' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
   const doc = { id, name: name.slice(0, 80), createdAt: Date.now(), updatedAt: Date.now(), source: 'agent', nodes: {}, edges: [], view: { x: 60, y: 40, scale: 1 } };
   const st = String((args && args.scriptText) || '');
-  if (st.trim()) {
+  const out = String((args && args.scriptOutput) || '');
+  if (st.trim() || out.trim()) {
     const pos = nextNodePos(doc);
-    const n = agentNode('script', st, pos.x, pos.y, (args && args.nodeName) || defaultLabel(st));
+    const n = agentNode('script', st, pos.x, pos.y, (args && args.nodeName) || defaultLabel(st || out));
+    if (out.trim()) n.data.output = out; // 剧本节点：idea 与 output 同属一个节点，一次写全
     doc.nodes[n.id] = n;
   }
   mkdirSync(PROJECTS_DIR, { recursive: true });
@@ -341,9 +343,13 @@ function canvasCreateProject(args) {
   return { ok: true, projectId: id, name: doc.name, nodeId: Object.keys(doc.nodes)[0] || null };
 }
 /**
- * 写入/追加节点。
+ * 写入项目内容。
  * - 带 nodeId：更新该节点（target=output 写成稿，target=idea 写提示词；text 节点写正文）
- * - 不带 nodeId：追加新节点
+ * - 不带 nodeId：
+ *   · text 节点 → 追加新节点
+ *   · 剧本节点 → **优先复用项目里已有的剧本节点**：先按名字匹配，其次"有意图没成稿"的，
+ *     再退化为最近更新的剧本节点；只有项目里没有任何剧本节点时才新建。
+ *     这样 idea 与 output 会落在同一个节点上，不会出现"一个节点只有提示词、另一个只有结果"。
  */
 function canvasWriteNode(args) {
   const id = String((args && args.projectId) || '');
@@ -353,21 +359,46 @@ function canvasWriteNode(args) {
   const target = (args && args.target) === 'output' ? 'output' : 'idea';
   const nodeId = String((args && args.nodeId) || '');
   const name = args && args.name ? String(args.name).slice(0, 40) : '';
-  if (nodeId) {
-    const node = doc.nodes[nodeId];
-    if (!node) throw new Error('节点不存在: ' + nodeId);
+  const idea = args && args.idea !== undefined ? String(args.idea) : null;
+  const writeInto = (node) => {
     if (node.type === 'text') node.data.text = text;
     else if (target === 'output') { node.data.output = text; node.data.aiStatus = 'idle'; node.data.aiError = null; }
     else node.data.idea = text;
+    if (idea !== null && node.type === 'script') node.data.idea = idea;
     if (name) node.data.label = name;
+  };
+  if (nodeId) {
+    const node = doc.nodes[nodeId];
+    if (!node) throw new Error('节点不存在: ' + nodeId);
+    writeInto(node);
     doc.updatedAt = Date.now();
     writeFileSync(f, JSON.stringify(doc, null, 1), 'utf8');
     return { ok: true, projectId: id, nodeId, updated: true, label: node.data.label || '' };
   }
-  const kind = (args && args.kind) === 'text' ? 'text' : 'script';
+  if ((args && args.kind) === 'text') {
+    const pos = nextNodePos(doc);
+    const n = agentNode('text', text, pos.x, pos.y, name || defaultLabel(text));
+    doc.nodes[n.id] = n;
+    doc.updatedAt = Date.now();
+    writeFileSync(f, JSON.stringify(doc, null, 1), 'utf8');
+    return { ok: true, projectId: id, nodeId: n.id, label: n.data.label || '' };
+  }
+  // 剧本：优先复用已有剧本节点（同名 → 缺成稿 → 最近更新）
+  const scripts = Object.values(doc.nodes || {}).filter((n) => n.type === 'script');
+  let reuse = null;
+  if (name) reuse = scripts.find((n) => String((n.data && n.data.label) || '').trim() === name) || null;
+  if (!reuse && target === 'output') reuse = scripts.find((n) => String((n.data && n.data.idea) || '').trim() && !String((n.data && n.data.output) || '').trim()) || null;
+  if (!reuse) reuse = scripts[scripts.length - 1] || null;
+  if (reuse) {
+    writeInto(reuse);
+    doc.updatedAt = Date.now();
+    writeFileSync(f, JSON.stringify(doc, null, 1), 'utf8');
+    return { ok: true, projectId: id, nodeId: reuse.id, updated: true, reused: true, label: reuse.data.label || '' };
+  }
   const pos = nextNodePos(doc);
-  const n = agentNode(kind, target === 'output' ? '' : text, pos.x, pos.y, name || defaultLabel(text));
-  if (kind === 'script' && target === 'output') n.data.output = text;
+  const n = agentNode('script', target === 'output' ? '' : text, pos.x, pos.y, name || defaultLabel(text));
+  if (target === 'output') n.data.output = text;
+  if (idea !== null) n.data.idea = idea;
   doc.nodes[n.id] = n;
   doc.updatedAt = Date.now();
   writeFileSync(f, JSON.stringify(doc, null, 1), 'utf8');
@@ -759,13 +790,14 @@ export function apply(ctx) {
         });
         reg({
           name: 'canvas_create_project',
-          description: '在无限画布上创建一个新项目（可同时写入第一个剧本节点）。【硬约束】调用前必须先 canvas_list_projects 查重；同名项目会被自动复用并提示，绝不要为"重试"或为每个节点重复创建项目。scriptText 放创作意图/剧本内容，nodeName 给节点起可识别名字。',
+          description: '在无限画布上创建一个新项目（可同时写好第一个剧本节点）。【硬约束】调用前必须先 canvas_list_projects 查重；同名项目会被自动复用并提示，绝不要为"重试"或为每个节点重复创建项目。剧本节点必须 idea（创作意图）+ output（剧本成稿）同属一个节点：创作意图填 scriptText，成稿填 scriptOutput，用 nodeName 命名。',
           parameters: {
             type: 'object',
             properties: {
               name: { type: 'string', description: '项目名称' },
-              scriptText: { type: 'string', description: '可选：初始创作意图或剧本内容' },
-              nodeName: { type: 'string', description: '可选：首个剧本节点的名字（建议填写，如"创作意图""第一节剧本"）' },
+              scriptText: { type: 'string', description: '可选：创作意图/提示词（写入首个剧本节点的 idea）' },
+              scriptOutput: { type: 'string', description: '可选：剧本完整成稿（写入同一节点的 output）' },
+              nodeName: { type: 'string', description: '可选：首个剧本节点的名字（建议填写，如"第一节剧本"）' },
             },
             required: ['name'],
             additionalProperties: false,
@@ -782,16 +814,17 @@ export function apply(ctx) {
         });
         reg({
           name: 'canvas_write_node',
-          description: '写入无限画布的项目内容。不传 nodeId 时追加新节点；传 nodeId 时更新该节点。【硬约束】绝不要为了加节点而新建项目——一律指定已有 projectId。target 说明写哪一部分：idea=创作意图/提示词（默认），output=AI 生成的成稿（剧本正文、分镜结果）。用户要剧本时必须把完整正文写入 target=output。',
+          description: '写入无限画布的项目内容。【硬约束】绝不要为了加节点而新建项目——一律指定已有 projectId。剧本节点的 idea（创作意图）与 output（剧本成稿）必须在同一个节点里：不传 nodeId 写 target=output 时会自动落到项目里已有的剧本节点上（不会另建半残节点）。可用 idea 参数在同一次调用里同时写意图与成稿。target：idea=提示词（默认），output=成稿。',
           parameters: {
             type: 'object',
             properties: {
               projectId: { type: 'string', description: '项目 id（来自 canvas_list_projects 或 canvas_create_project）' },
-              text: { type: 'string', description: '要写入的内容' },
+              text: { type: 'string', description: '要写入的内容（按 target 决定写 idea 还是 output）' },
               kind: { type: 'string', enum: ['script', 'text'], description: '新节点类型：script=剧本（默认），text=纯文本' },
               target: { type: 'string', enum: ['idea', 'output'], description: '写哪一部分：idea=提示词/创作意图（默认），output=成稿' },
-              nodeId: { type: 'string', description: '可选：更新已有节点而不是新建' },
-              name: { type: 'string', description: '可选：节点名字（新建时建议填写；更新时会改名）' },
+              nodeId: { type: 'string', description: '可选：指定要更新的节点；不传则复用/新建剧本节点' },
+              name: { type: 'string', description: '可选：节点名字（建议填写；更新时会改名）' },
+              idea: { type: 'string', description: '可选：同时设置该剧本节点的创作意图（与 text/target 配合，一次写全意图与成稿）' },
             },
             required: ['projectId', 'text'],
             additionalProperties: false,
