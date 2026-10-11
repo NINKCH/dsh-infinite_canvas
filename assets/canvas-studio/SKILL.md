@@ -13,6 +13,8 @@ description: 用无限画布（Infinite Canvas）做短剧/视频创作时使用
 0. **设定集先行。** 写剧本、写分镜、生成任何画面之前，**必须先 `canvas_get_bible` 读设定集**：
    - 世界观/核心设定、风格基调、角色/场景/道具为空或不完整时，**先补全设定集**
      （`canvas_update_bible`），再开始生成；用户已给出创意时按其创意补全，不要凭空另起一套。
+   - **创作意图、世界观、核心设定、风格基调 → 全部写进设定集；
+     【禁止】为"创作意图/世界观/设定"单独建任何节点**——那是设定集的职责，不是节点。
    - 角色/场景/道具的参考图也应**先从设定集条目生成**（为每个条目建 `image-gen` 节点 → `canvas_run_node`），
      再进入分镜与镜头生成，这样才能跨镜跨集一致。
    - 唯一例外：用户明确说"先随便写个剧本/不用管设定"。
@@ -22,40 +24,39 @@ description: 用无限画布（Infinite Canvas）做短剧/视频创作时使用
    只有用户**明确要求"另开一个项目"**时才调用 `canvas_create_project`。
 3. **失败重试不要重建资源。** 工具报错时先 `canvas_list_projects` 看是否已经创建成功（可能只是返回值校验问题），
    已存在就复用，绝不靠"再建一个"来重试。
-4. **每个节点都要有可识别的名字。** 新建节点时传 `name`（如「创作意图」「第一节剧本」「分镜表」「第2集剧本」）；
-   同名节点必须加区分后缀。
+4. **每个节点都要有可识别的名字。** 新建节点时传 `name`（如「第一节剧本」「第一节分镜表」「第2集剧本」）；
+   同名节点必须加区分后缀。**不存在"创作意图/设定"类节点**——那些内容在设定集里。
 5. **一个剧本节点必须同时有 `idea` 与 `output`——绝不把一个剧本拆成两个节点。**
-   - `idea`＝创作意图/提示词；`output`＝**完整剧本正文**（分场、场景描述、人物动作、对白）
+   - `idea`＝本节创作意图/提示词；`output`＝**完整剧本正文**（分场、场景描述、人物动作、对白）
    - 正确：一次调用写全 → `canvas_write_node({ projectId, text: 剧本正文, target: 'output', idea: 创作意图, name: '第一节剧本' })`
    - 或建项目时写全 → `canvas_create_project({ name, scriptText: 创作意图, scriptOutput: 剧本正文, nodeName: '第一节剧本' })`
    - **禁止**：一个只有 `idea` 的剧本节点 + 另一个只有 `output` 的剧本节点；**禁止**只写提纲、计划或"待生成"占位
-   - 若要单独记录整体设定/基调，请用 **text 节点**，不要用第二个 script 节点
+   - **分镜内容只能放分镜表节点（storyboard）**，绝不要写进剧本节点
 6. **删除是破坏性操作。** 先 `canvas_list_projects` 确认 id，且仅在用户明确要求时执行
    （`canvas_delete_node` / `canvas_delete_project`）。
 7. **完成后让用户看到结果**：调用 `canvas_open({ projectId })`，画布会在数秒内自动跳转。
 8. **汇报固定要素**：项目名 + 项目 id + 节点名/id + 成稿摘要（若已生成）；有错误如实说明。
 
-## 二、标准工作流（设定集先行）
+## 二、标准工作流（设定集先行，各内容各归其位）
 
-0. `canvas_get_bible({ projectId })` —— 读设定集；缺世界观/风格/角色/场景/道具就先用
-   `canvas_update_bible` 补全（或把草案给用户确认）
+0. **读/补设定集**：`canvas_get_bible` → 缺什么用 `canvas_update_bible` 补。
+   创作意图、世界观、风格 → 写进设定集的 worldview/style 字段。
 1. `canvas_list_projects` —— 查重 + 拿到 projectId 与节点 id
-2. 需要新项目才 `canvas_create_project({ name, scriptText, scriptOutput, nodeName })`；否则复用已有 projectId
-3. **生成剧本** → `canvas_write_node({ projectId, text, target, name, idea })`
-   - `target: 'idea'`：提示词、创作意图、约束
-   - `target: 'output'`：**成稿**（剧本正文、分镜结果）
-   - 同一次调用可用 `idea` 参数把创作意图与成稿一起写进同一个剧本节点
-   - **多集/多节写作**：给 `name`（如「第二节剧本」）。名字匹配到已有节点 → 更新它；匹配不到 →
-     **自动新建节点**，绝不会给旧节点改名（改名+覆盖会吃掉前面的稿子）
-   - 已写成稿的节点**默认拒绝覆盖**：确实要重写同一节点时传 `overwrite: true`
+2. **生成剧本**：
+   - 新项目：`canvas_create_project({ name, scriptText: 本节创作意图, scriptOutput: 本节完整成稿, nodeName: '第X节剧本' })`
+     —— 剧本节点的 idea（意图）与 output（成稿）一次写全，**不会产生单独的"意图节点"**
+   - 已有项目：`canvas_write_node({ projectId, text: 成稿, target: 'output', idea: 意图, name: '第X节剧本' })`
+     （名字匹配不到会自动新建节点；已写成稿默认拒绝覆盖，需 overwrite:true）
+3. **分镜** → **必须用分镜表节点（storyboard），绝不要用剧本节点装分镜**：
+   - `canvas_create_node({ projectId, type: 'storyboard', name: '第X节分镜表', prompt: 剧本全文 })`
+   - 然后二选一：
+     a) `canvas_run_node` —— 让画布用它配置的模型拆解 → `canvas_node_status` 轮询
+     b) 自己拆好镜头后写入：`canvas_write_node({ projectId, nodeId, target: 'output', text: '{"shots":[…]}' })`
 4. **生成角色/场景/道具参考图**：为设定集里的每个条目
-   `canvas_create_node({ projectId, type: 'image-gen', name: '角色-陈拾 参考图', prompt: '按设定集写外观关键词' })`
+   `canvas_create_node({ projectId, type: 'image-gen', name: '角色-张山 多视图', prompt: '按设定集写外观关键词' })`
    → `canvas_run_node({ projectId, nodeId })` 触发（画布用它配置的图片接口）
-5. **分镜**：`canvas_create_node({ projectId, type: 'storyboard', name: '分镜表' })` 或复用已有分镜表 →
-   `canvas_run_node` 拆解镜头
-6. 需要画布用**自身配置的模型/接口**真实生成（剧本/分镜/图片/视频）：
-   `canvas_run_node({ projectId, nodeId })` → 之后用 `canvas_node_status({ projectId, nodeId })` 轮询状态与成稿
-7. `canvas_open({ projectId })` —— 让用户看到画布结果
+5. **镜头图/视频** → `canvas_run_node`
+6. `canvas_open({ projectId })` —— 让用户看到画布结果
 
 ## 三、@引用与资产命名（跨集一致性的核心手法）
 

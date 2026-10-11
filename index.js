@@ -446,18 +446,52 @@ function canvasWriteNode(args) {
   const overwrite = args && args.overwrite === true;
   const writeInto = (node) => {
     if (node.type === 'text') node.data.text = text;
+    else if (node.type === 'storyboard' && target === 'output') {
+      // 分镜节点：text 为 {"shots":[...]} JSON → 写入镜头列表；普通文本 → 作为分镜的剧本来源。
+      // 禁止把分镜内容塞进剧本节点（剧本节点只放剧本）。
+      let shots = null;
+      try { const p = JSON.parse(text); if (p && Array.isArray(p.shots)) shots = p.shots; } catch { /* 非 JSON */ }
+      if (!shots) {
+        const fence = /```(?:json)?\s*([\s\S]*?)```/.exec(text);
+        if (fence) { try { const p2 = JSON.parse(fence[1]); if (p2 && Array.isArray(p2.shots)) shots = p2.shots; } catch { /* 非 JSON */ } }
+      }
+      if (shots) {
+        node.data.shots = shots.slice(0, 24).map((s, i) => ({
+          title: String((s && s.title) || ('镜头' + (i + 1))).slice(0, 24),
+          visual: String((s && s.visual) || ''),
+          motion: String((s && s.motion) || ''),
+          characters: Array.isArray(s && s.characters) ? s.characters.map(String) : [],
+          scene: String((s && s.scene) || ''),
+          props: Array.isArray(s && s.props) ? s.props.map(String) : [],
+          duration: Number(s && s.duration) || 5,
+        }));
+        node.data.aiStatus = 'idle';
+        node.data.aiError = null;
+      } else {
+        node.data.script = text;
+      }
+    }
     else if (target === 'output') { node.data.output = text; node.data.aiStatus = 'idle'; node.data.aiError = null; }
     else node.data.idea = text;
     if (idea !== null && node.type === 'script') node.data.idea = idea;
     if (name) node.data.label = name;
   };
   const save = () => { doc.updatedAt = Date.now(); writeIcDoc(id, doc); };
+  /** 该节点是否已有会被 target=output 覆盖的内容（剧本=成稿；分镜=镜头列表；文本=正文）。 */
+  const hasExisting = (node) => {
+    if (!node || !node.data) return false;
+    if (node.type === 'storyboard') return Array.isArray(node.data.shots) && node.data.shots.length > 0;
+    return String(node.data.output ?? node.data.text ?? '').trim() !== '';
+  };
+  const guardOverwrite = (node) => {
+    if (target === 'output' && !overwrite && hasExisting(node)) {
+      throw new Error('节点「' + ((node.data && node.data.label) || node.id) + '」已有内容，覆盖会丢失原文；确认要覆盖请传 overwrite:true，或换个 name 新建节点。');
+    }
+  };
   if (nodeId) {
     const node = doc.nodes[nodeId];
     if (!node) throw new Error('节点不存在: ' + nodeId);
-    if (target === 'output' && !overwrite && String((node.data && node.data.output) || '').trim() && String((node.data && node.data.output) || '') !== text) {
-      throw new Error('节点「' + ((node.data && node.data.label) || nodeId) + '」已有成稿，覆盖会丢失原文；确认要覆盖请传 overwrite:true，或换个 name 新建节点。');
-    }
+    guardOverwrite(node);
     writeInto(node);
     save();
     return { ok: true, projectId: id, nodeId, updated: true, label: node.data.label || '' };
@@ -479,8 +513,8 @@ function canvasWriteNode(args) {
       || null;
   }
   if (reuse) {
-    if (target === 'output' && !overwrite && String((reuse.data && reuse.data.output) || '').trim()) {
-      throw new Error('剧本节点「' + ((reuse.data && reuse.data.label) || reuse.id) + '」已有成稿：传 overwrite:true 覆盖，或给 name 新建一节。');
+    if (target === 'output' && !overwrite && hasExisting(reuse)) {
+      throw new Error('节点「' + ((reuse.data && reuse.data.label) || reuse.id) + '」已有内容，覆盖会丢失原文；确认要覆盖请传 overwrite:true，或换个 name 新建节点。');
     }
     writeInto(reuse);
     save();
@@ -1073,7 +1107,7 @@ export function apply(ctx) {
         });
         reg({
           name: 'canvas_create_project',
-          description: '在无限画布上创建一个新项目（可同时写好第一个剧本节点）。【硬约束】调用前必须先 canvas_list_projects 查重；同名项目会被自动复用并提示，绝不要为"重试"或为每个节点重复创建项目。剧本节点必须 idea（创作意图）+ output（剧本成稿）同属一个节点：创作意图填 scriptText，成稿填 scriptOutput，用 nodeName 命名。',
+          description: '在无限画布上创建一个新项目（可同时写好第一个剧本节点）。【硬约束】调用前必须先 canvas_list_projects 查重；同名项目会被自动复用并提示，绝不要为"重试"或为每个节点重复创建项目。剧本节点必须 idea（创作意图）+ output（剧本成稿）同属一个节点：创作意图填 scriptText，成稿填 scriptOutput，用 nodeName 命名。【注意】世界观/核心设定/风格基调等"创作意图类"内容一律写进设定集（canvas_update_bible），绝不要为它们单独建节点。',
           parameters: {
             type: 'object',
             properties: {
@@ -1097,12 +1131,12 @@ export function apply(ctx) {
         });
         reg({
           name: 'canvas_write_node',
-          description: '写入无限画布的项目内容。【硬约束】绝不要为了加节点而新建项目——一律指定已有 projectId。剧本节点的 idea（创作意图）与 output（剧本成稿）必须在同一个节点里。复用规则：给 name 且能匹配已有节点名 → 更新该节点；给 name 但匹配不到 → **新建节点**（写新一集/新一节时就这样用）；不给 name → 只会复用"有意图没成稿"的剧本节点补全。已写成稿的节点默认拒绝覆盖，确认要覆盖请传 overwrite:true（否则报错而不是静默吃掉稿件）。target：idea=提示词（默认），output=成稿。',
+          description: '写入无限画布的项目内容。【硬约束】绝不要为了加节点而新建项目——一律指定已有 projectId。世界观/核心设定/风格基调等"创作意图类"内容写进设定集（canvas_update_bible），绝不要为它们建节点。剧本节点的 idea（创作意图）与 output（剧本成稿）必须在同一个节点里；分镜内容只能写进分镜表节点（storyboard）：text 为 {"shots":[…]} JSON 时写入镜头列表，普通文本则作为分镜的剧本来源——绝不要用剧本节点装分镜。复用规则：给 name 且能匹配已有节点名 → 更新该节点；给 name 但匹配不到 → **新建节点**（写新一集/新一节时就这样用）；不给 name → 只会复用"有意图没成稿"的剧本节点补全。已写成稿的节点默认拒绝覆盖，确认要覆盖请传 overwrite:true（否则报错而不是静默吃掉稿件）。target：idea=提示词（默认），output=成稿。',
           parameters: {
             type: 'object',
             properties: {
               projectId: { type: 'string', description: '项目 id（来自 canvas_list_projects 或 canvas_create_project）' },
-              text: { type: 'string', description: '要写入的内容（按 target 决定写 idea 还是 output）' },
+              text: { type: 'string', description: '要写入的内容（按 target 与节点类型决定写哪里）' },
               kind: { type: 'string', enum: ['script', 'text'], description: '新节点类型：script=剧本（默认），text=纯文本' },
               target: { type: 'string', enum: ['idea', 'output'], description: '写哪一部分：idea=提示词/创作意图（默认），output=成稿' },
               nodeId: { type: 'string', description: '可选：指定要更新的节点（最精确的定位方式）' },
@@ -1252,7 +1286,7 @@ export function apply(ctx) {
         });
         reg({
           name: 'canvas_create_node',
-          description: '在项目画布上新建指定类型的节点（image-gen 图片生成 / video-gen 视频生成 / storyboard 分镜表 / finalcut 成片 / script 剧本 / text 文本），可同时写入提示词。用于按设定集生成角色/场景/道具参考图：先用 canvas_get_bible 取设定，再为每个角色/场景/道具建一个 image-gen 节点（name 用规范命名如「角色-张山 多视图」，prompt 用 @张山 引用设定集条目）并 canvas_run_node 触发。',
+          description: '在项目画布上新建指定类型的节点（image-gen 图片生成 / video-gen 视频生成 / storyboard 分镜表 / finalcut 成片 / script 剧本 / text 文本），可同时写入提示词。【分镜必须用 type:"storyboard" 的分镜表节点，绝不要用剧本节点装分镜】。用于按设定集生成角色/场景/道具参考图：先用 canvas_get_bible 取设定，再为每个角色/场景/道具建一个 image-gen 节点（name 用规范命名如「角色-张山 多视图」，prompt 用 @张山 引用设定集条目）并 canvas_run_node 触发。',
           parameters: {
             type: 'object',
             properties: {
