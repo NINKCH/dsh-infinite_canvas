@@ -1086,18 +1086,41 @@ window.__ModuleLoader__.load({
     }
     /** 只写本地（用于接收 Host 侧改写，避免回推形成环）。 */
     function saveBibleLocal(pid, b) { if (pid) lsSet(LS_BIBLE + pid, b); }
-    /** 把设定集同步到 Host：对话侧才能读写设定集（设定集先行）。 */
+    // 上一次已同步给 Host 的设定集快照：避免每次画布保存都把（可能已被对话改过的）本地版本推回去覆盖
+    const biblePushSnap = new Map();
+    function bibleSnapshot(pid) { try { return JSON.stringify(loadBible(pid)); } catch { return ''; } }
+    /** 需要时才推送设定集：本地内容与上次同步的一致 → 不带 bible 字段，Host 保留对话侧的新版本。 */
+    function bibleFieldForPush(pid) {
+      const snap = bibleSnapshot(pid);
+      if (biblePushSnap.get(pid) === snap) return {};
+      return { bible: loadBible(pid), __bibleChanged: true };
+    }
+    /** 把设定集同步到 Host：对话侧才能读写设定集（设定集先行）。内容未变则不推送（避免覆盖对话侧的新版本）。 */
     function pushBible(pid, b) {
       if (!pid) return;
+      const bible = b || loadBible(pid);
+      if (biblePushSnap.get(pid) === JSON.stringify(bible)) return;
       try {
         const proj = S.projects.find((p) => p.id === pid);
         const doc = loadGraphDoc(pid) || emptyGraph();
-        hostRpc('projectsPut', { id: pid, name: (proj && proj.name) || pid, doc: { ...doc, bible: b || loadBible(pid) } })
-          .then((r) => { if (r && r.bibleUpdatedAt) lsSet(LS_BIBLE_SYNC + pid, r.bibleUpdatedAt); })
+        hostRpc('projectsPut', { id: pid, name: (proj && proj.name) || pid, doc: { ...doc, bible } })
+          .then((r) => {
+            if (r && r.bibleUpdatedAt) {
+              lsSet(LS_BIBLE_SYNC + pid, r.bibleUpdatedAt);
+              biblePushSnap.set(pid, JSON.stringify(bible));
+            }
+          })
           .catch(() => { /* 静默 */ });
       } catch { /* 忽略 */ }
     }
-    function saveBible(pid, b) { if (pid) { saveBibleLocal(pid, b); pushBible(pid, b); } }
+    const biblePushTimers = new Map();
+    /** 设定集保存：本地立即写，推送防抖（输入过程中不逐字打网络）。 */
+    function saveBible(pid, b) {
+      if (!pid) return;
+      saveBibleLocal(pid, b);
+      if (biblePushTimers.has(pid)) clearTimeout(biblePushTimers.get(pid));
+      biblePushTimers.set(pid, setTimeout(() => { biblePushTimers.delete(pid); pushBible(pid, loadBible(pid)); }, 800));
+    }
     function bibleBlock(b) {
       if (!b) return '';
       const lines = [];
@@ -2299,6 +2322,7 @@ window.__ModuleLoader__.load({
               if (full && full.bible) {
                 saveBibleLocal(hp.id, full.bible);
                 lsSet(LS_BIBLE_SYNC + hp.id, hp.bibleUpdatedAt);
+                biblePushSnap.set(hp.id, JSON.stringify(full.bible)); // 已是最新：后续保存不必回推
                 if (hp.id === S.activeId) update((s) => { s.assetsTick++; });
               }
             } catch { /* 忽略 */ }
@@ -2673,7 +2697,17 @@ window.__ModuleLoader__.load({
       lsSet(LS_PROJECTS, S.projects);
       lsSet(LS_ACTIVE, S.activeId);
       try {
-        hostRpc('projectsPut', { id: S.activeId, name: (proj && proj.name) || S.activeId, doc: { nodes: S.graph.nodes, edges: S.graph.edges, view: S.graph.view, bible: loadBible(S.activeId) } }).catch(() => { /* 同步失败静默 */ });
+        // 设定集只在本地确实变化时才带上：否则会把对话侧刚改的版本覆盖回去
+        const bibleField = bibleFieldForPush(S.activeId);
+        hostRpc('projectsPut', {
+          id: S.activeId, name: (proj && proj.name) || S.activeId,
+          doc: { nodes: S.graph.nodes, edges: S.graph.edges, view: S.graph.view, ...(bibleField.__bibleChanged ? { bible: bibleField.bible } : {}) },
+        }).then((r) => {
+          if (bibleField.__bibleChanged && r && r.bibleUpdatedAt) {
+            lsSet(LS_BIBLE_SYNC + S.activeId, r.bibleUpdatedAt);
+            biblePushSnap.set(S.activeId, JSON.stringify(bibleField.bible));
+          }
+        }).catch(() => { /* 同步失败静默 */ });
       } catch { /* 忽略 */ }
     }
     function initStore() {
@@ -2699,6 +2733,8 @@ window.__ModuleLoader__.load({
       if (stale) { try { saveGraphDoc(S.activeId, S.graph); } catch { /* 忽略 */ } }
       V.x = S.graph.view.x; V.y = S.graph.view.y; V.scale = S.graph.view.scale;
       S.ready = true;
+      // 预热设定集快照：页面加载时视本地版本为"已同步"，避免把旧版本推回覆盖对话侧的新设定
+      for (const p of S.projects) biblePushSnap.set(p.id, bibleSnapshot(p.id));
     }
     function switchProject(pid) {
       if (pid === S.activeId) return;
