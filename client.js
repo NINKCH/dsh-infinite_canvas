@@ -349,6 +349,7 @@ window.__ModuleLoader__.load({
       'dataRootMigrating': '迁移中',
       'dataRootUnsupported': '当前插件后台版本较旧（不支持数据根目录）：重启 Harness 后可用',
       'dataRootSaved': '数据根目录已设置',
+      'resizeHint': '拖动可调宽度 / 双击标题改名',
       'dataRootBrowse': '浏览选择目录',
       'dataRootPicking': '请在弹出的窗口中选择目录（可直接取消）…',
       'dataRootPickUnsupported': '当前平台不支持目录选择器，请手动填写路径',
@@ -625,6 +626,7 @@ window.__ModuleLoader__.load({
       'dataRootMigrating': 'Migrating',
       'dataRootUnsupported': 'The plugin backend is older and lacks data-root support — restart Harness to enable',
       'dataRootSaved': 'Data root set',
+      'resizeHint': 'Drag to resize / double-click title to rename',
       'dataRootBrowse': 'Browse for folder',
       'dataRootPicking': 'Pick a folder in the dialog (cancel anytime)…',
       'dataRootPickUnsupported': 'No folder picker on this platform — type the path instead',
@@ -732,6 +734,8 @@ window.__ModuleLoader__.load({
 .dshic-node-x{flex:none;width:18px;height:18px;border:none;border-radius:6px;background:transparent;color:var(--dsw-alias-label-secondary);
   cursor:pointer;font-size:13px;line-height:18px;padding:0;display:inline-flex;align-items:center;justify-content:center;}
 .dshic-node-x:hover{background:color-mix(in srgb,var(--dsw-alias-state-error-primary) 16%,transparent);color:var(--dsw-alias-state-error-primary);}
+.dshic-node-resize{position:absolute;right:-4px;top:8px;bottom:8px;width:8px;cursor:ew-resize;border-radius:4px;}
+.dshic-node-resize:hover{background:color-mix(in srgb,var(--dsw-alias-brand-primary) 35%,transparent);}
 .dshic-node-body{padding:8px;display:flex;flex-direction:column;gap:6px;font-size:12px;}
 .dshic-textarea{width:100%;box-sizing:border-box;min-height:56px;resize:vertical;border:1px solid var(--dsw-alias-border-l2);
   border-radius:8px;background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);font:inherit;font-size:12px;
@@ -1986,9 +1990,52 @@ window.__ModuleLoader__.load({
       if (hostSyncStopped) return;
       try {
         const r = await hostRpc('projectsSync');
+        // 对话删除的项目：从本地一并移除（否则本地下次推送会把它复活）
+        if (Array.isArray(r.deletedProjects) && r.deletedProjects.length) {
+          const gone = new Set(r.deletedProjects);
+          update((s) => {
+            s.projects = s.projects.filter((p) => !gone.has(p.id));
+            if (gone.has(s.activeId)) {
+              if (s.projects.length === 0) {
+                const p = { id: uid('p'), name: T('defaultProject'), createdAt: Date.now(), updatedAt: Date.now() };
+                s.projects.push(p);
+                s.activeId = p.id;
+                s.graph = emptyGraph();
+              } else {
+                s.activeId = s.projects[0].id;
+                const d0 = loadGraphDoc(s.activeId) || emptyGraph();
+                s.graph = { nodes: d0.nodes || {}, edges: d0.edges || [], view: d0.view || { x: 60, y: 40, scale: 1 } };
+              }
+              V.x = s.graph.view.x; V.y = s.graph.view.y; V.scale = s.graph.view.scale;
+              s.sel = new Set(); s.selEdge = null;
+            }
+          });
+          for (const pid of r.deletedProjects) {
+            try { localStorage.removeItem(LS_GRAPH + pid); } catch { /* 忽略 */ }
+            try { localStorage.removeItem(LS_BIBLE + pid); } catch { /* 忽略 */ }
+          }
+          lsSet(LS_PROJECTS, S.projects);
+          lsSet(LS_ACTIVE, S.activeId);
+          applyViewToDomSoon();
+        }
         for (const hp of r.projects || []) {
           const known = S.projects.some((p) => p.id === hp.id);
           const doc = known ? loadGraphDoc(hp.id) : null;
+          // 对话删过的节点（墓碑）：本地同步删除，避免被推送复活
+          const dead = (hp.tombstones || []).filter((nid) => doc && doc.nodes[nid]);
+          if (known && dead.length) {
+            for (const nid of dead) delete doc.nodes[nid];
+            doc.edges = (doc.edges || []).filter((e) => !dead.includes(e.fromNode) && !dead.includes(e.toNode));
+            saveGraphDoc(hp.id, doc);
+            if (hp.id === S.activeId) {
+              update((s) => {
+                for (const nid of dead) delete s.graph.nodes[nid];
+                s.graph.edges = s.graph.edges.filter((e) => !dead.includes(e.fromNode) && !dead.includes(e.toNode));
+                s.sel = new Set([...s.sel].filter((x) => !dead.includes(x)));
+                s.assetsTick++;
+              });
+            }
+          }
           const missing = (hp.nodeIds || []).filter((nid) => !doc || !doc.nodes[nid]);
           if (!known) await importHostProject(hp);
           else if (missing.length) {
@@ -1997,6 +2044,21 @@ window.__ModuleLoader__.load({
             saveGraphDoc(hp.id, doc);
             if (hp.id === S.activeId) update((s) => { for (const nid of missing) { if (full.nodes && full.nodes[nid]) s.graph.nodes[nid] = full.nodes[nid]; } s.assetsTick++; });
           }
+        }
+        if (r.runRequest) {
+          // 对话触发节点执行：切到目标项目 → 用画布内配置的模型/接口真实运行 → 结果回写 Host
+          const pid = r.runRequest.projectId;
+          const nodeId = r.runRequest.nodeId;
+          try {
+            if (pid && pid !== S.activeId && S.projects.some((p) => p.id === pid)) {
+              switchProject(pid);
+              try { if (CTX && CTX.layout && CTX.layout.selectPanel) CTX.layout.selectPanel(PANEL_ID); } catch { /* 忽略 */ }
+            }
+            const node = S.graph.nodes[nodeId];
+            if (node) {
+              runGenNode(node).then(() => { flushSave(); }).catch(() => { flushSave(); });
+            }
+          } catch { /* 忽略 */ }
         }
         if (r.openRequest) {
           const pid = r.openRequest.projectId || null;
@@ -2470,7 +2532,8 @@ window.__ModuleLoader__.load({
       return {
         id: uid('n'), type,
         x: Math.round(pos.x), y: Math.round(pos.y),
-        w: NODE_W, h: 96 + portRows * 4,
+        w: type === 'script' ? 340 : type === 'storyboard' ? 360 : type === 'text' ? 280 : NODE_W,
+        h: 96 + portRows * 4,
         data,
       };
     }
@@ -3236,6 +3299,42 @@ window.__ModuleLoader__.load({
       }, [n.id]);
       if (n.data.hidden) return null; // 分组折叠时隐藏成员
       if (n.type === 'group') return h(GroupShell, { n });
+      const [renaming, setRenaming] = useState(false);
+      const [nameVal, setNameVal] = useState('');
+      // 节点内所有文本域随内容自动增高：内容溢出就撑开（上限 600），用户手动拉大过的不会被缩回去
+      useEffect(() => {
+        const el = nodeEls.get(n.id);
+        if (!el || typeof el.querySelectorAll !== 'function') return;
+        for (const ta of el.querySelectorAll('textarea')) {
+          try {
+            if (ta.scrollHeight + 2 > ta.clientHeight) ta.style.height = Math.min(ta.scrollHeight + 2, 600) + 'px';
+          } catch { /* 忽略 */ }
+        }
+      });
+      const commitName = () => {
+        const v = nameVal.trim();
+        update((s) => { const nd = s.graph.nodes[n.id]; if (nd) nd.data.label = v; });
+        pushHistory();
+        setRenaming(false);
+      };
+      const startRename = () => { setNameVal(n.data.label || ''); setRenaming(true); };
+      const startResize = (e) => {
+        e.stopPropagation();
+        const startX = e.clientX;
+        const startW = n.w || NODE_W;
+        const scale = V.scale || 1;
+        const move = (ev) => {
+          const w = Math.max(200, Math.min(900, startW + (ev.clientX - startX) / scale));
+          update((s) => { const nd = s.graph.nodes[n.id]; if (nd) nd.w = Math.round(w); });
+        };
+        const up = () => {
+          window.removeEventListener('pointermove', move);
+          window.removeEventListener('pointerup', up);
+          pushHistory();
+        };
+        window.addEventListener('pointermove', move);
+        window.addEventListener('pointerup', up);
+      };
       return h('div', {
         'data-node-id': n.id,
         className: cls('dshic-node', 'type-' + n.type, 'st-' + st, selected && 'is-selected'),
@@ -3245,14 +3344,35 @@ window.__ModuleLoader__.load({
       },
         h('div', { className: 'dshic-node-head' },
           h('span', { className: 'dshic-head-ic' }, Ic(TYPE_ICON[n.type] || 'text', 12)),
-          h('span', { className: 'dshic-node-title' }, n.data.label || TYPE_LABEL()[n.type]),
+          renaming
+            ? h('input', {
+                className: 'dshic-input', style: { height: 22, flex: 1, minWidth: 0 }, autoFocus: true, value: nameVal,
+                placeholder: TYPE_LABEL()[n.type],
+                onChange: (e) => setNameVal(e.target.value),
+                onPointerDown: (e) => e.stopPropagation(),
+                onKeyDown: (e) => {
+                  if (e.key === 'Enter') commitName();
+                  if (e.key === 'Escape') setRenaming(false);
+                },
+                onBlur: commitName,
+              })
+            : h('span', {
+                className: 'dshic-node-title', title: T('renameHint'),
+                onDoubleClick: (e) => { e.stopPropagation(); startRename(); },
+              }, n.data.label || TYPE_LABEL()[n.type]),
           (n.data.status === 'running') ? h('span', { className: 'dshic-spin' }) : null,
+          h('button', {
+            type: 'button', className: 'dshic-node-x', title: T('renameHint'),
+            onPointerDown: (e) => e.stopPropagation(),
+            onClick: startRename,
+          }, '✎'),
           h('button', {
             type: 'button', className: 'dshic-node-x', title: T('delete'),
             onPointerDown: (e) => e.stopPropagation(),
             onClick: () => removeNodes([n.id]),
           }, '✕')),
         h('div', { className: 'dshic-node-body' }, nodeBody(n)),
+        h('div', { className: 'dshic-node-resize', title: T('resizeHint'), onPointerDown: startResize }),
         ...(PORTS[n.type].inputs || []).map((p, i) =>
           h('div', { key: 'in-' + p.id, style: { position: 'absolute', left: -5.5, top: 32.5 + i * 22 }, className: 'dshic-port-wrap' },
             h(PortEl, { n, port: p, dir: 'in' }),
@@ -3813,7 +3933,7 @@ window.__ModuleLoader__.load({
         ),
         h('span', { key: 'l1', className: 'dshic-shot-label' }, T('ideaLabel')),
         h('textarea', {
-          key: 'idea', className: 'dshic-textarea', style: { minHeight: 48 }, value: n.data.idea || '',
+          key: 'idea', className: 'dshic-textarea', style: { minHeight: 72 }, value: n.data.idea || '',
           placeholder: T('ideaPlaceholder'),
           onChange: (e) => update((s) => { const nd = s.graph.nodes[n.id]; if (nd) nd.data.idea = e.target.value; }),
           onPointerDown: (e) => e.stopPropagation(),
@@ -3835,7 +3955,7 @@ window.__ModuleLoader__.load({
         n.data.aiError ? h('div', { key: 'err', className: 'dshic-err' }, n.data.aiError) : null,
         h('span', { key: 'l2', className: 'dshic-shot-label' }, T('scriptOutputLabel')),
         h('textarea', {
-          key: 'out', className: 'dshic-textarea', style: { minHeight: 120 }, value: n.data.output || '',
+          key: 'out', className: 'dshic-textarea', style: { minHeight: 180 }, value: n.data.output || '',
           placeholder: running ? T('aiRunning') : '',
           onChange: (e) => update((s) => { const nd = s.graph.nodes[n.id]; if (nd) nd.data.output = e.target.value; }),
           onPointerDown: (e) => e.stopPropagation(),

@@ -108,7 +108,7 @@ async function ensureBundleEntry(profileDir, pkg) {
 
 // ---------- 数据根目录（资产落盘）----------
 // 配置存在 ~/.dsh/infinite-canvas/config.json：跨重装/重启稳定，绝不放进包目录。
-const CONFIG_PATH = path.join(os.homedir(), '.dsh', 'infinite-canvas', 'config.json');
+const CONFIG_PATH = process.env.DSH_IC_CONFIG_PATH || path.join(os.homedir(), '.dsh', 'infinite-canvas', 'config.json');
 
 function readIcConfig() {
   try { return JSON.parse(readFileSync(CONFIG_PATH, 'utf8')) || {}; } catch { return {}; }
@@ -189,7 +189,7 @@ function pickFolderDialog() {
 
 // ---------- 项目存储（对话 ↔ 画布同步）----------
 // 客户端是内容权威（编辑后推送全量文档）；Agent 经工具在 Host 侧追加节点；客户端轮询合并。
-const PROJECTS_DIR = path.join(os.homedir(), '.dsh', 'infinite-canvas', 'projects');
+const PROJECTS_DIR = process.env.DSH_IC_PROJECTS_DIR || path.join(os.homedir(), '.dsh', 'infinite-canvas', 'projects');
 function projectFile(id) {
   if (!/^[A-Za-z0-9_-]{1,64}$/.test(String(id || ''))) throw new Error('非法项目 id');
   return path.join(PROJECTS_DIR, String(id) + '.json');
@@ -202,7 +202,11 @@ function projectsList() {
     const id = f.slice(0, -5);
     try {
       const d = JSON.parse(readFileSync(path.join(PROJECTS_DIR, f), 'utf8'));
-      list.push({ id: d.id || id, name: d.name || id, createdAt: d.createdAt || 0, updatedAt: d.updatedAt || 0, source: d.source || 'app', nodeIds: Object.keys(d.nodes || {}) });
+      const nodes = Object.values(d.nodes || {}).map((n) => ({
+        id: n.id, type: n.type, label: (n.data && n.data.label) || '',
+        status: (n.data && n.data.status) || 'idle',
+      }));
+      list.push({ id: d.id || id, name: d.name || id, createdAt: d.createdAt || 0, updatedAt: d.updatedAt || 0, source: d.source || 'app', nodeIds: Object.keys(d.nodes || {}), nodes, tombstones: d.tombstones || [] });
     } catch { /* 单文件损坏跳过 */ }
   }
   return list.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
@@ -222,6 +226,7 @@ async function projectsPut(args) {
     nodes: doc.nodes || {},
     edges: doc.edges || [],
     view: doc.view || { x: 60, y: 40, scale: 1 },
+    tombstones: (prev.tombstones || []).slice(-100), // 对话删过的节点：保留墓碑，避免客户端推送时复活
   };
   mkdirSync(PROJECTS_DIR, { recursive: true });
   writeFileSync(f, JSON.stringify(out, null, 1), 'utf8');
@@ -237,14 +242,28 @@ async function projectsDelete(args) {
 async function projectsSync() {
   const cfg = readIcConfig();
   const openRequest = (cfg.ui && cfg.ui.openRequest) || null;
-  if (openRequest) { cfg.ui = { ...(cfg.ui || {}), openRequest: null }; writeIcConfig(cfg); }
-  return { projects: projectsList(), openRequest };
+  const runRequest = (cfg.ui && cfg.ui.runRequest) || null;
+  const deletedProjects = (cfg.ui && cfg.ui.deletedProjects) || null;
+  if (openRequest || runRequest || deletedProjects) {
+    cfg.ui = { ...(cfg.ui || {}), openRequest: null, runRequest: null, deletedProjects: null };
+    writeIcConfig(cfg);
+  }
+  return { projects: projectsList(), openRequest, runRequest, deletedProjects };
+}
+/** 节点默认名：取内容首行前 18 字，保证对话创建的节点可识别。 */
+function defaultLabel(text) {
+  const line = String(text || '').trim().split(/\r?\n/)[0] || '';
+  return line.length > 18 ? line.slice(0, 18) + '…' : (line || '未命名');
 }
 /** 构造与客户端 newNode() 完全一致的节点（形状不一致会导致渲染异常）。 */
-function agentNode(kind, text, x, y) {
+function agentNode(kind, text, x, y, label) {
   const id = 'na' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
-  if (kind === 'text') return { id, type: 'text', x, y, w: 240, h: 100, data: { status: 'idle', error: null, text: String(text ?? '') } };
-  return { id, type: 'script', x, y, w: 240, h: 100, data: { status: 'idle', error: null, idea: String(text ?? ''), output: '', aiStatus: 'idle', aiError: null } };
+  const isText = kind === 'text';
+  const data = isText
+    ? { status: 'idle', error: null, text: String(text ?? '') }
+    : { status: 'idle', error: null, idea: String(text ?? ''), output: '', aiStatus: 'idle', aiError: null };
+  if (label) data.label = String(label).slice(0, 40);
+  return { id, type: isText ? 'text' : 'script', x, y, w: isText ? 260 : 320, h: 100, data };
 }
 function nextNodePos(doc) {
   let maxX = 0;
@@ -258,22 +277,102 @@ function canvasCreateProject(args) {
   const id = 'p' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
   const doc = { id, name: name.slice(0, 80), createdAt: Date.now(), updatedAt: Date.now(), source: 'agent', nodes: {}, edges: [], view: { x: 60, y: 40, scale: 1 } };
   const st = String((args && args.scriptText) || '');
-  if (st.trim()) { const pos = nextNodePos(doc); const n = agentNode('script', st, pos.x, pos.y); doc.nodes[n.id] = n; }
+  if (st.trim()) {
+    const pos = nextNodePos(doc);
+    const n = agentNode('script', st, pos.x, pos.y, (args && args.nodeName) || defaultLabel(st));
+    doc.nodes[n.id] = n;
+  }
   mkdirSync(PROJECTS_DIR, { recursive: true });
   writeFileSync(projectFile(id), JSON.stringify(doc, null, 1), 'utf8');
-  return { ok: true, projectId: id, name: doc.name };
+  return { ok: true, projectId: id, name: doc.name, nodeId: Object.keys(doc.nodes)[0] || null };
 }
+/**
+ * 写入/追加节点。
+ * - 带 nodeId：更新该节点（target=output 写成稿，target=idea 写提示词；text 节点写正文）
+ * - 不带 nodeId：追加新节点
+ */
 function canvasWriteNode(args) {
   const id = String((args && args.projectId) || '');
   const f = projectFile(id);
   const doc = JSON.parse(readFileSync(f, 'utf8'));
+  const text = String((args && args.text) || '');
+  const target = (args && args.target) === 'output' ? 'output' : 'idea';
+  const nodeId = String((args && args.nodeId) || '');
+  const name = args && args.name ? String(args.name).slice(0, 40) : '';
+  if (nodeId) {
+    const node = doc.nodes[nodeId];
+    if (!node) throw new Error('节点不存在: ' + nodeId);
+    if (node.type === 'text') node.data.text = text;
+    else if (target === 'output') { node.data.output = text; node.data.aiStatus = 'idle'; node.data.aiError = null; }
+    else node.data.idea = text;
+    if (name) node.data.label = name;
+    doc.updatedAt = Date.now();
+    writeFileSync(f, JSON.stringify(doc, null, 1), 'utf8');
+    return { ok: true, projectId: id, nodeId, updated: true, label: node.data.label || '' };
+  }
   const kind = (args && args.kind) === 'text' ? 'text' : 'script';
   const pos = nextNodePos(doc);
-  const n = agentNode(kind, (args && args.text) || '', pos.x, pos.y);
+  const n = agentNode(kind, target === 'output' ? '' : text, pos.x, pos.y, name || defaultLabel(text));
+  if (kind === 'script' && target === 'output') n.data.output = text;
   doc.nodes[n.id] = n;
   doc.updatedAt = Date.now();
   writeFileSync(f, JSON.stringify(doc, null, 1), 'utf8');
-  return { ok: true, projectId: id, nodeId: n.id };
+  return { ok: true, projectId: id, nodeId: n.id, label: n.data.label || '' };
+}
+async function canvasDeleteProject(args) {
+  const id = String((args && args.projectId) || '');
+  const f = projectFile(id);
+  let name = id;
+  try { name = JSON.parse(readFileSync(f, 'utf8')).name || id; } catch { /* 本来就不存在 */ }
+  try { unlinkSync(f); } catch { /* 已删除 */ }
+  // 通知客户端把这个项目也从本地删掉，否则下次推送会把它复活
+  const cfg = readIcConfig();
+  const prev = (cfg.ui && cfg.ui.deletedProjects) || [];
+  cfg.ui = { ...(cfg.ui || {}), deletedProjects: [...new Set([...prev, id])].slice(-50) };
+  writeIcConfig(cfg);
+  return { ok: true, projectId: id, name };
+}
+async function canvasDeleteNode(args) {
+  const id = String((args && args.projectId) || '');
+  const nodeId = String((args && args.nodeId) || '');
+  const f = projectFile(id);
+  const doc = JSON.parse(readFileSync(f, 'utf8'));
+  if (!doc.nodes[nodeId]) throw new Error('节点不存在: ' + nodeId);
+  delete doc.nodes[nodeId];
+  doc.edges = (doc.edges || []).filter((e) => e.fromNode !== nodeId && e.toNode !== nodeId);
+  doc.tombstones = [...new Set([...(doc.tombstones || []), nodeId])].slice(-100);
+  doc.updatedAt = Date.now();
+  writeFileSync(f, JSON.stringify(doc, null, 1), 'utf8');
+  return { ok: true, projectId: id, nodeId };
+}
+/** 运行节点：写一次性请求，画布客户端轮询消费后用画布内配置的模型/接口真实执行。 */
+async function canvasRunNode(args) {
+  const pid = String((args && args.projectId) || '');
+  const nodeId = String((args && args.nodeId) || '');
+  const doc = JSON.parse(readFileSync(projectFile(pid), 'utf8'));
+  const node = doc.nodes[nodeId];
+  if (!node) throw new Error('节点不存在: ' + nodeId);
+  const cfg = readIcConfig();
+  cfg.ui = { ...(cfg.ui || {}), runRequest: { projectId: pid, nodeId, at: Date.now() } };
+  writeIcConfig(cfg);
+  return { ok: true, projectId: pid, nodeId, type: node.type, label: (node.data && node.data.label) || '' };
+}
+/** 读取节点运行状态与产物（画布执行完成后会把结果推回 Host 文档）。 */
+async function canvasNodeStatus(args) {
+  const pid = String((args && args.projectId) || '');
+  const nodeId = String((args && args.nodeId) || '');
+  const doc = JSON.parse(readFileSync(projectFile(pid), 'utf8'));
+  const n = doc.nodes[nodeId];
+  if (!n) throw new Error('节点不存在: ' + nodeId);
+  return {
+    projectId: pid, nodeId, type: n.type, label: (n.data && n.data.label) || '',
+    status: (n.data && n.data.status) || 'idle',
+    aiStatus: (n.data && n.data.aiStatus) || 'idle',
+    error: (n.data && (n.data.error || n.data.aiError)) || null,
+    output: String((n.data && n.data.output) || '').slice(0, 6000),
+    idea: String((n.data && n.data.idea) || '').slice(0, 2000),
+    assetId: (n.data && n.data.assetId) || null,
+  };
 }
 async function canvasOpen(args) {
   const pid = String((args && args.projectId) || '');
@@ -373,7 +472,7 @@ async function updateInstall() {
 export const inject = ['webServer', 'tools'];
 
 // 仅供诊断 / 自动化测试（不属于 RPC 面，运行时行为不受影响）
-export const _internals = { updateCheck, updateInstall, npmLatestVersion, cmpVer, findPnpm, getProfileDir: () => PROFILE_DIR, getVersion: () => VERSION, dataRoot, safeJoin, mimeOf, getIcConfigPath: () => CONFIG_PATH, canvasCreateProject, canvasWriteNode, projectsList, projectsGet, canvasOpen };
+export const _internals = { updateCheck, updateInstall, npmLatestVersion, cmpVer, findPnpm, getProfileDir: () => PROFILE_DIR, getVersion: () => VERSION, dataRoot, safeJoin, mimeOf, getIcConfigPath: () => CONFIG_PATH, canvasCreateProject, canvasWriteNode, canvasDeleteProject, canvasDeleteNode, canvasRunNode, canvasNodeStatus, projectsList, projectsGet, projectsSync, canvasOpen };
 
 function resolveModel(providers, want) {
   const byProvider = want && want.provider
@@ -492,6 +591,10 @@ export function apply(ctx) {
       async projectsSync() { return projectsSync(); },
       async canvasCreateProject(args) { return canvasCreateProject(args); },
       async canvasWriteNode(args) { return canvasWriteNode(args); },
+      async canvasDeleteProject(args) { return canvasDeleteProject(args); },
+      async canvasDeleteNode(args) { return canvasDeleteNode(args); },
+      async canvasRunNode(args) { return canvasRunNode(args); },
+      async canvasNodeStatus(args) { return canvasNodeStatus(args); },
       async canvasOpen(args) { return canvasOpen(args); },
       async assetDelete(args) {
         const root = dataRoot();
@@ -533,29 +636,49 @@ export function apply(ctx) {
     try {
       if (ctx.tools && typeof ctx.tools.register === 'function') {
         const reg = (def) => { try { toolDisposers.push(ctx.tools.register(def)); } catch { /* 单个工具失败不阻塞其余 */ } };
-        const textOutput = { schema: { type: 'object', properties: { ok: { type: 'boolean' }, text: { type: 'string' } }, required: ['ok', 'text'], additionalProperties: false }, render: (args, value) => [{ type: 'text', text: String(value.text || '') }] };
+        // 输出 schema：显式声明字段但不用 additionalProperties:false（工具返回值的校验不能比参数更严，
+        // 否则多返回一个字段就会让整轮请求被 API 拒绝）
+        const textOutput = {
+          schema: {
+            type: 'object',
+            properties: {
+              ok: { type: 'boolean' }, text: { type: 'string' },
+              projectId: { type: 'string' }, nodeId: { type: 'string' }, name: { type: 'string' }, label: { type: 'string' },
+            },
+            required: ['ok', 'text'],
+          },
+          render: (args, value) => [{ type: 'text', text: String(value.text || '') }],
+        };
         reg({
           name: 'canvas_list_projects',
-          description: '列出无限画布的全部项目（名称/id/节点数/更新时间）。用户提到画布项目、想看有哪些项目、或要指定某个画布项目时使用。',
+          description: '列出无限画布的项目及其节点（节点 id/类型/名称/状态）。用户提到画布项目、想看有哪些项目、或要指定某个项目/节点时使用。',
           parameters: { type: 'object', properties: { keyword: { type: 'string', description: '按项目名称过滤（可选）' } }, additionalProperties: false },
-          output: { schema: { type: 'object', properties: { count: { type: 'integer' }, text: { type: 'string' } }, required: ['count', 'text'], additionalProperties: false }, render: (args, value) => [{ type: 'text', text: String(value.text || '') }] },
+          output: {
+            schema: { type: 'object', properties: { count: { type: 'integer' }, text: { type: 'string' } }, required: ['count', 'text'] },
+            render: (args, value) => [{ type: 'text', text: String(value.text || '') }],
+          },
           timeoutMs: 30000,
           async execute(args) {
             const kw = String((args && args.keyword) || '').toLowerCase();
             const list = projectsList().filter((p) => !kw || String(p.name).toLowerCase().includes(kw));
-            const lines = list.map((p) => '- 「' + p.name + '」 id=' + p.id + ' · ' + p.nodeIds.length + ' 节点 · 更新于 ' + new Date(p.updatedAt).toLocaleString());
-            const text = lines.length ? ('共 ' + lines.length + ' 个项目：\n' + lines.join('\n')) : '画布上还没有项目。可调用 canvas_create_project 创建。';
-            return { count: lines.length, text };
+            const lines = [];
+            for (const p of list) {
+              lines.push('- 「' + p.name + '」 id=' + p.id + ' · ' + p.nodes.length + ' 节点 · 更新于 ' + new Date(p.updatedAt).toLocaleString());
+              for (const n of p.nodes) lines.push('    · [' + n.type + '] ' + (n.label || '(未命名)') + ' id=' + n.id + ' status=' + n.status);
+            }
+            const text = lines.length ? ('共 ' + list.length + ' 个项目：\n' + lines.join('\n')) : '画布上还没有项目。可调用 canvas_create_project 创建。';
+            return { count: list.length, text };
           },
         });
         reg({
           name: 'canvas_create_project',
-          description: '在无限画布上创建一个新项目，可附带初始创作意图/剧本文本（会成为画布上第一个剧本节点）。用户说"建一个项目""创建画布项目""开个新短剧"时使用。',
+          description: '在无限画布上创建一个新项目，可同时写入第一个剧本节点。scriptText 放创作意图/剧本内容，nodeName 给这个节点起一个可识别的名字（强烈建议填写，否则画布上多个节点会难以区分）。用户说"建一个项目""创建画布项目""开个新短剧"时使用。',
           parameters: {
             type: 'object',
             properties: {
               name: { type: 'string', description: '项目名称' },
-              scriptText: { type: 'string', description: '可选：初始创作意图/剧本文本' },
+              scriptText: { type: 'string', description: '可选：初始创作意图或剧本内容' },
+              nodeName: { type: 'string', description: '可选：首个剧本节点的名字（建议填写，如"创作意图""第一节剧本"）' },
             },
             required: ['name'],
             additionalProperties: false,
@@ -564,18 +687,21 @@ export function apply(ctx) {
           timeoutMs: 30000,
           async execute(args) {
             const r = canvasCreateProject(args);
-            return { ok: true, projectId: r.projectId, name: r.name, text: '✅ 已创建项目「' + r.name + '」（id=' + r.projectId + '）。可调用 canvas_open 打开画布查看，或用 canvas_write_node 继续追加内容。' };
+            return { ok: true, projectId: r.projectId, name: r.name, nodeId: r.nodeId || undefined, text: '✅ 已创建项目「' + r.name + '」（id=' + r.projectId + '）。可继续用 canvas_write_node 写提示词/成稿，或用 canvas_open 打开画布。' };
           },
         });
         reg({
           name: 'canvas_write_node',
-          description: '向指定无限画布项目追加一个节点：剧本节点（内容=创作意图，画布内可继续 AI 生成）或纯文本节点。用户说"把这段写进画布""加到项目里"时使用。项目 id 可先用 canvas_list_projects 查询。',
+          description: '写入无限画布的项目内容。不传 nodeId 时追加新节点；传 nodeId 时更新该节点。target 说明写哪一部分：idea=创作意图/提示词（默认），output=AI 生成的成稿（剧本正文、分镜结果）。生成剧本后请把成稿写入 target=output，并用 name 给节点起可识别的名字。',
           parameters: {
             type: 'object',
             properties: {
               projectId: { type: 'string', description: '项目 id（来自 canvas_list_projects 或 canvas_create_project）' },
-              text: { type: 'string', description: '节点内容' },
-              kind: { type: 'string', enum: ['script', 'text'], description: '节点类型：script=剧本（默认），text=纯文本' },
+              text: { type: 'string', description: '要写入的内容' },
+              kind: { type: 'string', enum: ['script', 'text'], description: '新节点类型：script=剧本（默认），text=纯文本' },
+              target: { type: 'string', enum: ['idea', 'output'], description: '写哪一部分：idea=提示词/创作意图（默认），output=成稿' },
+              nodeId: { type: 'string', description: '可选：更新已有节点而不是新建' },
+              name: { type: 'string', description: '可选：节点名字（新建时建议填写；更新时会改名）' },
             },
             required: ['projectId', 'text'],
             additionalProperties: false,
@@ -584,7 +710,81 @@ export function apply(ctx) {
           timeoutMs: 30000,
           async execute(args) {
             const r = canvasWriteNode(args);
-            return { ok: true, projectId: r.projectId, nodeId: r.nodeId, text: '✅ 已在项目画布追加' + (args && args.kind === 'text' ? '文本' : '剧本') + '节点（id=' + r.nodeId + '）。' };
+            const what = String((args && args.text) || '').trim().slice(0, 24);
+            return { ok: true, projectId: r.projectId, nodeId: r.nodeId, label: r.label || undefined, text: (r.updated ? '✅ 已更新节点' : '✅ 已写入节点') + '「' + (r.label || what) + '」（id=' + r.nodeId + '）。' };
+          },
+        });
+        reg({
+          name: 'canvas_run_node',
+          description: '触发画布用其自身配置的模型/接口真实执行某个节点（剧本生成、分镜拆解、图片生成、视频生成等）。执行在画布侧异步进行，随后可用 canvas_node_status 读取状态与产物。用户说"生成剧本""开始生成""跑一下这个节点"时使用。',
+          parameters: {
+            type: 'object',
+            properties: {
+              projectId: { type: 'string', description: '项目 id' },
+              nodeId: { type: 'string', description: '节点 id（来自 canvas_list_projects）' },
+            },
+            required: ['projectId', 'nodeId'],
+            additionalProperties: false,
+          },
+          output: textOutput,
+          timeoutMs: 30000,
+          async execute(args) {
+            const r = await canvasRunNode(args);
+            return { ok: true, projectId: r.projectId, nodeId: r.nodeId, text: '🚀 已触发执行[' + r.type + ']「' + (r.label || r.nodeId) + '」。画布将在数秒内开始，可用 canvas_node_status 查询进度与结果。' };
+          },
+        });
+        reg({
+          name: 'canvas_node_status',
+          description: '查询画布节点的运行状态与产物（状态、错误、剧本成稿内容、生成出的资产 id）。用于确认 canvas_run_node 是否完成。',
+          parameters: {
+            type: 'object',
+            properties: {
+              projectId: { type: 'string', description: '项目 id' },
+              nodeId: { type: 'string', description: '节点 id' },
+            },
+            required: ['projectId', 'nodeId'],
+            additionalProperties: false,
+          },
+          output: {
+            schema: { type: 'object', properties: { ok: { type: 'boolean' }, text: { type: 'string' }, status: { type: 'string' }, assetId: { type: 'string' } }, required: ['ok', 'text'] },
+            render: (args, value) => [{ type: 'text', text: String(value.text || '') }],
+          },
+          timeoutMs: 30000,
+          async execute(args) {
+            const s = await canvasNodeStatus(args);
+            const lines = ['节点[' + s.type + ']「' + (s.label || s.nodeId) + '」', '状态: ' + s.status + (s.aiStatus && s.aiStatus !== 'idle' ? ' / ' + s.aiStatus : '')];
+            if (s.error) lines.push('错误: ' + s.error);
+            if (s.assetId) lines.push('产物资产: ' + s.assetId);
+            if (s.idea) lines.push('提示词: ' + s.idea.slice(0, 400));
+            if (s.output) lines.push('成稿:\n' + s.output);
+            return { ok: true, status: s.status, assetId: s.assetId || undefined, text: lines.join('\n') };
+          },
+        });
+        reg({
+          name: 'canvas_delete_node',
+          description: '删除无限画布项目中的一个节点（连同它的连线）。用于清理误创建的节点。',
+          parameters: {
+            type: 'object',
+            properties: { projectId: { type: 'string', description: '项目 id' }, nodeId: { type: 'string', description: '节点 id' } },
+            required: ['projectId', 'nodeId'],
+            additionalProperties: false,
+          },
+          output: textOutput,
+          timeoutMs: 30000,
+          async execute(args) {
+            const r = await canvasDeleteNode(args);
+            return { ok: true, projectId: r.projectId, nodeId: r.nodeId, text: '🗑 已删除节点 ' + r.nodeId + '。' };
+          },
+        });
+        reg({
+          name: 'canvas_delete_project',
+          description: '删除无限画布上的一个项目（含其全部节点）。用户明确要求删除项目、或清理误创建的空项目时使用；删除前请先用 canvas_list_projects 确认 id。',
+          parameters: { type: 'object', properties: { projectId: { type: 'string', description: '项目 id' } }, required: ['projectId'], additionalProperties: false },
+          output: textOutput,
+          timeoutMs: 30000,
+          async execute(args) {
+            const r = await canvasDeleteProject(args);
+            return { ok: true, projectId: r.projectId, text: '🗑 已删除项目「' + r.name + '」（id=' + r.projectId + '）。' };
           },
         });
         reg({
@@ -595,7 +795,7 @@ export function apply(ctx) {
           timeoutMs: 30000,
           async execute(args) {
             const r = await canvasOpen(args);
-            return { ok: true, projectId: r.projectId, text: r.projectId ? ('✅ 画布即将打开并跳到项目 ' + r.projectId + '。') : '✅ 画布即将打开。' };
+            return { ok: true, projectId: r.projectId || undefined, text: r.projectId ? ('✅ 画布即将打开并跳到项目 ' + r.projectId + '。') : '✅ 画布即将打开。' };
           },
         });
       }
