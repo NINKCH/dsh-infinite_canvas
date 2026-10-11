@@ -25,9 +25,11 @@ process.env.DSH_IC_CONFIG_PATH = path.join(SANDBOX, 'config.json');
 
 const errs = [];
 const tools = [];
+const providers = [];
+const fakeSkills = { registerProvider: (fn) => { providers.push(fn()); return () => {}; } };
 const fakeCtx = {
   effect(fn) { fn(); return () => {}; },
-  get() { return undefined; },
+  get(name) { return name === 'skills' ? fakeSkills : undefined; },
   webServer: { register: () => () => {} },
   tools: { register: (def) => { tools.push(def); return () => {}; } },
 };
@@ -134,9 +136,44 @@ async function run(name, args) {
 }
 
 console.log(`捕获工具 ${tools.length} 个：${[...byName.keys()].join(', ')}`);
+
+// ---------- 内置技能（约束 Agent 的操作规程）----------
+try {
+  if (providers.length !== 1) errs.push(`skills 提供方数量应为 1，实际 ${providers.length}`);
+  const p = providers[0];
+  if (!p || p.name !== 'dsh-infinite-canvas') errs.push('技能提供方 name 不正确');
+  const list = await p.list();
+  if (!Array.isArray(list) || list.length !== 1) errs.push('技能列表应恰好包含 1 个内置技能');
+  const cand = list[0];
+  if (cand.name !== 'canvas-studio') errs.push('技能名应为 canvas-studio，实际 ' + (cand && cand.name));
+  if (!Number.isFinite(cand.rank)) errs.push('技能 rank 必须是有限数字（registry 强制要求）');
+  if (!cand.description || !cand.description.trim()) errs.push('技能缺少 description');
+  if (!cand.invocation || cand.invocation.modelInvocable !== true) errs.push('技能必须 modelInvocable（否则 Agent 无法加载）');
+  const got = await p.get(cand, {});
+  if (!got.content || got.content.length < 300) errs.push('技能正文过短，可能未正确解析 SKILL.md');
+  for (const need of ['canvas_list_projects', 'canvas_write_node', 'canvas_create_project', 'output']) {
+    if (!String(got.content).includes(need)) errs.push(`技能正文未包含关键约束/工具名：${need}`);
+  }
+  if (got.rank !== undefined || got.locator !== undefined) errs.push('技能 get() 应剥离 rank/locator 内部字段');
+  console.log(`  技能 ${cand.name}（rank=${cand.rank}，正文 ${got.content.length} 字）`);
+} catch (e) {
+  errs.push('技能提供方校验失败 → ' + ((e && e.message) || e));
+}
+
 console.log('执行契约测试（临时目录隔离）：');
 const created = await run('canvas_create_project', { name: '__契约测试__', scriptText: '创作意图文本', nodeName: '创作意图' });
 const projectId = created && created.projectId;
+
+// 幂等：同名再建必须复用而不是新建（用户反馈的核心问题）
+try {
+  const again = await byName.get('canvas_create_project').execute({ name: '__契约测试__' }, {});
+  if (!again || again.projectId !== projectId) errs.push('同名项目未复用（重复创建会把画布塞满空壳项目）');
+  const all = await mod._internals.projectsList();
+  if (all.length !== 1) errs.push(`同名创建后项目数应为 1，实际 ${all.length}`);
+} catch (e) {
+  errs.push('幂等创建校验失败 → ' + ((e && e.message) || e));
+}
+
 await run('canvas_list_projects', {});
 const written = await run('canvas_write_node', { projectId, text: '第一节剧本：雨夜接信', name: '第一节剧本' });
 const nodeId = written && written.nodeId;

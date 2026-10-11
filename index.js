@@ -271,9 +271,63 @@ function nextNodePos(doc) {
   for (const n of Object.values(doc.nodes || {})) { if ((n.x || 0) + (n.w || 240) > maxX) { maxX = (n.x || 0) + (n.w || 240); maxY = n.y || 40; } }
   return { x: maxX + 60, y: maxY };
 }
+// ---------- 内置技能（操作规程，约束对话 Agent 的画布操作）----------
+const SKILL_NAME = 'canvas-studio';
+// = @deepseek-ai/dsh-skill 的 BUNDLED_SKILL_RANK（避免 import DSH 包；registry 要求 rank 必须是有限数字）
+const SKILL_RANK = 600;
+/** 解析 SKILL.md 的 YAML frontmatter（仅需 description 与正文）。 */
+function parseSkillMd(raw) {
+  const fm = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/.exec(String(raw || ''));
+  const meta = fm ? fm[1] : '';
+  const m = /^description:\s*(.+)$/m.exec(meta);
+  const description = m ? m[1].trim() : '';
+  const content = fm ? String(raw).slice(fm[0].length).trim() : String(raw || '').trim();
+  return { description, content };
+}
+/** 把内置技能注册进 skills 服务（与 dsh-skill-office 同款 provider 形状，零 DSH 包依赖）。 */
+function registerCanvasSkill(ctx, disposers) {
+  const skills = ctx.get('skills');
+  if (!skills || typeof skills.registerProvider !== 'function') return false;
+  const assetPath = path.join(HERE, 'assets', SKILL_NAME, 'SKILL.md');
+  if (!existsSync(assetPath)) return false;
+  const { description } = parseSkillMd(readFileSync(assetPath, 'utf8'));
+  if (!description) return false;
+  const candidate = {
+    name: SKILL_NAME,
+    description,
+    invocation: { modelInvocable: true, userInvocable: true },
+    provider: 'dsh-infinite-canvas',
+    source: 'bundled',
+    rank: SKILL_RANK,
+    resourceBase: { kind: 'directory', path: path.dirname(assetPath) },
+    locator: assetPath,
+  };
+  const provider = {
+    name: 'dsh-infinite-canvas',
+    list: () => Promise.resolve([candidate]),
+    async get(c, options) {
+      const { rank: _rank, locator, ...summary } = c;
+      const raw = await fs.readFile(locator, { encoding: 'utf8', signal: options && options.signal });
+      return { ...summary, content: parseSkillMd(raw).content };
+    },
+  };
+  try {
+    const off = skills.registerProvider(() => provider);
+    if (typeof off === 'function') disposers.push(off);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function canvasCreateProject(args) {
   const name = String((args && args.name) || '').trim();
   if (!name) throw new Error('需要项目名称');
+  // 幂等保护：同名项目已存在 → 复用，绝不重复创建（Agent 重试或误调用都会走到这里）
+  const existing = projectsList().find((p) => String(p.name).trim() === name);
+  if (existing) {
+    return { ok: true, projectId: existing.id, name: existing.name, reused: true, nodeId: null };
+  }
   const id = 'p' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
   const doc = { id, name: name.slice(0, 80), createdAt: Date.now(), updatedAt: Date.now(), source: 'agent', nodes: {}, edges: [], view: { x: 60, y: 40, scale: 1 } };
   const st = String((args && args.scriptText) || '');
@@ -672,7 +726,7 @@ export function apply(ctx) {
         });
         reg({
           name: 'canvas_create_project',
-          description: '在无限画布上创建一个新项目，可同时写入第一个剧本节点。scriptText 放创作意图/剧本内容，nodeName 给这个节点起一个可识别的名字（强烈建议填写，否则画布上多个节点会难以区分）。用户说"建一个项目""创建画布项目""开个新短剧"时使用。',
+          description: '在无限画布上创建一个新项目（可同时写入第一个剧本节点）。【硬约束】调用前必须先 canvas_list_projects 查重；同名项目会被自动复用并提示，绝不要为"重试"或为每个节点重复创建项目。scriptText 放创作意图/剧本内容，nodeName 给节点起可识别名字。',
           parameters: {
             type: 'object',
             properties: {
@@ -687,12 +741,15 @@ export function apply(ctx) {
           timeoutMs: 30000,
           async execute(args) {
             const r = canvasCreateProject(args);
-            return { ok: true, projectId: r.projectId, name: r.name, nodeId: r.nodeId || undefined, text: '✅ 已创建项目「' + r.name + '」（id=' + r.projectId + '）。可继续用 canvas_write_node 写提示词/成稿，或用 canvas_open 打开画布。' };
+            if (r.reused) {
+              return { ok: true, projectId: r.projectId, name: r.name, text: '♻️ 项目「' + r.name + '」已存在（id=' + r.projectId + '），已复用，未重复创建。往其中加内容请用 canvas_write_node({ projectId: "' + r.projectId + '", ... })。' };
+            }
+            return { ok: true, projectId: r.projectId, name: r.name, nodeId: r.nodeId || undefined, text: '✅ 已创建项目「' + r.name + '」（id=' + r.projectId + '）。往同一个项目继续加内容请用 canvas_write_node({ projectId: "' + r.projectId + '" })，不要为节点新建项目。' };
           },
         });
         reg({
           name: 'canvas_write_node',
-          description: '写入无限画布的项目内容。不传 nodeId 时追加新节点；传 nodeId 时更新该节点。target 说明写哪一部分：idea=创作意图/提示词（默认），output=AI 生成的成稿（剧本正文、分镜结果）。生成剧本后请把成稿写入 target=output，并用 name 给节点起可识别的名字。',
+          description: '写入无限画布的项目内容。不传 nodeId 时追加新节点；传 nodeId 时更新该节点。【硬约束】绝不要为了加节点而新建项目——一律指定已有 projectId。target 说明写哪一部分：idea=创作意图/提示词（默认），output=AI 生成的成稿（剧本正文、分镜结果）。用户要剧本时必须把完整正文写入 target=output。',
           parameters: {
             type: 'object',
             properties: {
@@ -800,6 +857,9 @@ export function apply(ctx) {
         });
       }
     } catch { /* tools 服务不可用时跳过注册 */ }
+
+    // 内置技能：把画布操作规程交给 skills 服务（Agent 可加载，作为硬约束）
+    try { registerCanvasSkill(ctx, toolDisposers); } catch { /* skills 服务不可用时跳过 */ }
 
     const registrations = [
       ctx.webServer.register({

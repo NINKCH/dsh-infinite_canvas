@@ -25,11 +25,12 @@ const REQUIRED = [
   'README.zh-CN.md',
   'locale/en.json',
   'locale/zh.json',
+  'assets/canvas-studio/SKILL.md',
   'docs/artcraft-handoff.md',
   'docs/release.md',
 ];
 // 包内允许出现的路径形态（package.json 与 LICENSE 由 npm 恒定收入，无需列 files 白名单）
-const ALLOWED = /^(package\.json|LICENSE|LICENCE|NOTICE|index\.js|client\.js|icon\.svg|cordis\.patch\.yml|README(\.zh-CN)?\.md|locale\/[a-zA-Z-]+\.json|docs\/[a-zA-Z0-9._-]+\.md)$/;
+const ALLOWED = /^(package\.json|LICENSE|LICENCE|NOTICE|index\.js|client\.js|icon\.svg|cordis\.patch\.yml|README(\.zh-CN)?\.md|locale\/[a-zA-Z-]+\.json|assets\/[a-z0-9-]+\/SKILL\.md|docs\/[a-zA-Z0-9._-]+\.md)$/;
 
 const errors = [];
 const ok = (msg) => console.log('  ✓ ' + msg);
