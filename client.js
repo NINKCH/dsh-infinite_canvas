@@ -352,6 +352,12 @@ window.__ModuleLoader__.load({
       'resizeHint': '拖动可调宽度 / 双击标题改名',
       'aiEmptyResult': '模型返回了空内容——请检查画布设置里的文本模型，或换一个模型重试',
       'aiInterrupted': '上次生成被页面刷新或关闭中断，请重新生成',
+      'copy': '复制',
+      'copied': '已复制到剪贴板',
+      'copyFailed': '复制失败，请手动选中文本复制',
+      'fill': '填入',
+      'copyName': '复制项目名',
+      'fillName': '一键填入输入框',
       'dataRootBrowse': '浏览选择目录',
       'dataRootPicking': '请在弹出的窗口中选择目录（可直接取消）…',
       'dataRootPickUnsupported': '当前平台不支持目录选择器，请手动填写路径',
@@ -631,6 +637,12 @@ window.__ModuleLoader__.load({
       'resizeHint': 'Drag to resize / double-click title to rename',
       'aiEmptyResult': 'The model returned empty content — check the text model in canvas settings or try another model',
       'aiInterrupted': 'The previous generation was interrupted by a page reload; please run it again',
+      'copy': 'Copy',
+      'copied': 'Copied to clipboard',
+      'copyFailed': 'Copy failed — please select the text and copy manually',
+      'fill': 'Fill',
+      'copyName': 'Copy project name',
+      'fillName': 'Fill the input with this name',
       'dataRootBrowse': 'Browse for folder',
       'dataRootPicking': 'Pick a folder in the dialog (cancel anytime)…',
       'dataRootPickUnsupported': 'No folder picker on this platform — type the path instead',
@@ -843,7 +855,7 @@ window.__ModuleLoader__.load({
   border-radius:14px;box-shadow:0 18px 50px color-mix(in srgb,var(--dsw-alias-bg-base) 60%,transparent);padding:16px;display:flex;flex-direction:column;gap:10px;}
 .dshic-modal-title{font-size:14px;font-weight:600;}
 .dshic-modal-warn{font-size:12px;line-height:18px;color:var(--dsw-alias-label-secondary);}
-.dshic-modal-name{font-weight:600;color:var(--dsw-alias-label-primary);}
+.dshic-modal-name{font-weight:600;color:var(--dsw-alias-label-primary);user-select:text;-webkit-user-select:text;cursor:text;}
 .dshic-modal-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:2px;}
 .dshic-btn-outline{border:1px solid var(--dsw-alias-border-l2);background:transparent;color:var(--dsw-alias-label-primary);}
 .dshic-btn-outline:hover{background:color-mix(in srgb,var(--dsw-alias-label-primary) 8%,transparent);}
@@ -4669,8 +4681,36 @@ window.__ModuleLoader__.load({
       ];
     }
 
-    function DeleteProjectModal({ target, name, setName, count, onCancel, onConfirm }) {
-      const matched = name.trim() === target.name && name.trim() !== '';
+    /** 复制文本到剪贴板：优先 clipboard API，不可用时回退临时 textarea + execCommand。 */
+    async function copyText(text) {
+      const s = String(text ?? '');
+      if (!s) return false;
+      try {
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          await navigator.clipboard.writeText(s);
+          toast(T('copied'));
+          return true;
+        }
+      } catch { /* 回退 */ }
+      try {
+        const ta = document.createElement('textarea');
+        ta.value = s;
+        ta.style.position = 'fixed';
+        ta.style.top = '-1000px';
+        ta.style.opacity = '0';
+        document.body.appendChild(ta);
+        ta.select();
+        const ok = !!(document.execCommand && document.execCommand('copy'));
+        document.body.removeChild(ta);
+        toast(ok ? T('copied') : T('copyFailed'));
+        return ok;
+      } catch {
+        toast(T('copyFailed'));
+        return false;
+      }
+    }
+
+    function DeleteProjectModal({ target, name, setName, count, onCancel, onConfirm }) {      const matched = name.trim() === target.name && name.trim() !== '';
       useEffect(() => {
         const fn = (e) => { if (e.key === 'Escape') onCancel(); };
         window.addEventListener('keydown', fn);
@@ -4681,7 +4721,19 @@ window.__ModuleLoader__.load({
           h('div', { className: 'dshic-modal-title' }, T('delProjectTitle')),
           h('div', { className: 'dshic-modal-warn' },
             T('delProjectWarn').replace('{n}', String(count)),
-            h('div', { className: 'dshic-modal-name', style: { marginTop: 4 } }, target.name)),
+            h('div', { className: 'dshic-modal-name', style: { marginTop: 4, display: 'flex', alignItems: 'center', gap: 6 } },
+              h('span', { style: { flex: 1, minWidth: 0, wordBreak: 'break-all' } }, target.name),
+              h('button', {
+                type: 'button', className: 'dshic-mini is-ghost', title: T('copyName'),
+                onPointerDown: (e) => e.stopPropagation(),
+                onClick: () => copyText(target.name),
+              }, T('copy')),
+              h('button', {
+                type: 'button', className: 'dshic-mini is-ghost', title: T('fillName'),
+                onPointerDown: (e) => e.stopPropagation(),
+                onClick: () => setName(target.name),
+              }, T('fill')),
+            )),
           h('div', { className: 'dshic-field' },
             h('span', { className: 'dshic-field-label' }, T('delProjectInput')),
             h('input', {
