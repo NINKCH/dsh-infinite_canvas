@@ -2013,6 +2013,18 @@ window.__ModuleLoader__.load({
         if (/未知操作/.test(String((e && e.message) || e))) hostSyncStopped = true; // 旧 Host：停止轮询
       }
     }
+    /** 启动时把本地全部项目推给 Host：让对话能看到并操作画布上已有的项目（客户端为内容权威）。 */
+    async function pushAllProjectsToHost() {
+      if (hostSyncStopped) return;
+      for (const p of [...S.projects]) {
+        try {
+          const doc = loadGraphDoc(p.id) || emptyGraph();
+          await hostRpc('projectsPut', { id: p.id, name: p.name || p.id, doc });
+        } catch (e) {
+          if (/未知操作/.test(String((e && e.message) || e))) { hostSyncStopped = true; return; }
+        }
+      }
+    }
 
     // ============================================================
     // 尺寸 / 比例（Toonflow 式：清晰度 × 比例 → 像素）
@@ -5545,7 +5557,7 @@ window.__ModuleLoader__.load({
           // 数据根目录（Host 旧版静默降级为 IndexedDB 模式）
           refreshDataRoot();
           // 对话 ↔ 画布同步（启动一次 + 3s 轮询；旧 Host 自动停轮询）
-          hostSyncTick();
+          hostSyncTick().then(() => pushAllProjectsToHost());
           const hostSyncTimer = setInterval(() => hostSyncTick(), 3000);
           // 后台路由探活：失败时在画布顶部给出可操作的提示
           hostRpc('ping').then(() => { S.hostOk = true; S.hostError = null; notify(); }).catch((e) => {
