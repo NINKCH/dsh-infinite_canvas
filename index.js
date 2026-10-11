@@ -121,6 +121,20 @@ function dataRoot() {
   const r = readIcConfig().dataRoot;
   return (typeof r === 'string' && r.trim()) ? path.resolve(r.trim()) : null;
 }
+/** 设定集字段规范化（世界观/风格 + 角色/场景/道具条目）。 */
+function normalizeBible(raw) {
+  const b = (raw && typeof raw === 'object') ? raw : {};
+  const arr = (v) => (Array.isArray(v) ? v : [])
+    .map((x) => ({ name: String((x && x.name) || '').slice(0, 60), desc: String((x && x.desc) || '').slice(0, 2000) }))
+    .filter((x) => x.name);
+  return {
+    worldview: String(b.worldview || '').slice(0, 8000),
+    style: String(b.style || '').slice(0, 2000),
+    characters: arr(b.characters),
+    scenes: arr(b.scenes),
+    props: arr(b.props),
+  };
+}
 /** rel 限定在 dataRoot 之内：拒绝绝对路径 / 盘符 / 上级跳转，返回 { abs, clean }。 */
 function safeJoin(root, rel) {
   const clean = String(rel || '').replace(/\\/g, '/').replace(/^\/+/, '').trim();
@@ -206,7 +220,7 @@ function projectsList() {
         id: n.id, type: n.type, label: (n.data && n.data.label) || '',
         status: (n.data && n.data.status) || 'idle',
       }));
-      list.push({ id: d.id || id, name: d.name || id, createdAt: d.createdAt || 0, updatedAt: d.updatedAt || 0, source: d.source || 'app', nodeIds: Object.keys(d.nodes || {}), nodes, tombstones: d.tombstones || [] });
+      list.push({ id: d.id || id, name: d.name || id, createdAt: d.createdAt || 0, updatedAt: d.updatedAt || 0, source: d.source || 'app', nodeIds: Object.keys(d.nodes || {}), nodes, tombstones: d.tombstones || [], bibleUpdatedAt: d.bibleUpdatedAt || 0 });
     } catch { /* 单文件损坏跳过 */ }
   }
   return list.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
@@ -228,6 +242,14 @@ async function projectsPut(args) {
     view: doc.view || { x: 60, y: 40, scale: 1 },
     tombstones: (prev.tombstones || []).slice(-100), // 对话删过的节点：保留墓碑，避免客户端推送时复活
   };
+  // 设定集（世界观/风格/角色/场景/道具）：随文档一起同步，对话侧可读写
+  if (doc.bible !== undefined) {
+    out.bible = normalizeBible(doc.bible);
+    out.bibleUpdatedAt = Date.now();
+  } else if (prev.bible !== undefined) {
+    out.bible = prev.bible;
+    out.bibleUpdatedAt = prev.bibleUpdatedAt || 0;
+  }
   mkdirSync(PROJECTS_DIR, { recursive: true });
   writeFileSync(f, JSON.stringify(out, null, 1), 'utf8');
   return { ok: true, id, updatedAt: out.updatedAt };
@@ -409,6 +431,91 @@ function canvasWriteNode(args) {
   writeFileSync(f, JSON.stringify(doc, null, 1), 'utf8');
   return { ok: true, projectId: id, nodeId: n.id, label: n.data.label || '' };
 }
+/** 读取设定集（对话侧"设定集先行"的前提）。 */
+async function canvasGetBible(args) {
+  const id = String((args && args.projectId) || '');
+  const doc = JSON.parse(readFileSync(projectFile(id), 'utf8'));
+  return { projectId: id, name: doc.name || id, bible: normalizeBible(doc.bible || {}), bibleUpdatedAt: doc.bibleUpdatedAt || 0 };
+}
+/**
+ * 写入设定集：世界观/风格整体替换，角色/场景/道具默认按名称合并（同名更新、不存在则追加）；
+ * mode='replace' 时条目整体替换。
+ */
+async function canvasUpdateBible(args) {
+  const id = String((args && args.projectId) || '');
+  const f = projectFile(id);
+  const doc = JSON.parse(readFileSync(f, 'utf8'));
+  const cur = normalizeBible(doc.bible || {});
+  const inc = (args && args.bible) || {};
+  const mergeList = (base, incoming) => {
+    if (incoming === undefined) return base;
+    const list = (Array.isArray(incoming) ? incoming : [])
+      .map((x) => ({ name: String((x && x.name) || ''), desc: String((x && x.desc) || '') }))
+      .filter((x) => x.name);
+    if ((args && args.mode) === 'replace') return list;
+    const out = [...base];
+    for (const item of list) {
+      const i = out.findIndex((x) => String(x.name).trim() === item.name.trim());
+      if (i >= 0) out[i] = { ...out[i], ...item };
+      else out.push(item);
+    }
+    return out;
+  };
+  const next = {
+    worldview: inc.worldview !== undefined ? String(inc.worldview) : cur.worldview,
+    style: inc.style !== undefined ? String(inc.style) : cur.style,
+    characters: mergeList(cur.characters, inc.characters),
+    scenes: mergeList(cur.scenes, inc.scenes),
+    props: mergeList(cur.props, inc.props),
+  };
+  doc.bible = normalizeBible(next);
+  doc.bibleUpdatedAt = Date.now();
+  doc.updatedAt = Date.now();
+  writeFileSync(f, JSON.stringify(doc, null, 1), 'utf8');
+  return { projectId: id, bible: doc.bible, bibleUpdatedAt: doc.bibleUpdatedAt };
+}
+/** 通用建节点（供对话建角色/场景/道具参考图等）；支持 script/text/image-gen/video-gen/storyboard/finalcut。 */
+function canvasCreateNode(args) {
+  const id = String((args && args.projectId) || '');
+  const f = projectFile(id);
+  const doc = JSON.parse(readFileSync(f, 'utf8'));
+  const type = String((args && args.type) || 'text');
+  if (!['script', 'text', 'image-gen', 'video-gen', 'storyboard', 'finalcut'].includes(type)) throw new Error('不支持的节点类型: ' + type);
+  const label = args && args.name ? String(args.name).slice(0, 40) : '';
+  const prompt = String((args && args.prompt) || '');
+  const pos = nextNodePos(doc);
+  let node;
+  if (type === 'image-gen') {
+    node = agentNode('text', '', pos.x, pos.y, label || '图片生成');
+    node.type = 'image-gen';
+    node.w = 280;
+    node.data = { status: 'idle', error: null, prompt, assetId: null, demo: false, size: (args && args.size) || '2K', ratio: (args && args.ratio) || '16:9' };
+  } else if (type === 'video-gen') {
+    node = agentNode('text', '', pos.x, pos.y, label || '视频生成');
+    node.type = 'video-gen';
+    node.w = 280;
+    node.data = { status: 'idle', error: null, prompt, assetId: null, demo: false, duration: Number(args && args.duration) || 5, resolution: (args && args.resolution) || '720P', ratio: (args && args.ratio) || '16:9' };
+  } else if (type === 'storyboard') {
+    node = agentNode('text', '', pos.x, pos.y, label || '分镜表');
+    node.type = 'storyboard';
+    node.w = 360;
+    node.data = { status: 'idle', error: null, script: prompt, requirement: String((args && args.requirement) || ''), count: Number(args && args.count) || 6, shots: [], aiStatus: 'idle', aiError: null };
+  } else if (type === 'finalcut') {
+    node = agentNode('text', '', pos.x, pos.y, label || '成片');
+    node.type = 'finalcut';
+    node.w = 300;
+    node.data = { status: 'idle', error: null, resolution: (args && args.resolution) || '720P', ratio: (args && args.ratio) || '16:9', transition: 'none', progress: null, assetId: null, subs: {}, keepAudio: true };
+  } else if (type === 'script') {
+    node = agentNode('script', prompt, pos.x, pos.y, label || defaultLabel(prompt));
+  } else {
+    node = agentNode('text', prompt, pos.x, pos.y, label || defaultLabel(prompt));
+  }
+  doc.nodes[node.id] = node;
+  doc.updatedAt = Date.now();
+  writeFileSync(f, JSON.stringify(doc, null, 1), 'utf8');
+  return { ok: true, projectId: id, nodeId: node.id, type: node.type, label: (node.data && node.data.label) || '' };
+}
+
 async function canvasDeleteProject(args) {
   const id = String((args && args.projectId) || '');
   const f = projectFile(id);
@@ -562,7 +669,7 @@ async function updateInstall() {
 export const inject = ['webServer', 'tools'];
 
 // 仅供诊断 / 自动化测试（不属于 RPC 面，运行时行为不受影响）
-export const _internals = { updateCheck, updateInstall, npmLatestVersion, cmpVer, findPnpm, getProfileDir: () => PROFILE_DIR, getVersion: () => VERSION, dataRoot, safeJoin, mimeOf, getIcConfigPath: () => CONFIG_PATH, canvasCreateProject, canvasWriteNode, canvasDeleteProject, canvasDeleteNode, canvasRunNode, canvasNodeStatus, projectsList, projectsGet, projectsSync, canvasOpen };
+export const _internals = { updateCheck, updateInstall, npmLatestVersion, cmpVer, findPnpm, getProfileDir: () => PROFILE_DIR, getVersion: () => VERSION, dataRoot, safeJoin, mimeOf, getIcConfigPath: () => CONFIG_PATH, canvasCreateProject, canvasWriteNode, canvasDeleteProject, canvasDeleteNode, canvasRunNode, canvasNodeStatus, canvasGetBible, canvasUpdateBible, canvasCreateNode, projectsList, projectsGet, projectsSync, canvasOpen };
 
 function resolveModel(providers, want) {
   const byProvider = want && want.provider
@@ -746,6 +853,9 @@ export function apply(ctx) {
       async projectsSync() { return projectsSync(); },
       async canvasCreateProject(args) { return canvasCreateProject(args); },
       async canvasWriteNode(args) { return canvasWriteNode(args); },
+      async canvasGetBible(args) { return canvasGetBible(args); },
+      async canvasUpdateBible(args) { return canvasUpdateBible(args); },
+      async canvasCreateNode(args) { return canvasCreateNode(args); },
       async canvasDeleteProject(args) { return canvasDeleteProject(args); },
       async canvasDeleteNode(args) { return canvasDeleteNode(args); },
       async canvasRunNode(args) { return canvasRunNode(args); },
@@ -945,6 +1055,89 @@ export function apply(ctx) {
           async execute(args) {
             const r = await canvasDeleteProject(args);
             return { ok: true, projectId: r.projectId, text: '🗑 已删除项目「' + r.name + '」（id=' + r.projectId + '）。' };
+          },
+        });
+        reg({
+          name: 'canvas_get_bible',
+          description: '读取项目的设定集（世界观/核心设定、风格基调、角色/场景/道具及描述）。【设定集先行】在写剧本或生成角色/场景/道具参考图之前，先读它；若为空，先与用户确认或按用户已给的创意补全设定集，再开始生成剧本。',
+          parameters: {
+            type: 'object',
+            properties: { projectId: { type: 'string', description: '项目 id' } },
+            required: ['projectId'],
+            additionalProperties: false,
+          },
+          output: textOutput,
+          timeoutMs: 30000,
+          async execute(args) {
+            const r = await canvasGetBible(args);
+            const b = r.bible;
+            const lines = ['项目「' + r.name + '」设定集：'];
+            lines.push('世界观/核心设定：' + (b.worldview || '（空）'));
+            lines.push('风格基调：' + (b.style || '（空）'));
+            for (const [label, list] of [['角色', b.characters], ['场景', b.scenes], ['道具', b.props]]) {
+              lines.push(label + '（' + list.length + '）：' + (list.length ? list.map((x) => x.name + '＝' + (x.desc || '')).join('；') : '（空）'));
+            }
+            return { ok: true, projectId: r.projectId, text: lines.join('\n') };
+          },
+        });
+        reg({
+          name: 'canvas_update_bible',
+          description: '写入项目设定集（世界观/核心设定、风格基调、角色/场景/道具）。默认按名称合并：同名更新、不存在则追加；mode="replace" 时条目整体替换。【设定集先行】先把世界观/风格/角色/场景/道具写进设定集，再生成剧本与参考图，保证跨镜跨集一致。',
+          parameters: {
+            type: 'object',
+            properties: {
+              projectId: { type: 'string', description: '项目 id' },
+              mode: { type: 'string', enum: ['merge', 'replace'], description: '条目合并方式，默认 merge' },
+              bible: {
+                type: 'object',
+                description: '设定集内容（只传要改的字段）',
+                properties: {
+                  worldview: { type: 'string', description: '世界观/核心设定（题材、年代、核心规则、主线暗线）' },
+                  style: { type: 'string', description: '风格基调（画风、年代、色调、质感）' },
+                  characters: { type: 'array', items: { type: 'object', properties: { name: { type: 'string' }, desc: { type: 'string' } }, required: ['name'] }, description: '角色设定（名称 + 外观/性格描述）' },
+                  scenes: { type: 'array', items: { type: 'object', properties: { name: { type: 'string' }, desc: { type: 'string' } }, required: ['name'] }, description: '场景设定' },
+                  props: { type: 'array', items: { type: 'object', properties: { name: { type: 'string' }, desc: { type: 'string' } }, required: ['name'] }, description: '道具设定' },
+                },
+              },
+            },
+            required: ['projectId', 'bible'],
+            additionalProperties: false,
+          },
+          output: textOutput,
+          timeoutMs: 30000,
+          async execute(args) {
+            const r = await canvasUpdateBible(args);
+            const b = r.bible;
+            const text = '✅ 设定集已更新（世界观 ' + (b.worldview ? '有' : '空') + '、风格 ' + (b.style ? '有' : '空')
+              + '、角色 ' + b.characters.length + '、场景 ' + b.scenes.length + '、道具 ' + b.props.length + '）。画布会在数秒内同步显示。';
+            return { ok: true, projectId: r.projectId, text };
+          },
+        });
+        reg({
+          name: 'canvas_create_node',
+          description: '在项目画布上新建指定类型的节点（image-gen 图片生成 / video-gen 视频生成 / storyboard 分镜表 / finalcut 成片 / script 剧本 / text 文本），可同时写入提示词。用于按设定集生成角色/场景/道具参考图：先用 canvas_get_bible 取设定，再为每个角色/场景/道具建一个 image-gen 节点（prompt 写外观特征）并 canvas_run_node 触发。',
+          parameters: {
+            type: 'object',
+            properties: {
+              projectId: { type: 'string', description: '项目 id' },
+              type: { type: 'string', enum: ['script', 'text', 'image-gen', 'video-gen', 'storyboard', 'finalcut'], description: '节点类型' },
+              name: { type: 'string', description: '节点名字（建议填写，如"角色-陈拾 参考图"）' },
+              prompt: { type: 'string', description: '提示词（图片/视频用画面提示词；剧本用创作意图；文本用正文）' },
+              size: { type: 'string', description: '可选：图片清晰度 1K/2K/4K' },
+              ratio: { type: 'string', description: '可选：比例，如 16:9 / 9:16 / 1:1' },
+              resolution: { type: 'string', description: '可选：视频分辨率 480P/720P/1080P' },
+              duration: { type: 'number', description: '可选：视频时长（秒）' },
+              count: { type: 'number', description: '可选：分镜表镜头数' },
+              requirement: { type: 'string', description: '可选：分镜表额外要求' },
+            },
+            required: ['projectId', 'type'],
+            additionalProperties: false,
+          },
+          output: textOutput,
+          timeoutMs: 30000,
+          async execute(args) {
+            const r = canvasCreateNode(args);
+            return { ok: true, projectId: r.projectId, nodeId: r.nodeId, label: r.label || undefined, text: '✅ 已新建[' + r.type + ']节点「' + (r.label || r.nodeId) + '」（id=' + r.nodeId + '）。可用 canvas_run_node 触发执行。' };
           },
         });
         reg({

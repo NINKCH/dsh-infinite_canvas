@@ -371,6 +371,12 @@ window.__ModuleLoader__.load({
       'seedanceAudio': '生成音频（Seedance）',
       'seedanceWatermark': '添加水印（Seedance）',
       'seedanceHint': '仅 Seedance 协议生效；模型名必填（协议要求显式指定）',
+      'bibleWorldview': '世界观 / 核心设定',
+      'bibleWorldviewPh': '题材、年代、核心规则、主线与暗线（会注入所有 AI 生成，保证跨集一致）',
+      'bibleDraft': 'AI 起草设定集',
+      'bibleDrafted': '已根据创作意图起草设定集，请检查后再生成本',
+      'bibleDraftEmpty': '没能起草出设定集：请先在剧本/文本节点写点创作意图，或检查文本模型配置',
+      'bibleOrderHint': '设定集先行：世界观/风格/角色/场景/道具先定好 → 生成剧本 → 为角色/场景/道具生成参考图 → 再拆解分镜',
       'dataRootBrowse': '浏览选择目录',
       'dataRootPicking': '请在弹出的窗口中选择目录（可直接取消）…',
       'dataRootPickUnsupported': '当前平台不支持目录选择器，请手动填写路径',
@@ -668,6 +674,12 @@ window.__ModuleLoader__.load({
       'seedanceAudio': 'Generate audio (Seedance)',
       'seedanceWatermark': 'Watermark (Seedance)',
       'seedanceHint': 'Seedance protocol only; the model name is required by the protocol',
+      'bibleWorldview': 'Worldview / core settings',
+      'bibleWorldviewPh': 'Genre, era, core rules, main and hidden threads (injected into all generation for consistency)',
+      'bibleDraft': 'Draft bible with AI',
+      'bibleDrafted': 'Bible drafted from your intent — review it before generating the script',
+      'bibleDraftEmpty': 'Nothing drafted: write some intent in a script/text node first, or check the text model',
+      'bibleOrderHint': 'Bible first: set worldview/style/characters/scenes/props → generate the script → generate reference images → then break down the storyboard',
       'dataRootBrowse': 'Browse for folder',
       'dataRootPicking': 'Pick a folder in the dialog (cancel anytime)…',
       'dataRootPickUnsupported': 'No folder picker on this platform — type the path instead',
@@ -1032,22 +1044,38 @@ window.__ModuleLoader__.load({
     // 项目设定集（Series Bible）：跨集/跨镜一致性的唯一事实源
     // ============================================================
     const LS_BIBLE = 'dsh-ic:bible:';
-    function emptyBible() { return { style: '', characters: [], scenes: [], props: [] }; }
+    const LS_BIBLE_SYNC = 'dsh-ic:biblesync:';
+    function emptyBible() { return { worldview: '', style: '', characters: [], scenes: [], props: [] }; }
     function loadBible(pid) {
       if (!pid) return emptyBible();
       const b = lsGet(LS_BIBLE + pid, null);
       if (!b) return emptyBible();
       return {
+        worldview: b.worldview || '',
         style: b.style || '',
         characters: Array.isArray(b.characters) ? b.characters : [],
         scenes: Array.isArray(b.scenes) ? b.scenes : [],
         props: Array.isArray(b.props) ? b.props : [],
       };
     }
-    function saveBible(pid, b) { if (pid) lsSet(LS_BIBLE + pid, b); }
+    /** 只写本地（用于接收 Host 侧改写，避免回推形成环）。 */
+    function saveBibleLocal(pid, b) { if (pid) lsSet(LS_BIBLE + pid, b); }
+    /** 把设定集同步到 Host：对话侧才能读写设定集（设定集先行）。 */
+    function pushBible(pid, b) {
+      if (!pid) return;
+      try {
+        const proj = S.projects.find((p) => p.id === pid);
+        const doc = loadGraphDoc(pid) || emptyGraph();
+        hostRpc('projectsPut', { id: pid, name: (proj && proj.name) || pid, doc: { ...doc, bible: b || loadBible(pid) } })
+          .then((r) => { if (r && r.bibleUpdatedAt) lsSet(LS_BIBLE_SYNC + pid, r.bibleUpdatedAt); })
+          .catch(() => { /* 静默 */ });
+      } catch { /* 忽略 */ }
+    }
+    function saveBible(pid, b) { if (pid) { saveBibleLocal(pid, b); pushBible(pid, b); } }
     function bibleBlock(b) {
       if (!b) return '';
       const lines = [];
+      if ((b.worldview || '').trim()) lines.push('世界观/核心设定：' + b.worldview.trim());
       if ((b.style || '').trim()) lines.push('风格基调：' + b.style.trim());
       for (const c of b.characters || []) if ((c.name || '').trim()) lines.push(`角色 ${c.name.trim()}：${(c.desc || '').trim()}`);
       for (const c of b.scenes || []) if ((c.name || '').trim()) lines.push(`场景 ${c.name.trim()}：${(c.desc || '').trim()}`);
@@ -2035,6 +2063,10 @@ window.__ModuleLoader__.load({
       });
       lsSet(LS_PROJECTS, S.projects);
       saveGraphDoc(hp.id, { nodes: full.nodes || {}, edges: full.edges || [], view: full.view || { x: 60, y: 40, scale: 1 } });
+      if (full.bible) {
+        saveBibleLocal(hp.id, full.bible);
+        if (full.bibleUpdatedAt) lsSet(LS_BIBLE_SYNC + hp.id, full.bibleUpdatedAt);
+      }
     }
     async function hostSyncTick() {
       if (hostSyncStopped) return;
@@ -2071,6 +2103,17 @@ window.__ModuleLoader__.load({
         for (const hp of r.projects || []) {
           const known = S.projects.some((p) => p.id === hp.id);
           const doc = known ? loadGraphDoc(hp.id) : null;
+          // 设定集：Host 侧（对话改写）更新过 → 拉回本地（设定集先行，故优先于节点合并）
+          if (known && hp.bibleUpdatedAt && hp.bibleUpdatedAt > (Number(lsGet(LS_BIBLE_SYNC + hp.id, 0)) || 0)) {
+            try {
+              const full = await hostRpc('projectsGet', { id: hp.id });
+              if (full && full.bible) {
+                saveBibleLocal(hp.id, full.bible);
+                lsSet(LS_BIBLE_SYNC + hp.id, hp.bibleUpdatedAt);
+                if (hp.id === S.activeId) update((s) => { s.assetsTick++; });
+              }
+            } catch { /* 忽略 */ }
+          }
           // 对话删过的节点（墓碑）：本地同步删除，避免被推送复活
           const dead = (hp.tombstones || []).filter((nid) => doc && doc.nodes[nid]);
           if (known && dead.length) {
@@ -2439,7 +2482,7 @@ window.__ModuleLoader__.load({
       lsSet(LS_PROJECTS, S.projects);
       lsSet(LS_ACTIVE, S.activeId);
       try {
-        hostRpc('projectsPut', { id: S.activeId, name: (proj && proj.name) || S.activeId, doc: { nodes: S.graph.nodes, edges: S.graph.edges, view: S.graph.view } }).catch(() => { /* 同步失败静默 */ });
+        hostRpc('projectsPut', { id: S.activeId, name: (proj && proj.name) || S.activeId, doc: { nodes: S.graph.nodes, edges: S.graph.edges, view: S.graph.view, bible: loadBible(S.activeId) } }).catch(() => { /* 同步失败静默 */ });
       } catch { /* 忽略 */ }
     }
     function initStore() {
@@ -2739,6 +2782,19 @@ window.__ModuleLoader__.load({
       return order;
     }
 
+    /** 提示词里出现的设定集条目（角色/场景/道具）→ 附带其描述，保证画面一致。 */
+    function bibleEntriesIn(bible, prompt) {
+      const text = String(prompt || '');
+      const out = [];
+      const groups = [['characters', '角色'], ['scenes', '场景'], ['props', '道具']];
+      for (const [key, label] of groups) {
+        for (const it of (bible && bible[key]) || []) {
+          const name = String((it && it.name) || '').trim();
+          if (name && text.includes(name)) out.push(label + ' ' + name + '：' + String((it.desc || '').trim()));
+        }
+      }
+      return out;
+    }
     // 输入解析：生成节点的实际 prompt（文本节点 / 分镜节点的画面、动作输出）
     function resolvePrompt(n) {
       const e = S.graph.edges.find((x) => x.toNode === n.id && x.toPort === 'prompt');
@@ -2944,10 +3000,13 @@ window.__ModuleLoader__.load({
             const d = bibleDesc(m.category, m.name);
             return `[图${i + 1}] ${catLabel(m.category)}：${m.name}${d ? '（' + d + '）' : ''}`;
           }).join('；');
+          // 设定集一致性：提示词里出现的角色/场景/道具名 → 自动附上其设定描述
+          const bibleHits = bibleEntriesIn(bible, prompt);
           const p = [
             (bible.style || '').trim() ? '风格：' + bible.style.trim() : '',
             bind ? `${T('refCount')} → ${bind}` : '',
             prompt,
+            bibleHits.length ? (effLang() === 'en' ? 'Series bible: ' : '设定集：') + bibleHits.join('；') : '',
           ].filter(Boolean).join('\n');
           const { blob, demo } = await generateImage(p, metas, { size: n.data.size, ratio: n.data.ratio, apiId: n.data.imageApiId });
           const rec = await saveAssetRecord(S.activeId, 'image', blob, { prompt, source: demo ? 'demo' : 'api' });
@@ -2957,10 +3016,12 @@ window.__ModuleLoader__.load({
           const refMetas = await resolveRefMetas(n.id, 'ref');
           const bible = loadBible(S.activeId);
           const bind = refMetas.map((m, i) => `[图${i + 1}] ${catLabel(m.category)}：${m.name}`).join('；');
+          const bibleHitsV = bibleEntriesIn(bible, prompt);
           const p = [
             (bible.style || '').trim() ? '风格：' + bible.style.trim() : '',
             bind ? `${T('refCount')} → ${bind}` : '',
             prompt,
+            bibleHitsV.length ? (effLang() === 'en' ? 'Series bible: ' : '设定集：') + bibleHitsV.join('；') : '',
           ].filter(Boolean).join('\n');
           const { blob, demo } = await generateVideo(p, frameBlob, {
             duration: n.data.duration, resolution: n.data.resolution, ratio: n.data.ratio, apiId: n.data.videoApiId,
@@ -5562,11 +5623,78 @@ window.__ModuleLoader__.load({
       ];
     }
 
-    /** 项目设定集（Series Bible）：风格 + 角色/场景/道具卡，注入所有 AI 生成保证跨集一致。 */
+    /** 从项目现有创作意图/剧本一键起草设定集（世界观/风格/角色/场景/道具）。 */
+    async function aiDraftBible(cur) {
+      const settings = loadSettings();
+      const zh = effLang() !== 'en';
+      const ideas = Object.values(S.graph.nodes || {})
+        .filter((n) => n && (n.type === 'script' || n.type === 'text'))
+        .map((n) => String((n.type === 'script' ? n.data.idea : n.data.text) || '').trim())
+        .filter(Boolean)
+        .join('\n---\n')
+        .slice(0, 6000);
+      const existing = bibleBlock(cur);
+      const system = [
+        await loadSkillRules(settings.skillScript, zh) || await loadSkillRules(CRAFT_SKILL, zh) || '',
+        zh
+          ? '你是短剧设定集策划：根据创作意图提炼世界观与风格，并列出角色/场景/道具设定，供后续剧本与画面生成保持一致。只输出 JSON。'
+          : 'You are a series-bible planner for short drama: derive worldview and style from the intent, and list characters/scenes/props so later script and image generation stay consistent. Output JSON only.',
+      ].filter(Boolean).join('\n');
+      const user = zh ? [
+        ideas ? '项目现有创作意图/剧本：\n' + ideas : '（项目暂无创作意图，请给出一个可用的短剧设定草案）',
+        existing ? '已有设定集（请在其基础上补全，不要丢弃已有条目）：\n' + existing : '',
+        '输出 JSON：{"worldview":"世界观/核心设定（题材、年代、核心规则、主线暗线）","style":"风格基调（画风、色调、质感）",'
+          + '"characters":[{"name":"…","desc":"外观与性格关键词"}],"scenes":[{"name":"…","desc":"外观关键词"}],"props":[{"name":"…","desc":"外观关键词"}]}',
+        '要求：名称唯一且可直接用于检索；desc 写可复现的外观关键词（年龄/发型/服装/材质/光线），不要写抽象评价。',
+      ].filter(Boolean).join('\n') : [
+        ideas ? 'Existing intent/script:\n' + ideas : '(No intent yet — produce a usable draft)',
+        existing ? 'Existing bible (extend it, keep existing entries):\n' + existing : '',
+        'Output JSON: {"worldview":"…","style":"…","characters":[{"name":"…","desc":"…"}],"scenes":[…],"props":[…]}',
+        'Names must be unique and searchable; desc must be reproducible visual keywords.',
+      ].filter(Boolean).join('\n');
+      const text = await aiComplete({ system, user });
+      const raw = parseJsonBalanced(text);
+      const obj = raw && typeof raw === 'object' ? raw : {};
+      const list = (v) => (Array.isArray(v) ? v : [])
+        .map((x) => ({ name: String((x && x.name) || '').trim(), desc: String((x && x.desc) || '').trim() }))
+        .filter((x) => x.name);
+      const merge = (base, incoming) => {
+        const out = [...(base || [])];
+        for (const item of incoming) {
+          const i = out.findIndex((x) => String(x.name).trim() === item.name);
+          if (i >= 0) out[i] = { ...out[i], ...item };
+          else out.push(item);
+        }
+        return out;
+      };
+      const next = {
+        worldview: String(obj.worldview || cur.worldview || '').trim(),
+        style: String(obj.style || cur.style || '').trim(),
+        characters: merge(cur.characters, list(obj.characters)),
+        scenes: merge(cur.scenes, list(obj.scenes)),
+        props: merge(cur.props, list(obj.props)),
+      };
+      if (!next.worldview && !next.style && !next.characters.length) throw new Error(T('bibleDraftEmpty'));
+      return next;
+    }
+
+    /** 项目设定集（Series Bible）：世界观 + 风格 + 角色/场景/道具卡，注入所有 AI 生成保证跨集一致。 */
     function BibleTab() {
       const [bible, setBible] = useState(() => loadBible(S.activeId));
-      useEffect(() => { setBible(loadBible(S.activeId)); }, [S.activeId]);
+      const [busy, setBusy] = useState(false);
+      useEffect(() => { setBible(loadBible(S.activeId)); }, [S.activeId, S.assetsTick]);
       const persist = (next) => { setBible(next); saveBible(S.activeId, next); };
+      /** 从项目里的创作意图/剧本一键起草设定集（设定集先行）。 */
+      const draft = async () => {
+        if (busy) return;
+        setBusy(true);
+        try {
+          const next = await aiDraftBible(bible);
+          persist(next);
+          toast(T('bibleDrafted'));
+        } catch (e) { toast(String((e && e.message) || e)); }
+        setBusy(false);
+      };
       const listEditor = (key, labelKey) => h('div', { className: 'dshic-card' },
         h('div', { className: 'dshic-row' },
           h('strong', { style: { fontSize: 12 } }, T(labelKey)),
@@ -5600,6 +5728,22 @@ window.__ModuleLoader__.load({
       return [
         h('div', { key: 'proj', className: 'dshic-hint' },
           `${T('bibleTab')} · ${T('currentProject')}：${(S.projects.find((p) => p.id === S.activeId) || {}).name || ''}`),
+        h('div', { key: 'order', className: 'dshic-hint' }, T('bibleOrderHint')),
+        h('div', { key: 'draft', className: 'dshic-row' },
+          h('button', {
+            type: 'button', className: 'dshic-mini', disabled: busy,
+            onPointerDown: (e) => e.stopPropagation(), onClick: draft,
+          }, busy ? h('span', { className: 'dshic-spin' }) : Ic('spark', 11), busy ? T('aiRunning') : T('bibleDraft')),
+        ),
+        h('div', { key: 'world', className: 'dshic-card' },
+          h('span', { className: 'dshic-shot-label' }, T('bibleWorldview')),
+          h('textarea', {
+            className: 'dshic-textarea', style: { minHeight: 110 }, value: bible.worldview || '',
+            placeholder: T('bibleWorldviewPh'),
+            onChange: (e) => persist({ ...bible, worldview: e.target.value }),
+            onPointerDown: (e) => e.stopPropagation(),
+          }),
+        ),
         h('div', { key: 'style', className: 'dshic-card' },
           h('span', { className: 'dshic-shot-label' }, T('bibleStyle')),
           h('textarea', {

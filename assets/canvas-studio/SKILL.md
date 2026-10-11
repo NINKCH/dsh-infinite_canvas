@@ -10,6 +10,12 @@ description: 用无限画布（Infinite Canvas）做短剧/视频创作时使用
 
 ## 一、硬约束（违反即视为操作失败）
 
+0. **设定集先行。** 写剧本、写分镜、生成任何画面之前，**必须先 `canvas_get_bible` 读设定集**：
+   - 世界观/核心设定、风格基调、角色/场景/道具为空或不完整时，**先补全设定集**
+     （`canvas_update_bible`），再开始生成；用户已给出创意时按其创意补全，不要凭空另起一套。
+   - 角色/场景/道具的参考图也应**先从设定集条目生成**（为每个条目建 `image-gen` 节点 → `canvas_run_node`），
+     再进入分镜与镜头生成，这样才能跨镜跨集一致。
+   - 唯一例外：用户明确说"先随便写个剧本/不用管设定"。
 1. **同一个请求最多创建一个项目。** 调用 `canvas_create_project` 之前**必须先** `canvas_list_projects` 查重：
    已存在同名或同主题项目 → **直接复用它的 projectId**，绝不重复创建。重复建项目会留下空壳项目，用户非常反感。
 2. **绝不为单个节点新建项目。** 往已有项目加内容一律用 `canvas_write_node(projectId=…)`；
@@ -29,17 +35,24 @@ description: 用无限画布（Infinite Canvas）做短剧/视频创作时使用
 7. **完成后让用户看到结果**：调用 `canvas_open({ projectId })`，画布会在数秒内自动跳转。
 8. **汇报固定要素**：项目名 + 项目 id + 节点名/id + 成稿摘要（若已生成）；有错误如实说明。
 
-## 二、标准工作流
+## 二、标准工作流（设定集先行）
 
+0. `canvas_get_bible({ projectId })` —— 读设定集；缺世界观/风格/角色/场景/道具就先用
+   `canvas_update_bible` 补全（或把草案给用户确认）
 1. `canvas_list_projects` —— 查重 + 拿到 projectId 与节点 id
 2. 需要新项目才 `canvas_create_project({ name, scriptText, scriptOutput, nodeName })`；否则复用已有 projectId
-3. 产出内容 → `canvas_write_node({ projectId, text, target, name, idea })`
+3. **生成剧本** → `canvas_write_node({ projectId, text, target, name, idea })`
    - `target: 'idea'`：提示词、创作意图、约束
    - `target: 'output'`：**成稿**（剧本正文、分镜结果）；不传 nodeId 时会自动落到项目里已有的剧本节点，不另建节点
    - 同一次调用可用 `idea` 参数把创作意图与成稿一起写进同一个剧本节点
-4. 需要画布用**自身配置的模型/接口**真实生成（剧本/分镜/图片/视频）：
+4. **生成角色/场景/道具参考图**：为设定集里的每个条目
+   `canvas_create_node({ projectId, type: 'image-gen', name: '角色-陈拾 参考图', prompt: '按设定集写外观关键词' })`
+   → `canvas_run_node({ projectId, nodeId })` 触发（画布用它配置的图片接口）
+5. **分镜**：`canvas_create_node({ projectId, type: 'storyboard', name: '分镜表' })` 或复用已有分镜表 →
+   `canvas_run_node` 拆解镜头
+6. 需要画布用**自身配置的模型/接口**真实生成（剧本/分镜/图片/视频）：
    `canvas_run_node({ projectId, nodeId })` → 之后用 `canvas_node_status({ projectId, nodeId })` 轮询状态与成稿
-5. `canvas_open({ projectId })` —— 让用户看到画布结果
+7. `canvas_open({ projectId })` —— 让用户看到画布结果
 
 ## 三、节点类型与字段
 

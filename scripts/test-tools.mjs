@@ -147,7 +147,7 @@ try {
   const names = (list || []).map((c) => c && c.name).sort();
   if (names.join(',') !== 'canvas-craft,canvas-studio') errs.push('内置技能名应为 canvas-craft 与 canvas-studio，实际 ' + names.join(','));
   const needBySkill = {
-    'canvas-studio': ['canvas_list_projects', 'canvas_write_node', 'canvas_create_project', 'output'],
+    'canvas-studio': ['canvas_list_projects', 'canvas_write_node', 'canvas_create_project', 'canvas_get_bible', 'canvas_update_bible', 'canvas_create_node', '设定集先行', 'output'],
     'canvas-craft': ['景别', '运镜', '分镜', '提示词', '设定集'],
   };
   for (const cand of list || []) {
@@ -183,6 +183,45 @@ try {
 await run('canvas_list_projects', {});
 const written = await run('canvas_write_node', { projectId, text: '第一节剧本：雨夜接信', name: '第一节剧本' });
 const nodeId = written && written.nodeId;
+
+// 设定集先行：读/写设定集与通用建节点
+try {
+  const b0 = await byName.get('canvas_get_bible').execute({ projectId }, {});
+  if (!b0 || !b0.ok) errs.push('canvas_get_bible 未返回 ok');
+  const bb = await mod._internals.canvasGetBible({ projectId });
+  if (!bb || !bb.bible) errs.push('canvas_get_bible 未返回设定集');
+  const w = await byName.get('canvas_update_bible').execute({
+    projectId,
+    bible: {
+      worldview: '城市褶皱里的时空邮局', style: '写实电影感，暖色调',
+      characters: [{ name: '陈拾', desc: '24 岁，旧邮差制服，帆布邮包' }],
+      scenes: [{ name: '褶皱巷', desc: '雨夜老城区窄巷' }],
+      props: [{ name: '火漆信', desc: '火漆印着邮戳' }],
+    },
+  }, {});
+  if (!w || !w.ok) errs.push('canvas_update_bible 写入失败');
+  // 合并语义：同名更新、不同名追加
+  await byName.get('canvas_update_bible').execute({
+    projectId,
+    bible: { characters: [{ name: '陈拾', desc: '改：加了怀表' }, { name: '林小满', desc: '17 岁学生' }] },
+  }, {});
+  const b1 = await mod._internals.canvasGetBible({ projectId });
+  const chars = b1.bible.characters || [];
+  if (chars.length !== 2) errs.push(`设定集合并后角色数应为 2，实际 ${chars.length}`);
+  const chen = chars.find((x) => x.name === '陈拾');
+  if (!chen || !chen.desc.includes('怀表')) errs.push('设定集同名条目未更新');
+  if (!b1.bible.worldview) errs.push('设定集世界观未保留');
+  if (!b1.bibleUpdatedAt) errs.push('设定集缺少 bibleUpdatedAt（客户端无法感知同步）');
+  // 通用建节点：角色参考图节点
+  const n = await byName.get('canvas_create_node').execute({ projectId, type: 'image-gen', name: '角色-陈拾 参考图', prompt: '中近景，陈拾，旧邮差制服' }, {});
+  if (!n || !n.ok || !n.nodeId) errs.push('canvas_create_node 未返回 nodeId');
+  const doc = await mod._internals.projectsGet({ id: projectId });
+  const created = doc.nodes[n.nodeId];
+  if (!created || created.type !== 'image-gen') errs.push('canvas_create_node 未创建 image-gen 节点');
+  if (!created || !(created.data.prompt || '').includes('陈拾')) errs.push('canvas_create_node 未写入提示词');
+} catch (e) {
+  errs.push('设定集/建节点校验失败 → ' + ((e && e.message) || e));
+}
 
 // 剧本节点语义：写 output 不带 nodeId 必须复用已有剧本节点（idea 与 output 落在同一节点），
 // 且 idea 参数能与 text/target 一次写全 —— 直接对应用户反馈的"两个半残节点"问题
