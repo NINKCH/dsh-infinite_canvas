@@ -350,7 +350,8 @@ window.__ModuleLoader__.load({
       'dataRootMigrating': '迁移中',
       'dataRootUnsupported': '当前插件后台版本较旧（不支持数据根目录）：重启 Harness 后可用',
       'dataRootSaved': '数据根目录已设置',
-      'resizeHint': '拖动可调宽度 / 双击标题改名',
+      'resizeHint': '拖动左右上下边可调宽高（右键头调宽、底边调高、右下角同时）',
+      'resizeHeightHint': '拖动调高；双击恢复「随内容自适应」',
       'aiEmptyResult': '模型返回了空内容——请检查画布设置里的文本模型，或换一个模型重试',
       'aiInterrupted': '上次生成被页面刷新或关闭中断，请重新生成',
       'copy': '复制',
@@ -666,7 +667,8 @@ window.__ModuleLoader__.load({
       'dataRootMigrating': 'Migrating',
       'dataRootUnsupported': 'The plugin backend is older and lacks data-root support — restart Harness to enable',
       'dataRootSaved': 'Data root set',
-      'resizeHint': 'Drag to resize / double-click title to rename',
+      'resizeHint': 'Drag any edge to resize (top/bottom = height, left/right = width, corner = both)',
+      'resizeHeightHint': 'Drag to set height; double-click to fit content again',
       'aiEmptyResult': 'The model returned empty content — check the text model in canvas settings or try another model',
       'aiInterrupted': 'The previous generation was interrupted by a page reload; please run it again',
       'copy': 'Copy',
@@ -796,7 +798,7 @@ window.__ModuleLoader__.load({
 .dshic-edge-temp{fill:none;stroke:var(--dsw-alias-label-secondary);stroke-width:2;stroke-dasharray:6 5;pointer-events:none;}
 .dshic-node{position:absolute;box-sizing:border-box;width:${NODE_W}px;background:var(--dsw-alias-bg-layer-1);
   border:1px solid var(--dsw-alias-border-l2);border-radius:12px;box-shadow:0 4px 14px color-mix(in srgb,var(--dsw-alias-bg-base) 40%,transparent);
-  cursor:grab;min-height:96px;}
+  cursor:grab;min-height:96px;display:flex;flex-direction:column;}
 .dshic-node:active{cursor:grabbing;}
 .dshic-node.is-selected{border-color:var(--dsw-alias-brand-primary);box-shadow:0 0 0 2px color-mix(in srgb,var(--dsw-alias-brand-primary) 35%,transparent);}
 .dshic-node.st-running{border-color:var(--dsw-alias-brand-primary);}
@@ -813,12 +815,19 @@ window.__ModuleLoader__.load({
 .dshic-node-x{flex:none;width:18px;height:18px;border:none;border-radius:6px;background:transparent;color:var(--dsw-alias-label-secondary);
   cursor:pointer;font-size:13px;line-height:18px;padding:0;display:inline-flex;align-items:center;justify-content:center;}
 .dshic-node-x:hover{background:color-mix(in srgb,var(--dsw-alias-state-error-primary) 16%,transparent);color:var(--dsw-alias-state-error-primary);}
-.dshic-node-resize{position:absolute;right:-4px;top:8px;bottom:8px;width:8px;cursor:ew-resize;border-radius:4px;}
-.dshic-node-resize:hover{background:color-mix(in srgb,var(--dsw-alias-brand-primary) 35%,transparent);}
-.dshic-node-body{padding:8px;display:flex;flex-direction:column;gap:6px;font-size:12px;}
-.dshic-textarea{width:100%;box-sizing:border-box;min-height:56px;resize:vertical;border:1px solid var(--dsw-alias-border-l2);
-  border-radius:8px;background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);font:inherit;font-size:12px;
-  line-height:18px;padding:6px 8px;outline:none;user-select:text;-webkit-user-select:text;cursor:text;}
+/* 节点尺寸把手：上下左右四条边 + 右下角；双击底边恢复随内容自适应 */
+.dshic-rs{position:absolute;z-index:6;}
+.dshic-rs:hover{background:color-mix(in srgb,var(--dsw-alias-brand-primary) 35%,transparent);border-radius:4px;}
+.dshic-rs-e{right:-3px;top:14px;bottom:14px;width:7px;cursor:ew-resize;}
+.dshic-rs-w{left:-3px;top:14px;bottom:14px;width:7px;cursor:ew-resize;}
+.dshic-rs-s{bottom:-3px;left:14px;right:14px;height:7px;cursor:ns-resize;}
+.dshic-rs-n{top:-3px;left:14px;right:14px;height:7px;cursor:ns-resize;}
+.dshic-rs-se{right:-4px;bottom:-4px;width:16px;height:16px;cursor:nwse-resize;}
+.dshic-node-body{padding:8px;display:flex;flex-direction:column;gap:6px;font-size:12px;flex:1;min-height:0;overflow:auto;}
+.dshic-textarea{width:100%;box-sizing:border-box;min-height:56px;resize:none;border:1px solid var(--dsw-alias-border-l2);
+  border-radius:8px;background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);font:inherit;
+  /* 节点内文本统一字号/行高/内距：与 .dshic-prompt-back/.dshic-prompt-input 必须逐项一致（透明叠层对齐） */
+  font-size:12px;line-height:18px;padding:7px 9px;outline:none;user-select:text;-webkit-user-select:text;cursor:text;}
 .dshic-textarea:focus{border-color:var(--dsw-alias-brand-primary);}
 .dshic-textarea:disabled{opacity:.6;}
 .dshic-input{width:100%;box-sizing:border-box;height:28px;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;
@@ -845,7 +854,7 @@ window.__ModuleLoader__.load({
 .dshic-err{color:var(--dsw-alias-state-error-primary);font-size:11px;line-height:15px;word-break:break-all;user-select:text;-webkit-user-select:text;}
 .dshic-hint{color:var(--dsw-alias-label-secondary);font-size:11px;line-height:16px;}
 .dshic-port{position:absolute;width:11px;height:11px;border-radius:50%;background:var(--dsw-alias-bg-layer-1);
-  border:2px solid var(--dsw-alias-label-secondary);cursor:crosshair;z-index:5;box-sizing:border-box;padding:0;}
+  border:2px solid var(--dsw-alias-label-secondary);cursor:crosshair;z-index:9;box-sizing:border-box;padding:0;}
 .dshic-port.k-image{border-color:var(--dsw-alias-brand-primary);}
 .dshic-port.k-video{border-color:var(--dsw-alias-state-success-primary);}
 .dshic-port:hover,.dshic-port.is-active{background:var(--dsw-alias-brand-primary);border-color:var(--dsw-alias-brand-primary);
@@ -932,23 +941,28 @@ window.__ModuleLoader__.load({
   color:var(--dsw-alias-label-secondary);background:var(--dsw-alias-bg-layer-2);}
 .dshic-shot-item strong{color:var(--dsw-alias-label-primary);font-size:11px;}
 .dshic-textcard{width:100%;height:86px;box-sizing:border-box;border:none;background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-secondary);
-  font:inherit;font-size:11px;line-height:15px;padding:6px 7px;overflow:hidden;text-align:left;display:block;white-space:pre-wrap;}
+  font:inherit;font-size:12px;line-height:18px;padding:7px 9px;overflow:hidden;text-align:left;display:block;white-space:pre-wrap;}
 /* 文本（剧本等）资产卡：只展示标题与项目标签，不展开正文 */
 .dshic-textcard.is-title{display:flex;flex-direction:column;gap:6px;justify-content:center;padding:10px 9px;color:inherit;}
 .dshic-textcard-title{font-size:12px;font-weight:600;line-height:17px;color:var(--dsw-alias-label-primary);word-break:break-word;
   display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;}
 .dshic-textcard-sub{font-size:10px;line-height:14px;color:var(--dsw-alias-label-secondary);}
-/* @引用高亮输入框：背景层与 textarea 严格对齐（同字体/内距/行高/换行规则） */
+/* @引用高亮输入框：字号/行高/内距与 .dshic-textarea 完全一致（背景层与透明输入框必须逐像素对齐） */
 .dshic-prompt{position:relative;display:block;width:100%;}
-.dshic-prompt-back,.dshic-prompt-input{font:inherit;font-size:11px;line-height:16px;padding:6px 7px;box-sizing:border-box;
+.dshic-prompt-back,.dshic-prompt-input{font:inherit;font-size:12px;line-height:18px;padding:7px 9px;box-sizing:border-box;
   white-space:pre-wrap;word-break:break-word;overflow-wrap:anywhere;}
 .dshic-prompt-back{position:absolute;inset:0;overflow:hidden;pointer-events:none;color:var(--dsw-alias-label-primary);
   border:1px solid transparent;border-radius:6px;}
 .dshic-prompt-ph{color:var(--dsw-alias-label-tertiary);}
 .dshic-prompt-input{position:relative;background:transparent;color:transparent;caret-color:var(--dsw-alias-label-primary);
-  resize:vertical;}
+  resize:none;}
 .dshic-prompt-input::placeholder{color:transparent;}
 .dshic-mention{color:#2f7cf6;font-weight:700;}
+/* 生成中的一行思考内容：单行、省略号，让用户看到"在动"而不是卡住 */
+.dshic-stream{display:flex;align-items:center;gap:5px;font-size:10px;line-height:14px;color:var(--dsw-alias-label-secondary);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding:0 2px;font-variant-numeric:tabular-nums;}
+.dshic-stream-dot{flex:none;width:5px;height:5px;border-radius:50%;background:var(--dsw-alias-brand-primary);animation:dshic-pulse 1.1s ease-in-out infinite;}
+@keyframes dshic-pulse{0%,100%{opacity:.25;}50%{opacity:1;}}
 .dshic-projchip{flex:none;height:15px;padding:0 5px;border-radius:4px;font-size:9px;line-height:15px;
   background:color-mix(in srgb,var(--dsw-alias-state-warn-primary) 16%,transparent);color:var(--dsw-alias-state-warn-primary);max-width:72px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 /* 节点类型色条：左缘 accent */
@@ -2570,6 +2584,87 @@ window.__ModuleLoader__.load({
       }
       return null;
     }
+    // AI 流式进度（不落盘：只用于"生成中"时显示一行思考内容，让用户知道没卡住）
+    const AI_STREAM = new Map(); // nodeId -> { reasoning, text }
+    const AI_STREAM_KEEP = 600;   // 只保留尾部若干字符，避免长思考占内存
+    function aiStreamAppend(nodeId, kind, d) {
+      if (!d) return;
+      const cur = AI_STREAM.get(nodeId) || { reasoning: '', text: '' };
+      const next = { reasoning: cur.reasoning, text: cur.text };
+      if (kind === 'reasoning') next.reasoning = (cur.reasoning + d).slice(-AI_STREAM_KEEP);
+      else next.text = (cur.text + d).slice(-AI_STREAM_KEEP);
+      AI_STREAM.set(nodeId, next);
+      update((s) => { s.aiTick = (s.aiTick || 0) + 1; }, { quiet: true });
+      notify();
+    }
+    function aiStreamClear(nodeId) { AI_STREAM.delete(nodeId); }
+    /** 生成中显示的一行动态内容：优先思考，其次正文；压缩空白并只留尾部。 */
+    function aiStreamLine(nodeId) {
+      const s = AI_STREAM.get(nodeId);
+      if (!s) return '';
+      const tail = (v) => String(v || '').replace(/\s+/g, ' ').trim().slice(-180);
+      return tail(s.reasoning) || tail(s.text);
+    }
+
+    /**
+     * 走 Host 的流式接口生成文本：实时把「思考/正文」增量喂给 onDelta。
+     * 旧 Host 没有该路由时自动回退到一次性 RPC（功能不受影响，只是没有实时预览）。
+     */
+    async function aiCompleteStream({ system, user, model, onReasoning, onText }) {
+      const settings = loadSettings();
+      let provider;
+      let modelId;
+      if (model && String(model).includes('|')) {
+        [provider, modelId] = String(model).split('|');
+      } else {
+        provider = settings.textLlm.provider || undefined;
+        modelId = settings.textLlm.model || undefined;
+      }
+      const cfg = settings.textLlm || {};
+      const args = { provider, model: modelId, system, user };
+      const maxTokens = Number(String(cfg.maxTokens ?? '').trim());
+      if (String(cfg.maxTokens ?? '').trim() !== '' && Number.isFinite(maxTokens) && maxTokens > 0) args.maxTokens = maxTokens;
+      const temperature = Number(String(cfg.temperature ?? '').trim());
+      if (String(cfg.temperature ?? '').trim() !== '' && Number.isFinite(temperature)) args.temperature = temperature;
+      let res;
+      try {
+        res = await fetch('/' + NS + '/api/llm-stream', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify(args),
+        });
+      } catch (e) {
+        throw new Error(T('connectFailed') + '：' + String((e && e.message) || e));
+      }
+      if (res.status === 404 || !res.body) return await aiComplete({ system, user, model }); // 旧 Host 回退
+      if (!res.ok) throw new Error((await res.text()).slice(0, 300) || T('rpcFail'));
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buf = '';
+      let final = null;
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += decoder.decode(value, { stream: true });
+        let idx;
+        while ((idx = buf.indexOf('\n\n')) >= 0) {
+          const frame = buf.slice(0, idx);
+          buf = buf.slice(idx + 2);
+          const line = frame.split('\n').find((l) => l.startsWith('data: '));
+          if (!line) continue;
+          let msg = null;
+          try { msg = JSON.parse(line.slice(6)); } catch { continue; }
+          if (msg.t === 'r' && onReasoning) onReasoning(String(msg.d || ''));
+          else if (msg.t === 'x' && onText) onText(String(msg.d || ''));
+          else if (msg.t === 'attempt' && onReasoning) onReasoning('');
+          else if (msg.t === 'done') final = msg.d || {};
+          else if (msg.t === 'fail') throw new Error(String(msg.d || T('rpcFail')));
+        }
+      }
+      if (!final) throw new Error(T('rpcFail'));
+      return final.text || '';
+    }
+
     async function aiComplete({ system, user, model }) {
       const settings = loadSettings();
       let provider;
@@ -2608,7 +2703,7 @@ window.__ModuleLoader__.load({
       } catch { return null; /* 技能读取失败回退内置专家 */ }
     }
 
-    async function aiScriptNodes(idea, model) {
+    async function aiScriptNodes(idea, model, onDelta) {
       const settings = loadSettings();
       const bible = bibleBlock(loadBible(S.activeId));
       const zh = effLang() !== 'en';
@@ -2637,9 +2732,13 @@ window.__ModuleLoader__.load({
         '- Visual actions only, no inner thoughts; dialogue on its own lines; mark sounds in brackets;',
         '- End with "Characters:" and "Locations/Props:" lists for asset production.',
       ].join('\n');
-      return await aiComplete({ system, user, model });
+      return await aiCompleteStream({
+        system, user, model,
+        onReasoning: (d) => onDelta && onDelta('reasoning', d),
+        onText: (d) => onDelta && onDelta('text', d),
+      });
     }
-    async function aiStoryboardShots(scriptText, requirement, count, model) {
+    async function aiStoryboardShots(scriptText, requirement, count, model, onDelta) {
       const settings = loadSettings();
       const bible = bibleBlock(loadBible(S.activeId));
       const zh = effLang() !== 'en';
@@ -2680,7 +2779,11 @@ window.__ModuleLoader__.load({
         `${zh ? '额外要求' : 'Extra requirements'}：${String(requirement ?? '').trim() || (zh ? '无' : 'none')}`,
         `${zh ? '目标分镜数量' : 'Shot count'}：${count}`,
       ].join('\n\n');
-      const text = await aiComplete({ system, user, model });
+      const text = await aiCompleteStream({
+        system, user, model,
+        onReasoning: (d) => onDelta && onDelta('reasoning', d),
+        onText: (d) => onDelta && onDelta('text', d),
+      });
       const parsed = parseJsonBalanced(text);
       const shots = parsed && Array.isArray(parsed.shots) ? parsed.shots : null;
       if (!shots || !shots.length) throw new Error(T('errParseStoryboard'));
@@ -3193,9 +3296,10 @@ window.__ModuleLoader__.load({
     async function genScriptNode(n) {
       if (!String(n.data.idea || '').trim()) throw new Error(T('needIdea'));
       update((s) => { const nd = s.graph.nodes[n.id]; if (nd) { nd.data.aiStatus = 'running'; nd.data.aiError = null; } });
+      aiStreamClear(n.id);
       flushSave();
       try {
-        const text = await aiScriptNodes(n.data.idea, n.data.model);
+        const text = await aiScriptNodes(n.data.idea, n.data.model, (kind, d) => aiStreamAppend(n.id, kind, d));
         if (!String(text || '').trim()) throw new Error(T('aiEmptyResult'));
         update((s) => { const nd = s.graph.nodes[n.id]; if (nd) { nd.data.output = text; nd.data.aiStatus = 'idle'; nd.data.status = 'done'; nd.data.error = null; } s.assetsTick++; });
         await saveTextAssetRecord(S.activeId, {
@@ -3209,6 +3313,8 @@ window.__ModuleLoader__.load({
         setNodeAiError(n.id, (e && e.message) || e);
         flushSave();
         throw e;
+      } finally {
+        aiStreamClear(n.id);
       }
     }
 
@@ -3217,9 +3323,10 @@ window.__ModuleLoader__.load({
       const st = storyboardScriptText(n);
       if (!st) throw new Error(T('aiNeedScript'));
       update((s) => { const nd = s.graph.nodes[n.id]; if (nd) { nd.data.aiStatus = 'running'; nd.data.aiError = null; nd.data.warnings = []; } });
+      aiStreamClear(n.id);
       flushSave();
       try {
-        const shots = await aiStoryboardShots(st, n.data.requirement, n.data.count || 6, n.data.model);
+        const shots = await aiStoryboardShots(st, n.data.requirement, n.data.count || 6, n.data.model, (kind, d) => aiStreamAppend(n.id, kind, d));
         const warnings = await checkShotConsistency(shots);
         update((s) => {
           const nd = s.graph.nodes[n.id];
@@ -3238,6 +3345,8 @@ window.__ModuleLoader__.load({
         setNodeAiError(n.id, (e && e.message) || e);
         flushSave();
         throw e;
+      } finally {
+        aiStreamClear(n.id);
       }
     }
 
@@ -3883,8 +3992,10 @@ window.__ModuleLoader__.load({
       // 否则分组折叠切换 data.hidden 时 hook 数量变化，React 会抛错并卸载整个画布（白屏）
       const [renaming, setRenaming] = useState(false);
       const [nameVal, setNameVal] = useState('');
-      // 节点内所有文本域随内容自动增高：内容溢出就撑开（上限 600），用户手动拉大过的不会被缩回去
+      // 节点内所有文本域随内容自动增高：内容溢出就撑开（上限 600）。
+      // 手动拉过高度的节点（hManual）不参与：高度由用户定的，内容超出交给节点内滚动。
       useEffect(() => {
+        if (n.hManual) return;
         const el = nodeEls.get(n.id);
         if (!el || typeof el.querySelectorAll !== 'function') return;
         for (const ta of el.querySelectorAll('textarea')) {
@@ -3902,14 +4013,39 @@ window.__ModuleLoader__.load({
         setRenaming(false);
       };
       const startRename = () => { setNameVal(n.data.label || ''); setRenaming(true); };
-      const startResize = (e) => {
+      // 统一的尺寸拖拽：dir = 'e' | 'w' | 's' | 'n' | 'se'
+      // 左右改宽（左边缘同时改 x，视觉上"从左边拉"），上下改高，右下角同时改宽高。
+      // 竖向一旦手动拖过 → 记 hManual（固定高度，内容超出则节点内滚动）；双击底边恢复自适应。
+      const startResize = (e, dir) => {
         e.stopPropagation();
-        const startX = e.clientX;
-        const startW = n.w || NODE_W;
+        e.preventDefault();
+        const sx = e.clientX;
+        const sy = e.clientY;
         const scale = V.scale || 1;
+        const cur = S.graph.nodes[n.id] || n;
+        const w0 = cur.w || NODE_W;
+        const h0 = cur.h || 120;
+        const x0 = cur.x;
+        const y0 = cur.y;
         const move = (ev) => {
-          const w = Math.max(200, Math.min(900, startW + (ev.clientX - startX) / scale));
-          update((s) => { const nd = s.graph.nodes[n.id]; if (nd) nd.w = Math.round(w); });
+          const dx = (ev.clientX - sx) / scale;
+          const dy = (ev.clientY - sy) / scale;
+          update((s) => {
+            const nd = s.graph.nodes[n.id];
+            if (!nd) return;
+            if (dir.includes('e')) nd.w = Math.round(Math.max(200, Math.min(1200, w0 + dx)));
+            if (dir.includes('w')) {
+              const w = Math.round(Math.max(200, Math.min(1200, w0 - dx)));
+              nd.w = w;
+              nd.x = Math.round(x0 + (w0 - w));
+            }
+            if (dir.includes('s')) nd.hManual = Math.round(Math.max(96, Math.min(2400, h0 + dy)));
+            if (dir.includes('n')) {
+              const h = Math.round(Math.max(96, Math.min(2400, h0 - dy)));
+              nd.hManual = h;
+              nd.y = Math.round(y0 + (h0 - h));
+            }
+          });
         };
         const up = () => {
           window.removeEventListener('pointermove', move);
@@ -3919,10 +4055,15 @@ window.__ModuleLoader__.load({
         window.addEventListener('pointermove', move);
         window.addEventListener('pointerup', up);
       };
+      const resetHeight = (e) => {
+        e.stopPropagation();
+        update((s) => { const nd = s.graph.nodes[n.id]; if (nd) nd.hManual = null; });
+        pushHistory();
+      };
       return h('div', {
         'data-node-id': n.id,
         className: cls('dshic-node', 'type-' + n.type, 'st-' + st, selected && 'is-selected'),
-        style: { left: n.x, top: n.y, width: n.w },
+        style: { left: n.x, top: n.y, width: n.w, ...(n.hManual ? { height: n.hManual } : {}) },
         ref: refCb,
         onPointerDown: (e) => onNodePointerDown(e, n),
       },
@@ -3956,7 +4097,12 @@ window.__ModuleLoader__.load({
             onClick: () => removeNodes([n.id]),
           }, '✕')),
         h('div', { className: 'dshic-node-body' }, nodeBody(n)),
-        h('div', { className: 'dshic-node-resize', title: T('resizeHint'), onPointerDown: startResize }),
+        // 尺寸把手：右/左/下/上四条边 + 右下角（双击底边恢复"随内容自适应"）
+        h('div', { className: 'dshic-rs dshic-rs-e', title: T('resizeHint'), onPointerDown: (e) => startResize(e, 'e') }),
+        h('div', { className: 'dshic-rs dshic-rs-w', title: T('resizeHint'), onPointerDown: (e) => startResize(e, 'w') }),
+        h('div', { className: 'dshic-rs dshic-rs-s', title: T('resizeHeightHint'), onPointerDown: (e) => startResize(e, 's'), onDoubleClick: resetHeight }),
+        h('div', { className: 'dshic-rs dshic-rs-n', title: T('resizeHint'), onPointerDown: (e) => startResize(e, 'n') }),
+        h('div', { className: 'dshic-rs dshic-rs-se', title: T('resizeHint'), onPointerDown: (e) => startResize(e, 'se') }),
         ...(PORTS[n.type].inputs || []).map((p, i) =>
           h('div', { key: 'in-' + p.id, style: { position: 'absolute', left: -5.5, top: 32.5 + i * 22 }, className: 'dshic-port-wrap' },
             h(PortEl, { n, port: p, dir: 'in' }),
@@ -4584,6 +4730,10 @@ window.__ModuleLoader__.load({
         }),
         h('button', { key: 'gen', type: 'button', className: 'dshic-gen', disabled: running, onClick: generate, onPointerDown: (e) => e.stopPropagation() },
           running ? h('span', { className: 'dshic-spin' }) : Ic('spark', 12), running ? T('aiRunning') : T('aiScript')),
+        running && aiStreamLine(n.id)
+          ? h('div', { key: 'stream', className: 'dshic-stream', title: aiStreamLine(n.id) },
+              h('span', { className: 'dshic-stream-dot' }), aiStreamLine(n.id))
+          : null,
         h('div', { key: 'btns', className: 'dshic-node-row' },
           h('div', { className: 'dshic-flex' }),
           n.data.output ? h('button', {
@@ -4654,6 +4804,10 @@ window.__ModuleLoader__.load({
         ),
         h('button', { key: 'gen', type: 'button', className: 'dshic-gen', disabled: running, onClick: generate, onPointerDown: (e) => e.stopPropagation() },
           running ? h('span', { className: 'dshic-spin' }) : Ic('spark', 12), running ? T('aiRunning') : T('aiStoryboard')),
+        running && aiStreamLine(n.id)
+          ? h('div', { key: 'stream', className: 'dshic-stream', title: aiStreamLine(n.id) },
+              h('span', { className: 'dshic-stream-dot' }), aiStreamLine(n.id))
+          : null,
         n.data.aiError ? h('div', { key: 'err', className: 'dshic-err' }, n.data.aiError) : null,
         (n.data.warnings || []).length
           ? h('div', { key: 'warn', className: 'dshic-card', style: { padding: 6, gap: 3 } },

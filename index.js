@@ -843,9 +843,16 @@ export function apply(ctx) {
       return { providers: out, resolved: resolveModel(out) };
     }
 
-    async function complete(args) {
+    /**
+     * 调用 Harness 的 LLM 生成文本。
+     * @param args {provider, model, system, user, temperature, maxTokens}
+     * @param hooks 可选：{ onAttempt(info), onReasoning(text), onText(text) } —— 供流式路由把
+     *              思考过程实时推给画布（用户能看到"没卡住"）
+     */
+    async function complete(args, hooks) {
       const service = llm();
       if (!service) throw new Error('llm 服务不可用');
+      const emit = (fn, payload) => { try { if (hooks && typeof hooks[fn] === 'function') hooks[fn](payload); } catch { /* 回调异常不影响生成 */ } };
       const want = args ?? {};
       const { providers } = await listLlmOptions();
       const resolved = resolveModel(providers, want);
@@ -860,20 +867,32 @@ export function apply(ctx) {
         ...(temperature === undefined ? {} : { temperature }),
         ...(maxTokens === undefined ? {} : { maxTokens }),
       };
+      // 模型元数据里的输出上限 = 用户在 Harness 里为该模型配置的值（不是插件编的数字）
+      let configuredCap;
+      try {
+        const info = await service.resolveModel(resolved.provider, resolved.model);
+        const cap = info && (info.maxTokens ?? info.maxOutputTokens ?? info.maxTokensOutput);
+        if (typeof cap === 'number' && Number.isFinite(cap) && cap > 0) configuredCap = cap;
+      } catch { /* 取不到就算了 */ }
       const userMessage = { role: 'user', content: [{ type: 'text', text: user }] };
       /** 跑一次流：统计 chunk 类型，返回文本与失败原因（单次尝试抛错不致命，便于逐级回退）。 */
-      const run = async (options) => {
+      const run = async (options, label) => {
         const kinds = [];
         let text = '';
+        let finish = null;
+        emit('onAttempt', { label, maxTokens: options.maxTokens, reasoningEffort: options.reasoningEffort });
         try {
           for await (const chunk of service.stream(options)) {
             const type = chunk && chunk.type;
             kinds.push(type || 'unknown');
-            if ((type === 'text-delta' || type === 'text') && typeof chunk.text === 'string') text += chunk.text;
+            if (type === 'reasoning-delta' && typeof chunk.text === 'string') emit('onReasoning', chunk.text);
+            else if (type === 'text-delta' || type === 'text') {
+              if (typeof chunk.text === 'string') { text += chunk.text; emit('onText', chunk.text); }
+            } else if (type === 'finish') finish = chunk.reason ?? chunk.finishReason ?? chunk.reasonCode ?? null;
           }
-          return { text, kinds, error: null };
+          return { text, kinds, finish, error: null };
         } catch (e) {
-          return { text: '', kinds, error: String((e && e.message) || e) };
+          return { text: '', kinds, finish, error: String((e && e.message) || e) };
         }
       };
       const histogram = (kinds) => {
@@ -892,27 +911,34 @@ export function apply(ctx) {
         purpose: 'infinite-canvas',
       };
       // 1) 规范信封（system 独立字段 + sessionId；参数按调用方配置，不发插件自造的数值）
-      const primary = await run(base);
+      const primary = await run(base, '默认');
       if (primary.text.trim()) return { text: primary.text, provider: resolved.provider, model: resolved.model, variant: 'system' };
-      // 2) 推理模型：只出思考不出正文 → 降低推理强度重试（不擅自放大/改写输出上限）
+      // 2) 只出思考不出正文（推理模型）：逐级重试
+      //    优先用**该模型配置的输出上限**（用户配置值），再尝试关掉思考，最后退回老式信封。
       if (primary.kinds.includes('reasoning-delta')) {
-        const attempts = [
-          { label: '降低推理强度', options: { ...base, reasoningEffort: 'low' } },
-          { label: '降低推理强度+老式信封', options: { ...base, reasoningEffort: 'low', messages: system ? [{ role: 'system', content: [{ type: 'text', text: system }] }, userMessage] : [userMessage], system: undefined } },
-        ];
+        const attempts = [];
+        if (configuredCap && configuredCap !== maxTokens) {
+          attempts.push({ label: '按模型配置的输出上限 ' + configuredCap, options: { ...base, maxTokens: configuredCap } });
+        }
+        attempts.push({ label: '关闭思考', options: { ...base, reasoningEffort: 'off' } });
+        if (configuredCap) attempts.push({ label: '输出上限 ' + configuredCap + ' + 关闭思考', options: { ...base, maxTokens: configuredCap, reasoningEffort: 'off' } });
+        attempts.push({ label: '老式信封', options: { provider: resolved.provider, model: resolved.model, messages: system ? [{ role: 'system', content: [{ type: 'text', text: system }] }, userMessage] : [userMessage], ...tuned } });
         const tried = [];
         for (const a of attempts) {
           const opts = { ...a.options };
           if (opts.system === undefined) delete opts.system;
-          const r = await run(opts);
-          if (r.text.trim()) return { text: r.text, provider: resolved.provider, model: resolved.model, variant: 'reasoning-retry' };
-          tried.push(a.label + ': ' + histogram(r.kinds) + (r.error ? ' / 错误: ' + r.error : ''));
+          const r = await run(opts, a.label);
+          if (r.text.trim()) return { text: r.text, provider: resolved.provider, model: resolved.model, variant: 'reasoning-retry', attempt: a.label };
+          tried.push(a.label + ': ' + histogram(r.kinds) + (r.finish ? ' finish=' + r.finish : '') + (r.error ? ' / 错误: ' + r.error : ''));
         }
+        const why = primary.finish === 'length'
+          ? '输出预算被思考耗尽（finish=length）'
+          : '模型只输出思考内容';
         throw new Error(
-          '该模型只输出了思考内容、没有正文（provider=' + resolved.provider + ' model=' + resolved.model + '）。'
-          + '插件没有覆盖任何参数，输出上限按你在 Harness 里的配置生效；若仍失败，请检查该模型在 Harness 里的输出上限配置，'
-          + '或改用非推理模型（如 deepseek-flash）。'
-          + '（chunk 统计 → 首次: ' + histogram(primary.kinds) + '；重试: ' + tried.join(' | ') + '）',
+          why + '（provider=' + resolved.provider + ' model=' + resolved.model
+          + (configuredCap ? '，该模型配置的输出上限 ' + configuredCap : '，未能读到该模型的输出上限配置')
+          + '）。可到画布设置里把「输出上限」调大，或改用非推理模型（如 deepseek-flash）。'
+          + '（chunk 统计 → 首次: ' + histogram(primary.kinds) + (primary.finish ? ' finish=' + primary.finish : '') + '；重试: ' + tried.join(' | ') + '）',
         );
       }
       // 3) 回退：老式写法（system 作为 messages 首条，不带附加字段）
@@ -921,7 +947,7 @@ export function apply(ctx) {
         model: resolved.model,
         messages: system ? [{ role: 'system', content: [{ type: 'text', text: system }] }, userMessage] : [userMessage],
         ...tuned,
-      });
+      }, '老式信封');
       if (fallback.text.trim()) return { text: fallback.text, provider: resolved.provider, model: resolved.model, variant: 'system-in-messages' };
       throw new Error(
         '模型未返回文本（provider=' + resolved.provider + ' model=' + resolved.model
@@ -1311,6 +1337,42 @@ export function apply(ctx) {
           } catch (e) {
             res.statusCode = 400;
             res.end(JSON.stringify({ error: String((e && e.message) || e) }));
+          }
+        },
+      }),
+      ctx.webServer.register({
+        kind: 'exact',
+        path: `/${NAME}/api/llm-stream`,
+        async handler(req, res) {
+          // 流式生成：把「思考中」的内容实时推给画布，让用户看得到过程（推理模型可能要思考很久）
+          try {
+            if (req.method !== 'POST') { res.statusCode = 405; res.end('仅接受 POST'); return; }
+            let raw = '';
+            for await (const chunk of req) {
+              raw += chunk;
+              if (raw.length > 4e6) throw new Error('请求过大');
+            }
+            const args = JSON.parse(raw || '{}');
+            res.statusCode = 200;
+            res.setHeader('content-type', 'text/event-stream; charset=utf-8');
+            res.setHeader('cache-control', 'no-cache');
+            res.setHeader('connection', 'keep-alive');
+            const send = (obj) => { try { res.write('data: ' + JSON.stringify(obj) + '\n\n'); } catch { /* 客户端断开 */ } };
+            let closed = false;
+            res.on('close', () => { closed = true; });
+            const text = await complete(args, {
+              onAttempt: (info) => send({ t: 'attempt', d: info }),
+              onReasoning: (d) => { if (!closed) send({ t: 'r', d }); },
+              onText: (d) => { if (!closed) send({ t: 'x', d }); },
+            });
+            send({ t: 'done', d: text });
+            res.end();
+          } catch (e) {
+            const message = String((e && e.message) || e);
+            try {
+              if (res.headersSent) { res.write('data: ' + JSON.stringify({ t: 'fail', d: message }) + '\n\n'); res.end(); }
+              else { res.statusCode = 400; res.end(message); }
+            } catch { /* 忽略 */ }
           }
         },
       }),
