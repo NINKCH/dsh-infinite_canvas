@@ -822,6 +822,11 @@ window.__ModuleLoader__.load({
 .dshic-rs-n{top:-3px;left:14px;right:14px;height:7px;cursor:ns-resize;}
 .dshic-rs-se{right:-4px;bottom:-4px;width:16px;height:16px;cursor:nwse-resize;}
 .dshic-node-body{padding:8px;display:flex;flex-direction:column;gap:6px;font-size:12px;flex:1;min-height:0;overflow:auto;}
+/* 手动拉过高高度的节点：主体内的文本框随节点一起拉伸（拖高=对话框变高，而不是只撑外框） */
+.dshic-node.h-manual .dshic-node-body{overflow:hidden;}
+.dshic-node.h-manual .dshic-node-body > .dshic-textarea{flex:1 1 auto;min-height:0;}
+.dshic-node.h-manual .dshic-node-body > .dshic-prompt{flex:1 1 auto;display:flex;flex-direction:column;}
+.dshic-node.h-manual .dshic-node-body > .dshic-prompt > .dshic-prompt-input{flex:1 1 auto;min-height:0;}
 .dshic-textarea{width:100%;box-sizing:border-box;min-height:56px;resize:none;border:1px solid var(--dsw-alias-border-l2);
   border-radius:8px;background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);font:inherit;
   /* 节点内文本统一字号/行高/内距：与 .dshic-prompt-back/.dshic-prompt-input 必须逐项一致（透明叠层对齐） */
@@ -2379,6 +2384,23 @@ window.__ModuleLoader__.load({
         if (full.bibleUpdatedAt) lsSet(LS_BIBLE_SYNC + hp.id, full.bibleUpdatedAt);
       }
     }
+    const LS_DOCSYNC = 'dsh-ic:docsync:';
+    /** Host 侧改动了项目文档（Agent 建节点/连线/写内容）→ 拉回并合并到本地画布。 */
+    function mergeHostDoc(pid, full) {
+      if (!full) return;
+      const local = loadGraphDoc(pid) || emptyGraph();
+      const nodes = { ...local.nodes };
+      for (const [nid, n] of Object.entries(full.nodes || {})) nodes[nid] = n; // Host 为准（Agent 写入是有意的）
+      const edges = [...(local.edges || [])];
+      for (const e of (full.edges || [])) {
+        const i = edges.findIndex((x) => x.id === e.id);
+        if (i >= 0) edges[i] = e;
+        else edges.push(e);
+      }
+      const keep = edges.filter((e) => nodes[e.fromNode] && nodes[e.toNode]);
+      saveGraphDoc(pid, { nodes, edges: keep, view: local.view });
+      if (pid === S.activeId) update((s) => { s.graph = { nodes, edges: keep, view: s.graph.view }; s.assetsTick++; });
+    }
     async function hostSyncTick() {
       if (hostSyncStopped) return;
       if (hostSyncBusy) return; // 单次 tick 可能超过 3 秒：加互斥，避免两个 tick 交错写回旧文档副本
@@ -2412,6 +2434,23 @@ window.__ModuleLoader__.load({
           lsSet(LS_PROJECTS, S.projects);
           lsSet(LS_ACTIVE, S.activeId);
           applyViewToDomSoon();
+        }
+        // Agent 改动了项目文档（建节点/连线/写内容）→ 拉回合并，画布几秒内可见
+        if (r.docChanged && r.docChanged.projectId) {
+          const pid = r.docChanged.projectId;
+          const stamp = Number(lsGet(LS_DOCSYNC + pid, 0)) || 0;
+          if ((r.docChanged.at || 0) > stamp) {
+            lsSet(LS_DOCSYNC + pid, String(r.docChanged.at || Date.now()));
+            try {
+              if (!S.projects.some((p) => p.id === pid)) {
+                const hp = (r.projects || []).find((x) => x.id === pid);
+                if (hp) await importHostProject(hp);
+              } else {
+                const full = await hostRpc('projectsGet', { id: pid });
+                mergeHostDoc(pid, full);
+              }
+            } catch { /* 下一轮 sync 会重试不到（信号已清）——由 missing-node 路径兜底 */ }
+          }
         }
         for (const hp of r.projects || []) {
           const known = S.projects.some((p) => p.id === hp.id);
@@ -4065,7 +4104,7 @@ window.__ModuleLoader__.load({
       };
       return h('div', {
         'data-node-id': n.id,
-        className: cls('dshic-node', 'type-' + n.type, 'st-' + st, selected && 'is-selected'),
+        className: cls('dshic-node', 'type-' + n.type, 'st-' + st, selected && 'is-selected', n.hManual && 'h-manual'),
         style: { left: n.x, top: n.y, width: n.w, ...(n.hManual ? { height: n.hManual } : {}) },
         ref: refCb,
         onPointerDown: (e) => onNodePointerDown(e, n),

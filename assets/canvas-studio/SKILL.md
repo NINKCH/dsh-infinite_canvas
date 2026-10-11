@@ -47,11 +47,14 @@ description: 用无限画布（Infinite Canvas）做短剧/视频创作时使用
      —— 剧本节点的 idea（意图）与 output（成稿）一次写全，**不会产生单独的"意图节点"**
    - 已有项目：`canvas_write_node({ projectId, text: 成稿, target: 'output', idea: 意图, name: '第X节剧本' })`
      （名字匹配不到会自动新建节点；已写成稿默认拒绝覆盖，需 overwrite:true）
-3. **分镜** → **必须用分镜表节点（storyboard），绝不要用剧本节点装分镜**：
-   - `canvas_create_node({ projectId, type: 'storyboard', name: '第X节分镜表', prompt: 剧本全文 })`
+3. **分镜** → **必须用分镜表节点（storyboard），并用连线从剧本节点取内容，绝不复制剧本全文**：
+   - `canvas_create_node({ projectId, type: 'storyboard', name: '第X节分镜表' })`
+     （不要传 prompt——分镜内容来自连线的上游剧本节点，这是画布工作流的意义）
+   - **连线**：`canvas_connect({ projectId, fromNode: 剧本节点id, toNode: 分镜表节点id })`
    - 然后二选一：
-     a) `canvas_run_node` —— 让画布用它配置的模型拆解 → `canvas_node_status` 轮询
+     a) `canvas_run_node` —— 让画布用它配置的模型、基于连线的剧本拆解 → `canvas_node_status` 轮询
      b) 自己拆好镜头后写入：`canvas_write_node({ projectId, nodeId, target: 'output', text: '{"shots":[…]}' })`
+   - 同理，后续镜头图/视频节点也要用 `canvas_connect` 从分镜/图片节点连线，让工作流成链
 4. **生成角色/场景/道具参考图**：为设定集里的每个条目
    `canvas_create_node({ projectId, type: 'image-gen', name: '角色-张山 多视图', prompt: '按设定集写外观关键词' })`
    → `canvas_run_node({ projectId, nodeId })` 触发（画布用它配置的图片接口）

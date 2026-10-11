@@ -269,6 +269,16 @@ try {
   await byName.get('canvas_write_node').execute({ projectId, nodeId: sb.nodeId, target: 'output', text: '普通剧本来源文本', overwrite: true }, {});
   const docSb2 = await mod._internals.projectsGet({ id: projectId });
   if (docSb2.nodes[sb.nodeId].data.script !== '普通剧本来源文本') errs.push('普通文本未作为分镜节点的剧本来源写入 data.script');
+  // 连线工具：剧本 → 分镜表（工作流的核心，必须有边且类型校验生效）
+  const scriptNode = Object.values(docSb2.nodes).find((n) => n.type === 'script' && n.data.label === '第一节剧本');
+  const conn = await byName.get('canvas_connect').execute({ projectId, fromNode: scriptNode.id, toNode: sb.nodeId }, {});
+  if (!conn || !conn.ok || !conn.edgeId) errs.push('canvas_connect 未返回 edgeId');
+  const docC = await mod._internals.projectsGet({ id: projectId });
+  const edge = (docC.edges || []).find((e) => e.id === conn.edgeId);
+  if (!edge || edge.fromNode !== scriptNode.id || edge.toNode !== sb.nodeId || edge.toPort !== 'script') errs.push('连线未正确写入文档边');
+  let mismatchBlocked = false;
+  try { await byName.get('canvas_connect').execute({ projectId, fromNode: sb.nodeId, toNode: scriptNode.id }, {}); } catch { mismatchBlocked = true; }
+  if (!mismatchBlocked) errs.push('端口类型不匹配的连线未被拒绝（storyboard 无输出端口）');
 } catch (e) {
   errs.push('剧本节点语义校验失败 → ' + ((e && e.message) || e));
 }

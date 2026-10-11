@@ -319,11 +319,12 @@ async function projectsSync() {
   const openRequest = (cfg.ui && cfg.ui.openRequest) || null;
   const runRequest = (cfg.ui && cfg.ui.runRequest) || null;
   const deletedProjects = (cfg.ui && cfg.ui.deletedProjects) || null;
-  if (openRequest || runRequest || deletedProjects) {
-    cfg.ui = { ...(cfg.ui || {}), openRequest: null, runRequest: null, deletedProjects: null };
+  const docChanged = (cfg.ui && cfg.ui.docChanged) || null;
+  if (openRequest || runRequest || deletedProjects || docChanged) {
+    cfg.ui = { ...(cfg.ui || {}), openRequest: null, runRequest: null, deletedProjects: null, docChanged: null };
     writeIcConfig(cfg);
   }
-  return { projects: projectsList(), openRequest, runRequest, deletedProjects };
+  return { projects: projectsList(), openRequest, runRequest, deletedProjects, docChanged };
 }
 /** 节点默认名：取内容首行前 18 字，保证对话创建的节点可识别。 */
 function defaultLabel(text) {
@@ -420,6 +421,7 @@ function canvasCreateProject(args) {
   }
   mkdirSync(PROJECTS_DIR, { recursive: true });
   writeIcDoc(id, doc);
+  markDocChanged(id);
   return { ok: true, projectId: id, name: doc.name, nodeId: Object.keys(doc.nodes)[0] || null };
 }
 /**
@@ -476,7 +478,7 @@ function canvasWriteNode(args) {
     if (idea !== null && node.type === 'script') node.data.idea = idea;
     if (name) node.data.label = name;
   };
-  const save = () => { doc.updatedAt = Date.now(); writeIcDoc(id, doc); };
+  const save = () => { doc.updatedAt = Date.now(); writeIcDoc(id, doc); markDocChanged(id); };
   /** 该节点是否已有会被 target=output 覆盖的内容（剧本=成稿；分镜=镜头列表；文本=正文）。 */
   const hasExisting = (node) => {
     if (!node || !node.data) return false;
@@ -591,6 +593,7 @@ async function canvasUpdateBible(args) {
   doc.bibleUpdatedAt = Date.now();
   doc.updatedAt = Date.now();
   writeIcDoc(id, doc);
+  markDocChanged(id);
   return { projectId: id, bible: doc.bible, bibleUpdatedAt: doc.bibleUpdatedAt };
 }
 /** 通用建节点（供对话建角色/场景/道具参考图等）；支持 script/text/image-gen/video-gen/storyboard/finalcut。 */
@@ -632,6 +635,7 @@ function canvasCreateNode(args) {
   doc.nodes[node.id] = node;
   doc.updatedAt = Date.now();
   writeIcDoc(id, doc);
+  markDocChanged(id);
   return { ok: true, projectId: id, nodeId: node.id, type: node.type, label: (node.data && node.data.label) || '' };
 }
 
@@ -659,6 +663,7 @@ async function canvasDeleteNode(args) {
   doc.tombstones = [...new Set([...(doc.tombstones || []), nodeId])].slice(-100);
   doc.updatedAt = Date.now();
   writeIcDoc(id, doc);
+  markDocChanged(id);
   return { ok: true, projectId: id, nodeId };
 }
 /** 运行节点：写一次性请求，画布客户端轮询消费后用画布内配置的模型/接口真实执行。 */
@@ -701,6 +706,68 @@ async function canvasOpen(args) {
   cfg.ui = { ...(cfg.ui || {}), openRequest: { projectId: pid || null, at: Date.now() } };
   writeIcConfig(cfg);
   return { ok: true, projectId: pid || null };
+}
+
+/** 与客户端一致的端口表（连线校验用）。 */
+const PORT_TABLE = {
+  'text': { inputs: [], outputs: [{ id: 'out', kind: 'text' }] },
+  'shot': { inputs: [{ id: 'char', kind: 'image' }, { id: 'scene', kind: 'image' }, { id: 'prop', kind: 'image' }], outputs: [{ id: 'visual', kind: 'text' }, { id: 'motion', kind: 'text' }] },
+  'script': { inputs: [], outputs: [{ id: 'out', kind: 'text' }] },
+  'storyboard': { inputs: [{ id: 'script', kind: 'text' }], outputs: [] },
+  'image-gen': { inputs: [{ id: 'prompt', kind: 'text' }, { id: 'ref', kind: 'image' }], outputs: [{ id: 'out', kind: 'image' }] },
+  'video-gen': { inputs: [{ id: 'prompt', kind: 'text' }, { id: 'frame', kind: 'image' }, { id: 'ref', kind: 'image' }], outputs: [{ id: 'out', kind: 'video' }, { id: 'last', kind: 'image' }] },
+  'image-asset': { inputs: [{ id: 'in', kind: 'image' }], outputs: [{ id: 'out', kind: 'image' }] },
+  'video-asset': { inputs: [{ id: 'in', kind: 'video' }], outputs: [{ id: 'out', kind: 'video' }] },
+  'finalcut': { inputs: [{ id: 'in', kind: 'video' }], outputs: [] },
+  'group': { inputs: [], outputs: [] },
+};
+const MULTI_INPUT_PORTS = new Set(['ref', 'char', 'scene', 'prop']);
+/** Agent 改动了项目文档：记一次性信号，让画布在几秒内拉回合并（否则画布上看不到 Agent 的改动）。 */
+function markDocChanged(projectId) {
+  try {
+    const cfg = readIcConfig();
+    cfg.ui = { ...(cfg.ui || {}), docChanged: { projectId, at: Date.now() } };
+    writeIcConfig(cfg);
+  } catch { /* 配置写失败不影响主流程 */ }
+}
+/** 在两个节点间连线（画布工作流的关键：剧本→分镜→图→视频靠连线组织，不要复制文本）。 */
+function canvasConnect(args) {
+  const id = String((args && args.projectId) || '');
+  const doc = readDoc(id);
+  const fromId = String((args && args.fromNode) || '');
+  const toId = String((args && args.toNode) || '');
+  const from = doc.nodes[fromId];
+  const to = doc.nodes[toId];
+  if (!from) throw new Error('源节点不存在: ' + fromId);
+  if (!to) throw new Error('目标节点不存在: ' + toId);
+  if (fromId === toId) throw new Error('不能把节点连到自己');
+  const outs = (PORT_TABLE[from.type] && PORT_TABLE[from.type].outputs) || [];
+  const ins = (PORT_TABLE[to.type] && PORT_TABLE[to.type].inputs) || [];
+  const fromLabel = String((from.data && from.data.label) || fromId);
+  const toLabel = String((to.data && to.data.label) || toId);
+  if (!outs.length) throw new Error('「' + fromLabel + '」没有输出端口，不能作为连线起点');
+  if (!ins.length) throw new Error('「' + toLabel + '」没有输入端口，不能作为连线终点');
+  const fromPort = String((args && args.fromPort) || outs[0].id);
+  const toPort = String((args && args.toPort) || ins[0].id);
+  const outDef = outs.find((p) => p.id === fromPort);
+  const inDef = ins.find((p) => p.id === toPort);
+  if (!outDef) throw new Error('「' + fromLabel + '」没有输出端口 ' + fromPort);
+  if (!inDef) throw new Error('「' + toLabel + '」没有输入端口 ' + toPort);
+  if (outDef.kind !== inDef.kind) throw new Error('端口类型不匹配：' + outDef.kind + ' → ' + inDef.kind + '（剧本/文本输出请连 script/prompt 类输入）');
+  const dup = (doc.edges || []).find((e) => e.fromNode === fromId && e.fromPort === fromPort && e.toNode === toId && e.toPort === toPort);
+  if (dup) {
+    return { ok: true, projectId: id, edgeId: dup.id, already: true, text: '✅ 两节点间已存在连线（id=' + dup.id + '），无需重复连接。' };
+  }
+  // 单线输入端口（如分镜表的 script、图片的 prompt）：新线替换旧线，与画布拖线行为一致
+  if (!MULTI_INPUT_PORTS.has(toPort)) {
+    doc.edges = (doc.edges || []).filter((e) => !(e.toNode === toId && e.toPort === toPort));
+  }
+  const edge = { id: 'e' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), fromNode: fromId, fromPort, toNode: toId, toPort };
+  doc.edges.push(edge);
+  doc.updatedAt = Date.now();
+  writeIcDoc(id, doc);
+  markDocChanged(id);
+  return { ok: true, projectId: id, edgeId: edge.id, text: '✅ 已连线：「' + fromLabel + '」(' + fromPort + ') → 「' + toLabel + '」(' + toPort + ')。' };
 }
 
 /** 读取 npm registry 上 latest dist-tag 的版本号。 */
@@ -824,7 +891,7 @@ async function updateInstall() {
 export const inject = ['webServer', 'tools'];
 
 // 仅供诊断 / 自动化测试（不属于 RPC 面，运行时行为不受影响）
-export const _internals = { updateCheck, updateInstall, npmLatestVersion, cmpVer, findPnpm, getProfileDir: () => PROFILE_DIR, getVersion: () => VERSION, dataRoot, safeJoin, mimeOf, pipeFile, getIcConfigPath: () => CONFIG_PATH, canvasCreateProject, canvasWriteNode, canvasDeleteProject, canvasDeleteNode, canvasRunNode, canvasNodeStatus, canvasGetBible, canvasUpdateBible, canvasCreateNode, canvasOpen, projectsList, projectsPut, projectsGet, projectsDelete, projectsSync };
+export const _internals = { updateCheck, updateInstall, npmLatestVersion, cmpVer, findPnpm, getProfileDir: () => PROFILE_DIR, getVersion: () => VERSION, dataRoot, safeJoin, mimeOf, pipeFile, getIcConfigPath: () => CONFIG_PATH, canvasCreateProject, canvasWriteNode, canvasConnect, canvasDeleteProject, canvasDeleteNode, canvasRunNode, canvasNodeStatus, canvasGetBible, canvasUpdateBible, canvasCreateNode, canvasOpen, projectsList, projectsPut, projectsGet, projectsDelete, projectsSync };
 
 function resolveModel(providers, want) {
   const byProvider = want && want.provider
@@ -1309,6 +1376,28 @@ export function apply(ctx) {
           async execute(args) {
             const r = canvasCreateNode(args);
             return { ok: true, projectId: r.projectId, nodeId: r.nodeId, label: r.label || undefined, text: '✅ 已新建[' + r.type + ']节点「' + (r.label || r.nodeId) + '」（id=' + r.nodeId + '）。可用 canvas_run_node 触发执行。' };
+          },
+        });
+        reg({
+          name: 'canvas_connect',
+          description: '在项目画布上把两个节点连成工作流连线（剧本 → 分镜表 → 图片/视频 → 成片）。【工作流铁律】分镜表的内容来自连线的上游剧本节点，不要把剧本全文复制进分镜表节点；生成类节点（image-gen/video-gen）没有上游提示词时才在 prompt 里写内容，有上游时靠连线取。端口类型必须匹配（text→text、image→image、video→video），不匹配会报错；单线输入端口（script/prompt/frame/in）重复连线会替换旧线，ref 类端口允许多条。',
+          parameters: {
+            type: 'object',
+            properties: {
+              projectId: { type: 'string', description: '项目 id' },
+              fromNode: { type: 'string', description: '源节点 id（连出方）' },
+              fromPort: { type: 'string', description: '可选：源端口，默认该节点第一个输出端口（剧本/文本/图片/视频都是 out）' },
+              toNode: { type: 'string', description: '目标节点 id（连入方）' },
+              toPort: { type: 'string', description: '可选：目标端口，默认该节点第一个输入端口（分镜表=script、图片/视频=prompt、成片=in）' },
+            },
+            required: ['projectId', 'fromNode', 'toNode'],
+            additionalProperties: false,
+          },
+          output: textOutput,
+          timeoutMs: 30000,
+          async execute(args) {
+            const r = canvasConnect(args);
+            return { ok: true, projectId: r.projectId, edgeId: r.edgeId, already: r.already || undefined, text: r.text };
           },
         });
         reg({
