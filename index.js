@@ -271,8 +271,9 @@ function nextNodePos(doc) {
   for (const n of Object.values(doc.nodes || {})) { if ((n.x || 0) + (n.w || 240) > maxX) { maxX = (n.x || 0) + (n.w || 240); maxY = n.y || 40; } }
   return { x: maxX + 60, y: maxY };
 }
-// ---------- 内置技能（操作规程，约束对话 Agent 的画布操作）----------
-const SKILL_NAME = 'canvas-studio';
+// ---------- 内置技能（操作规程 + 创作方法论，约束并提升对话的画布创作）----------
+// canvas-studio＝操作硬约束；canvas-craft＝剧本/分镜/提示词创作方法论
+const SKILL_NAMES = ['canvas-studio', 'canvas-craft'];
 // = @deepseek-ai/dsh-skill 的 BUNDLED_SKILL_RANK（避免 import DSH 包；registry 要求 rank 必须是有限数字）
 const SKILL_RANK = 600;
 /** 解析 SKILL.md 的 YAML frontmatter（仅需 description 与正文）。 */
@@ -288,23 +289,27 @@ function parseSkillMd(raw) {
 function registerCanvasSkill(ctx, disposers) {
   const skills = ctx.get('skills');
   if (!skills || typeof skills.registerProvider !== 'function') return false;
-  const assetPath = path.join(HERE, 'assets', SKILL_NAME, 'SKILL.md');
-  if (!existsSync(assetPath)) return false;
-  const { description } = parseSkillMd(readFileSync(assetPath, 'utf8'));
-  if (!description) return false;
-  const candidate = {
-    name: SKILL_NAME,
-    description,
-    invocation: { modelInvocable: true, userInvocable: true },
-    provider: 'dsh-infinite-canvas',
-    source: 'bundled',
-    rank: SKILL_RANK,
-    resourceBase: { kind: 'directory', path: path.dirname(assetPath) },
-    locator: assetPath,
-  };
+  const candidates = [];
+  for (const name of SKILL_NAMES) {
+    const assetPath = path.join(HERE, 'assets', name, 'SKILL.md');
+    if (!existsSync(assetPath)) continue;
+    const { description } = parseSkillMd(readFileSync(assetPath, 'utf8'));
+    if (!description) continue;
+    candidates.push({
+      name,
+      description,
+      invocation: { modelInvocable: true, userInvocable: true },
+      provider: 'dsh-infinite-canvas',
+      source: 'bundled',
+      rank: SKILL_RANK,
+      resourceBase: { kind: 'directory', path: path.dirname(assetPath) },
+      locator: assetPath,
+    });
+  }
+  if (!candidates.length) return false;
   const provider = {
     name: 'dsh-infinite-canvas',
-    list: () => Promise.resolve([candidate]),
+    list: () => Promise.resolve(candidates),
     async get(c, options) {
       const { rank: _rank, locator, ...summary } = c;
       const raw = await fs.readFile(locator, { encoding: 'utf8', signal: options && options.signal });

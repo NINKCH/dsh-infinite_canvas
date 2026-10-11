@@ -137,25 +137,31 @@ async function run(name, args) {
 
 console.log(`捕获工具 ${tools.length} 个：${[...byName.keys()].join(', ')}`);
 
-// ---------- 内置技能（约束 Agent 的操作规程）----------
+// ---------- 内置技能（操作规程 + 创作方法论）----------
 try {
   if (providers.length !== 1) errs.push(`skills 提供方数量应为 1，实际 ${providers.length}`);
   const p = providers[0];
   if (!p || p.name !== 'dsh-infinite-canvas') errs.push('技能提供方 name 不正确');
   const list = await p.list();
-  if (!Array.isArray(list) || list.length !== 1) errs.push('技能列表应恰好包含 1 个内置技能');
-  const cand = list[0];
-  if (cand.name !== 'canvas-studio') errs.push('技能名应为 canvas-studio，实际 ' + (cand && cand.name));
-  if (!Number.isFinite(cand.rank)) errs.push('技能 rank 必须是有限数字（registry 强制要求）');
-  if (!cand.description || !cand.description.trim()) errs.push('技能缺少 description');
-  if (!cand.invocation || cand.invocation.modelInvocable !== true) errs.push('技能必须 modelInvocable（否则 Agent 无法加载）');
-  const got = await p.get(cand, {});
-  if (!got.content || got.content.length < 300) errs.push('技能正文过短，可能未正确解析 SKILL.md');
-  for (const need of ['canvas_list_projects', 'canvas_write_node', 'canvas_create_project', 'output']) {
-    if (!String(got.content).includes(need)) errs.push(`技能正文未包含关键约束/工具名：${need}`);
+  if (!Array.isArray(list) || list.length !== 2) errs.push(`技能列表应包含 2 个内置技能，实际 ${Array.isArray(list) ? list.length : '非数组'}`);
+  const names = (list || []).map((c) => c && c.name).sort();
+  if (names.join(',') !== 'canvas-craft,canvas-studio') errs.push('内置技能名应为 canvas-craft 与 canvas-studio，实际 ' + names.join(','));
+  const needBySkill = {
+    'canvas-studio': ['canvas_list_projects', 'canvas_write_node', 'canvas_create_project', 'output'],
+    'canvas-craft': ['景别', '运镜', '分镜', '提示词', '设定集'],
+  };
+  for (const cand of list || []) {
+    if (!Number.isFinite(cand.rank)) errs.push(`${cand.name}: 技能 rank 必须是有限数字（registry 强制要求）`);
+    if (!cand.description || !cand.description.trim()) errs.push(`${cand.name}: 技能缺少 description`);
+    if (!cand.invocation || cand.invocation.modelInvocable !== true) errs.push(`${cand.name}: 技能必须 modelInvocable（否则 Agent 无法加载）`);
+    const got = await p.get(cand, {});
+    if (!got.content || got.content.length < 300) errs.push(`${cand.name}: 技能正文过短，可能未正确解析 SKILL.md`);
+    for (const need of needBySkill[cand.name] || []) {
+      if (!String(got.content).includes(need)) errs.push(`${cand.name}: 技能正文未包含关键内容：${need}`);
+    }
+    if (got.rank !== undefined || got.locator !== undefined) errs.push(`${cand.name}: 技能 get() 应剥离 rank/locator 内部字段`);
+    console.log(`  技能 ${cand.name}（rank=${cand.rank}，正文 ${got.content.length} 字）`);
   }
-  if (got.rank !== undefined || got.locator !== undefined) errs.push('技能 get() 应剥离 rank/locator 内部字段');
-  console.log(`  技能 ${cand.name}（rank=${cand.rank}，正文 ${got.content.length} 字）`);
 } catch (e) {
   errs.push('技能提供方校验失败 → ' + ((e && e.message) || e));
 }

@@ -26,6 +26,7 @@ const REQUIRED = [
   'locale/en.json',
   'locale/zh.json',
   'assets/canvas-studio/SKILL.md',
+  'assets/canvas-craft/SKILL.md',
   'docs/artcraft-handoff.md',
   'docs/release.md',
 ];

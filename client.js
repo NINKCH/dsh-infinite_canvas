@@ -17,6 +17,7 @@ window.__ModuleLoader__.load({
     const DB_NAME = 'dsh-infinite-canvas';
     const DB_STORE = 'assets';
     const NODE_W = 240;
+    const CRAFT_SKILL = 'canvas-craft'; // 内置创作方法论技能（未选技能时默认注入）
 
     const NODE_TYPES = ['text', 'shot', 'image-gen', 'video-gen', 'image-asset', 'video-asset'];
 
@@ -358,6 +359,7 @@ window.__ModuleLoader__.load({
       'fill': '填入',
       'copyName': '复制项目名',
       'fillName': '一键填入输入框',
+      'skillHint': '默认已含内置专家 + 创作方法论（canvas-craft）；也可选择其它已安装技能覆盖',
       'dataRootBrowse': '浏览选择目录',
       'dataRootPicking': '请在弹出的窗口中选择目录（可直接取消）…',
       'dataRootPickUnsupported': '当前平台不支持目录选择器，请手动填写路径',
@@ -643,6 +645,7 @@ window.__ModuleLoader__.load({
       'fill': 'Fill',
       'copyName': 'Copy project name',
       'fillName': 'Fill the input with this name',
+      'skillHint': 'Defaults to built-in experts plus the canvas-craft methodology; pick another installed skill to override',
       'dataRootBrowse': 'Browse for folder',
       'dataRootPicking': 'Pick a folder in the dialog (cancel anytime)…',
       'dataRootPickUnsupported': 'No folder picker on this platform — type the path instead',
@@ -2226,7 +2229,9 @@ window.__ModuleLoader__.load({
       const settings = loadSettings();
       const bible = bibleBlock(loadBible(S.activeId));
       const zh = effLang() !== 'en';
+      // 未选技能时默认注入内置创作方法论 canvas-craft（与内置专家 persona 叠加，互为补充）
       const rules = await loadSkillRules(settings.skillScript, zh)
+        || await loadSkillRules(CRAFT_SKILL, zh)
         || (zh ? '把输入的创意或片段写成可直接拍摄的短剧剧本。只输出剧本正文，不要解释。' : 'Turn the idea or excerpt into a shootable short-drama script. Output the script only.');
       const system = [
         EXPERT_SCRIPT(zh),
@@ -2276,7 +2281,8 @@ window.__ModuleLoader__.load({
             '- duration is seconds per shot, an integer 3-10; keep narrative continuity;',
             '- Output JSON only.',
           ].join('\n');
-      const methodology = await loadSkillRules(settings.skillStoryboard, zh);
+      const methodology = await loadSkillRules(settings.skillStoryboard, zh)
+        || await loadSkillRules(CRAFT_SKILL, zh); // 未选技能时默认注入内置创作方法论
       const system = [
         EXPERT_STORYBOARD(zh),
         methodology || '',
@@ -4960,6 +4966,7 @@ window.__ModuleLoader__.load({
     }
     function SkillSelect({ label, value, onChange }) {
       const data = useSkills();
+      // 默认项 = 内置专家 persona + 内置创作方法论 canvas-craft（自动叠加）
       const options = [{ value: '', label: T('builtinExpert') }].concat((data.skills || []).map((x) => ({ value: x.name, label: x.name })));
       return h('div', { className: 'dshic-field' },
         h('span', { className: 'dshic-field-label' }, label),
@@ -4967,7 +4974,8 @@ window.__ModuleLoader__.load({
           className: 'dshic-select', value: value || '',
           onChange: (e) => onChange(e.target.value),
           onPointerDown: (e) => e.stopPropagation(),
-        }, options.map((o) => h('option', { key: o.value, value: o.value }, o.label))));
+        }, options.map((o) => h('option', { key: o.value, value: o.value }, o.label))),
+        h('div', { className: 'dshic-hint' }, T('skillHint')));
     }
 
     function LlmModelSelect() {
