@@ -219,6 +219,7 @@ try {
   const created = doc.nodes[n.nodeId];
   if (!created || created.type !== 'image-gen') errs.push('canvas_create_node 未创建 image-gen 节点');
   if (!created || !(created.data.prompt || '').includes('陈拾')) errs.push('canvas_create_node 未写入提示词');
+  if (!created || created.data.label !== '角色-陈拾 参考图') errs.push('canvas_create_node 丢失了节点名（data.label 被覆盖）');
 } catch (e) {
   errs.push('设定集/建节点校验失败 → ' + ((e && e.message) || e));
 }

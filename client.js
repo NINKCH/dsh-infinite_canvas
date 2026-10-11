@@ -381,6 +381,9 @@ window.__ModuleLoader__.load({
       'mentionAssets': '可用参考图 {n} 张',
       'mentionNoAsset': '暂无参考图',
       'mentionNoAssetHint': '该实体还没有参考图：先建一个图片节点生成（建议命名「角色-名称 多视图」），之后所有 @名称 的提示词都会自动带上它',
+      'craftTimeout': 'Craft 任务超时（可在任务面板重试或取消）',
+      'errNoImageApi': '未配置图片 API：请到画布设置里添加（未配置时可用演示模式）',
+      'photoCmd': 'Craft 命令',
       'dataRootBrowse': '浏览选择目录',
       'dataRootPicking': '请在弹出的窗口中选择目录（可直接取消）…',
       'dataRootPickUnsupported': '当前平台不支持目录选择器，请手动填写路径',
@@ -688,6 +691,9 @@ window.__ModuleLoader__.load({
       'mentionAssets': '{n} reference image(s) available',
       'mentionNoAsset': 'no reference image yet',
       'mentionNoAssetHint': 'No reference image for this entity yet: create an image node (name it like "角色-张山 多视图") and every later @mention will pick it up automatically',
+      'craftTimeout': 'Craft job timed out (retry or cancel it in the job panel)',
+      'errNoImageApi': 'No image API configured — add one in canvas settings (demo mode is available without one)',
+      'photoCmd': 'Craft command',
       'dataRootBrowse': 'Browse for folder',
       'dataRootPicking': 'Pick a folder in the dialog (cancel anytime)…',
       'dataRootPickUnsupported': 'No folder picker on this platform — type the path instead',
@@ -832,6 +838,7 @@ window.__ModuleLoader__.load({
 .dshic-port.k-video{border-color:var(--dsw-alias-state-success-primary);}
 .dshic-port:hover,.dshic-port.is-active{background:var(--dsw-alias-brand-primary);border-color:var(--dsw-alias-brand-primary);
   box-shadow:0 0 0 3px color-mix(in srgb,var(--dsw-alias-brand-primary) 25%,transparent);}
+.dshic-port-wrap{position:absolute;width:0;height:0;}
 .dshic-port-label{position:absolute;font-size:9px;color:var(--dsw-alias-label-secondary);white-space:nowrap;pointer-events:none;opacity:0;transition:opacity .12s;}
 .dshic-node:hover .dshic-port-label{opacity:1;}
 .dshic-marquee{position:absolute;border:1px solid var(--dsw-alias-brand-primary);
@@ -2027,11 +2034,18 @@ window.__ModuleLoader__.load({
       return '.bin';
     }
     /** 资产落盘到 <项目>/media/（force=false 时已有映射则复用；force=true 覆盖写）。 */
+    /** ArtCraft 工作区里的文件名：资产名（人工可读，如「角色-张山 多视图」）+ id 尾号（唯一，避免同名覆盖）。 */
+    function assetFileBase(rec) {
+      const raw = String((rec && rec.name) || '').trim() || String((rec && rec.id) || 'asset');
+      const safe = raw.replace(/[\\/:*?"<>|\u0000-\u001f]/g, '_').replace(/\s+/g, ' ').trim().slice(0, 60);
+      const tail = String((rec && rec.id) || '').slice(-4);
+      return (safe || 'asset') + '-' + tail;
+    }
     async function syncAssetToDisk(rec, opts = {}) {
       const pid = S.activeId;
       const map = craftMapLoad(pid);
       if (!opts.force && map[rec.id]) return map[rec.id];
-      const rel = craftProjectSlug() + '/media/' + rec.id + extForMime(rec.mime, rec.name);
+      const rel = craftProjectSlug() + '/media/' + assetFileBase(rec) + extForMime(rec.mime, rec.name);
       const blob = rec.blob || await assetBlob(rec.id);
       if (!blob) throw new Error('资产内容不可用: ' + rec.id);
       await craft.write(rel, blob);
@@ -4186,18 +4200,18 @@ window.__ModuleLoader__.load({
      *  连线参考图排在前面，故 @ 资产的序号从连线数之后开始。 */
     function MentionInfo({ n }) {
       const prompt = n.data.prompt || '';
-      const wiredCount = S.graph.edges.filter((x) => x.toNode === n.id && x.toPort === 'ref').length;
       const [rows, setRows] = useState([]);
       useEffect(() => {
         let ok = true;
-        (async () => {
+        // 防抖：输入过程中不必每个按键都查一次资产库
+        const timer = setTimeout(async () => {
           try {
             const bible = loadBible(S.activeId);
             const bundle = await resolveMentionBundle(prompt, bible, S.activeId);
             if (ok) setRows(bundle.entities.map((e) => ({ ...e, count: bundle.refs.filter((r) => r.entity === e.name).length })));
           } catch { if (ok) setRows([]); }
-        })();
-        return () => { ok = false; };
+        }, 350);
+        return () => { ok = false; clearTimeout(timer); };
       }, [prompt, S.assetsTick, S.activeId]);
       if (!rows.length) return null;
       const all = rows.reduce((a, r) => a + r.count, 0);

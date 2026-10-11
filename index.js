@@ -489,22 +489,22 @@ function canvasCreateNode(args) {
     node = agentNode('text', '', pos.x, pos.y, label || '图片生成');
     node.type = 'image-gen';
     node.w = 280;
-    node.data = { status: 'idle', error: null, prompt, assetId: null, demo: false, size: (args && args.size) || '2K', ratio: (args && args.ratio) || '16:9' };
+    node.data = { ...node.data, status: 'idle', error: null, prompt, assetId: null, demo: false, size: (args && args.size) || '2K', ratio: (args && args.ratio) || '16:9' };
   } else if (type === 'video-gen') {
     node = agentNode('text', '', pos.x, pos.y, label || '视频生成');
     node.type = 'video-gen';
     node.w = 280;
-    node.data = { status: 'idle', error: null, prompt, assetId: null, demo: false, duration: Number(args && args.duration) || 5, resolution: (args && args.resolution) || '720P', ratio: (args && args.ratio) || '16:9' };
+    node.data = { ...node.data, status: 'idle', error: null, prompt, assetId: null, demo: false, duration: Number(args && args.duration) || 5, resolution: (args && args.resolution) || '720P', ratio: (args && args.ratio) || '16:9' };
   } else if (type === 'storyboard') {
     node = agentNode('text', '', pos.x, pos.y, label || '分镜表');
     node.type = 'storyboard';
     node.w = 360;
-    node.data = { status: 'idle', error: null, script: prompt, requirement: String((args && args.requirement) || ''), count: Number(args && args.count) || 6, shots: [], aiStatus: 'idle', aiError: null };
+    node.data = { ...node.data, status: 'idle', error: null, script: prompt, requirement: String((args && args.requirement) || ''), count: Number(args && args.count) || 6, shots: [], aiStatus: 'idle', aiError: null, warnings: [] };
   } else if (type === 'finalcut') {
     node = agentNode('text', '', pos.x, pos.y, label || '成片');
     node.type = 'finalcut';
     node.w = 300;
-    node.data = { status: 'idle', error: null, resolution: (args && args.resolution) || '720P', ratio: (args && args.ratio) || '16:9', transition: 'none', progress: null, assetId: null, subs: {}, keepAudio: true };
+    node.data = { ...node.data, status: 'idle', error: null, resolution: (args && args.resolution) || '720P', ratio: (args && args.ratio) || '16:9', transition: 'none', progress: null, assetId: null, subs: {}, keepAudio: true };
   } else if (type === 'script') {
     node = agentNode('script', prompt, pos.x, pos.y, label || defaultLabel(prompt));
   } else {
