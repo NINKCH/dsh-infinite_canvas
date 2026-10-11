@@ -1970,6 +1970,49 @@ window.__ModuleLoader__.load({
         update((s) => { s.dataRoot = null; s.dataRootSupported = !/未知操作/.test(String((e && e.message) || e)); });
       }
     }
+    // ---------- 对话 ↔ 画布同步：轮询 Host 项目索引 + 跳转请求 ----------
+    let hostSyncStopped = false;
+    async function importHostProject(hp) {
+      const full = await hostRpc('projectsGet', { id: hp.id });
+      update((s) => {
+        if (!s.projects.some((p) => p.id === hp.id)) {
+          s.projects.push({ id: hp.id, name: hp.name || hp.id, createdAt: full.createdAt || Date.now(), updatedAt: full.updatedAt || Date.now() });
+        }
+      });
+      lsSet(LS_PROJECTS, S.projects);
+      saveGraphDoc(hp.id, { nodes: full.nodes || {}, edges: full.edges || [], view: full.view || { x: 60, y: 40, scale: 1 } });
+    }
+    async function hostSyncTick() {
+      if (hostSyncStopped) return;
+      try {
+        const r = await hostRpc('projectsSync');
+        for (const hp of r.projects || []) {
+          const known = S.projects.some((p) => p.id === hp.id);
+          const doc = known ? loadGraphDoc(hp.id) : null;
+          const missing = (hp.nodeIds || []).filter((nid) => !doc || !doc.nodes[nid]);
+          if (!known) await importHostProject(hp);
+          else if (missing.length) {
+            const full = await hostRpc('projectsGet', { id: hp.id });
+            for (const nid of missing) { if (full.nodes && full.nodes[nid]) doc.nodes[nid] = full.nodes[nid]; }
+            saveGraphDoc(hp.id, doc);
+            if (hp.id === S.activeId) update((s) => { for (const nid of missing) { if (full.nodes && full.nodes[nid]) s.graph.nodes[nid] = full.nodes[nid]; } s.assetsTick++; });
+          }
+        }
+        if (r.openRequest) {
+          const pid = r.openRequest.projectId || null;
+          if (pid && !S.projects.some((p) => p.id === pid)) {
+            const hp = (r.projects || []).find((x) => x.id === pid);
+            if (hp) await importHostProject(hp);
+          }
+          if (!pid || S.projects.some((p) => p.id === pid)) {
+            if (pid && pid !== S.activeId) switchProject(pid);
+            try { if (CTX && CTX.layout && CTX.layout.selectPanel) CTX.layout.selectPanel(PANEL_ID); } catch { /* 忽略 */ }
+          }
+        }
+      } catch (e) {
+        if (/未知操作/.test(String((e && e.message) || e))) hostSyncStopped = true; // 旧 Host：停止轮询
+      }
+    }
 
     // ============================================================
     // 尺寸 / 比例（Toonflow 式：清晰度 × 比例 → 像素）
@@ -2261,6 +2304,9 @@ window.__ModuleLoader__.load({
       if (proj) proj.updatedAt = Date.now();
       lsSet(LS_PROJECTS, S.projects);
       lsSet(LS_ACTIVE, S.activeId);
+      try {
+        hostRpc('projectsPut', { id: S.activeId, name: (proj && proj.name) || S.activeId, doc: { nodes: S.graph.nodes, edges: S.graph.edges, view: S.graph.view } }).catch(() => { /* 同步失败静默 */ });
+      } catch { /* 忽略 */ }
     }
     function initStore() {
       S.projects = lsGet(LS_PROJECTS, []);
@@ -4343,6 +4389,7 @@ window.__ModuleLoader__.load({
         const p = { id: uid('p'), name: nm, createdAt: Date.now(), updatedAt: Date.now() };
         update((s) => { s.projects.push(p); });
         switchProject(p.id);
+        try { hostRpc('projectsPut', { id: p.id, name: nm, doc: emptyGraph() }).catch(() => { /* 静默 */ }); } catch { /* 忽略 */ }
         setCreating(false); setName('');
       };
       const commitRename = () => {
@@ -4353,6 +4400,10 @@ window.__ModuleLoader__.load({
             if (p) { p.name = v; p.updatedAt = Date.now(); }
           });
           lsSet(LS_PROJECTS, S.projects);
+          try {
+            const doc = loadGraphDoc(editId) || emptyGraph();
+            hostRpc('projectsPut', { id: editId, name: v, doc }).catch(() => { /* 静默 */ });
+          } catch { /* 忽略 */ }
         }
         setEditId(null);
       };
@@ -4390,6 +4441,7 @@ window.__ModuleLoader__.load({
         });
         lsSet(LS_PROJECTS, S.projects);
         lsSet(LS_ACTIVE, S.activeId);
+        try { hostRpc('projectsDelete', { id: pid }).catch(() => { /* 静默 */ }); } catch { /* 忽略 */ }
         try {
           const recs = await idbByProject(pid);
           for (const r of recs) {
@@ -5492,13 +5544,16 @@ window.__ModuleLoader__.load({
           checkUpdate(true);
           // 数据根目录（Host 旧版静默降级为 IndexedDB 模式）
           refreshDataRoot();
+          // 对话 ↔ 画布同步（启动一次 + 3s 轮询；旧 Host 自动停轮询）
+          hostSyncTick();
+          const hostSyncTimer = setInterval(() => hostSyncTick(), 3000);
           // 后台路由探活：失败时在画布顶部给出可操作的提示
           hostRpc('ping').then(() => { S.hostOk = true; S.hostError = null; notify(); }).catch((e) => {
             S.hostOk = false;
             S.hostError = String((e && e.message) || e);
             notify();
           });
-          return () => { unsub(); };
+          return () => { unsub(); clearInterval(hostSyncTimer); };
         }, 'infinite-canvas: store & locale');
         ctx.slots.inject('sidebar.panellist', () => ctx.slots.register({
           name: 'sidebar.panellist',

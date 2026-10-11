@@ -187,6 +187,103 @@ function pickFolderDialog() {
   });
 }
 
+// ---------- 项目存储（对话 ↔ 画布同步）----------
+// 客户端是内容权威（编辑后推送全量文档）；Agent 经工具在 Host 侧追加节点；客户端轮询合并。
+const PROJECTS_DIR = path.join(os.homedir(), '.dsh', 'infinite-canvas', 'projects');
+function projectFile(id) {
+  if (!/^[A-Za-z0-9_-]{1,64}$/.test(String(id || ''))) throw new Error('非法项目 id');
+  return path.join(PROJECTS_DIR, String(id) + '.json');
+}
+function projectsList() {
+  let files = [];
+  try { files = readdirSync(PROJECTS_DIR).filter((f) => f.endsWith('.json')); } catch { return []; }
+  const list = [];
+  for (const f of files) {
+    const id = f.slice(0, -5);
+    try {
+      const d = JSON.parse(readFileSync(path.join(PROJECTS_DIR, f), 'utf8'));
+      list.push({ id: d.id || id, name: d.name || id, createdAt: d.createdAt || 0, updatedAt: d.updatedAt || 0, source: d.source || 'app', nodeIds: Object.keys(d.nodes || {}) });
+    } catch { /* 单文件损坏跳过 */ }
+  }
+  return list.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+}
+async function projectsPut(args) {
+  const id = String((args && args.id) || '');
+  const f = projectFile(id);
+  const doc = (args && args.doc) || {};
+  let prev = {};
+  try { prev = JSON.parse(readFileSync(f, 'utf8')); } catch { /* 新项目 */ }
+  const out = {
+    id,
+    name: String((args && args.name) || prev.name || id).slice(0, 80),
+    createdAt: prev.createdAt || (doc && doc.createdAt) || Date.now(),
+    updatedAt: Date.now(),
+    source: prev.source || 'app',
+    nodes: doc.nodes || {},
+    edges: doc.edges || [],
+    view: doc.view || { x: 60, y: 40, scale: 1 },
+  };
+  mkdirSync(PROJECTS_DIR, { recursive: true });
+  writeFileSync(f, JSON.stringify(out, null, 1), 'utf8');
+  return { ok: true, id, updatedAt: out.updatedAt };
+}
+async function projectsGet(args) {
+  return JSON.parse(readFileSync(projectFile(args && args.id), 'utf8'));
+}
+async function projectsDelete(args) {
+  try { unlinkSync(projectFile(args && args.id)); } catch { /* 已不存在视为成功 */ }
+  return { ok: true };
+}
+async function projectsSync() {
+  const cfg = readIcConfig();
+  const openRequest = (cfg.ui && cfg.ui.openRequest) || null;
+  if (openRequest) { cfg.ui = { ...(cfg.ui || {}), openRequest: null }; writeIcConfig(cfg); }
+  return { projects: projectsList(), openRequest };
+}
+/** 构造与客户端 newNode() 完全一致的节点（形状不一致会导致渲染异常）。 */
+function agentNode(kind, text, x, y) {
+  const id = 'na' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+  if (kind === 'text') return { id, type: 'text', x, y, w: 240, h: 100, data: { status: 'idle', error: null, text: String(text ?? '') } };
+  return { id, type: 'script', x, y, w: 240, h: 100, data: { status: 'idle', error: null, idea: String(text ?? ''), output: '', aiStatus: 'idle', aiError: null } };
+}
+function nextNodePos(doc) {
+  let maxX = 0;
+  let maxY = 40;
+  for (const n of Object.values(doc.nodes || {})) { if ((n.x || 0) + (n.w || 240) > maxX) { maxX = (n.x || 0) + (n.w || 240); maxY = n.y || 40; } }
+  return { x: maxX + 60, y: maxY };
+}
+function canvasCreateProject(args) {
+  const name = String((args && args.name) || '').trim();
+  if (!name) throw new Error('需要项目名称');
+  const id = 'p' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+  const doc = { id, name: name.slice(0, 80), createdAt: Date.now(), updatedAt: Date.now(), source: 'agent', nodes: {}, edges: [], view: { x: 60, y: 40, scale: 1 } };
+  const st = String((args && args.scriptText) || '');
+  if (st.trim()) { const pos = nextNodePos(doc); const n = agentNode('script', st, pos.x, pos.y); doc.nodes[n.id] = n; }
+  mkdirSync(PROJECTS_DIR, { recursive: true });
+  writeFileSync(projectFile(id), JSON.stringify(doc, null, 1), 'utf8');
+  return { ok: true, projectId: id, name: doc.name };
+}
+function canvasWriteNode(args) {
+  const id = String((args && args.projectId) || '');
+  const f = projectFile(id);
+  const doc = JSON.parse(readFileSync(f, 'utf8'));
+  const kind = (args && args.kind) === 'text' ? 'text' : 'script';
+  const pos = nextNodePos(doc);
+  const n = agentNode(kind, (args && args.text) || '', pos.x, pos.y);
+  doc.nodes[n.id] = n;
+  doc.updatedAt = Date.now();
+  writeFileSync(f, JSON.stringify(doc, null, 1), 'utf8');
+  return { ok: true, projectId: id, nodeId: n.id };
+}
+async function canvasOpen(args) {
+  const pid = String((args && args.projectId) || '');
+  if (pid) projectFile(pid); // 校验 id 合法性
+  const cfg = readIcConfig();
+  cfg.ui = { ...(cfg.ui || {}), openRequest: { projectId: pid || null, at: Date.now() } };
+  writeIcConfig(cfg);
+  return { ok: true, projectId: pid || null };
+}
+
 /** 读取 npm registry 上 latest dist-tag 的版本号。 */
 async function npmLatestVersion() {
   const res = await fetch(NPM_LATEST_URL, {
@@ -273,10 +370,10 @@ async function updateInstall() {
   return { ok: true, changed: true, version: installed, output, policyRelaxed };
 }
 
-export const inject = ['webServer'];
+export const inject = ['webServer', 'tools'];
 
 // 仅供诊断 / 自动化测试（不属于 RPC 面，运行时行为不受影响）
-export const _internals = { updateCheck, updateInstall, npmLatestVersion, cmpVer, findPnpm, getProfileDir: () => PROFILE_DIR, getVersion: () => VERSION, dataRoot, safeJoin, mimeOf, getIcConfigPath: () => CONFIG_PATH };
+export const _internals = { updateCheck, updateInstall, npmLatestVersion, cmpVer, findPnpm, getProfileDir: () => PROFILE_DIR, getVersion: () => VERSION, dataRoot, safeJoin, mimeOf, getIcConfigPath: () => CONFIG_PATH, canvasCreateProject, canvasWriteNode, projectsList, projectsGet, canvasOpen };
 
 function resolveModel(providers, want) {
   const byProvider = want && want.provider
@@ -388,6 +485,14 @@ export function apply(ctx) {
         const r = await pickFolderDialog();
         return r; // { ok, path } | { ok:false, cancelled } | { ok:false, unsupported }
       },
+      async projectsPut(args) { return projectsPut(args); },
+      async projectsGet(args) { return projectsGet(args); },
+      async projectsList() { return projectsList(); },
+      async projectsDelete(args) { return projectsDelete(args); },
+      async projectsSync() { return projectsSync(); },
+      async canvasCreateProject(args) { return canvasCreateProject(args); },
+      async canvasWriteNode(args) { return canvasWriteNode(args); },
+      async canvasOpen(args) { return canvasOpen(args); },
       async assetDelete(args) {
         const root = dataRoot();
         if (!root) throw new Error('未设置数据根目录');
@@ -423,6 +528,78 @@ export function apply(ctx) {
         };
       },
     };
+
+    const toolDisposers = [];
+    try {
+      if (ctx.tools && typeof ctx.tools.register === 'function') {
+        const reg = (def) => { try { toolDisposers.push(ctx.tools.register(def)); } catch { /* 单个工具失败不阻塞其余 */ } };
+        const textOutput = { schema: { type: 'object', properties: { ok: { type: 'boolean' }, text: { type: 'string' } }, required: ['ok', 'text'], additionalProperties: false }, render: (args, value) => [{ type: 'text', text: String(value.text || '') }] };
+        reg({
+          name: 'canvas_list_projects',
+          description: '列出无限画布的全部项目（名称/id/节点数/更新时间）。用户提到画布项目、想看有哪些项目、或要指定某个画布项目时使用。',
+          parameters: { type: 'object', properties: { keyword: { type: 'string', description: '按项目名称过滤（可选）' } }, additionalProperties: false },
+          output: { schema: { type: 'object', properties: { count: { type: 'integer' }, text: { type: 'string' } }, required: ['count', 'text'], additionalProperties: false }, render: (args, value) => [{ type: 'text', text: String(value.text || '') }] },
+          timeoutMs: 30000,
+          async execute(args) {
+            const kw = String((args && args.keyword) || '').toLowerCase();
+            const list = projectsList().filter((p) => !kw || String(p.name).toLowerCase().includes(kw));
+            const lines = list.map((p) => '- 「' + p.name + '」 id=' + p.id + ' · ' + p.nodeIds.length + ' 节点 · 更新于 ' + new Date(p.updatedAt).toLocaleString());
+            const text = lines.length ? ('共 ' + lines.length + ' 个项目：\n' + lines.join('\n')) : '画布上还没有项目。可调用 canvas_create_project 创建。';
+            return { count: lines.length, text };
+          },
+        });
+        reg({
+          name: 'canvas_create_project',
+          description: '在无限画布上创建一个新项目，可附带初始创作意图/剧本文本（会成为画布上第一个剧本节点）。用户说"建一个项目""创建画布项目""开个新短剧"时使用。',
+          parameters: {
+            type: 'object',
+            properties: {
+              name: { type: 'string', required: true, description: '项目名称' },
+              scriptText: { type: 'string', description: '可选：初始创作意图/剧本文本' },
+            },
+            required: ['name'],
+            additionalProperties: false,
+          },
+          output: textOutput,
+          timeoutMs: 30000,
+          async execute(args) {
+            const r = canvasCreateProject(args);
+            return { ok: true, projectId: r.projectId, name: r.name, text: '✅ 已创建项目「' + r.name + '」（id=' + r.projectId + '）。可调用 canvas_open 打开画布查看，或用 canvas_write_node 继续追加内容。' };
+          },
+        });
+        reg({
+          name: 'canvas_write_node',
+          description: '向指定无限画布项目追加一个节点：剧本节点（内容=创作意图，画布内可继续 AI 生成）或纯文本节点。用户说"把这段写进画布""加到项目里"时使用。项目 id 可先用 canvas_list_projects 查询。',
+          parameters: {
+            type: 'object',
+            properties: {
+              projectId: { type: 'string', required: true, description: '项目 id（来自 canvas_list_projects 或 canvas_create_project）' },
+              text: { type: 'string', required: true, description: '节点内容' },
+              kind: { type: 'string', enum: ['script', 'text'], description: '节点类型：script=剧本（默认），text=纯文本' },
+            },
+            required: ['projectId', 'text'],
+            additionalProperties: false,
+          },
+          output: textOutput,
+          timeoutMs: 30000,
+          async execute(args) {
+            const r = canvasWriteNode(args);
+            return { ok: true, projectId: r.projectId, nodeId: r.nodeId, text: '✅ 已在项目画布追加' + (args && args.kind === 'text' ? '文本' : '剧本') + '节点（id=' + r.nodeId + '）。' };
+          },
+        });
+        reg({
+          name: 'canvas_open',
+          description: '打开无限画布页面并跳到指定项目（画布侧会在几秒内自动切换）。用户想查看/编辑画布时使用。',
+          parameters: { type: 'object', properties: { projectId: { type: 'string', description: '要打开的项目 id（缺省只打开画布页）' } }, additionalProperties: false },
+          output: textOutput,
+          timeoutMs: 30000,
+          async execute(args) {
+            const r = await canvasOpen(args);
+            return { ok: true, projectId: r.projectId, text: r.projectId ? ('✅ 画布即将打开并跳到项目 ' + r.projectId + '。') : '✅ 画布即将打开。' };
+          },
+        });
+      }
+    } catch { /* tools 服务不可用时跳过注册 */ }
 
     const registrations = [
       ctx.webServer.register({
@@ -526,6 +703,9 @@ export function apply(ctx) {
         },
       }),
     ];
-    return () => { for (const off of registrations) { try { if (off) off(); } catch { /* 忽略 */ } } };
+    return () => {
+      for (const off of registrations) { try { if (off) off(); } catch { /* 忽略 */ } }
+      for (const d of toolDisposers) { try { d(); } catch { /* 忽略 */ } }
+    };
   }, `${NAME}: api routes`);
 }
