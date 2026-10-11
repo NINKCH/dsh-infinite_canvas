@@ -2587,6 +2587,7 @@ window.__ModuleLoader__.load({
     // AI 流式进度（不落盘：只用于"生成中"时显示一行思考内容，让用户知道没卡住）
     const AI_STREAM = new Map(); // nodeId -> { reasoning, text }
     const AI_STREAM_KEEP = 600;   // 只保留尾部若干字符，避免长思考占内存
+    let aiStreamFlushTimer = null;
     function aiStreamAppend(nodeId, kind, d) {
       if (!d) return;
       const cur = AI_STREAM.get(nodeId) || { reasoning: '', text: '' };
@@ -2594,10 +2595,18 @@ window.__ModuleLoader__.load({
       if (kind === 'reasoning') next.reasoning = (cur.reasoning + d).slice(-AI_STREAM_KEEP);
       else next.text = (cur.text + d).slice(-AI_STREAM_KEEP);
       AI_STREAM.set(nodeId, next);
-      update((s) => { s.aiTick = (s.aiTick || 0) + 1; }, { quiet: true });
-      notify();
+      // 节流：思考内容每秒可能来几十段，重渲染节流到 300ms 一次（只展示最后一行足够了）
+      if (aiStreamFlushTimer) return;
+      aiStreamFlushTimer = setTimeout(() => {
+        aiStreamFlushTimer = null;
+        update((s) => { s.aiTick = (s.aiTick || 0) + 1; }, { quiet: true });
+        notify();
+      }, 300);
     }
-    function aiStreamClear(nodeId) { AI_STREAM.delete(nodeId); }
+    function aiStreamClear(nodeId) {
+      AI_STREAM.delete(nodeId);
+      if (aiStreamFlushTimer) { clearTimeout(aiStreamFlushTimer); aiStreamFlushTimer = null; }
+    }
     /** 生成中显示的一行动态内容：优先思考，其次正文；压缩空白并只留尾部。 */
     function aiStreamLine(nodeId) {
       const s = AI_STREAM.get(nodeId);
@@ -3992,18 +4001,9 @@ window.__ModuleLoader__.load({
       // 否则分组折叠切换 data.hidden 时 hook 数量变化，React 会抛错并卸载整个画布（白屏）
       const [renaming, setRenaming] = useState(false);
       const [nameVal, setNameVal] = useState('');
-      // 节点内所有文本域随内容自动增高：内容溢出就撑开（上限 600）。
-      // 手动拉过高度的节点（hManual）不参与：高度由用户定的，内容超出交给节点内滚动。
-      useEffect(() => {
-        if (n.hManual) return;
-        const el = nodeEls.get(n.id);
-        if (!el || typeof el.querySelectorAll !== 'function') return;
-        for (const ta of el.querySelectorAll('textarea')) {
-          try {
-            if (ta.scrollHeight + 2 > ta.clientHeight) ta.style.height = Math.min(ta.scrollHeight + 2, 600) + 'px';
-          } catch { /* 忽略 */ }
-        }
-      });
+      // 注意：这里**不做**任何"随内容自动增高"——高度只能由用户拖节点边改变，
+      // 文本框内容超出就在框内滚动。此前的自动增高会在流式刷新时被反复触发，
+      // 造成"生成中节点自己不断变长"的 bug（用户实测）。
       if (n.data.hidden) return null; // 分组折叠时隐藏成员
       if (n.type === 'group') return h(GroupShell, { n });
       const commitName = () => {
