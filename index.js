@@ -586,21 +586,54 @@ export function apply(ctx) {
       const { providers } = await listLlmOptions();
       const resolved = resolveModel(providers, want);
       if (!resolved) throw new Error('没有可用模型，请先在 Harness 设置中配置模型提供方');
-      let text = '';
-      const stream = service.stream({
+      const system = String(want.system ?? '');
+      const user = String(want.user ?? '');
+      const temperature = typeof want.temperature === 'number' ? want.temperature : 0.7;
+      const maxTokens = typeof want.maxTokens === 'number' ? want.maxTokens : 4000;
+      const userMessage = { role: 'user', content: [{ type: 'text', text: user }] };
+      /** 跑一次流并统计 chunk 类型（空结果时用于诊断，不再静默返回空文本）。 */
+      const run = async (options) => {
+        const kinds = [];
+        let text = '';
+        for await (const chunk of service.stream(options)) {
+          const type = chunk && chunk.type;
+          kinds.push(type || 'unknown');
+          if ((type === 'text-delta' || type === 'text') && typeof chunk.text === 'string') text += chunk.text;
+        }
+        return { text, kinds };
+      };
+      const histogram = (kinds) => {
+        if (!kinds.length) return '（没有任何 chunk）';
+        const m = new Map();
+        for (const k of kinds) m.set(k, (m.get(k) || 0) + 1);
+        return [...m.entries()].map(([k, v]) => k + '×' + v).join(', ');
+      };
+      // 首选：适配器规范信封 —— system 走独立字段，messages 只放历史，并带 sessionId
+      const primary = await run({
         provider: resolved.provider,
         model: resolved.model,
-        messages: [
-          { role: 'system', content: [{ type: 'text', text: String(want.system ?? '') }] },
-          { role: 'user', content: [{ type: 'text', text: String(want.user ?? '') }] },
-        ],
-        temperature: typeof want.temperature === 'number' ? want.temperature : 0.7,
-        maxTokens: typeof want.maxTokens === 'number' ? want.maxTokens : 4000,
+        ...(system ? { system } : {}),
+        messages: [userMessage],
+        temperature,
+        maxTokens,
+        sessionId: 'infinite-canvas',
+        purpose: 'infinite-canvas',
       });
-      for await (const chunk of stream) {
-        if (chunk.type === 'text-delta') text += chunk.text;
-      }
-      return { text, provider: resolved.provider, model: resolved.model };
+      if (primary.text.trim()) return { text: primary.text, provider: resolved.provider, model: resolved.model, variant: 'system' };
+      // 回退：老式写法（system 作为 messages 首条，不带附加字段）
+      const fallback = await run({
+        provider: resolved.provider,
+        model: resolved.model,
+        messages: system ? [{ role: 'system', content: [{ type: 'text', text: system }] }, userMessage] : [userMessage],
+        temperature,
+        maxTokens,
+      });
+      if (fallback.text.trim()) return { text: fallback.text, provider: resolved.provider, model: resolved.model, variant: 'system-in-messages' };
+      throw new Error(
+        '模型未返回文本（provider=' + resolved.provider + ' model=' + resolved.model
+        + '；chunk 统计 → 规范信封: ' + histogram(primary.kinds) + ' / 回退: ' + histogram(fallback.kinds)
+        + '）。请在画布设置里换一个文本模型，或检查该模型在 Harness 中是否可用。',
+      );
     }
 
     const methods = {

@@ -350,6 +350,8 @@ window.__ModuleLoader__.load({
       'dataRootUnsupported': '当前插件后台版本较旧（不支持数据根目录）：重启 Harness 后可用',
       'dataRootSaved': '数据根目录已设置',
       'resizeHint': '拖动可调宽度 / 双击标题改名',
+      'aiEmptyResult': '模型返回了空内容——请检查画布设置里的文本模型，或换一个模型重试',
+      'aiInterrupted': '上次生成被页面刷新或关闭中断，请重新生成',
       'dataRootBrowse': '浏览选择目录',
       'dataRootPicking': '请在弹出的窗口中选择目录（可直接取消）…',
       'dataRootPickUnsupported': '当前平台不支持目录选择器，请手动填写路径',
@@ -627,6 +629,8 @@ window.__ModuleLoader__.load({
       'dataRootUnsupported': 'The plugin backend is older and lacks data-root support — restart Harness to enable',
       'dataRootSaved': 'Data root set',
       'resizeHint': 'Drag to resize / double-click title to rename',
+      'aiEmptyResult': 'The model returned empty content — check the text model in canvas settings or try another model',
+      'aiInterrupted': 'The previous generation was interrupted by a page reload; please run it again',
       'dataRootBrowse': 'Browse for folder',
       'dataRootPicking': 'Pick a folder in the dialog (cancel anytime)…',
       'dataRootPickUnsupported': 'No folder picker on this platform — type the path instead',
@@ -2392,6 +2396,17 @@ window.__ModuleLoader__.load({
       S.activeId = S.projects.some((p) => p.id === active) ? active : S.projects[0].id;
       const doc = loadGraphDoc(S.activeId) || emptyGraph();
       S.graph = { nodes: doc.nodes || {}, edges: doc.edges || [], view: doc.view || { x: 60, y: 40, scale: 1 } };
+      // 页面刷新/关闭会中断进行中的生成：清理残留的 running 状态，避免节点永远卡在"运行中"
+      let stale = false;
+      for (const n of Object.values(S.graph.nodes || {})) {
+        if (n && n.data && (n.data.status === 'running' || n.data.aiStatus === 'running')) {
+          n.data.status = 'idle';
+          if (n.data.aiStatus === 'running') { n.data.aiStatus = 'error'; n.data.aiError = T('aiInterrupted'); }
+          n.data.progress = null;
+          stale = true;
+        }
+      }
+      if (stale) { try { saveGraphDoc(S.activeId, S.graph); } catch { /* 忽略 */ } }
       V.x = S.graph.view.x; V.y = S.graph.view.y; V.scale = S.graph.view.scale;
       S.ready = true;
     }
@@ -2732,6 +2747,7 @@ window.__ModuleLoader__.load({
         const nd = s.graph.nodes[n.id];
         if (nd) { nd.data.status = 'running'; nd.data.error = null; }
       });
+      flushSave(); // 立刻落盘 + 推送 Host：切走画面/对话查询都能看到"运行中"
       try {
         const prompt = resolvePrompt(n);
         if (type === 'image-gen') {
@@ -3915,6 +3931,7 @@ window.__ModuleLoader__.load({
         update((s) => { const nd = s.graph.nodes[n.id]; if (nd) { nd.data.aiStatus = 'running'; nd.data.aiError = null; } });
         try {
           const text = await aiScriptNodes(n.data.idea, n.data.model);
+          if (!String(text || '').trim()) throw new Error(T('aiEmptyResult'));
           update((s) => {
             const nd = s.graph.nodes[n.id];
             if (nd) { nd.data.output = text; nd.data.aiStatus = 'idle'; }
