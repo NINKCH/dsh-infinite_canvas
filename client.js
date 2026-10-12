@@ -349,6 +349,9 @@ window.__ModuleLoader__.load({
       'dataRootOpen': '打开目录',
       'dataRootMigrate': '迁移历史资产',
       'dataRootMigrated': '已迁移 {n} 个资产到数据根目录',
+      'dataRootImportBtn': '从数据目录导入',
+      'dataRootImported': '导入完成：合并 {n} 个项目、补入 {a} 条资产元数据',
+      'dataRootImportHint': '换电脑迁移：把整个数据目录拷到新机器 → 设置为数据根目录 → 点"从数据目录导入"即可恢复项目/节点/设定集/资产',
       'dataRootMigratedDone': '已迁移',
       'dataRootMigrating': '迁移中',
       'dataRootUnsupported': '当前插件后台版本较旧（不支持数据根目录）：重启 Harness 后可用',
@@ -677,6 +680,9 @@ window.__ModuleLoader__.load({
       'dataRootOpen': 'Open folder',
       'dataRootMigrate': 'Migrate existing assets',
       'dataRootMigrated': 'Migrated {n} assets to the data root',
+      'dataRootImportBtn': 'Import from data root',
+      'dataRootImported': 'Imported: {n} projects merged, {a} asset records added',
+      'dataRootImportHint': 'Migration: copy the whole data folder to the new machine, set it as data root, then click "Import from data root" to restore projects/nodes/bible/assets',
       'dataRootMigratedDone': 'Migrated',
       'dataRootMigrating': 'Migrating',
       'dataRootUnsupported': 'The plugin backend is older and lacks data-root support — restart Harness to enable',
@@ -1509,7 +1515,46 @@ window.__ModuleLoader__.load({
       }
       await idbPut(rec);
       assetNameCache.set(rec.id, rec.name);
+      mirrorAssetIndex(rec); // 资产元数据镜像进数据目录 assets.json（迁移便利，失败静默）
       return rec;
+    }
+    /** 资产元数据索引记录（去 blob；文本资产保留 text 以便导入端免读文件即可预览）。 */
+    function assetIndexRecord(rec) {
+      const out = {
+        id: rec.id, projectId: rec.projectId, kind: rec.kind, mime: rec.mime,
+        name: rec.name, createdAt: rec.createdAt, prompt: rec.prompt || '',
+        source: rec.source || '', category: rec.category || 'general',
+      };
+      if (rec.rel) { out.rel = rec.rel; out.size = rec.size || 0; }
+      if (rec.entity) out.entity = rec.entity;
+      if (Array.isArray(rec.entities) && rec.entities.length) out.entities = rec.entities;
+      if (rec.nodeLabel) out.nodeLabel = rec.nodeLabel;
+      if (rec.kind === 'text' && typeof rec.text === 'string') out.text = rec.text;
+      return out;
+    }
+    /** 把资产元数据镜像进数据目录的 assets.json（失败静默：索引是迁移便利，不是主存储）。 */
+    function mirrorAssetIndex(rec) {
+      if (!S.dataRoot || !rec || !rec.id) return;
+      const proj = S.projects.find((p) => p.id === rec.projectId);
+      hostRpc('assetIndexPut', {
+        projectId: rec.projectId, projectName: (proj && proj.name) || rec.projectId, asset: assetIndexRecord(rec),
+      }).catch(() => { /* 索引失败不影响资产本身 */ });
+    }
+    /** 启动/设置数据目录后：一次性把 IndexedDB 里的全部资产元数据同步进 assets.json（补齐历史资产索引）。 */
+    let assetIndexSynced = false;
+    async function syncAssetIndexToHost() {
+      if (assetIndexSynced || !S.dataRoot) return;
+      assetIndexSynced = true;
+      try {
+        const all = await idbAll();
+        const items = [];
+        const projName = new Map(S.projects.map((p) => [p.id, p.name]));
+        for (const rec of all) {
+          if (!rec || !rec.id || !rec.projectId) continue;
+          items.push({ projectId: rec.projectId, projectName: projName.get(rec.projectId) || rec.projectId, asset: assetIndexRecord(rec) });
+        }
+        if (items.length) await hostRpc('assetIndexBulkPut', { items });
+      } catch { /* 索引同步失败不影响 */ }
     }
     /** 一次性把 IndexedDB 里的历史资产迁移到数据根目录（保留元数据，移除 blob）。 */
     async function migrateAssetsToDisk(onProgress) {
@@ -3034,6 +3079,7 @@ window.__ModuleLoader__.load({
       }
       await idbPut(rec);
       assetNameCache.set(rec.id, rec.name);
+      mirrorAssetIndex(rec); // 文本资产元数据同样镜像进 assets.json
       return rec;
     }
 
@@ -6429,6 +6475,8 @@ window.__ModuleLoader__.load({
           await hostRpc('dataRootSet', { root: val.trim() });
           await refreshDataRoot();
           toast(T('dataRootSaved') + (S.dataRoot ? '：' + S.dataRoot : ''));
+          assetIndexSynced = false; // 换了目录：索引要往新目录重建
+          syncAssetIndexToHost();
         } catch (e) { toast('设置失败：' + ((e && e.message) || e)); }
         setBusy(false);
       };
@@ -6437,6 +6485,8 @@ window.__ModuleLoader__.load({
         await refreshDataRoot();
         setVal(S.dataRoot || root);
         toast(T('dataRootSaved') + '：' + S.dataRoot);
+        assetIndexSynced = false; // 换了目录：索引要往新目录重建
+        syncAssetIndexToHost();
       };
       const browse = async () => {
         if (busy || picking) return;
@@ -6453,6 +6503,31 @@ window.__ModuleLoader__.load({
         setPicking(false); setBusy(false);
       };
       const openDir = async () => { try { await hostRpc('dataRootReveal'); } catch (e) { toast((e && e.message) || e); } };
+      const importFromRoot = async () => {
+        if (busy || picking) return;
+        setBusy(true);
+        try {
+          const r = await hostRpc('dataRootImport');
+          // 资产元数据 → IndexedDB（本机已存在的同 id 资产跳过，绝不覆盖）
+          let assets = 0;
+          const byProject = r.assets || {};
+          for (const pid of Object.keys(byProject)) {
+            for (const rec of byProject[pid] || []) {
+              if (!rec || !rec.id) continue;
+              const cur = await idbGet(rec.id).catch(() => null);
+              if (cur && (cur.rel || cur.blob)) continue;
+              await idbPut({ ...rec, projectId: pid, stored: rec.rel ? 'disk' : 'idb' });
+              assets++;
+            }
+          }
+          if (assets) update((s) => { s.assetsTick++; });
+          toast(T('dataRootImported').replace('{n}', String((r.imported || []).length)).replace('{a}', String(assets)));
+          // 项目文档 Host 侧已合并：立即拉一轮同步，把新项目带进画布
+          try { await hostSyncTick(); } catch { /* 下一轮 3s 轮询会带 */ }
+          await refreshDataRoot();
+        } catch (e) { toast('导入失败：' + ((e && e.message) || e)); }
+        setBusy(false);
+      };
       const migrate = async () => {
         if (busy || picking || mig) return;
         setBusy(true); setMig({ done: 0, total: 0 });
@@ -6483,6 +6558,11 @@ window.__ModuleLoader__.load({
                 S.dataRoot ? h('button', { type: 'button', className: 'dshic-mini', disabled: busy || picking || !!mig, onPointerDown: (e) => e.stopPropagation(), onClick: migrate }, mig === 'done' ? T('dataRootMigratedDone') : T('dataRootMigrate')) : null,
                 (mig && mig !== 'done') ? h('span', { style: { fontSize: 11, opacity: 0.85 } }, T('dataRootMigrating') + ' ' + mig.done + '/' + mig.total) : null,
               ),
+              h('div', { className: 'dshic-row', key: 'row3' },
+                S.dataRoot ? h('button', { type: 'button', className: 'dshic-mini is-ghost', disabled: busy || picking, onPointerDown: (e) => e.stopPropagation(), onClick: importFromRoot }, Ic('folder', 11), T('dataRootImportBtn')) : null,
+                h('div', { className: 'dshic-flex' }),
+              ),
+              S.dataRoot ? h('div', { className: 'dshic-hint', key: 'importHint' }, T('dataRootImportHint')) : null,
             ],
       );
     }
@@ -7086,8 +7166,8 @@ window.__ModuleLoader__.load({
           probeCraft();
           // 检查更新（Host RPC；Host 旧版未带此方法时静默）
           checkUpdate(true);
-          // 数据根目录（Host 旧版静默降级为 IndexedDB 模式）
-          refreshDataRoot();
+          // 数据根目录（Host 旧版静默降级为 IndexedDB 模式）；就绪后把 IDB 资产元数据补齐进数据目录索引
+          refreshDataRoot().then(() => syncAssetIndexToHost()).catch(() => { /* 静默 */ });
           // 对话 ↔ 画布同步（启动一次 + 3s 轮询；旧 Host 自动停轮询）
           hostSyncTick().then(() => pushAllProjectsToHost());
           const hostSyncTimer = setInterval(() => hostSyncTick(), 3000);

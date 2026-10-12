@@ -8,7 +8,7 @@
  */
 import { spawn } from 'node:child_process';
 import fs from 'node:fs/promises';
-import { createReadStream, createWriteStream, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
+import { createReadStream, createWriteStream, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -120,6 +120,221 @@ function writeIcConfig(cfg) {
 function dataRoot() {
   const r = readIcConfig().dataRoot;
   return (typeof r === 'string' && r.trim()) ? path.resolve(r.trim()) : null;
+}
+
+// ============================================================
+// 数据目录 = 可迁移的完整数据包（换电脑拷贝整个目录 → 一键导入）
+//   <root>/canvas.meta.json          清单：项目 id → 文件夹映射（文件夹按项目名）
+//   <root>/projects/<项目名>/
+//     project.json                   项目完整文档（节点/连线/视图/**设定集（含 assetIds 绑定）**）
+//     assets.json                    资产元数据索引（id/名称/类型/rel/实体绑定/提示词）
+//     image|video|audio|text/...     媒体文件
+// 客户端资产记录里的 rel 保持**逻辑路径**（projects/<pid>/…）；
+// Host 在读写边界做 pid→项目名 文件夹映射（physicalRel），旧记录无需重写。
+// ============================================================
+const DATA_META_FILE = 'canvas.meta.json';
+
+function dataRootMetaFile() {
+  const root = dataRoot();
+  return root ? path.join(root, DATA_META_FILE) : null;
+}
+function readDataRootMeta() {
+  const f = dataRootMetaFile();
+  if (f) {
+    try {
+      const m = JSON.parse(readFileSync(f, 'utf8'));
+      if (m && typeof m === 'object' && Array.isArray(m.projects)) return m;
+    } catch { /* 缺失/损坏 → 重建 */ }
+  }
+  return { version: 1, updatedAt: 0, projects: [] };
+}
+function writeDataRootMeta(meta) {
+  const f = dataRootMetaFile();
+  if (!f) return;
+  try {
+    mkdirSync(path.dirname(f), { recursive: true });
+    meta.updatedAt = Date.now();
+    const tmp = f + '.' + process.pid + '.tmp';
+    writeFileSync(tmp, JSON.stringify(meta, null, 1), 'utf8');
+    renameSync(tmp, f);
+  } catch { /* 清单写失败不影响主存储 */ }
+}
+function sanitizeFolderName(name) {
+  const s = String(name || '').replace(/[\\/:*?"<>|\u0000-\u001f]/g, '_').replace(/\s+/g, ' ').trim().slice(0, 60);
+  return s || '未命名项目';
+}
+/** 确保项目的物理文件夹（按项目名）与清单条目存在；改名时尽力重命名目录（被占用/冲突则保留旧文件夹）。返回文件夹名。 */
+function ensureProjectFolder(pid, name) {
+  const root = dataRoot();
+  if (!root) return null;
+  const meta = readDataRootMeta();
+  const want = sanitizeFolderName(name || pid);
+  let entry = meta.projects.find((p) => p.id === pid) || null;
+  if (!entry) {
+    let folder = want;
+    let i = 2;
+    while (meta.projects.some((p) => p.folder === folder)) folder = want + '-' + i++;
+    entry = { id: pid, name: want, folder, createdAt: Date.now() };
+    meta.projects.push(entry);
+  } else {
+    entry.name = want;
+    if (entry.folder !== want) {
+      let target = want;
+      let i = 2;
+      while (meta.projects.some((p) => p.folder === target && p.id !== pid)) target = want + '-' + i++;
+      const from = path.join(root, 'projects', entry.folder);
+      const to = path.join(root, 'projects', target);
+      if (!existsSync(to)) {
+        try {
+          if (existsSync(from)) renameSync(from, to);
+          entry.folder = target; // 目录被占用（Windows 文件锁）时保留旧文件夹，仅改清单名
+        } catch { /* 保留旧文件夹 */ }
+      }
+    }
+  }
+  writeDataRootMeta(meta);
+  return entry.folder;
+}
+/** 逻辑路径（projects/<pid>/…）→ 物理路径（projects/<项目名>/…）；无法识别时原样返回。 */
+function physicalRel(logicalRel) {
+  const m = /^projects\/([^/]+)(\/.*)?$/.exec(String(logicalRel || '').trim().replace(/\\/g, '/'));
+  if (!m) return null;
+  const meta = readDataRootMeta();
+  const entry = meta.projects.find((p) => p.id === m[1]);
+  return 'projects/' + (entry ? entry.folder : m[1]) + (m[2] || '');
+}
+/** 把项目文档镜像到数据目录（project.json，含设定集与 assetIds 绑定）；镜像失败不影响主存储。 */
+function mirrorProjectToDataRoot(id, doc) {
+  const root = dataRoot();
+  if (!root || !id) return;
+  try {
+    const folder = ensureProjectFolder(id, (doc && doc.name) || id);
+    if (!folder) return;
+    const dir = path.join(root, 'projects', folder);
+    mkdirSync(dir, { recursive: true });
+    const out = {
+      id, name: (doc && doc.name) || id,
+      createdAt: (doc && doc.createdAt) || null,
+      updatedAt: (doc && doc.updatedAt) || Date.now(), // 用文档自身的时间戳：导入时"新者胜"比较才有意义
+      nodes: (doc && doc.nodes) || {},
+      edges: (doc && doc.edges) || [],
+      view: (doc && doc.view) || null,
+      tombstones: (doc && doc.tombstones) || [],
+      edgeTombstones: (doc && doc.edgeTombstones) || [],
+      bible: (doc && doc.bible) || null,           // 设定集（角色/场景/道具条目含 assetIds 资产绑定）
+      bibleUpdatedAt: (doc && doc.bibleUpdatedAt) || 0,
+    };
+    const tmp = path.join(dir, 'project.json.tmp');
+    writeFileSync(tmp, JSON.stringify(out, null, 1), 'utf8');
+    renameSync(tmp, path.join(dir, 'project.json'));
+  } catch { /* 镜像失败不影响主存储 */ }
+}
+/** 资产元数据索引 upsert：<项目文件夹>/assets.json。 */
+function writeAssetIndex(pid, projectName, assets) {
+  const root = dataRoot();
+  if (!root) throw new Error('未设置数据根目录');
+  const folder = ensureProjectFolder(pid, projectName || pid);
+  if (!folder) throw new Error('数据目录不可用');
+  const dir = path.join(root, 'projects', folder);
+  mkdirSync(dir, { recursive: true });
+  const f = path.join(dir, 'assets.json');
+  let list = [];
+  try {
+    const parsed = JSON.parse(readFileSync(f, 'utf8'));
+    if (Array.isArray(parsed)) list = parsed;
+  } catch { /* 首次/损坏 → 重建 */ }
+  for (const a of assets || []) {
+    if (!a || !a.id) continue;
+    const i = list.findIndex((x) => x.id === a.id);
+    if (i >= 0) list[i] = a;
+    else list.push(a);
+  }
+  const tmp = f + '.' + process.pid + '.tmp';
+  writeFileSync(tmp, JSON.stringify(list, null, 1), 'utf8');
+  renameSync(tmp, f);
+  return { ok: true, folder, count: list.length };
+}
+/** 删除项目的数据目录镜像（项目被删除时调用）。 */
+function removeDataRootProject(pid) {
+  const root = dataRoot();
+  if (!root || !pid) return;
+  const meta = readDataRootMeta();
+  const entry = meta.projects.find((p) => p.id === pid);
+  meta.projects = meta.projects.filter((p) => p.id !== pid);
+  writeDataRootMeta(meta);
+  if (entry) {
+    try { rmSync(path.join(root, 'projects', entry.folder), { recursive: true, force: true }); } catch { /* 占用时残留，无碍 */ }
+  }
+}
+/** 一次性迁移/对齐数据目录布局：旧 pid 文件夹 → 项目名文件夹，并镜像全部项目文档。 */
+function dataRootMigrate() {
+  const root = dataRoot();
+  if (!root) throw new Error('未设置数据根目录');
+  let ids = [];
+  try {
+    ids = existsSync(PROJECTS_DIR)
+      ? readdirSync(PROJECTS_DIR).filter((f) => f.endsWith('.json')).map((f) => f.replace(/\.json$/, ''))
+      : [];
+  } catch { ids = []; }
+  let filesMoved = 0;
+  const folders = [];
+  for (const id of ids) {
+    let doc = null;
+    try { doc = JSON.parse(readFileSync(projectFile(id), 'utf8')); } catch { continue; }
+    const folder = ensureProjectFolder(id, (doc && doc.name) || id);
+    folders.push(folder);
+    const dir = path.join(root, 'projects', folder);
+    mkdirSync(dir, { recursive: true });
+    // 旧物理布局（projects/<pid>/<kind>/…）→ 新布局（projects/<项目名>/<kind>/…）
+    const oldDir = path.join(root, 'projects', id);
+    if (id !== folder && existsSync(oldDir)) {
+      try {
+        for (const kind of readdirSync(oldDir)) {
+          const fromKind = path.join(oldDir, kind);
+          const toKind = path.join(dir, kind);
+          mkdirSync(toKind, { recursive: true });
+          for (const f of readdirSync(fromKind)) {
+            const from = path.join(fromKind, f);
+            const to = path.join(toKind, f);
+            if (!existsSync(to)) { renameSync(from, to); filesMoved++; }
+          }
+        }
+        rmSync(oldDir, { recursive: true, force: true });
+      } catch { /* 目录被占用：保留旧目录，下轮再试 */ }
+    }
+    mirrorProjectToDataRoot(id, doc);
+  }
+  return { ok: true, projects: folders.filter(Boolean).length, filesMoved, folders };
+}
+/** 一键导入：扫描数据目录 → 合并 project.json 进主存储（updatedAt 新者胜）→ 返回资产元数据供客户端入 IDB。 */
+function dataRootImport() {
+  const root = dataRoot();
+  if (!root) throw new Error('未设置数据根目录');
+  const projectsDir = path.join(root, 'projects');
+  const dirs = existsSync(projectsDir)
+    ? readdirSync(projectsDir, { withFileTypes: true }).filter((d) => d.isDirectory()).map((d) => d.name)
+    : [];
+  const imported = [];
+  const assets = {};
+  for (const folder of dirs) {
+    const dir = path.join(projectsDir, folder);
+    let doc = null;
+    try { doc = JSON.parse(readFileSync(path.join(dir, 'project.json'), 'utf8')); } catch { continue; }
+    const id = String(doc.id || '');
+    if (!id) continue;
+    let cur = null;
+    try { cur = JSON.parse(readFileSync(projectFile(id), 'utf8')); } catch { /* 本机没有该项目 */ }
+    if (!cur || (cur.updatedAt || 0) < (doc.updatedAt || 0)) {
+      doc.updatedAt = Date.now();
+      writeIcDoc(id, doc); // 会同步镜像回数据目录（无害）
+      imported.push({ id, name: doc.name || id });
+    }
+    try {
+      const list = JSON.parse(readFileSync(path.join(dir, 'assets.json'), 'utf8'));
+      if (Array.isArray(list)) assets[id] = list;
+    } catch { /* 无资产索引 */ }
+  }
+  return { ok: true, imported, assets };
 }
 /** 设定集字段规范化（世界观/风格 + 角色/场景/道具条目，条目可携带链接资产 assetIds）。 */
 function normalizeBible(raw) {
@@ -368,14 +583,32 @@ async function projectsPut(args) {
     out.bibleUpdatedAt = prev.bibleUpdatedAt || 0;
   }
   mkdirSync(PROJECTS_DIR, { recursive: true });
-  writeFileSync(f, JSON.stringify(out, null, 1), 'utf8');
+  writeIcDoc(id, out); // 统一走原子写 + 数据目录镜像（此前直写绕过了镜像与原子性）
   return { ok: true, id, updatedAt: out.updatedAt };
 }
 async function projectsGet(args) {
   return readDoc(String((args && args.id) || ''));
 }
+/** 设置数据根目录（绝对路径）并立即迁移布局；供 RPC 与测试复用。 */
+function setDataRoot(raw) {
+  raw = String(raw ?? '').trim();
+  if (!raw) throw new Error('需要数据根目录路径');
+  // 必须在 resolve 之前判绝对路径：resolve 之后恒为绝对路径，检查就成了死代码，
+  // 相对路径会静默落到应用 cwd（升级即丢数据）
+  if (!path.isAbsolute(raw)) throw new Error('需要绝对路径（如 D:\\canvas-data）');
+  const root = path.resolve(raw);
+  mkdirSync(root, { recursive: true });
+  const cfg = readIcConfig();
+  cfg.dataRoot = root;
+  writeIcConfig(cfg);
+  // 首次设置/换目录：立即迁移布局（pid 文件夹 → 项目名文件夹）并镜像全部项目文档
+  let migrated = null;
+  try { migrated = dataRootMigrate(); } catch (e) { migrated = { error: String((e && e.message) || e) }; }
+  return { ok: true, dataRoot: root, migrated };
+}
 async function projectsDelete(args) {
   try { unlinkSync(projectFile(args && args.id)); } catch { /* 已不存在视为成功 */ }
+  try { removeDataRootProject(args && args.id); } catch { /* 数据目录镜像清理失败不影响删除 */ }
   return { ok: true };
 }
 async function projectsSync() {
@@ -621,6 +854,7 @@ function writeIcDoc(id, doc) {
   const tmp = f + '.' + process.pid + '.tmp';
   writeFileSync(tmp, JSON.stringify(doc, null, 1), 'utf8');
   renameSync(tmp, f);
+  mirrorProjectToDataRoot(id, doc); // 数据目录镜像（含设定集/assetIds 绑定）：失败不影响主存储
 }
 /** 读取设定集（对话侧"设定集先行"的前提）。 */
 async function canvasGetBible(args) {
@@ -641,7 +875,13 @@ async function canvasUpdateBible(args) {
   const mergeList = (base, incoming) => {
     if (incoming === undefined) return base;
     const list = (Array.isArray(incoming) ? incoming : [])
-      .map((x) => ({ name: String((x && x.name) || ''), desc: String((x && x.desc) || '') }))
+      .map((x) => ({
+        name: String((x && x.name) || ''),
+        desc: String((x && x.desc) || ''),
+        // 资产绑定（assetIds）必须透传：设定集落地到数据目录时要携带"连接的资产信息"；
+        // 未提供 assetIds 的合并不抹掉既有绑定（spread 只覆盖存在的键）
+        ...(Array.isArray(x && x.assetIds) ? { assetIds: x.assetIds.map(String).filter(Boolean).slice(0, 20) } : {}),
+      }))
       .filter((x) => x.name);
     if ((args && args.mode) === 'replace') return list;
     const out = [...base];
@@ -746,6 +986,7 @@ async function canvasDeleteProject(args) {
   let name = id;
   try { name = JSON.parse(readFileSync(f, 'utf8')).name || id; } catch { /* 本来就不存在 */ }
   try { unlinkSync(f); } catch { /* 已删除 */ }
+  try { removeDataRootProject(id); } catch { /* 数据目录镜像清理失败不影响删除 */ }
   // 通知客户端把这个项目也从本地删掉，否则下次推送会把它复活
   const cfg = readIcConfig();
   const prev = (cfg.ui && cfg.ui.deletedProjects) || [];
@@ -1000,7 +1241,7 @@ async function updateInstall() {
 export const inject = ['webServer', 'tools'];
 
 // 仅供诊断 / 自动化测试（不属于 RPC 面，运行时行为不受影响）
-export const _internals = { updateCheck, updateInstall, npmLatestVersion, cmpVer, findPnpm, getProfileDir: () => PROFILE_DIR, getVersion: () => VERSION, dataRoot, safeJoin, mimeOf, pipeFile, getIcConfigPath: () => CONFIG_PATH, canvasCreateProject, canvasWriteNode, canvasConnect, canvasDeleteProject, canvasDeleteNode, canvasRunNode, canvasNodeStatus, canvasGetBible, canvasUpdateBible, canvasCreateNode, canvasOpen, projectsList, projectsPut, projectsGet, projectsDelete, projectsSync };
+export const _internals = { updateCheck, updateInstall, npmLatestVersion, cmpVer, findPnpm, getProfileDir: () => PROFILE_DIR, getVersion: () => VERSION, dataRoot, setDataRoot, dataRootMigrate, dataRootImport, ensureProjectFolder, physicalRel, mirrorProjectToDataRoot, writeAssetIndex, readDataRootMeta, removeDataRootProject, safeJoin, mimeOf, pipeFile, getIcConfigPath: () => CONFIG_PATH, canvasCreateProject, canvasWriteNode, canvasConnect, canvasDeleteProject, canvasDeleteNode, canvasRunNode, canvasNodeStatus, canvasGetBible, canvasUpdateBible, canvasCreateNode, canvasOpen, projectsList, projectsPut, projectsGet, projectsDelete, projectsSync };
 
 function resolveModel(providers, want) {
   const byProvider = want && want.provider
@@ -1163,17 +1404,7 @@ export function apply(ctx) {
         return { dataRoot: root, exists, configPath: CONFIG_PATH };
       },
       async dataRootSet(args) {
-        const raw = String((args && args.root) ?? '').trim();
-        if (!raw) throw new Error('需要数据根目录路径');
-        // 必须在 resolve 之前判绝对路径：resolve 之后恒为绝对路径，检查就成了死代码，
-        // 相对路径会静默落到应用 cwd（升级即丢数据）
-        if (!path.isAbsolute(raw)) throw new Error('需要绝对路径（如 D:\\canvas-data）');
-        const root = path.resolve(raw);
-        mkdirSync(root, { recursive: true });
-        const cfg = readIcConfig();
-        cfg.dataRoot = root;
-        writeIcConfig(cfg);
-        return { ok: true, dataRoot: root };
+        return setDataRoot((args && args.root) ?? '');
       },
       async dataRootReveal() {
         const root = dataRoot();
@@ -1188,6 +1419,33 @@ export function apply(ctx) {
         } catch { /* 同步抛错同样忽略 */ }
         return { ok: true, dataRoot: root };
       },
+      // 资产元数据索引：客户端把资产记录（无 blob）写入 <项目文件夹>/assets.json（数据目录随拷随用）
+      async assetIndexPut(args) {
+        const projectId = String((args && args.projectId) || '');
+        const asset = (args && args.asset) || null;
+        if (!projectId || !asset || !asset.id) throw new Error('需要 projectId 与 asset');
+        return writeAssetIndex(projectId, String((args && args.projectName) || ''), [asset]);
+      },
+      async assetIndexBulkPut(args) {
+        const items = Array.isArray(args && args.items) ? args.items : [];
+        const byProject = new Map();
+        for (const it of items) {
+          if (!it || !it.projectId || !it.asset || !it.asset.id) continue;
+          const key = String(it.projectId);
+          if (!byProject.has(key)) byProject.set(key, { name: String(it.projectName || key), list: [] });
+          byProject.get(key).list.push(it.asset);
+        }
+        let indexed = 0;
+        for (const [pid, { name, list }] of byProject) {
+          writeAssetIndex(pid, name, list);
+          indexed += list.length;
+        }
+        return { ok: true, indexed, projects: byProject.size };
+      },
+      // 一键迁移/对齐：旧 pid 文件夹 → 项目名文件夹 + 全部项目文档镜像
+      async dataRootMigrate() { return dataRootMigrate(); },
+      // 一键导入：换电脑后把数据目录拷过来 → 扫描 project.json/assets.json 合并进本机
+      async dataRootImport() { return dataRootImport(); },
       async pickFolder() {
         const r = await pickFolderDialog();
         return r; // { ok, path } | { ok:false, cancelled } | { ok:false, unsupported }
@@ -1628,7 +1886,9 @@ export function apply(ctx) {
             const root = dataRoot();
             if (!root) throw new Error('未设置数据根目录');
             const u = new URL(req.url, 'http://localhost');
-            const { abs, clean } = safeJoin(root, u.searchParams.get('rel') || '');
+            const rawRel = u.searchParams.get('rel') || '';
+            const rel = physicalRel(rawRel) || rawRel; // 逻辑路径（pid）→ 物理路径（项目名文件夹）
+            const { abs, clean } = safeJoin(root, rel);
             mkdirSync(path.dirname(abs), { recursive: true });
             let size = 0;
             const MAX_UPLOAD = 512 * 1024 * 1024; // 512MB 上限：避免无界写盘
@@ -1666,7 +1926,9 @@ export function apply(ctx) {
             const root = dataRoot();
             if (!root) { res.statusCode = 404; res.end('未设置数据根目录'); return; }
             const u = new URL(req.url, 'http://localhost');
-            const { abs } = safeJoin(root, u.searchParams.get('rel') || '');
+            const rawRel = u.searchParams.get('rel') || '';
+            const rel = physicalRel(rawRel) || rawRel; // 逻辑路径（pid）→ 物理路径（项目名文件夹）
+            const { abs } = safeJoin(root, rel);
             let st;
             try { st = statSync(abs); } catch { res.statusCode = 404; res.end('not found'); return; }
             if (!st.isFile()) { res.statusCode = 404; res.end('not found'); return; }
