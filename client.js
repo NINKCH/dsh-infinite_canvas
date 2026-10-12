@@ -34,7 +34,7 @@ window.__ModuleLoader__.load({
         outputs: [{ id: 'visual', kind: 'text' }, { id: 'motion', kind: 'text' }],
       },
       'script': { inputs: [], outputs: [{ id: 'out', kind: 'text' }] },
-      'storyboard': { inputs: [{ id: 'script', kind: 'text' }], outputs: [] },
+      'storyboard': { inputs: [{ id: 'script', kind: 'text' }], outputs: [{ id: 'out', kind: 'text' }] },
       'image-gen': {
         inputs: [{ id: 'prompt', kind: 'text' }, { id: 'ref', kind: 'image' }],
         outputs: [{ id: 'out', kind: 'image' }],
@@ -55,7 +55,7 @@ window.__ModuleLoader__.load({
     const CATEGORIES = ['character', 'scene', 'prop', 'script', 'storyboard', 'audio', 'finalcut', 'general'];
     const RATIOS = ['16:9', '9:16', '1:1', '4:3', '3:4', '21:9'];
     const IMAGE_SIZES = ['1K', '2K', '4K'];
-    const VIDEO_DURATIONS = [4, 5, 6, 8, 10];
+    const VIDEO_DURATIONS = [4, 5, 6, 8, 10, 12, 15];
     const VIDEO_RESOLUTIONS = ['480P', '720P', '1080P'];
 
     // ============================================================
@@ -248,7 +248,8 @@ window.__ModuleLoader__.load({
       'projectFilter': '项目',
       'allProjects': '全部项目',
       'currentProject': '当前项目',
-      'expandDone': '已铺开 {n} 个分镜到画布',
+      'expandDone': '已铺开为一次多镜头生成：{n} 镜合成为一条视频（时长 = 各镜之和）',
+      'multiShotHint': '多镜头模式：提示词由上游分镜表组合（全部镜头按顺序+时长合成一条提示词），一次性生成整段视频',
       'aiNeedScript': '分镜节点还没有剧本来源：连线上游剧本节点，或在节点里粘贴剧本',
       'upstreamStillRunning': '上游剧本节点还没生成完成（有连线时内容只从连线取）；等它完成后再生成分镜',
       'expandNoShots': '还没有分镜，请先 AI 生成',
@@ -575,7 +576,8 @@ window.__ModuleLoader__.load({
       'projectFilter': 'Project',
       'allProjects': 'All projects',
       'currentProject': 'Current project',
-      'expandDone': 'Expanded {n} shots onto the canvas',
+      'expandDone': 'Expanded to one multi-shot generation: {n} shots composed into a single video',
+      'multiShotHint': 'Multi-shot mode: the prompt is composed from the upstream storyboard (all shots, in order, with durations) and generated as one clip',
       'aiNeedScript': 'The storyboard has no script source: connect an upstream script node, or paste a script into the node',
       'upstreamStillRunning': 'The upstream script node is still generating (with a wire, content comes only from the wire); wait for it before splitting shots',
       'expandNoShots': 'No shots yet — run AI generation first',
@@ -2880,25 +2882,25 @@ window.__ModuleLoader__.load({
       const zh = effLang() !== 'en';
       const jsonContract = zh
         ? [
-            '把剧本拆解为用于「参考图生图 + 图生视频」管线的短剧分镜。',
-            '只输出一个 JSON 对象：{"shots":[{"title":"…","visual":"…","motion":"…","characters":["…"],"scene":"…","props":["…"],"duration":5}]}。',
+            '把剧本拆解为「多镜头一次性视频生成」的分镜脚本：铺开后由**一个视频生成节点**把全部镜头按顺序与时长写进同一条提示词，由视频模型一次性生成整段视频（镜头间由模型直接硬切，不是一镜一视频再拼接）。',
+            '只输出一个 JSON 对象：{"shots":[{"title":"…","visual":"…","motion":"…","characters":["…"],"scene":"…","props":["…"],"duration":3}]}。',
             '规则：',
-            '- visual 是首帧静态画面描述（景别、人物外观与站位、场景、光线、构图、机位，60 字内，写清可生成的细节），供图片生成当提示词；',
-            '- **visual 与 motion 里的角色/场景/道具必须写成 @名称 引用形式**（如 `@张山`、`@褶皱巷`），插件会自动带上该实体的设定描述与其参考图资产，保证跨镜跨集一致；',
-            '- motion 是本镜动作与运镜（主体动作节拍、机位运动方向与速度、情绪节奏，50 字内），供视频生成当提示词；两者不重复；',
+            '- visual 是本镜画面描述（景别、人物外观与站位、场景、光线、构图，60 字内）；',
+            '- **visual 与 motion 里的角色/场景/道具必须写成 @名称 引用形式**（如 `@张山`、`@褶皱巷`），插件会自动带上该实体的设定描述与其参考图资产，保证跨镜一致；',
+            '- motion 是本镜动作与运镜（主体动作节拍、机位运动方向与速度、情绪节奏，50 字内）；与 visual 不重复；',
             '- characters/scene/props 使用剧本与设定集中的名称（不带 @），便于匹配资产；无道具给空数组；',
-            '- duration 为该镜**成片时长**，1-3 的整数（短剧快节奏：一个镜头只拍一个动作；一个 10 秒的片段由 4-8 个分镜组成）；全部 duration 之和 ≈ 目标成片时长；',
+            '- duration 为该镜时长，2-5 的整数（一个镜头拍一个连续动作段落）；全部 duration 之和 = 目标视频总时长（如 15 秒 ≈ 4-7 镜）；镜头顺序即叙事顺序，首镜交代场景、末镜收束情绪；',
             '- 只输出 JSON，不要输出任何其他内容。',
           ].join('\n')
         : [
-            'Break the script into shots for a "reference-to-image first frame + image-to-video" pipeline.',
-            'Output only one JSON object: {"shots":[{"title":"…","visual":"…","motion":"…","characters":["…"],"scene":"…","props":["…"],"duration":5}]}.',
+            'Break the script into shots for ONE multi-shot video generation: after expansion, a single video-gen node composes ALL shots (in order, with durations) into one prompt, and the video model generates the whole clip in one call (hard cuts inside the model — not one video per shot stitched together).',
+            'Output only one JSON object: {"shots":[{"title":"…","visual":"…","motion":"…","characters":["…"],"scene":"…","props":["…"],"duration":3}]}.',
             'Rules:',
-            '- visual = static first-frame description (shot size, wardrobe, staging, light, framing, <=60 words) used as the image prompt;',
+            '- visual = the shot\'s frame description (shot size, wardrobe, staging, light, framing, <=60 words);',
             '- **characters/scenes/props inside visual and motion must be written as @name references** (e.g. `@ZhangSan`); the plugin then attaches that entity\'s bible description and reference images automatically;',
-            '- motion = action & camera for the video prompt (<=50 words); do not repeat visual;',
+            '- motion = action & camera for the shot (action beats, camera move, emotional rhythm, <=50 words); do not repeat visual;',
             '- characters/scene/props arrays must use plain names from the script and series bible (no @) so assets match; empty props array if none;',
-            '- duration is the EDIT seconds per shot, an integer 1-3 (fast short-drama pacing: one action per shot; a 10s clip is composed of 4-8 shots); sum of durations ~= target length;',
+            '- duration is the shot length in seconds, integer 2-5 (one continuous action beat per shot); the sum of durations = the target total video length (e.g. 15s ≈ 4-7 shots); shot order = narrative order; first shot establishes the scene, last shot lands the emotion;',
             '- Output JSON only.',
           ].join('\n');
       const methodology = await loadSkillRules(settings.skillStoryboard, zh)
@@ -2936,7 +2938,7 @@ window.__ModuleLoader__.load({
         characters: Array.isArray(s.characters) ? s.characters.map(String).slice(0, 6) : [],
         scene: String(s.scene || ''),
         props: Array.isArray(s.props) ? s.props.map(String).slice(0, 6) : [],
-        duration: Number.isFinite(Number(s.duration)) ? clamp(Math.round(Number(s.duration)), 3, 10) : 5,
+        duration: Number.isFinite(Number(s.duration)) ? clamp(Math.round(Number(s.duration)), 1, 15) : 3,
       }));
     }
     /** 本地一致性检查：分镜里出现的角色/场景/道具名是否都能在设定集或图片资产中找到。 */
@@ -3409,6 +3411,28 @@ window.__ModuleLoader__.load({
     }
 
     // 输入解析：生成节点的实际 prompt（文本节点 / 分镜节点的画面、动作输出）
+    /** 分镜表 → 一次多镜头视频生成的提示词：所有镜头按顺序、按时长写进同一条提示词，
+     *  由支持多镜头的视频模型**一次性生成整段视频**（而不是一镜一视频再拼接）。
+     *  各镜内的 @实体 引用原样保留，collectRefs 会自动挂上对应参考图资产。 */
+    function buildStoryboardVideoPrompt(sb) {
+      const shots = ((sb && sb.data && sb.data.shots) || []).filter((s) => s && (String(s.visual || '').trim() || String(s.motion || '').trim()));
+      if (!shots.length) return '';
+      const zh = effLang() !== 'en';
+      const total = shots.reduce((a, s) => a + Math.max(1, Number(s.duration) || 3), 0);
+      const lines = [
+        zh
+          ? `【多镜头一次性生成】共 ${shots.length} 镜、总时长 ${total} 秒。严格按下列顺序与时长切镜（每镜时长不可变），镜头之间直接硬切，不要叠加转场：`
+          : `[Multi-shot single generation] ${shots.length} shots, ${total}s total. Cut strictly in this order with exact per-shot durations, hard cuts only, no transitions:`,
+      ];
+      shots.forEach((s, i) => {
+        const dur = Math.max(1, Number(s.duration) || 3);
+        const parts = [];
+        if (String(s.visual || '').trim()) parts.push(String(s.visual).trim());
+        if (String(s.motion || '').trim()) parts.push((zh ? '运镜/动作：' : 'Camera/Action: ') + String(s.motion).trim());
+        lines.push((zh ? `镜头${i + 1}（${dur}s）：` : `Shot ${i + 1} (${dur}s): `) + parts.join(zh ? '；' : '; '));
+      });
+      return lines.join('\n');
+    }
     function resolvePrompt(n) {
       const e = S.graph.edges.find((x) => x.toNode === n.id && x.toPort === 'prompt');
       if (e) {
@@ -3419,6 +3443,11 @@ window.__ModuleLoader__.load({
             const field = e.fromPort === 'motion' ? 'motion' : 'visual';
             const v = (src.data[field] || '').trim();
             if (v) return v;
+          }
+          // 上游是分镜表 → 多镜头一次性生成：全部镜头组合成一条提示词（时长 = 各镜之和）
+          if (src.type === 'storyboard') {
+            const composed = buildStoryboardVideoPrompt(src);
+            if (composed) return composed;
           }
         }
       }
@@ -3540,7 +3569,7 @@ window.__ModuleLoader__.load({
       aiStreamClear(n.id);
       flushSave();
       try {
-        const shots = await aiStoryboardShots(st, n.data.requirement, n.data.count || 12, n.data.model, (kind, d) => aiStreamAppend(n.id, kind, d));
+        const shots = await aiStoryboardShots(st, n.data.requirement, n.data.count || 6, n.data.model, (kind, d) => aiStreamAppend(n.id, kind, d));
         const warnings = await checkShotConsistency(shots);
         update((s) => {
           const nd = s.graph.nodes[n.id];
@@ -4574,7 +4603,9 @@ window.__ModuleLoader__.load({
       const [showMask, setShowMask] = useState(false);
       const [showCraft, setShowCraft] = useState(false);
       useEffect(() => { probeCraft(); }, []);
-      const promptEdge = S.graph.edges.some((x) => x.toNode === n.id && x.toPort === 'prompt');
+      const promptEdge = S.graph.edges.find((x) => x.toNode === n.id && x.toPort === 'prompt');
+      const promptSrc = promptEdge && S.graph.nodes[promptEdge.fromNode];
+      const fromStoryboard = !!(promptSrc && promptSrc.type === 'storyboard');
       const refEdges = S.graph.edges.filter((x) => x.toNode === n.id && (kind === 'image' ? x.toPort === 'ref' : x.toPort === 'frame'));
       const vrCount = S.graph.edges.filter((x) => x.toNode === n.id && x.toPort === 'ref').length;
       const assetUrlV = useAssetUrl(n.data.assetId);
@@ -4582,7 +4613,7 @@ window.__ModuleLoader__.load({
         promptEdge
           ? h('textarea', {
               key: 'p', className: 'dshic-textarea', value: n.data.prompt || '',
-              placeholder: T('connected'), disabled: true,
+              placeholder: fromStoryboard ? T('multiShotHint') : T('connected'), disabled: true,
               onPointerDown: (e) => e.stopPropagation(),
             })
           : h(PromptArea, {
@@ -5001,8 +5032,8 @@ window.__ModuleLoader__.load({
         }),
         h('div', { key: 'row', className: 'dshic-node-row' },
           h(MiniSelect, {
-            value: String(n.data.count || 12), title: T('storyboardCountLabel'), width: 72,
-            options: [3, 6, 9, 12, 16, 20, 24, 30].map((x) => ({ value: String(x), label: x + ' ' + T('shotsUnit') })),
+            value: String(n.data.count || 6), title: T('storyboardCountLabel'), width: 72,
+            options: [3, 4, 6, 8, 10, 12, 16].map((x) => ({ value: String(x), label: x + ' ' + T('shotsUnit') })),
             onChange: (v) => update((s) => { const nd = s.graph.nodes[n.id]; if (nd) nd.data.count = Number(v); }),
           }),
           h('div', { className: 'dshic-flex' }),
@@ -5033,16 +5064,28 @@ window.__ModuleLoader__.load({
       ];
     }
 
-    // 分镜表 → 画布：每个分镜一份「分镜节点 + 图片生成(参考图) + 视频生成(首帧) + 视频资产」，
-    // 资产按名称匹配已有节点，缺失的生成待补充占位节点。
+    // 分镜表 → 画布（现代多镜头工作流）：**一个分镜表 = 一次视频生成**。
+    // 分镜表(镜头脚本)连到 1 个视频生成节点的 prompt 端口（运行时把全部镜头按顺序+时长组合成
+    // 一条多镜头提示词，一次性生成整段视频）；角色/场景/道具参考图按实体**跨镜去重**后连到 ref 端口；
+    // 视频生成 → 1 个视频资产。不再一镜一视频、无需拼接。
     async function expandStoryboard(n) {
       const shots = (n.data.shots || []).slice();
       if (!shots.length) { toast(T('expandNoShots')); return; }
       // 项目资产名称索引（用于把角色/场景/道具连接到已有资产节点）
       const recs = await idbByProject(S.activeId).catch(() => []);
-      const recById = new Map(recs.map((r) => [r.id, r]));
       const norm = (s) => String(s || '').trim().toLowerCase();
       const nameIndex = recs.filter((r) => r.kind === 'image').map((r) => ({ id: r.id, name: norm(r.name), category: r.category }));
+      // 跨镜去重的实体清单：所有镜头共用的角色/场景/道具各一个参考图节点
+      const entityNames = [];
+      const pushName = (nm) => {
+        const q = String(nm || '').trim();
+        if (q && !entityNames.some((x) => x.toLowerCase() === q.toLowerCase())) entityNames.push(q);
+      };
+      for (const sh of shots) {
+        (sh.characters || []).forEach(pushName);
+        if (sh.scene) pushName(sh.scene);
+        (sh.props || []).forEach(pushName);
+      }
       update((s) => {
         const findAssetNode = (name) => {
           const q = norm(name);
@@ -5061,49 +5104,30 @@ window.__ModuleLoader__.load({
           if (reaches(to.id, from.id)) return;
           s.graph.edges.push({ id: uid('e'), fromNode: from.id, fromPort: fp, toNode: to.id, toPort: tp });
         };
-        const baseX = n.x + n.w + 80;
-        const baseY = n.y - 60;
-        shots.forEach((shot, i) => {
-          const col = Math.floor(i / 4);
-          const row = i % 4;
-          const cx = baseX + col * 980;
-          const cy = baseY + row * 760;
-          const mk = (type, x, y, dataOver, label) => {
-            const nd = newNode(type, { x, y });
-            if (dataOver) nd.data = { ...nd.data, ...dataOver };
-            if (label) nd.data.label = label;
-            s.graph.nodes[nd.id] = nd;
-            return nd;
-          };
-          const shotNode = mk('shot', cx, cy, { visual: shot.visual, motion: shot.motion, editDuration: Math.max(1, Number(shot.duration) || 3) }, shot.title);
-          const imageGen = mk('image-gen', cx + 300, cy - 20, { prompt: shot.visual });
-          // 生成时长用 API 可接受值（≥3s，模型片段通常比分镜长）；成片按分镜的编辑时长裁剪
-          const genDur = Math.max(3, Math.min(10, Number(shot.duration) || 3));
-          const videoGen = mk('video-gen', cx + 300, cy + 300, { prompt: shot.motion, duration: genDur, editDuration: Math.max(1, Number(shot.duration) || 3) });
-          const videoAsset = mk('video-asset', cx + 600, cy + 300);
-          const wireRef = (names, port) => {
-            let plcRow = 0;
-            for (const nm of names) {
-              let an = findAssetNode(nm);
-              if (!an) {
-                an = mk('image-asset', cx - 300, cy - 40 + plcRow * 120, { placeholderName: nm });
-                plcRow++;
-              }
-              if (port) linkRaw(an, 'out', shotNode, port);
-              linkRaw(an, 'out', imageGen, 'ref');
-            }
-          };
-          wireRef(shot.characters, 'char');
-          if (shot.scene) wireRef([shot.scene], 'scene');
-          wireRef(shot.props, 'prop');
-          linkRaw(shotNode, 'visual', imageGen, 'prompt');
-          linkRaw(imageGen, 'out', videoGen, 'frame');
-          linkRaw(shotNode, 'motion', videoGen, 'prompt');
-          linkRaw(videoGen, 'out', videoAsset, 'in');
+        const mk = (type, x, y, dataOver, label) => {
+          const nd = newNode(type, { x, y });
+          if (dataOver) nd.data = { ...nd.data, ...dataOver };
+          if (label) nd.data.label = label;
+          s.graph.nodes[nd.id] = nd;
+          return nd;
+        };
+        const baseX = n.x + n.w + 140;
+        const baseY = n.y - 40;
+        // 生成时长 = 各镜时长之和（多镜头一次性生成的总时长），由视频模型内部切镜
+        const total = shots.reduce((a, sh) => a + Math.max(1, Number(sh.duration) || 3), 0);
+        const videoGen = mk('video-gen', baseX + 360, baseY + 20, { prompt: '', duration: Math.max(3, Math.min(20, total)) });
+        const videoAsset = mk('video-asset', baseX + 720, baseY + 20);
+        entityNames.forEach((nm, i) => {
+          let an = findAssetNode(nm);
+          if (!an) an = mk('image-asset', baseX, baseY + i * 130, { placeholderName: nm });
+          linkRaw(an, 'out', videoGen, 'ref');
         });
-        s.sel = new Set();
+        linkRaw(n, 'out', videoGen, 'prompt'); // 多镜头提示词来自上游分镜表（不复制文本）
+        linkRaw(videoGen, 'out', videoAsset, 'in');
+        s.sel = new Set([videoGen.id]);
       });
       pushHistory();
+      flushSave(); // 批量铺开立即推送，Host 侧立即可见
       toast(T('expandDone').replace('{n}', String(shots.length)));
       setTimeout(() => fitView(), 60);
     }

@@ -52,11 +52,20 @@ description: 用无限画布（Infinite Canvas）做短剧/视频创作时使用
    - `canvas_create_node({ projectId, type: 'storyboard', name: '第X节分镜表', connectFrom: 剧本节点id })`
      （connectFrom 创建即连线；不要传 prompt——内容来自连线的上游剧本节点）
    - 触发：`canvas_run_node({ projectId, nodeId })` → 轮询（画布基于连线的剧本拆解镜头）
-4. **生成角色/场景/道具参考图**：为设定集里的每个条目
+   - **【多镜头铁律】一个分镜表 = 一次视频生成**：分镜是"一次多镜头生成"的镜头脚本
+     （每镜 2-5 秒、各镜时长之和 = 目标视频总时长），不是"一镜一视频"。
+     现代视频模型支持多镜头模式：全部镜头按顺序+时长写进一条提示词，一次性生成整段视频，
+     镜头间由模型硬切。**绝不要为一个镜头单独建视频生成节点再拼接**。
+4. **视频生成节点**：多镜头提示词来自上游分镜表（连线取，不要复制）——
+   - `canvas_create_node({ projectId, type: 'video-gen', name: '第X节多镜头视频', connectFrom: 分镜表节点id, duration: 各镜时长之和 })`
+     （不传 connectFrom 且项目里已有分镜表时会自动连线；prompt 留空）
+   - 参考图：把角色/场景/道具参考图资产连到视频生成节点的 `ref` 端口（`canvas_connect`）；
+     提示词里的 `@引用` 命中的资产也会自动挂上
+   - 触发：`canvas_run_node` → 轮询；整段视频一次生成完成
+5. **生成角色/场景/道具参考图**：为设定集里的每个条目
    `canvas_create_node({ projectId, type: 'image-gen', name: '角色-张山 多视图', prompt: '按设定集写外观关键词' })`
    → `canvas_run_node({ projectId, nodeId })` 触发（画布用它配置的图片接口）
    - 需要补连任意两节点时用 `canvas_connect({ projectId, fromNode, toNode })`（端口类型必须匹配）
-5. **镜头图/视频** → `canvas_run_node`
 6. `canvas_open({ projectId })` —— 让用户看到画布结果
 
 ## 三、@引用与资产命名（跨集一致性的核心手法）
@@ -81,7 +90,7 @@ description: 用无限画布（Infinite Canvas）做短剧/视频创作时使用
 | 角色参考图/多视图 | `角色-<名称> <说明>` | `角色-张山 多视图`、`角色-张山 参考图` |
 | 场景参考图 | `场景-<名称>` | `场景-褶皱巷` |
 | 道具参考图 | `道具-<名称>` | `道具-火漆信` |
-| 分镜镜头图/视频 | `<集数>-<场次>-镜<N>` | `第1集-场3-镜2` |
+| 分镜表整段视频 | `<集数>-<场次> 多镜头视频` | `第1集-场3 多镜头视频` |
 
 生成角色/场景/道具参考图时，**用 `canvas_create_node` 的 `name` 直接写这个规范名**；
 插件会把资产记录绑定到对应实体（`entity` 字段），之后任何 `@名称` 都能精确取到它。
@@ -98,9 +107,9 @@ description: 用无限画布（Infinite Canvas）做短剧/视频创作时使用
 | 类型 | 用途 | 主要字段 |
 | --- | --- | --- |
 | `script` | 剧本 | `idea`＝创作意图/提示词，`output`＝剧本成稿 |
-| `storyboard` | 分镜表 | 由剧本拆镜头（画布内生成） |
+| `storyboard` | 分镜表（多镜头脚本） | 由剧本拆镜头（画布内生成）；一个分镜表对应一次视频生成 |
 | `image-gen` | 图片生成 | `prompt`＝画面提示词 |
-| `video-gen` | 视频生成 | `prompt`＝运动/画面提示词 |
+| `video-gen` | 视频生成（多镜头一次性生成） | 多镜头提示词来自上游分镜表连线；`duration`＝各镜时长之和 |
 | `text` | 自由文本 | `text` |
 
 ## 四、生成能力（必须真的产出内容）

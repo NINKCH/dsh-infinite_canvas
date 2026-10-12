@@ -689,7 +689,14 @@ function canvasCreateNode(args) {
     node = agentNode('text', '', pos.x, pos.y, label || '视频生成');
     node.type = 'video-gen';
     node.w = 280;
-    node.data = { ...node.data, status: 'idle', error: null, prompt, assetId: null, demo: false, duration: Number(args && args.duration) || 5, resolution: (args && args.resolution) || '720P', ratio: (args && args.ratio) || '16:9' };
+    // 多镜头工作流：未写 prompt 且项目里已有分镜表 → 自动连到最新分镜表
+    //（多镜头提示词从分镜表组合：全部镜头按顺序+时长合成一条提示词，一次性生成整段视频）
+    const sbs = Object.values(doc.nodes || {}).filter((n) => n.type === 'storyboard');
+    const autoSb = sbs.filter((n) => Array.isArray(n.data && n.data.shots) && n.data.shots.length).pop() || sbs[sbs.length - 1] || null;
+    const hasPrompt = Boolean(String(prompt || '').trim());
+    const autoConnectId = (!hasPrompt && autoSb) ? autoSb.id : '';
+    node.data = { ...node.data, status: 'idle', error: null, prompt: autoConnectId ? '' : prompt, assetId: null, demo: false, duration: Number(args && args.duration) || 5, resolution: (args && args.resolution) || '720P', ratio: (args && args.ratio) || '16:9' };
+    autoConnected = autoConnectId ? { from: autoConnectId, ignoredPrompt: false } : null;
   } else if (type === 'storyboard') {
     node = agentNode('text', '', pos.x, pos.y, label || '分镜表');
     node.type = 'storyboard';
@@ -700,7 +707,7 @@ function canvasCreateNode(args) {
     const scripts = Object.values(doc.nodes || {}).filter((n) => n.type === 'script');
     const autoScript = scripts.filter((n) => String((n.data && n.data.output) || '').trim()).pop() || scripts[scripts.length - 1] || null;
     const autoConnectId = connectFrom || (autoScript ? autoScript.id : '');
-    node.data = { ...node.data, status: 'idle', error: null, script: autoConnectId ? '' : prompt, requirement: String((args && args.requirement) || ''), count: Number(args && args.count) || 12, shots: [], aiStatus: 'idle', aiError: null, warnings: [] };
+    node.data = { ...node.data, status: 'idle', error: null, script: autoConnectId ? '' : prompt, requirement: String((args && args.requirement) || ''), count: Number(args && args.count) || 6, shots: [], aiStatus: 'idle', aiError: null, warnings: [] };
     autoConnected = autoConnectId ? { from: autoConnectId, ignoredPrompt: Boolean(prompt && autoConnectId) } : null;
   } else if (type === 'finalcut') {
     node = agentNode('text', '', pos.x, pos.y, label || '成片');
@@ -719,8 +726,8 @@ function canvasCreateNode(args) {
     if (!doc.nodes[connectFrom]) throw new Error('connectFrom 指向的节点不存在: ' + connectFrom);
     const edge = connectEdge(doc, connectFrom, node.id, args && args.connectFromPort, args && args.connectToPort);
     connected = edge.id;
-  } else if (type === 'storyboard' && autoConnected) {
-    // 未指定连线但项目里已有剧本 → 默认自动连线（工作流的默认形态，不依赖 Agent 记得）
+  } else if (autoConnected && (type === 'storyboard' || type === 'video-gen')) {
+    // 未指定连线但上游已存在（分镜表→剧本 / 视频生成→分镜表）→ 默认自动连线（工作流的默认形态，不依赖 Agent 记得）
     const edge = connectEdge(doc, autoConnected.from, node.id);
     connected = edge.id;
   }
@@ -808,7 +815,7 @@ const PORT_TABLE = {
   'text': { inputs: [], outputs: [{ id: 'out', kind: 'text' }] },
   'shot': { inputs: [{ id: 'char', kind: 'image' }, { id: 'scene', kind: 'image' }, { id: 'prop', kind: 'image' }], outputs: [{ id: 'visual', kind: 'text' }, { id: 'motion', kind: 'text' }] },
   'script': { inputs: [], outputs: [{ id: 'out', kind: 'text' }] },
-  'storyboard': { inputs: [{ id: 'script', kind: 'text' }], outputs: [] },
+  'storyboard': { inputs: [{ id: 'script', kind: 'text' }], outputs: [{ id: 'out', kind: 'text' }] },
   'image-gen': { inputs: [{ id: 'prompt', kind: 'text' }, { id: 'ref', kind: 'image' }], outputs: [{ id: 'out', kind: 'image' }] },
   'video-gen': { inputs: [{ id: 'prompt', kind: 'text' }, { id: 'frame', kind: 'image' }, { id: 'ref', kind: 'image' }], outputs: [{ id: 'out', kind: 'video' }, { id: 'last', kind: 'image' }] },
   'image-asset': { inputs: [{ id: 'in', kind: 'image' }], outputs: [{ id: 'out', kind: 'image' }] },

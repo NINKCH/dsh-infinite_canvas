@@ -302,12 +302,26 @@ try {
   if (!edge || edge.fromNode !== scriptNode.id || edge.toNode !== sb.nodeId || edge.toPort !== 'script') errs.push('连线未正确写入文档边');
   let mismatchBlocked = false;
   try { await byName.get('canvas_connect').execute({ projectId, fromNode: sb.nodeId, toNode: scriptNode.id }, {}); } catch { mismatchBlocked = true; }
-  if (!mismatchBlocked) errs.push('端口类型不匹配的连线未被拒绝（storyboard 无输出端口）');
+  if (!mismatchBlocked) errs.push('storyboard→script 连线未被拒绝（剧本节点没有输入端口）');
   // connectFrom：创建即连线（分镜表连到剧本节点）
   const sb2 = await byName.get('canvas_create_node').execute({ projectId, type: 'storyboard', name: '第二节分镜表', connectFrom: scriptNode.id }, {});
   const docCf = await mod._internals.projectsGet({ id: projectId });
   const cfEdge = (docCf.edges || []).find((e) => e.fromNode === scriptNode.id && e.toNode === sb2.nodeId && e.toPort === 'script');
   if (!cfEdge) errs.push('connectFrom 未在创建时自动连线');
+  // 多镜头工作流：video-gen 无 prompt + 项目里有分镜表 → 自动连到分镜表（优先有镜头的，多镜头提示词从连线取）
+  const vg = await byName.get('canvas_create_node').execute({ projectId, type: 'video-gen', name: '第二节多镜头视频' }, {});
+  const docVg = await mod._internals.projectsGet({ id: projectId });
+  const vgEdge = (docVg.edges || []).find((e) => e.toNode === vg.nodeId && e.toPort === 'prompt' && docVg.nodes[e.fromNode] && docVg.nodes[e.fromNode].type === 'storyboard');
+  if (!vgEdge) errs.push('video-gen 未自动连线到上游分镜表（多镜头一次性生成工作流失效）');
+  if (vgEdge && vgEdge.fromNode !== sb.nodeId) errs.push('video-gen 自动连线未优先选择有镜头的分镜表');
+  if (docVg.nodes[vg.nodeId] && String(docVg.nodes[vg.nodeId].data.prompt || '').trim()) errs.push('已连线的 video-gen 仍写入了 prompt（连线与提示词未二选一）');
+  // 显式 prompt 的 video-gen 不自动连线（尊重显式意图），但允许手动连分镜表（分镜表现在有文本输出口）
+  const vg2 = await byName.get('canvas_create_node').execute({ projectId, type: 'video-gen', name: '第二节单镜头视频', prompt: '固定镜头，猫跳上柜台' }, {});
+  const docVg2 = await mod._internals.projectsGet({ id: projectId });
+  const vg2Edge = (docVg2.edges || []).find((e) => e.toNode === vg2.nodeId && e.toPort === 'prompt');
+  if (vg2Edge) errs.push('显式 prompt 的 video-gen 被自动连线（应尊重显式意图）');
+  const connSbVg = await byName.get('canvas_connect').execute({ projectId, fromNode: sb2.nodeId, toNode: vg2.nodeId }, {});
+  if (!connSbVg || !connSbVg.edgeId) errs.push('分镜表 → 视频生成 连线被拒（storyboard 应有文本输出口）');
 } catch (e) {
   errs.push('剧本节点语义校验失败 → ' + ((e && e.message) || e));
 }
