@@ -121,11 +121,18 @@ function dataRoot() {
   const r = readIcConfig().dataRoot;
   return (typeof r === 'string' && r.trim()) ? path.resolve(r.trim()) : null;
 }
-/** 设定集字段规范化（世界观/风格 + 角色/场景/道具条目）。 */
+/** 设定集字段规范化（世界观/风格 + 角色/场景/道具条目，条目可携带链接资产 assetIds）。 */
 function normalizeBible(raw) {
   const b = (raw && typeof raw === 'object') ? raw : {};
   const arr = (v) => (Array.isArray(v) ? v : [])
-    .map((x) => ({ name: String((x && x.name) || '').slice(0, 60), desc: String((x && x.desc) || '').slice(0, 2000) }))
+    .map((x) => ({
+      name: String((x && x.name) || '').slice(0, 60),
+      desc: String((x && x.desc) || '').slice(0, 2000),
+      // 链接的资产 id（图片/音频/视频）：设定条目与可视化资产的绑定，@引用与参考图解析会用到
+      assetIds: Array.isArray(x && x.assetIds)
+        ? [...new Set(x.assetIds.map((a) => String(a || '').trim()).filter(Boolean))].slice(0, 20)
+        : [],
+    }))
     .filter((x) => x.name);
   return {
     worldview: String(b.worldview || '').slice(0, 8000),
@@ -634,11 +641,11 @@ function canvasCreateNode(args) {
     node = agentNode('text', '', pos.x, pos.y, label || '分镜表');
     node.type = 'storyboard';
     node.w = 360;
-    // 连线与提示词**二选一**：创建时若项目里已有剧本节点且未显式指定 connectFrom，
-    // 自动连线到最新的剧本节点；此时 prompt 会被忽略（内容从连线取，最多用 requirement 加额外要求）。
-    const autoScript = [...Object.values(doc.nodes || {})]
-      .filter((n) => n.type === 'script' && String((n.data && n.data.output) || '').trim())
-      .pop();
+    // 连线与提示词**二选一**：创建时项目里已有剧本节点（无论是否已生成完）→ 自动连线到最新剧本节点，
+    // 此时 prompt 被忽略（内容从连线取，最多用 requirement 加额外要求）。
+    // 工作流=先规划后执行：先把节点和连线建好，再逐步 canvas_run_node。
+    const scripts = Object.values(doc.nodes || {}).filter((n) => n.type === 'script');
+    const autoScript = scripts.filter((n) => String((n.data && n.data.output) || '').trim()).pop() || scripts[scripts.length - 1] || null;
     const autoConnectId = connectFrom || (autoScript ? autoScript.id : '');
     node.data = { ...node.data, status: 'idle', error: null, script: autoConnectId ? '' : prompt, requirement: String((args && args.requirement) || ''), count: Number(args && args.count) || 6, shots: [], aiStatus: 'idle', aiError: null, warnings: [] };
     autoConnected = autoConnectId ? { from: autoConnectId, ignoredPrompt: Boolean(prompt && autoConnectId) } : null;

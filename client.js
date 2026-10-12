@@ -378,6 +378,11 @@ window.__ModuleLoader__.load({
       'bibleDrafted': '已根据创作意图起草设定集，请检查后再生成本',
       'bibleDraftEmpty': '没能起草出设定集：请先在剧本/文本节点写点创作意图，或检查文本模型配置',
       'bibleOrderHint': '设定集先行：世界观/风格/角色/场景/道具先定好 → 生成剧本 → 为角色/场景/道具生成参考图 → 再拆解分镜',
+      'bibleLinkAssets': '链接资产',
+      'bibleLinkTitle': '链接资产到设定条目',
+      'bibleLinkHint': '勾选要绑定的图片/音频/视频（可多选）；@引用该条目时会优先把这些资产作为参考图',
+      'bibleLinkApply': '完成',
+      'kindAudio': '音频',
       'mentionRefs': '@引用命中',
       'mentionAssets': '可用参考图 {n} 张',
       'mentionNoAsset': '暂无参考图',
@@ -695,6 +700,11 @@ window.__ModuleLoader__.load({
       'bibleDrafted': 'Bible drafted from your intent — review it before generating the script',
       'bibleDraftEmpty': 'Nothing drafted: write some intent in a script/text node first, or check the text model',
       'bibleOrderHint': 'Bible first: set worldview/style/characters/scenes/props → generate the script → generate reference images → then break down the storyboard',
+      'bibleLinkAssets': 'Link assets',
+      'bibleLinkTitle': 'Link assets to this bible entry',
+      'bibleLinkHint': 'Pick images/audio/video to bind (multi-select); @mentions of this entry will use them as references first',
+      'bibleLinkApply': 'Done',
+      'kindAudio': 'Audio',
       'mentionRefs': '@mention hits',
       'mentionAssets': '{n} reference image(s) available',
       'mentionNoAsset': 'no reference image yet',
@@ -1218,14 +1228,17 @@ window.__ModuleLoader__.load({
     function entityCategoryOf(kind) {
       return kind === 'character' ? 'character' : kind === 'scene' ? 'scene' : kind === 'prop' ? 'prop' : 'general';
     }
-    /** 在设定集里按名称找实体（角色/场景/道具）。 */
+    /** 在设定集里按名称找实体（角色/场景/道具），携带其链接的资产 id。 */
     function matchBibleEntity(name, bible) {
       const want = String(name || '').trim().toLowerCase();
       if (!want) return null;
       for (const [kind, key] of [['character', 'characters'], ['scene', 'scenes'], ['prop', 'props']]) {
         for (const it of (bible && bible[key]) || []) {
           if (String((it && it.name) || '').trim().toLowerCase() === want) {
-            return { kind, name: String(it.name).trim(), desc: String((it.desc || '')).trim() };
+            return {
+              kind, name: String(it.name).trim(), desc: String((it.desc || '')).trim(),
+              assetIds: Array.isArray(it.assetIds) ? it.assetIds.map(String).filter(Boolean) : [],
+            };
           }
         }
       }
@@ -1271,7 +1284,9 @@ window.__ModuleLoader__.load({
     }
     // <<<MENTION_PURE_END>>>
 
-    /** 解析提示词里的 @引用：返回命中实体 + 其名下的参考图资产（按实体出现顺序、各实体内按生成时间）。 */
+    /** 解析提示词里的 @引用：返回命中实体 + 其名下的参考图资产（按实体出现顺序、各实体内按生成时间）。
+     *  实体的参考图来源：① 设定条目里**链接的资产**（assetIds，绑定关系优先）
+     *                  ② 其次按命名/实体字段匹配的资产（角色-张山 多视图 等）。 */
     async function resolveMentionBundle(prompt, bible, projectId) {
       const entities = [];
       for (const m of parseMentions(prompt)) {
@@ -1281,11 +1296,20 @@ window.__ModuleLoader__.load({
       if (!entities.length) return { entities: [], refs: [] };
       let all = [];
       try { all = await idbByProject(projectId); } catch { all = []; }
+      const byId = new Map(all.map((r) => [r.id, r]));
       const refs = [];
       for (const ent of entities) {
-        const owned = all
-          .filter((r) => r.kind === 'image' && assetBelongsToEntity(r, ent))
-          .sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
+        const owned = [];
+        // ① 条目链接的资产（绑定优先，任何类型都认；生成时只有图片能当参考图）
+        for (const aid of ent.assetIds || []) {
+          const rec = byId.get(aid);
+          if (rec && rec.kind === 'image') owned.push(rec);
+        }
+        // ② 命名/实体匹配的资产
+        for (const r of all) {
+          if (r.kind === 'image' && assetBelongsToEntity(r, ent) && !owned.some((x) => x.id === r.id)) owned.push(r);
+        }
+        owned.sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
         for (const r of owned) if (!refs.some((x) => x.assetId === r.id)) refs.push({ assetId: r.id, entity: ent.name, kind: ent.kind, name: r.name });
       }
       return { entities, refs };
@@ -6385,6 +6409,52 @@ window.__ModuleLoader__.load({
       return next;
     }
 
+    /** 设定条目 ↔ 资产绑定对话框：从当前项目的资产库里多选图片/音频/视频。 */
+    function BibleLinkDialog({ entry, onApply, onClose }) {
+      const [assets, setAssets] = useState(null);
+      const [picked, setPicked] = useState(() => new Set((entry.assetIds || []).map(String)));
+      const [q, setQ] = useState('');
+      useEffect(() => {
+        let ok = true;
+        (async () => {
+          try {
+            const all = await idbAll();
+            if (ok) setAssets(all.filter((a) => a.projectId === S.activeId && a.kind !== 'text'));
+          } catch { if (ok) setAssets([]); }
+        })();
+        return () => { ok = false; };
+      }, []);
+      const toggle = (id) => {
+        const next = new Set(picked);
+        if (next.has(id)) next.delete(id);
+        else next.add(id);
+        setPicked(next);
+      };
+      const list = (assets || []).filter((a) => !q.trim() || String(a.name || '').toLowerCase().includes(q.trim().toLowerCase()));
+      return h('div', { className: 'dshic-modal-overlay', onPointerDown: (e) => { if (e.target === e.currentTarget) onClose(); } },
+        h('div', { className: 'dshic-modal', style: { width: 360 } },
+          h('div', { className: 'dshic-modal-title' }, T('bibleLinkTitle') + ' — ' + (entry.name || '…')),
+          h('div', { className: 'dshic-hint' }, T('bibleLinkHint')),
+          h('input', { className: 'dshic-input', value: q, placeholder: T('searchLabel'), onChange: (e) => setQ(e.target.value), onPointerDown: (e) => e.stopPropagation() }),
+          h('div', { className: 'dshic-shot-list', style: { maxHeight: 260 } },
+            assets === null
+              ? h('div', { className: 'dshic-hint' }, T('aiRunning'))
+              : list.length === 0
+                ? h('div', { className: 'dshic-hint' }, T('emptyAssets'))
+                : list.map((a) => h('label', { key: a.id, className: 'dshic-row', style: { gap: 6, fontSize: 11, cursor: 'pointer' }, onPointerDown: (e) => e.stopPropagation(), onClick: () => toggle(a.id) },
+                    h('input', { type: 'checkbox', checked: picked.has(a.id), onChange: () => toggle(a.id), onPointerDown: (e) => e.stopPropagation() }),
+                    h('span', { className: 'dshic-tag st' }, a.kind === 'image' ? T('kindImage') : a.kind === 'video' ? T('kindVideo') : T('kindAudio')),
+                    h('span', { style: { flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, a.name || a.id),
+                  ))),
+          h('div', { className: 'dshic-modal-actions' },
+            h('button', { type: 'button', className: 'dshic-btn dshic-btn-outline', onClick: onClose }, T('cancel')),
+            h('button', {
+              type: 'button', className: 'dshic-btn',
+              onClick: () => onApply([...picked]),
+            }, T('bibleLinkApply') + (picked.size ? '（' + picked.size + '）' : ''))),
+        ));
+    }
+
     /** 项目设定集（Series Bible）：世界观 + 风格 + 角色/场景/道具卡，注入所有 AI 生成保证跨集一致。 */
     function BibleTab() {
       const [bible, setBible] = useState(() => loadBible(S.activeId));
@@ -6402,6 +6472,7 @@ window.__ModuleLoader__.load({
         } catch (e) { toast(String((e && e.message) || e)); }
         setBusy(false);
       };
+      const [linkFor, setLinkFor] = useState(null); // { key, index, entry } —— 正在编辑链接资产的设定条目
       const listEditor = (key, labelKey) => h('div', { className: 'dshic-card' },
         h('div', { className: 'dshic-row' },
           h('strong', { style: { fontSize: 12 } }, T(labelKey)),
@@ -6409,16 +6480,23 @@ window.__ModuleLoader__.load({
           h('button', {
             type: 'button', className: 'dshic-mini',
             onPointerDown: (e) => e.stopPropagation(),
-            onClick: () => persist({ ...bible, [key]: [...(bible[key] || []), { name: '', desc: '' }] }),
+            onClick: () => persist({ ...bible, [key]: [...(bible[key] || []), { name: '', desc: '', assetIds: [] }] }),
           }, Ic('plus', 11), T('bibleAdd')),
         ),
         ...(bible[key] || []).map((item, i) => h('div', { key: i, className: 'dshic-row' },
           h('input', {
-            className: 'dshic-input', style: { width: 84, flex: 'none' }, value: item.name || '',
+            className: 'dshic-input', style: { width: 76, flex: 'none' }, value: item.name || '',
             placeholder: T('bibleNamePh'),
             onChange: (e) => { const arr = [...bible[key]]; arr[i] = { ...arr[i], name: e.target.value }; persist({ ...bible, [key]: arr }); },
             onPointerDown: (e) => e.stopPropagation(),
           }),
+          // 链接资产栏：把该条目绑定到资产库的图片/音频/视频（多选），@引用与参考图解析会优先用它
+          h('button', {
+            type: 'button', className: cls('dshic-mini', (item.assetIds || []).length && 'is-active'),
+            title: T('bibleLinkAssets'),
+            onPointerDown: (e) => e.stopPropagation(),
+            onClick: () => setLinkFor({ key, index: i, entry: item }),
+          }, Ic('image', 11), (item.assetIds || []).length ? ' ' + item.assetIds.length : ''),
           h('input', {
             className: 'dshic-input', style: { flex: 1, minWidth: 0 }, value: item.desc || '',
             placeholder: T('bibleDescPh'),
@@ -6431,6 +6509,17 @@ window.__ModuleLoader__.load({
             onClick: () => { const arr = [...bible[key]]; arr.splice(i, 1); persist({ ...bible, [key]: arr }); },
           }, '✕'),
         )),
+        linkFor && linkFor.key === key
+          ? h(BibleLinkDialog, {
+              key: 'link', entry: linkFor.entry, onClose: () => setLinkFor(null),
+              onApply: (assetIds) => {
+                const arr = [...bible[key]];
+                arr[linkFor.index] = { ...arr[linkFor.index], assetIds };
+                persist({ ...bible, [key]: arr });
+                setLinkFor(null);
+              },
+            })
+          : null,
       );
       return [
         h('div', { key: 'proj', className: 'dshic-hint' },

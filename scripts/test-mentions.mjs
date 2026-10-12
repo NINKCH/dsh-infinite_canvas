@@ -44,7 +44,9 @@ if (!hl.includes('&lt;script&gt;')) errs.push('高亮未转义 HTML（存在注�
 if (hl.includes('<script>')) errs.push('高亮输出含未转义的原始标签');
 
 // 4) 设定集匹配（大小写不敏感）
-eq(api.matchBibleEntity('张山', bible), { kind: 'character', name: '张山', desc: '40 岁，短发，深灰风衣' }, '匹配角色');
+eq(api.matchBibleEntity('张山', bible).kind, 'character', '匹配角色');
+eq(api.matchBibleEntity('张山', bible).name, '张山', '匹配角色名称');
+eq(api.matchBibleEntity('张山', bible).assetIds.length, 0, '无链接资产时 assetIds 为空');
 eq(api.matchBibleEntity('褶皱巷', bible).kind, 'scene', '匹配场景');
 eq(api.matchBibleEntity('火漆信', bible).kind, 'prop', '匹配道具');
 eq(api.matchBibleEntity('不存在的人', bible), null, '未命中返回 null');
