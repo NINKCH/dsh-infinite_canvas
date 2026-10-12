@@ -382,6 +382,7 @@ window.__ModuleLoader__.load({
       'bibleLinkTitle': '链接资产到设定条目',
       'bibleLinkHint': '勾选要绑定的图片/音频/视频（可多选）；@引用该条目时会优先把这些资产作为参考图',
       'bibleLinkApply': '完成',
+      'bibleAutoAdd': '已把 {n} 个新元素补进设定集（描述待补充）',
       'kindAudio': '音频',
       'mentionRefs': '@引用命中',
       'mentionAssets': '可用参考图 {n} 张',
@@ -704,6 +705,7 @@ window.__ModuleLoader__.load({
       'bibleLinkTitle': 'Link assets to this bible entry',
       'bibleLinkHint': 'Pick images/audio/video to bind (multi-select); @mentions of this entry will use them as references first',
       'bibleLinkApply': 'Done',
+      'bibleAutoAdd': 'Added {n} new entries to the bible (descriptions pending)',
       'kindAudio': 'Audio',
       'mentionRefs': '@mention hits',
       'mentionAssets': '{n} reference image(s) available',
@@ -2924,6 +2926,36 @@ window.__ModuleLoader__.load({
       }
       return warnings.slice(0, 12);
     }
+    /** 分镜生成后：把设定集里没有的角色/场景/道具自动补进设定集（描述留空待用户补充）。 */
+    async function autoRegisterBibleEntries(shots) {
+      const bible = loadBible(S.activeId);
+      const known = new Set();
+      const addName = (n) => { const q = String(n || '').trim().toLowerCase(); if (q) known.add(q); };
+      (bible.characters || []).forEach((c) => addName(c.name));
+      (bible.scenes || []).forEach((c) => addName(c.name));
+      (bible.props || []).forEach((c) => addName(c.name));
+      try { (await idbByProject(S.activeId)).forEach((r) => addName(r.name)); } catch { /* 忽略 */ }
+      const next = { characters: [...bible.characters], scenes: [...bible.scenes], props: [...bible.props] };
+      let added = 0;
+      const push = (kind, name) => {
+        const q = String(name || '').trim();
+        if (!q) return;
+        const ql = q.toLowerCase();
+        if ([...known].some((k) => k.includes(ql) || ql.includes(k))) return;
+        known.add(ql);
+        next[kind].push({ name: q, desc: '', assetIds: [] });
+        added++;
+      };
+      for (const sh of shots) {
+        (sh.characters || []).forEach((n) => push('characters', n));
+        push('scenes', sh.scene);
+        (sh.props || []).forEach((n) => push('props', n));
+      }
+      if (added) {
+        saveBible(S.activeId, { ...bible, ...next });
+        toast(T('bibleAutoAdd').replace('{n}', String(added)));
+      }
+    }
     async function saveTextAssetRecord(projectId, meta) {
       const rec = {
         id: uid('a'), projectId, kind: 'text',
@@ -3465,6 +3497,8 @@ window.__ModuleLoader__.load({
           if (nd) { nd.data.shots = shots; nd.data.aiStatus = 'idle'; nd.data.warnings = warnings; nd.data.status = 'done'; nd.data.error = null; }
           s.assetsTick++;
         });
+        // 分镜里出现的新角色/场景/道具 → 自动补进设定集（描述留空待补充），保证设定集始终是唯一事实源
+        try { await autoRegisterBibleEntries(shots); } catch { /* 补录失败不影响分镜 */ }
         await saveTextAssetRecord(S.activeId, {
           name: T('storyboardAssetPrefix') + new Date().toISOString().slice(5, 16).replace('T', ' '),
           text: shots.map((x) => `【${x.title}】${x.duration}s\n画面：${x.visual}\n动作：${x.motion}\n角色：${x.characters.join('、') || '-'}｜场景：${x.scene || '-'}｜道具：${x.props.join('、') || '-'}`).join('\n\n'),
@@ -6643,6 +6677,39 @@ window.__ModuleLoader__.load({
       useEffect(() => subscribe(() => force((x) => x + 1)), []);
       return S;
     }
+    // 错误边界：任何渲染期崩溃都不再白屏——显示错误与堆栈 + 重载按钮（用户可直接把内容发回来修）
+    const BoundaryBase = (React && React.Component) ? React.Component : class {}; // 冒烟桩 React 没有 Component，兜底
+    class PanelErrorBoundary extends BoundaryBase {
+      constructor(props) {
+        super(props);
+        this.state = { error: null };
+      }
+      static getDerivedStateFromError(error) {
+        return { error: error || new Error('未知渲染错误') };
+      }
+      componentDidCatch(error, info) {
+        try { console.error('[infinite-canvas] 渲染错误', error, info && info.componentStack); } catch { /* 忽略 */ }
+      }
+      render() {
+        if (!this.state.error) return this.props.children;
+        const msg = String(this.state.error && this.state.error.message || this.state.error);
+        const stack = String(this.state.error && this.state.error.stack || '').split('\n').slice(0, 6).join('\n');
+        return h('div', { style: { padding: 24, color: 'var(--dsw-alias-state-error-primary, #e5544b)', fontSize: 13, lineHeight: 20, whiteSpace: 'pre-wrap', userSelect: 'text' } },
+          h('div', { style: { fontWeight: 700, marginBottom: 8 } }, '⚠ 画布界面出现了一个渲染错误（已拦截，不会丢失已保存的数据）'),
+          h('div', { style: { marginBottom: 8 } }, msg),
+          stack ? h('div', { style: { fontSize: 11, color: 'var(--dsw-alias-label-secondary)', marginBottom: 12, userSelect: 'text' } }, stack) : null,
+          h('button', {
+            type: 'button', className: 'dshic-btn',
+            onClick: () => { this.setState({ error: null }); },
+          }, '恢复界面'),
+          h('button', {
+            type: 'button', className: 'dshic-btn', style: { marginLeft: 8 },
+            onClick: () => { try { window.location.reload(); } catch { /* 忽略 */ } },
+          }, '重载页面'),
+        );
+      }
+    }
+
     function CanvasPage() {
       useApp();
       const rootRef = useRef(null);
@@ -6852,11 +6919,16 @@ window.__ModuleLoader__.load({
           label: () => T('panel'),
           locale: NS,
         }, PanelIcon));
+        // 面板根：包一层错误边界——任何渲染期崩溃都不再白屏，而是显示可复制的错误卡片
+        PanelErrorBoundary.__dshicClass = true; // 冒烟 walker 标记
+    function PanelRoot() {
+          return h(PanelErrorBoundary, null, h(CanvasPage));
+        }
         ctx.slots.inject('main', () => ctx.slots.register({
           name: 'main',
           key: PANEL_ID,
           locale: NS,
-        }, CanvasPage));
+        }, PanelRoot));
         // 冒烟测试专用缝隙（仅在 smoke-render.mjs 设置了该标记时存在）：
         // 直接暴露各页签组件与同步入口，让测试能逐个渲染/驱动，抓白屏与同步断链问题
         if (typeof window !== 'undefined' && window.__DSH_IC_SMOKE__) {

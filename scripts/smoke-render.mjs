@@ -164,7 +164,12 @@ function walkEl(el, label, depth) {
   if (Array.isArray(el)) { for (const c of el) walkEl(c, label, depth); return; }
   if (typeof el !== 'object' || !el.__el) return;
   const { type, props } = el;
-  if (typeof type === 'function') { walk(type, props, `${type.name || 'anon'} <${label}>`, depth + 1); return; }
+  if (typeof type === 'function') {
+    // 类组件（错误边界等）无法用假 React 无 new 调用：只走其 children，跳过组件本身
+    if (type.__dshicClass) { walkEl(props.children, label, depth); return; }
+    walk(type, props, `${type.name || 'anon'} <${label}>`, depth + 1);
+    return;
+  }
   walkEl(props.children, label, depth);
 }
 
