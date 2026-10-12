@@ -15,6 +15,7 @@ window.__ModuleLoader__.load({
     const LS_GRAPH = 'dsh-ic:graph:';
     const LS_SETTINGS = 'dsh-ic:settings';
     const DB_NAME = 'dsh-infinite-canvas';
+    const GENERAL_PID = 'general'; // 通用项目：多项目共用的资产挂在这里
     const DB_STORE = 'assets';
     const NODE_W = 240;
     const CRAFT_SKILL = 'canvas-craft'; // 内置创作方法论技能（未选技能时默认注入）
@@ -382,6 +383,10 @@ window.__ModuleLoader__.load({
       'bibleLinkTitle': '链接资产到设定条目',
       'bibleLinkHint': '勾选要绑定的图片/音频/视频（可多选）；@引用该条目时会优先把这些资产作为参考图',
       'bibleLinkApply': '完成',
+      'generalProject': '通用项目',
+      'moved': '已移动到指定项目',
+      'pagePrev': '上一页',
+      'pageNext': '下一页',
       'bibleAutoAdd': '已把 {n} 个新元素补进设定集（描述待补充）',
       'kindAudio': '音频',
       'mentionRefs': '@引用命中',
@@ -705,6 +710,10 @@ window.__ModuleLoader__.load({
       'bibleLinkTitle': 'Link assets to this bible entry',
       'bibleLinkHint': 'Pick images/audio/video to bind (multi-select); @mentions of this entry will use them as references first',
       'bibleLinkApply': 'Done',
+      'generalProject': 'General',
+      'moved': 'Moved to the target project',
+      'pagePrev': 'Prev page',
+      'pageNext': 'Next page',
       'bibleAutoAdd': 'Added {n} new entries to the bible (descriptions pending)',
       'kindAudio': 'Audio',
       'mentionRefs': '@mention hits',
@@ -915,6 +924,10 @@ window.__ModuleLoader__.load({
 .dshic-asset-name-text{flex:1;min-width:0;font-size:11px;line-height:15px;color:var(--dsw-alias-label-primary);
   overflow:hidden;text-overflow:ellipsis;white-space:nowrap;user-select:text;-webkit-user-select:text;}
 .dshic-asset-name .dshic-input{height:24px;font-size:11px;padding:0 6px;}
+/* 资产所属项目下拉：改到通用/其它项目（多项目共用） */
+.dshic-asset-project{width:100%;box-sizing:border-box;height:22px;margin:0 0 6px;border:1px solid var(--dsw-alias-border-l2);
+  border-radius:6px;background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-secondary);font:inherit;font-size:10px;
+  padding:0 5px;outline:none;cursor:pointer;text-align:left;}
 .dshic-asset-actions .dshic-iconbtn{width:20px;height:20px;background:color-mix(in srgb,var(--dsw-alias-bg-base) 70%,transparent);
   color:var(--dsw-alias-label-primary);backdrop-filter:blur(4px);}
 .dshic-field{display:flex;flex-direction:column;gap:3px;}
@@ -1297,7 +1310,7 @@ window.__ModuleLoader__.load({
       }
       if (!entities.length) return { entities: [], refs: [] };
       let all = [];
-      try { all = await idbByProject(projectId); } catch { all = []; }
+      try { all = (await idbByProject(projectId)).concat(await idbByProject(GENERAL_PID)); } catch { all = []; }
       const byId = new Map(all.map((r) => [r.id, r]));
       const refs = [];
       for (const ent of entities) {
@@ -2906,7 +2919,7 @@ window.__ModuleLoader__.load({
       (bible.scenes || []).forEach((c) => addName(c.name));
       (bible.props || []).forEach((c) => addName(c.name));
       try {
-        const recs = await idbByProject(S.activeId);
+        const recs = (await idbByProject(S.activeId)).concat(await idbByProject(GENERAL_PID));
         recs.forEach((r) => addName(r.name));
       } catch { /* 忽略 */ }
       const warnings = [];
@@ -2934,7 +2947,7 @@ window.__ModuleLoader__.load({
       (bible.characters || []).forEach((c) => addName(c.name));
       (bible.scenes || []).forEach((c) => addName(c.name));
       (bible.props || []).forEach((c) => addName(c.name));
-      try { (await idbByProject(S.activeId)).forEach((r) => addName(r.name)); } catch { /* 忽略 */ }
+      try { ((await idbByProject(S.activeId)).concat(await idbByProject(GENERAL_PID))).forEach((r) => addName(r.name)); } catch { /* 忽略 */ }
       const next = { characters: [...bible.characters], scenes: [...bible.scenes], props: [...bible.props] };
       let added = 0;
       const push = (kind, name) => {
@@ -5602,7 +5615,12 @@ window.__ModuleLoader__.load({
       const [assets, setAssets] = useState([]);
       const [tick, setTick] = useState(0);
       const [filter, setFilter] = useState('all');
-      const [scope, setScope] = useState('current');
+      const [scope, setScope] = useState(S.activeId || 'all'); // 打开资产面板默认定位到当前项目
+      const prevActiveRef = useRef(S.activeId);
+      useEffect(() => {
+        // 当前项目变化时，资产筛选跟随（面板重开也会重置为当前项目）
+        if (S.activeId && S.activeId !== prevActiveRef.current) { prevActiveRef.current = S.activeId; setScope(S.activeId); }
+      }, [S.activeId]);
       const [search, setSearch] = useState('');
       const [craftFor, setCraftFor] = useState(null);
       const [delTarget, setDelTarget] = useState(null); // 待确认删除的资产（确认框见 DeleteAssetModal）
@@ -5613,15 +5631,29 @@ window.__ModuleLoader__.load({
         let ok = true;
         (async () => {
           try {
-            const list = scope === 'current' ? await idbByProject(S.activeId) : await idbAll();
+            let list;
+            if (scope === 'all') list = await idbAll();
+            else list = (await idbAll()).filter((a) => a.projectId === scope || a.projectId === GENERAL_PID);
             if (ok) setAssets(list);
           } catch { if (ok) setAssets([]); }
         })();
         return () => { ok = false; };
       }, [S.activeId, tick, S.assetsTick, scope]);
       const projectName = (pid) => {
+        if (pid === GENERAL_PID) return T('generalProject');
         const p = S.projects.find((x) => x.id === pid);
         return p ? p.name : '';
+      };
+      /** 资产改所属项目（通用/其它项目）：通用资产多项目共用。 */
+      const moveAsset = async (a, targetPid) => {
+        if (!targetPid || targetPid === (a.projectId || '')) return;
+        const rec = await idbGet(a.id);
+        if (!rec) return;
+        rec.projectId = targetPid;
+        await idbPut(rec);
+        update((s) => { s.assetsTick++; });
+        setTick((x) => x + 1);
+        toast(T('moved'));
       };
       const addNodeFor = (a) => {
         if (a.kind === 'audio') return; // 音频资产在卡片内直接试听
@@ -5692,7 +5724,7 @@ window.__ModuleLoader__.load({
         toast(T('craftSyncDone').replace('{ok}', String(okN)).replace('{fail}', String(failN)));
       };
       const shown = assets.filter((a) => {
-        if (scope !== 'all' && scope !== 'current' && a.projectId !== scope) return false;
+        if (scope !== 'all' && scope !== GENERAL_PID && a.projectId !== scope && a.projectId !== GENERAL_PID) return false;
         if (filter !== 'all' && (a.category || 'general') !== filter) return false;
         if (!q) return true;
         const hay = [
@@ -5718,8 +5750,8 @@ window.__ModuleLoader__.load({
         }),
         h(MiniSelect, {
           key: 'scope', value: scope, title: T('projectFilter'),
-          options: [{ value: 'current', label: T('currentProject') }, { value: 'all', label: T('allProjects') }]
-            .concat(S.projects.filter((p) => p.id !== S.activeId).map((p) => ({ value: p.id, label: p.name }))),
+          options: [{ value: 'all', label: T('allProjects') }, { value: GENERAL_PID, label: T('generalProject') }]
+            .concat(S.projects.map((p) => ({ value: p.id, label: p.name }))),
           onChange: (v) => setScope(v),
         }),
         h('button', { key: 'craftsync', type: 'button', className: 'dshic-mini', style: { alignSelf: 'flex-start' }, disabled: !craftOkCached(), title: craftOkCached() ? T('craftSyncAll') : T('craftUnreachable'), onClick: syncAll, onPointerDown: (e) => e.stopPropagation() }, Ic('upload', 11), T('craftSyncAll')),
@@ -5730,8 +5762,8 @@ window.__ModuleLoader__.load({
           : h('div', { key: 'grid', className: 'dshic-asset-grid' },
               shown.map((a) => h(AssetCard, {
                 key: a.id, a, onAdd: addNodeFor, onDel: (x) => setDelTarget(x), onCat: changeCategory,
-                onRename: rename,
-                showProject: scope !== 'current', projectName: projectName(a.projectId),
+                onRename: rename, onMove: moveAsset,
+                projectName: projectName(a.projectId),
               })),
             ),
         delTarget ? h(DeleteAssetModal, {
@@ -5774,7 +5806,7 @@ window.__ModuleLoader__.load({
         ));
     }
 
-    function AssetCard({ a, onAdd, onDel, onCat, onRename, showProject, projectName }) {
+    function AssetCard({ a, onAdd, onDel, onCat, onRename, onMove, projectName }) {
       const url = useAssetUrl(a.kind === 'text' ? null : a.id);
       const [craftFor, setCraftFor] = useState(false);
       const [renaming, setRenaming] = useState(false);
@@ -5821,6 +5853,18 @@ window.__ModuleLoader__.load({
               renaming ? nameInput : h('span', { className: 'dshic-asset-name-text', title: a.name || '' }, a.name || '—'),
               renameBtn)
           : null,
+        a.kind !== 'text'
+          ? h('select', {
+              className: 'dshic-asset-project', title: T('projectFilter'),
+              value: a.projectId || GENERAL_PID,
+              onClick: (e) => e.stopPropagation(),
+              onPointerDown: (e) => e.stopPropagation(),
+              onChange: (e) => { e.stopPropagation(); onMove(a, e.target.value); },
+            },
+              h('option', { value: GENERAL_PID }, T('generalProject')),
+              S.projects.map((pp) => h('option', { key: pp.id, value: pp.id }, pp.name)),
+            )
+          : null,
         h('div', { className: 'dshic-asset-actions' },
           a.kind === 'image'
             ? h('button', {
@@ -5859,7 +5903,6 @@ window.__ModuleLoader__.load({
             onChange: (e) => { e.stopPropagation(); onCat(a, e.target.value); },
           },
             CATEGORIES.map((c) => h('option', { key: c, value: c }, catLabel(c)))),
-          showProject && a.projectId && a.kind !== 'text' ? h('span', { className: 'dshic-projchip', title: projectName }, projectName) : null,
           h('div', { style: { flex: 1 } }),
           h('span', {}, fmtTime(a.createdAt))),
         craftFor ? h(PhotoCraftDialog, { key: 'pc', assetId: a.id, onClose: () => setCraftFor(false) }) : null,
@@ -6446,16 +6489,33 @@ window.__ModuleLoader__.load({
     }
 
     /** 设定条目 ↔ 资产绑定对话框：从当前项目的资产库里多选图片/音频/视频。 */
+    /** 绑定对话框的资产行：组件化以便用 useAssetUrl 显示缩略图。 */
+    function AssetPickRow({ a, checked, onToggle }) {
+      const url = useAssetUrl(a.kind === 'image' ? a.id : null);
+      return h('label', { className: 'dshic-row', style: { gap: 6, fontSize: 11, cursor: 'pointer', alignItems: 'center' }, onPointerDown: (e) => e.stopPropagation(), onClick: () => onToggle() },
+        h('input', { type: 'checkbox', checked, onChange: () => onToggle(), onPointerDown: (e) => e.stopPropagation() }),
+        a.kind === 'image' && url
+          ? h('img', { src: url, style: { width: 26, height: 26, objectFit: 'cover', borderRadius: 4, flex: 'none' }, draggable: false })
+          : h('span', { className: 'dshic-tag st', style: { flex: 'none' } }, a.kind === 'video' ? T('kindVideo') : T('kindAudio')),
+        h('span', { style: { flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, a.name || a.id),
+        a.projectId === GENERAL_PID ? h('span', { className: 'dshic-projchip' }, T('generalProject')) : null,
+      );
+    }
+
+    /** 设定条目 ↔ 资产绑定对话框：项目可切换、搜索、分页（资产会越来越多）。 */
     function BibleLinkDialog({ entry, onApply, onClose }) {
+      const PAGE_SIZE = 24;
       const [assets, setAssets] = useState(null);
       const [picked, setPicked] = useState(() => new Set((entry.assetIds || []).map(String)));
       const [q, setQ] = useState('');
+      const [scope, setScope] = useState(S.activeId || 'all');
+      const [page, setPage] = useState(0);
       useEffect(() => {
         let ok = true;
         (async () => {
           try {
             const all = await idbAll();
-            if (ok) setAssets(all.filter((a) => a.projectId === S.activeId && a.kind !== 'text'));
+            if (ok) setAssets(all.filter((a) => a.kind !== 'text'));
           } catch { if (ok) setAssets([]); }
         })();
         return () => { ok = false; };
@@ -6466,22 +6526,41 @@ window.__ModuleLoader__.load({
         else next.add(id);
         setPicked(next);
       };
-      const list = (assets || []).filter((a) => !q.trim() || String(a.name || '').toLowerCase().includes(q.trim().toLowerCase()));
+      const ql = q.trim().toLowerCase();
+      const scoped = (assets || []).filter((a) => {
+        if (scope === GENERAL_PID) return a.projectId === GENERAL_PID;
+        if (scope === 'all') return true;
+        return a.projectId === scope || a.projectId === GENERAL_PID; // 项目视图含通用资产（多项目共用）
+      });
+      const list = scoped.filter((a) => !ql || String(a.name || '').toLowerCase().includes(ql));
+      const pages = Math.max(1, Math.ceil(list.length / PAGE_SIZE));
+      const pageSafe = Math.min(page, pages - 1);
+      const pageItems = list.slice(pageSafe * PAGE_SIZE, pageSafe * PAGE_SIZE + PAGE_SIZE);
       return h('div', { className: 'dshic-modal-overlay', onPointerDown: (e) => { if (e.target === e.currentTarget) onClose(); } },
-        h('div', { className: 'dshic-modal', style: { width: 360 } },
+        h('div', { className: 'dshic-modal', style: { width: 560 } },
           h('div', { className: 'dshic-modal-title' }, T('bibleLinkTitle') + ' — ' + (entry.name || '…')),
           h('div', { className: 'dshic-hint' }, T('bibleLinkHint')),
-          h('input', { className: 'dshic-input', value: q, placeholder: T('searchLabel'), onChange: (e) => setQ(e.target.value), onPointerDown: (e) => e.stopPropagation() }),
-          h('div', { className: 'dshic-shot-list', style: { maxHeight: 260 } },
+          h('div', { className: 'dshic-node-row' },
+            h(MiniSelect, {
+              value: scope, title: T('projectFilter'), width: 150,
+              options: [{ value: 'all', label: T('allProjects') }, { value: GENERAL_PID, label: T('generalProject') }]
+                .concat(S.projects.map((pp) => ({ value: pp.id, label: pp.name }))),
+              onChange: (v) => { setScope(v); setPage(0); },
+            }),
+            h('input', { className: 'dshic-input', style: { flex: 1 }, value: q, placeholder: T('searchLabel'), onChange: (e) => { setQ(e.target.value); setPage(0); }, onPointerDown: (e) => e.stopPropagation() }),
+          ),
+          h('div', { className: 'dshic-shot-list', style: { maxHeight: 420 } },
             assets === null
               ? h('div', { className: 'dshic-hint' }, T('aiRunning'))
-              : list.length === 0
+              : pageItems.length === 0
                 ? h('div', { className: 'dshic-hint' }, T('emptyAssets'))
-                : list.map((a) => h('label', { key: a.id, className: 'dshic-row', style: { gap: 6, fontSize: 11, cursor: 'pointer' }, onPointerDown: (e) => e.stopPropagation(), onClick: () => toggle(a.id) },
-                    h('input', { type: 'checkbox', checked: picked.has(a.id), onChange: () => toggle(a.id), onPointerDown: (e) => e.stopPropagation() }),
-                    h('span', { className: 'dshic-tag st' }, a.kind === 'image' ? T('kindImage') : a.kind === 'video' ? T('kindVideo') : T('kindAudio')),
-                    h('span', { style: { flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, a.name || a.id),
-                  ))),
+                : pageItems.map((a) => h(AssetPickRow, { key: a.id, a, checked: picked.has(a.id), onToggle: () => toggle(a.id) }))),
+          h('div', { className: 'dshic-node-row' },
+            h('button', { type: 'button', className: 'dshic-mini', disabled: pageSafe <= 0, onClick: () => setPage(pageSafe - 1), onPointerDown: (e) => e.stopPropagation() }, '‹ ' + T('pagePrev')),
+            h('span', { style: { fontSize: 11, color: 'var(--dsw-alias-label-secondary)' } }, (pageSafe + 1) + ' / ' + pages + ' · ' + list.length),
+            h('button', { type: 'button', className: 'dshic-mini', disabled: pageSafe >= pages - 1, onClick: () => setPage(pageSafe + 1), onPointerDown: (e) => e.stopPropagation() }, T('pageNext') + ' ›'),
+            h('div', { className: 'dshic-flex' }),
+          ),
           h('div', { className: 'dshic-modal-actions' },
             h('button', { type: 'button', className: 'dshic-btn dshic-btn-outline', onClick: onClose }, T('cancel')),
             h('button', {
@@ -6490,8 +6569,7 @@ window.__ModuleLoader__.load({
             }, T('bibleLinkApply') + (picked.size ? '（' + picked.size + '）' : ''))),
         ));
     }
-
-    /** 项目设定集（Series Bible）：世界观 + 风格 + 角色/场景/道具卡，注入所有 AI 生成保证跨集一致。 */
+/** 项目设定集（Series Bible）：世界观 + 风格 + 角色/场景/道具卡，注入所有 AI 生成保证跨集一致。 */
     function BibleTab() {
       const [bible, setBible] = useState(() => loadBible(S.activeId));
       const [busy, setBusy] = useState(false);
