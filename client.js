@@ -2434,8 +2434,13 @@ window.__ModuleLoader__.load({
     function mergeHostDoc(pid, full) {
       if (!full) return;
       const local = loadGraphDoc(pid) || emptyGraph();
+      // 节点墓碑：本地已删除的节点，绝不允许从 Host 拉回复活（删除后 3 秒内的同步拉取曾把节点又带回来）
+      const deadNodes = new Set([...(local.tombstones || []), ...(full.tombstones || [])]);
       const nodes = { ...local.nodes };
-      for (const [nid, n] of Object.entries(full.nodes || {})) nodes[nid] = n; // Host 为准（Agent 写入是有意的）
+      for (const [nid, n] of Object.entries(full.nodes || {})) {
+        if (deadNodes.has(nid)) continue;
+        nodes[nid] = n; // Host 为准（Agent 写入是有意的）
+      }
       const deadEdges = new Set([...(local.edgeTombstones || []), ...(full.edgeTombstones || [])]);
       const edges = [...(local.edges || [])];
       for (const e of (full.edges || [])) {
@@ -2445,13 +2450,13 @@ window.__ModuleLoader__.load({
         else edges.push(e);
       }
       const keep = edges.filter((e) => !deadEdges.has(e.id) && nodes[e.fromNode] && nodes[e.toNode]);
-      saveGraphDoc(pid, { nodes, edges: keep, view: local.view, edgeTombstones: local.edgeTombstones || [] });
+      saveGraphDoc(pid, { nodes, edges: keep, view: local.view, tombstones: local.tombstones || [], edgeTombstones: local.edgeTombstones || [] });
       // 设定集随全量文档一起合并：Agent 用 canvas_update_bible 补的设定集在这里落地
       if (full.bible) {
         saveBibleLocal(pid, full.bible);
         if (full.bibleUpdatedAt) lsSet(LS_BIBLE_SYNC + pid, full.bibleUpdatedAt);
       }
-      if (pid === S.activeId) update((s) => { s.graph = { nodes, edges: keep, view: s.graph.view, edgeTombstones: local.edgeTombstones || [] }; s.assetsTick++; });
+      if (pid === S.activeId) update((s) => { s.graph = { nodes, edges: keep, view: s.graph.view, tombstones: local.tombstones || [], edgeTombstones: local.edgeTombstones || [] }; s.assetsTick++; });
     }
     async function hostSyncTick() {
       if (hostSyncStopped) return;
@@ -2537,7 +2542,9 @@ window.__ModuleLoader__.load({
                 });
               }
             }
-            const missing = (hp.nodeIds || []).filter((nid) => !doc || !doc.nodes[nid]);
+            // 缺失节点拉回：跳过本地已标墓碑的节点（本地删除后 Host 尚未落地时的拉取不能让节点复活）
+            const localDead = new Set([...((doc && doc.tombstones) || [])]);
+            const missing = (hp.nodeIds || []).filter((nid) => (!doc || !doc.nodes[nid]) && !localDead.has(nid));
             if (!known) await importHostProject(hp);
             else if (missing.length && doc) {
               const full = await hostRpc('projectsGet', { id: hp.id });

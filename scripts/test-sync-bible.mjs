@@ -160,7 +160,21 @@ const graph3 = JSON.parse(localStorageStub.getItem('dsh-ic:graph:p2') || 'null')
 ok(!!graph3 && graph3.nodes.n2, '二次合并丢节点');
 ok(!!graph3 && Array.isArray(graph3.edges) && graph3.edges.length === 0, '被用户删除的连线（边墓碑）被陈旧推送复活');
 
-// 3) loadBible 读取（BibleTab 的数据源）
+// 3) 用户删除了节点（节点墓碑）→ Host 拉回不得复活（用户实测：删除后 3 秒内节点又回来）
+const g3 = JSON.parse(localStorageStub.getItem('dsh-ic:graph:p2') || 'null');
+g3.nodes = {}; // 用户删掉了所有节点
+g3.tombstones = ['n2'];
+localStorageStub.setItem('dsh-ic:graph:p2', JSON.stringify(g3));
+sync.mergeHostDoc('p2', {
+  nodes: { n2: { id: 'n2', type: 'script', x: 0, y: 0, w: 320, h: 100, data: { status: 'idle', label: '剧本', idea: '', output: '' } } },
+  edges: [], bible: { worldview: '测试世界观', style: '写实', characters: [{ name: '张山', desc: '主角' }], scenes: [], props: [] },
+  bibleUpdatedAt: T,
+});
+const graph4 = JSON.parse(localStorageStub.getItem('dsh-ic:graph:p2') || 'null');
+ok(!graph4.nodes.n2, '被用户删除的节点（节点墓碑）被 Host 拉回复活（删除后又出现/需要删多次）');
+ok(!!graph4.tombstones && graph4.tombstones.includes('n2'), '合并后节点墓碑丢失（下次推送会复活）');
+
+// 4) loadBible 读取（BibleTab 的数据源）
 const loaded = sync.loadBible('p2');
 ok(loaded.worldview === '测试世界观' && loaded.characters.length === 1, 'loadBible 读取不一致');
 
