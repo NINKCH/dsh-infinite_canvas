@@ -1716,15 +1716,15 @@ window.__ModuleLoader__.load({
       return new Blob(chunks, { type: mime.split(';')[0] });
     }
 
-    /** 图片 API 请求统一经 Host 代理：浏览器直连第三方图片接口会被 CORS 拦截
-     *  （带 Authorization 的 POST 触发预检，网关不返回 CORS 头 → TypeError: Failed to fetch）。
+    /** 外部 API 请求统一经 Host 代理（图片/视频/音频网关都走这里）：浏览器直连第三方接口会被
+     *  CORS 拦截（带 Authorization 的 POST 触发预检，网关不返回 CORS 头 → TypeError: Failed to fetch）。
      *  返回 { ok, status, contentType, text, blob }。 */
-    async function apiImageViaProxy(url, { method = 'POST', headers = {}, body = null, bodyRaw = null, bodyContentType = '', timeoutMs = 120000, label = '图片 API' } = {}) {
+    async function fetchViaProxy(url, { method = 'POST', headers = {}, body = null, bodyRaw = null, bodyContentType = '', timeoutMs = 120000, label = '请求' } = {}) {
       const payload = { url, method, headers, timeoutMs };
       if (bodyRaw != null) { payload.bodyRaw = bodyRaw; payload.bodyContentType = bodyContentType; }
       else if (body != null) payload.body = body;
       // 客户端→Host 的预算比上游超时多 15s：让上游超时（504/带原因）先到，而不是客户端先断
-      const res = await fetchT('/' + NS + '/api/image-proxy', {
+      const res = await fetchT('/' + NS + '/api/fetch-proxy', {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
       }, Number(timeoutMs) + 15000, label + '(代理)');
       const ct = res.headers.get('content-type') || '';
@@ -1752,14 +1752,14 @@ window.__ModuleLoader__.load({
         const serialized = new Response(fd);
         const bodyRaw = arrayBufferToBase64(await serialized.arrayBuffer());
         const bodyContentType = serialized.headers.get('content-type') || 'multipart/form-data';
-        const res = await apiImageViaProxy(base + '/images/edits', { headers: auth, bodyRaw, bodyContentType, timeoutMs: upstreamTimeout, label: '图片编辑 API' });
+        const res = await fetchViaProxy(base + '/images/edits', { headers: auth, bodyRaw, bodyContentType, timeoutMs: upstreamTimeout, label: '图片编辑 API' });
         if (!res.ok) throw new Error('图片编辑 API HTTP ' + res.status + '：' + res.text.slice(0, 300));
         let j = null;
         try { j = JSON.parse(res.text); } catch { j = null; }
         const d = j && j.data && j.data[0];
         if (d && d.b64_json) return base64ToBlob(d.b64_json, 'image/png');
         if (d && d.url) {
-          const r2 = await apiImageViaProxy(d.url, { method: 'GET', timeoutMs: 120000, label: '下载图片' });
+          const r2 = await fetchViaProxy(d.url, { method: 'GET', timeoutMs: 120000, label: '下载图片' });
           if (!r2.ok) throw new Error('下载生成图片失败 HTTP ' + r2.status);
           return r2.blob;
         }
@@ -1775,7 +1775,7 @@ window.__ModuleLoader__.load({
       const sizeOverride = String(s.size || '').trim();
       if (sizeOverride) body.size = sizeOverride;
       else { const dims = imageDimsFor(opts); body.size = `${dims.w}x${dims.h}`; }
-      const res = await apiImageViaProxy(base + '/images/generations', {
+      const res = await fetchViaProxy(base + '/images/generations', {
         headers: { 'Content-Type': 'application/json', ...auth },
         body, timeoutMs: upstreamTimeout, label: '图片 API',
       });
@@ -1785,7 +1785,7 @@ window.__ModuleLoader__.load({
       const d = j && j.data && j.data[0];
       if (d && d.b64_json) return base64ToBlob(d.b64_json, 'image/png');
       if (d && d.url) {
-        const r2 = await apiImageViaProxy(d.url, { method: 'GET', timeoutMs: 120000, label: '下载图片' });
+        const r2 = await fetchViaProxy(d.url, { method: 'GET', timeoutMs: 120000, label: '下载图片' });
         if (!r2.ok) throw new Error('下载生成图片失败 HTTP ' + r2.status);
         return r2.blob;
       }
@@ -1823,9 +1823,10 @@ window.__ModuleLoader__.load({
         ?? (j.output && (j.output.task_id ?? j.output.id));
     }
     async function downloadVideo(url, headers) {
-      const r = await fetchT(url, { headers }, 300000, '下载视频');
+      // 经 Host 代理：签名下载直连同样会被 CORS 拦
+      const r = await fetchViaProxy(url, { method: 'GET', headers: headers || {}, timeoutMs: 300000, label: '下载视频' });
       if (!r.ok) throw new Error('下载视频失败 HTTP ' + r.status);
-      return await r.blob();
+      return r.blob;
     }
     /** 火山方舟 Seedance 官方协议：创建任务 → 轮询 → 下载（支持首帧 + 最多 4 张参考图）。 */
     async function seedanceVideo(prompt, frameBlob, refs, s, opts) {
@@ -1851,17 +1852,17 @@ window.__ModuleLoader__.load({
         generate_audio: s.generateAudio !== false,
       };
       body.ratio = frameBlob ? 'adaptive' : (o.ratio || '16:9');
-      const res = await fetchT(base, { method: 'POST', headers, body: JSON.stringify(body) }, s.timeoutMs, 'Seedance 视频 API');
-      if (!res.ok) throw new Error('Seedance HTTP ' + res.status + '：' + (await res.text()).slice(0, 300));
-      const j = await res.json();
+      const res = await fetchViaProxy(base, { headers, body, timeoutMs: Number(s.timeoutMs) > 0 ? Number(s.timeoutMs) : 120000, label: 'Seedance 视频 API' });
+      if (!res.ok) throw new Error('Seedance HTTP ' + res.status + '：' + res.text.slice(0, 300));
+      const j = JSON.parse(res.text || '{}');
       const taskId = j && j.id;
       if (!taskId) throw new Error('Seedance 响应中没有任务 id');
       const deadline = Date.now() + 15 * 60 * 1000;
       while (Date.now() < deadline) {
         await sleep(10000);
-        const r2 = await fetchT(base + '/' + taskId, { headers }, 60000, '查询视频任务');
+        const r2 = await fetchViaProxy(base + '/' + taskId, { method: 'GET', headers, timeoutMs: 60000, label: '查询 Seedance 任务' });
         if (!r2.ok) throw new Error('查询 Seedance 任务失败 HTTP ' + r2.status);
-        const st = await r2.json();
+        const st = JSON.parse(r2.text || '{}');
         if (st.status === 'succeeded') {
           const u = st.content && st.content.video_url;
           if (!u) throw new Error('Seedance 任务成功但未返回视频地址');
@@ -1894,10 +1895,10 @@ window.__ModuleLoader__.load({
       if (frameBlob) {
         try { body.image = await blobToDataUrl(frameBlob); } catch { /* 忽略首帧编码失败 */ }
       }
-      const res = await fetchT(base, { method: 'POST', headers, body: JSON.stringify(body) }, s.timeoutMs, '视频 API');
-      if (!res.ok) throw new Error('视频 API HTTP ' + res.status + '：' + (await res.text()).slice(0, 300));
+      const res = await fetchViaProxy(base, { headers, body, timeoutMs: Number(s.timeoutMs) > 0 ? Number(s.timeoutMs) : 120000, label: '视频 API' });
+      if (!res.ok) throw new Error('视频 API HTTP ' + res.status + '：' + res.text.slice(0, 300));
       let j = null;
-      try { j = await res.json(); } catch { /* 非 JSON 响应 */ }
+      try { j = JSON.parse(res.text); } catch { /* 非 JSON 响应 */ }
       const direct = extractVideoUrl(j);
       if (direct) return await downloadVideo(direct, {});
       const taskId = extractTaskId(j);
@@ -1905,10 +1906,10 @@ window.__ModuleLoader__.load({
       const deadline = Date.now() + 15 * 60 * 1000;
       while (Date.now() < deadline) {
         await sleep(3000);
-        const r2 = await fetchT(base + '/' + taskId, { headers }, 60000, '查询视频任务');
+        const r2 = await fetchViaProxy(base + '/' + taskId, { method: 'GET', headers, timeoutMs: 60000, label: '查询视频任务' });
         if (!r2.ok) throw new Error('查询视频任务失败 HTTP ' + r2.status);
         let st = null;
-        try { st = await r2.json(); } catch { /* 忽略 */ }
+        try { st = JSON.parse(r2.text); } catch { /* 忽略 */ }
         const u = extractVideoUrl(st);
         if (u) return await downloadVideo(u, {});
         // 失败判定必须看状态字段，不能拿整串 JSON 做子串匹配：
@@ -5285,14 +5286,15 @@ window.__ModuleLoader__.load({
         if (!text) { toast(T('subPlaceholder')); return; }
         update((s) => { const nd = s.graph.nodes[n.id]; if (nd) { nd.data.tts = nd.data.tts || {}; nd.data.tts[x.e.id] = { status: 'running' }; } });
         try {
-          const res = await fetchT((cfg.baseUrl || '').replace(/\/+$/, '') + '/audio/speech', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', ...(cfg.apiKey ? { Authorization: 'Bearer ' + cfg.apiKey } : {}) },
-            body: JSON.stringify({ ...(cfg.model ? { model: cfg.model } : {}), input: text, voice: cfg.voice || 'alloy', response_format: 'mp3' }),
-          }, cfg.timeoutMs, 'TTS API');
-          if (!res.ok) throw new Error('TTS HTTP ' + res.status + '：' + (await res.text()).slice(0, 200));
-          const buf = await res.arrayBuffer();
-          const blob = new Blob([buf], { type: res.headers.get('content-type') || 'audio/mpeg' });
+          // TTS 也走 Host 代理：浏览器直连 TTS 网关同样会被 CORS 拦
+          const res = await fetchViaProxy((cfg.baseUrl || '').replace(/\/+$/, '') + '/audio/speech', {
+            headers: { ...(cfg.apiKey ? { Authorization: 'Bearer ' + cfg.apiKey } : {}) },
+            body: { ...(cfg.model ? { model: cfg.model } : {}), input: text, voice: cfg.voice || 'alloy', response_format: 'mp3' },
+            timeoutMs: Number(cfg.timeoutMs) > 0 ? Number(cfg.timeoutMs) : 120000,
+            label: 'TTS API',
+          });
+          if (!res.ok) throw new Error('TTS HTTP ' + res.status + '：' + res.text.slice(0, 200));
+          const blob = /^audio\//.test(res.contentType) ? res.blob : new Blob([res.blob], { type: 'audio/mpeg' });
           const rec = await saveAssetRecord(S.activeId, 'audio', blob, { name: 'TTS-' + text.slice(0, 12), prompt: text, source: 'api', category: 'audio' });
           update((s) => { const nd = s.graph.nodes[n.id]; if (nd) { nd.data.tts = nd.data.tts || {}; nd.data.tts[x.e.id] = { status: 'done', assetId: rec.id }; } s.assetsTick++; });
         } catch (e) {

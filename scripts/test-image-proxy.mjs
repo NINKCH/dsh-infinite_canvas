@@ -60,7 +60,7 @@ const base = 'http://127.0.0.1:' + server.address().port;
 
 try {
   // 1) JSON POST 透传：请求体对象 → JSON 序列化，鉴权头保留，响应 JSON 可读
-  const r1 = await I.imageProxyForward({ url: base + '/echo', headers: { Authorization: 'Bearer sk-test' }, body: { model: 'sensenova-u1.5-lite', prompt: '一只海豹宝宝' } });
+  const r1 = await I.fetchProxyForward({ url: base + '/echo', headers: { Authorization: 'Bearer sk-test' }, body: { model: 'sensenova-u1.5-lite', prompt: '一只海豹宝宝' } });
   ok(r1.status === 200, 'JSON POST 透传状态码不正确');
   const j1 = JSON.parse(r1.buf.toString('utf8'));
   ok(j1.auth === 'Bearer sk-test', '鉴权头未透传');
@@ -68,29 +68,29 @@ try {
   ok(Array.isArray(j1.data) && j1.data[0].b64_json === 'cG5n', 'JSON 响应体未透传');
 
   // 2) 二进制响应（模拟 url 下载）：字节与 content-type 原样回传
-  const r2 = await I.imageProxyForward({ url: base + '/binary', method: 'GET' });
+  const r2 = await I.fetchProxyForward({ url: base + '/binary', method: 'GET' });
   ok(r2.status === 200 && r2.contentType.startsWith('image/png'), '二进制响应 content-type 不正确');
   ok(r2.buf.length === 6 && r2.buf[0] === 0x89 && r2.buf[1] === 0x50, '二进制响应体损坏');
 
   // 3) 状态码透传（上游 400 不吞不包装成 200）
-  const r3 = await I.imageProxyForward({ url: base + '/fail' });
+  const r3 = await I.fetchProxyForward({ url: base + '/fail' });
   ok(r3.status === 400 && /bad size/.test(r3.buf.toString('utf8')), '上游 400 状态/响应未透传');
 
   // 4) 上游挂死 → 代理超时抛错（客户端据此报"超时"而不是笼统 Failed to fetch）
   let timedOut = false;
-  try { await I.imageProxyForward({ url: base + '/hang', timeoutMs: 300 }); } catch (e) {
+  try { await I.fetchProxyForward({ url: base + '/hang', timeoutMs: 300 }); } catch (e) {
     timedOut = e && (e.name === 'TimeoutError' || /timeout|aborted/i.test(String((e && e.message) || e)));
   }
   ok(timedOut, '挂死上游未触发代理超时');
 
   // 5) 非法 url 拒绝
   let badUrl = false;
-  try { await I.imageProxyForward({ url: 'ftp://example.com/x' }); } catch { badUrl = true; }
+  try { await I.fetchProxyForward({ url: 'ftp://example.com/x' }); } catch { badUrl = true; }
   ok(badUrl, '非 http(s) url 应拒绝');
 
   // 6) multipart 原文转发（edits 模式路径）
   const boundaryBody = ['--XBOUND', 'Content-Disposition: form-data; name="prompt"', '', '测试', '--XBOUND--', ''].join('\r\n');
-  const r4 = await I.imageProxyForward({ url: base + '/echo', headers: { Authorization: 'Bearer sk-e' }, bodyRaw: Buffer.from(boundaryBody).toString('base64'), bodyContentType: 'multipart/form-data; boundary=XBOUND' });
+  const r4 = await I.fetchProxyForward({ url: base + '/echo', headers: { Authorization: 'Bearer sk-e' }, bodyRaw: Buffer.from(boundaryBody).toString('base64'), bodyContentType: 'multipart/form-data; boundary=XBOUND' });
   const j4 = JSON.parse(r4.buf.toString('utf8'));
   ok(j4.auth === 'Bearer sk-e', 'multipart 模式鉴权头未透传');
   ok(j4.rawLength > 0, 'multipart 原文未转发（体长为 0）');
