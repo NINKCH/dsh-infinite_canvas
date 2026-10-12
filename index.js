@@ -268,6 +268,9 @@ async function projectsPut(args) {
   // 墓碑：对话删除的节点 + 客户端本地删除的节点（客户端删除时也会写入 tombstones）
   const tombstones = [...new Set([...(prev.tombstones || []), ...((doc && doc.tombstones) || [])])].slice(-200);
   const dead = new Set(tombstones);
+  // 边墓碑：画布删除连线时客户端自动记录（与节点墓碑同理，防止被陈旧推送并回来）
+  const edgeTombstones = [...new Set([...(prev.edgeTombstones || []), ...((doc && doc.edgeTombstones) || [])])].slice(-400);
+  const deadEdges = new Set(edgeTombstones);
   // 节点合并：客户端推来的为准，但**保留 Host 上客户端还没有的节点**（对话刚建的节点
   // 在客户端下一次轮询拉回之前不能被 450ms 的全量推送抹掉）；墓碑标记的节点一律丢弃。
   const merged = {};
@@ -278,7 +281,7 @@ async function projectsPut(args) {
     if (!dead.has(nid)) merged[nid] = n;
     else delete merged[nid];
   }
-  const edgeOk = (e) => e && merged[e.fromNode] && merged[e.toNode];
+  const edgeOk = (e) => e && !deadEdges.has(e.id) && merged[e.fromNode] && merged[e.toNode];
   const clientEdges = (doc.edges || []).filter(edgeOk);
   const prevEdges = (prev.edges || []).filter(edgeOk);
   const edgeKey = (e) => e.fromNode + '>' + (e.fromPort || '') + '>' + e.toNode + '>' + (e.toPort || '');
@@ -294,6 +297,7 @@ async function projectsPut(args) {
     edges,
     view: doc.view || prev.view || { x: 60, y: 40, scale: 1 },
     tombstones,
+    edgeTombstones,
   };
   // 设定集（世界观/风格/角色/场景/道具）：随文档一起同步，对话侧可读写
   if (doc.bible !== undefined) {

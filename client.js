@@ -2385,21 +2385,28 @@ window.__ModuleLoader__.load({
       }
     }
     const LS_DOCSYNC = 'dsh-ic:docsync:';
-    /** Host 侧改动了项目文档（Agent 建节点/连线/写内容）→ 拉回并合并到本地画布。 */
+    /** Host 侧改动了项目文档（Agent 建节点/连线/写内容/补设定集）→ 拉回并合并到本地画布。 */
     function mergeHostDoc(pid, full) {
       if (!full) return;
       const local = loadGraphDoc(pid) || emptyGraph();
       const nodes = { ...local.nodes };
       for (const [nid, n] of Object.entries(full.nodes || {})) nodes[nid] = n; // Host 为准（Agent 写入是有意的）
+      const deadEdges = new Set([...(local.edgeTombstones || []), ...(full.edgeTombstones || [])]);
       const edges = [...(local.edges || [])];
       for (const e of (full.edges || [])) {
+        if (deadEdges.has(e.id)) continue;
         const i = edges.findIndex((x) => x.id === e.id);
         if (i >= 0) edges[i] = e;
         else edges.push(e);
       }
-      const keep = edges.filter((e) => nodes[e.fromNode] && nodes[e.toNode]);
-      saveGraphDoc(pid, { nodes, edges: keep, view: local.view });
-      if (pid === S.activeId) update((s) => { s.graph = { nodes, edges: keep, view: s.graph.view }; s.assetsTick++; });
+      const keep = edges.filter((e) => !deadEdges.has(e.id) && nodes[e.fromNode] && nodes[e.toNode]);
+      saveGraphDoc(pid, { nodes, edges: keep, view: local.view, edgeTombstones: local.edgeTombstones || [] });
+      // 设定集随全量文档一起合并：Agent 用 canvas_update_bible 补的设定集在这里落地
+      if (full.bible) {
+        saveBibleLocal(pid, full.bible);
+        if (full.bibleUpdatedAt) lsSet(LS_BIBLE_SYNC + pid, full.bibleUpdatedAt);
+      }
+      if (pid === S.activeId) update((s) => { s.graph = { nodes, edges: keep, view: s.graph.view, edgeTombstones: local.edgeTombstones || [] }; s.assetsTick++; });
     }
     async function hostSyncTick() {
       if (hostSyncStopped) return;
@@ -2453,42 +2460,50 @@ window.__ModuleLoader__.load({
           }
         }
         for (const hp of r.projects || []) {
-          const known = S.projects.some((p) => p.id === hp.id);
-          const doc = known ? loadGraphDoc(hp.id) : null;
-          // 设定集：Host 侧（对话改写）更新过 → 拉回本地（设定集先行，故优先于节点合并）
-          if (known && hp.bibleUpdatedAt && hp.bibleUpdatedAt > (Number(lsGet(LS_BIBLE_SYNC + hp.id, 0)) || 0)) {
-            try {
-              const full = await hostRpc('projectsGet', { id: hp.id });
-              if (full && full.bible) {
-                saveBibleLocal(hp.id, full.bible);
-                lsSet(LS_BIBLE_SYNC + hp.id, hp.bibleUpdatedAt);
-                biblePushSnap.set(hp.id, JSON.stringify(full.bible)); // 已是最新：后续保存不必回推
-                if (hp.id === S.activeId) update((s) => { s.assetsTick++; });
-              }
-            } catch { /* 忽略 */ }
-          }
-          // 对话删过的节点（墓碑）：本地同步删除，避免被推送复活
-          const dead = (hp.tombstones || []).filter((nid) => doc && doc.nodes[nid]);
-          if (known && dead.length) {
-            for (const nid of dead) delete doc.nodes[nid];
-            doc.edges = (doc.edges || []).filter((e) => !dead.includes(e.fromNode) && !dead.includes(e.toNode));
-            saveGraphDoc(hp.id, doc);
-            if (hp.id === S.activeId) {
-              update((s) => {
-                for (const nid of dead) delete s.graph.nodes[nid];
-                s.graph.edges = s.graph.edges.filter((e) => !dead.includes(e.fromNode) && !dead.includes(e.toNode));
-                s.sel = new Set([...s.sel].filter((x) => !dead.includes(x)));
-                s.assetsTick++;
-              });
+        // 逐项目容错：任何一个项目合并失败（网络抖动/文件问题）都不得中断整轮，
+          // 否则排在它后面的项目的设定集/节点拉取会被连累跳过
+          try {
+            const known = S.projects.some((p) => p.id === hp.id);
+            const doc = known ? loadGraphDoc(hp.id) : null;
+            // 设定集：Host 侧（对话改写）更新过 → 拉回本地（设定集先行，故优先于节点合并）
+            if (known && hp.bibleUpdatedAt && hp.bibleUpdatedAt > (Number(lsGet(LS_BIBLE_SYNC + hp.id, 0)) || 0)) {
+              try {
+                const full = await hostRpc('projectsGet', { id: hp.id });
+                if (full && full.bible) {
+                  saveBibleLocal(hp.id, full.bible);
+                  lsSet(LS_BIBLE_SYNC + hp.id, hp.bibleUpdatedAt);
+                  biblePushSnap.set(hp.id, JSON.stringify(full.bible)); // 已是最新：后续保存不必回推
+                  if (hp.id === S.activeId) update((s) => { s.assetsTick++; });
+                }
+              } catch { /* 忽略 */ }
             }
-          }
-          const missing = (hp.nodeIds || []).filter((nid) => !doc || !doc.nodes[nid]);
-          if (!known) await importHostProject(hp);
-          else if (missing.length && doc) {
-            const full = await hostRpc('projectsGet', { id: hp.id });
-            for (const nid of missing) { if (full.nodes && full.nodes[nid]) doc.nodes[nid] = full.nodes[nid]; }
-            saveGraphDoc(hp.id, doc);
-            if (hp.id === S.activeId) update((s) => { for (const nid of missing) { if (full.nodes && full.nodes[nid]) s.graph.nodes[nid] = full.nodes[nid]; } s.assetsTick++; });
+            // 对话删过的节点（墓碑）：本地同步删除，避免被推送复活
+            const dead = (hp.tombstones || []).filter((nid) => doc && doc.nodes[nid]);
+            if (known && dead.length) {
+              for (const nid of dead) delete doc.nodes[nid];
+              doc.edges = (doc.edges || []).filter((e) => !dead.includes(e.fromNode) && !dead.includes(e.toNode));
+              saveGraphDoc(hp.id, doc);
+              if (hp.id === S.activeId) {
+                update((s) => {
+                  for (const nid of dead) delete s.graph.nodes[nid];
+                  s.graph.edges = s.graph.edges.filter((e) => !dead.includes(e.fromNode) && !dead.includes(e.toNode));
+                  s.sel = new Set([...s.sel].filter((x) => !dead.includes(x)));
+                  s.assetsTick++;
+                });
+              }
+            }
+            const missing = (hp.nodeIds || []).filter((nid) => !doc || !doc.nodes[nid]);
+            if (!known) await importHostProject(hp);
+            else if (missing.length && doc) {
+              const full = await hostRpc('projectsGet', { id: hp.id });
+              for (const nid of missing) { if (full.nodes && full.nodes[nid]) doc.nodes[nid] = full.nodes[nid]; }
+              saveGraphDoc(hp.id, doc);
+              if (hp.id === S.activeId) update((s) => { for (const nid of missing) { if (full.nodes && full.nodes[nid]) s.graph.nodes[nid] = full.nodes[nid]; } s.assetsTick++; });
+            }
+          } catch (e) {
+            if (/未知操作/.test(String((e && e.message) || e))) { hostSyncStopped = true; return; }
+            // 其余失败记入控制台，继续下一个项目
+            console.warn('[infinite-canvas] 项目合并失败（下轮重试）:', hp.id, e);
           }
         }
         // 一次性请求（Host 读取即清空，绝不能因后面出错而丢失）：
@@ -2927,7 +2942,14 @@ window.__ModuleLoader__.load({
     function notify() { S.tick++; for (const fn of listeners) fn(); }
     function subscribe(fn) { listeners.add(fn); return () => listeners.delete(fn); }
     function update(fn, opts) {
+      const edgesBefore = S.graph ? S.graph.edges : null; // 引用比较：fn 换了数组说明发生过边增删
       fn(S);
+      // 边墓碑：画布上删除的连线自动记录，Host 合并时据此判定"真的被删了"（否则会被并回来）
+      if (S.graph && S.graph.edges && edgesBefore && S.graph.edges !== edgesBefore) {
+        const gone = new Set(edgesBefore.map((e) => e.id));
+        for (const e of S.graph.edges) gone.delete(e.id);
+        if (gone.size) S.graph.edgeTombstones = [...new Set([...(S.graph.edgeTombstones || []), ...gone])].slice(-400);
+      }
       if (!opts || !opts.quiet) notify();
       scheduleSave();
     }
@@ -6712,9 +6734,10 @@ window.__ModuleLoader__.load({
           locale: NS,
         }, CanvasPage));
         // 冒烟测试专用缝隙（仅在 smoke-render.mjs 设置了该标记时存在）：
-        // 直接暴露各页签组件，让测试能逐个渲染，抓"某个页签一渲染就崩"的白屏问题
+        // 直接暴露各页签组件与同步入口，让测试能逐个渲染/驱动，抓白屏与同步断链问题
         if (typeof window !== 'undefined' && window.__DSH_IC_SMOKE__) {
           window.__DSH_IC_TABS__ = { ProjectsTab, AssetsTab, BibleTab, SettingsTab, CanvasPage };
+          window.__DSH_IC_SYNC__ = { hostSyncTick, mergeHostDoc, loadBible, loadGraphDoc, state: () => ({ stopped: hostSyncStopped, busy: hostSyncBusy, projects: S.projects.map((p) => p.id), activeId: S.activeId, ready: S.ready }) };
         }
       },
     };
