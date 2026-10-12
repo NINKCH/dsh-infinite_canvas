@@ -1808,6 +1808,9 @@ export function apply(ctx) {
     // 内置技能：把画布操作规程交给 skills 服务（Agent 可加载，作为硬约束）
     try { registerCanvasSkill(ctx, toolDisposers); } catch { /* skills 服务不可用时跳过 */ }
 
+    // 数据根目录已设置时：启动即迁移/对齐布局（pid 文件夹 → 项目名文件夹 + 项目文档镜像），失败静默（下次设置/重启再试）
+    try { if (dataRoot()) dataRootMigrate(); } catch { /* 迁移失败不影响启动 */ }
+
     const registrations = [
       ctx.webServer.register({
         kind: 'exact',
