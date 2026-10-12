@@ -2040,7 +2040,7 @@ export function apply(ctx) {
             }
             let payload = {};
             try { payload = JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}'); } catch { payload = {}; }
-            const out = await imageProxyForward(payload);
+            const out = await fetchProxyForward(payload);
             res.statusCode = out.status;
             res.setHeader('content-type', out.contentType);
             res.end(out.buf);

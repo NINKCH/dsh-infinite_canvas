@@ -1,25 +1,31 @@
 #!/usr/bin/env node
 /**
- * 图片 API 代理回归测试（imageProxyForward）：
- *  图片接口由浏览器直连会被 CORS 拦（Failed to fetch），统一经 Host 代理转发。
- *  覆盖：JSON POST 透传（含鉴权头）/ 二进制响应 / 状态码透传 / 上游超时 / 非法 url。
+ * 外部 API 代理回归测试（fetchProxyForward，路由 /api/fetch-proxy）：
+ *  图片/视频/音频接口由浏览器直连会被 CORS 拦（Failed to fetch），统一经 Host 代理转发。
+ *  覆盖：JSON POST 透传（含鉴权头）/ 二进制响应 / 状态码透传 / 上游超时 / 非法 url / 路由调用点绊线。
  *
  * 运行：node scripts/test-image-proxy.mjs；退出码 0=通过 1=失败
  */
 import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
+import { readFileSync } from 'node:fs';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import process from 'node:process';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const SANDBOX = fs0();
-function fs0() { return path.join(os.tmpdir(), 'dsh-ic-imgproxy-'); }
+const SANDBOX = path.join(os.tmpdir(), 'dsh-ic-imgproxy-');
 process.env.DSH_IC_PROJECTS_DIR = path.join(SANDBOX, 'projects');
 process.env.DSH_IC_CONFIG_PATH = path.join(SANDBOX, 'config.json');
 
 const errs = [];
 const ok = (cond, msg) => { if (!cond) errs.push(msg); };
+
+// 0) 源码绊线：改名（imageProxyForward → fetchProxyForward）曾漏改路由内调用点，
+//    测试直接调模块函数全绿、真实路由却 ReferenceError。凡旧名残留（含路由体）一律失败。
+const hostSrc = readFileSync(path.join(ROOT, 'index.js'), 'utf8');
+ok(!/imageProxyForward/.test(hostSrc), 'index.js 仍有旧函数名 imageProxyForward 残留（路由调用点断裂）');
+ok(/await fetchProxyForward\(payload\)/.test(hostSrc), 'fetch-proxy 路由未调用 fetchProxyForward');
 
 const mod = await import(pathToFileURL(path.join(ROOT, 'index.js')).href);
 const I = mod._internals;
