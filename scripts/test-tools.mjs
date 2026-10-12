@@ -43,6 +43,25 @@ try {
 }
 if (!tools.length) { console.error('✗ 没有捕获到任何工具'); process.exit(1); }
 
+// ---------- 【DSH 铁律】工具结果必须"无损 JSON"（任何层级出现 undefined/NaN/Infinity 即非法）----------
+// 此前 canvas_node_status 在无产物节点上返回 assetId: undefined → Agent 每次轮询必炸。
+// 这里给每个工具的 execute 再包一层校验，让所有后续断言都跑在这条铁律之下。
+function assertLossless(value, path, where) {
+  if (value === undefined) { errs.push(`${where}: 结果含 undefined（${path}）→ DSH 判为非无损 JSON，整个结果作废`); return; }
+  if (typeof value === 'number' && !Number.isFinite(value)) { errs.push(`${where}: 结果含 ${value}（${path}）`); return; }
+  if (typeof value === 'function' || typeof value === 'symbol') { errs.push(`${where}: 结果含不可序列化值（${path}）`); return; }
+  if (Array.isArray(value)) { value.forEach((v, i) => assertLossless(v, `${path}[${i}]`, where)); return; }
+  if (value && typeof value === 'object') { for (const [k, v] of Object.entries(value)) assertLossless(v, `${path}.${k}`, where); }
+}
+for (const def of tools) {
+  const inner = def.execute;
+  def.execute = async (args, exec) => {
+    const r = await inner(args, exec);
+    assertLossless(r, '$', def.name);
+    return r;
+  };
+}
+
 // ---------- 静态：参数/输出 schema 必须是标准 JSON Schema ----------
 function checkSchema(node, where) {
   if (!node || typeof node !== 'object' || Array.isArray(node)) { errs.push(`${where}: schema 必须是对象`); return; }
