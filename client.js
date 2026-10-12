@@ -1610,6 +1610,20 @@ window.__ModuleLoader__.load({
       }
       return { migrated: done, total: targets.length };
     }
+    /** 数据根目录就绪后自动把浏览器 IndexedDB 里的存量资产搬到磁盘（替代原"迁移历史资产"按钮，全自动无需手动触发）。 */
+    async function autoMigrateAssetsToRoot() {
+      if (!S.dataRoot) return;
+      try {
+        const all = await idbAll();
+        const pending = all.some((r) => r && r.blob && !r.rel);
+        if (!pending) return;
+        const r = await migrateAssetsToDisk();
+        if (r.migrated) {
+          toast(T('dataRootMigrated').replace('{n}', String(r.migrated)));
+          update((s) => { s.assetsTick++; });
+        }
+      } catch { /* 静默：迁移失败不影响主流程，下次设置数据根目录时再试 */ }
+    }
     function useAssetUrl(id) {
       const [url, setUrl] = useState(null);
       useEffect(() => {
@@ -6546,7 +6560,6 @@ window.__ModuleLoader__.load({
       const [val, setVal] = useState('');
       const [busy, setBusy] = useState(false);
       const [picking, setPicking] = useState(false);
-      const [mig, setMig] = useState(null); // null | {done,total} | 'done'
       useEffect(() => { if (S.dataRoot) setVal(S.dataRoot); }, [S.dataRoot]);
       const save = async () => {
         if (busy) return;
@@ -6556,7 +6569,7 @@ window.__ModuleLoader__.load({
           await refreshDataRoot();
           toast(T('dataRootSaved') + (S.dataRoot ? '：' + S.dataRoot : ''));
           assetIndexSynced = false; // 换了目录：索引要往新目录重建
-          syncAssetIndexToHost();
+          autoMigrateAssetsToRoot().then(() => syncAssetIndexToHost()); // 先搬存量资产，再对齐索引
         } catch (e) { toast('设置失败：' + ((e && e.message) || e)); }
         setBusy(false);
       };
@@ -6566,7 +6579,7 @@ window.__ModuleLoader__.load({
         setVal(S.dataRoot || root);
         toast(T('dataRootSaved') + '：' + S.dataRoot);
         assetIndexSynced = false; // 换了目录：索引要往新目录重建
-        syncAssetIndexToHost();
+        autoMigrateAssetsToRoot().then(() => syncAssetIndexToHost());
       };
       const browse = async () => {
         if (busy || picking) return;
@@ -6608,16 +6621,6 @@ window.__ModuleLoader__.load({
         } catch (e) { toast('导入失败：' + ((e && e.message) || e)); }
         setBusy(false);
       };
-      const migrate = async () => {
-        if (busy || picking || mig) return;
-        setBusy(true); setMig({ done: 0, total: 0 });
-        try {
-          const r = await migrateAssetsToDisk((done, total) => setMig({ done, total }));
-          setMig('done');
-          toast(T('dataRootMigrated').replace('{n}', String(r.migrated)));
-        } catch (e) { setMig(null); toast('迁移失败：' + ((e && e.message) || e)); }
-        setBusy(false);
-      };
       return h('div', { key: 'dataroot', className: 'dshic-card' },
         h('div', { className: 'dshic-row' },
           Ic('image', 12),
@@ -6638,10 +6641,6 @@ window.__ModuleLoader__.load({
               picking ? h('div', { className: 'dshic-hint', key: 'picking' }, T('dataRootPicking')) : null,
               h('div', { className: 'dshic-row', key: 'row2' },
                 S.dataRoot ? h('button', { type: 'button', className: 'dshic-mini', onPointerDown: (e) => e.stopPropagation(), onClick: openDir }, T('dataRootOpen')) : null,
-                S.dataRoot ? h('button', { type: 'button', className: 'dshic-mini', disabled: busy || picking || !!mig, onPointerDown: (e) => e.stopPropagation(), onClick: migrate }, mig === 'done' ? T('dataRootMigratedDone') : T('dataRootMigrate')) : null,
-                (mig && mig !== 'done') ? h('span', { style: { fontSize: 11, opacity: 0.85 } }, T('dataRootMigrating') + ' ' + mig.done + '/' + mig.total) : null,
-              ),
-              h('div', { className: 'dshic-row', key: 'row3' },
                 S.dataRoot ? h('button', { type: 'button', className: 'dshic-mini is-ghost', disabled: busy || picking, onPointerDown: (e) => e.stopPropagation(), onClick: importFromRoot }, Ic('folder', 11), T('dataRootImportBtn')) : null,
                 S.dataRoot ? InfoTip(T('dataRootImportHint')) : null,
                 h('div', { className: 'dshic-flex' }),
@@ -7250,8 +7249,8 @@ window.__ModuleLoader__.load({
           probeCraft();
           // 检查更新（Host RPC；Host 旧版未带此方法时静默）
           checkUpdate(true);
-          // 数据根目录（Host 旧版静默降级为 IndexedDB 模式）；就绪后把 IDB 资产元数据补齐进数据目录索引
-          refreshDataRoot().then(() => syncAssetIndexToHost()).catch(() => { /* 静默 */ });
+          // 数据根目录（Host 旧版静默降级为 IndexedDB 模式）；就绪后自动搬存量资产到磁盘，再对齐索引
+          refreshDataRoot().then(() => autoMigrateAssetsToRoot()).then(() => syncAssetIndexToHost()).catch(() => { /* 静默 */ });
           // 对话 ↔ 画布同步（启动一次 + 3s 轮询；旧 Host 自动停轮询）
           hostSyncTick().then(() => pushAllProjectsToHost());
           const hostSyncTimer = setInterval(() => hostSyncTick(), 3000);
