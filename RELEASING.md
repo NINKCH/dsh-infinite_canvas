@@ -46,12 +46,15 @@ npm 发布**完全由 GitHub Actions 自动完成**（npm 已绑定 GitHub，Tru
    - 涉及 UI/工作流的：重启 Harness + 刷新后人工验证（画布操作是给用户用的，必须真实点一遍）
 2. **向维护者汇报"改了什么 + 测了什么 + 结果 + 建议版本号"，获得明确批准**。
 3. 确认 `package.json` 的 `version` 已是目标版本号（发版前自查，别指望守卫兜底）。
-4. 合并进 main 并推送：`git switch main && git merge dev && git push origin main dev`。
-5. 建 GitHub Release 触发发布（两种方式任选）：
+4. **发版记录用英文**：先在 [`CHANGELOG.md`](CHANGELOG.md) 顶部新增 `## [X.Y.Z] — 日期` 英文段落，
+   GitHub Release 的 body 从 CHANGELOG 复制英文段落——**GitHub 面向公众，一律英文**（早期版本正文
+   曾因编码通道损坏出现整段 `???`，已全部重写为英文；中文汇报只留在对话里给维护者看）。
+5. 合并进 main 并推送：`git switch main && git merge dev && git push origin main dev`。
+6. 建 GitHub Release 触发发布（两种方式任选）：
    - 网页：GitHub → Releases → Draft a new release → 选/建 tag `vX.Y.Z`（指向 main）→ Publish release；
    - API/脚本：POST `/repos/NINKCH/dsh-infinite_canvas/releases`
      （`tag_name: vX.Y.Z`、`target_commitish: main`、`name`、`body`）。
-6. 发布后验证（三件套，缺一不可）：
+7. 发布后验证（三件套，缺一不可）：
    - GitHub Actions 的 publish 运行**绿**；
    - `npm view @ninkch/dsh-infinite-canvas version` 显示新版本（注意本机默认是淘宝镜像，
      镜像同步有延迟，验证请显式 `--registry https://registry.npmjs.org`）；
