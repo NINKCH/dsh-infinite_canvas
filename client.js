@@ -5606,6 +5606,7 @@ window.__ModuleLoader__.load({
       const [search, setSearch] = useState('');
       const [craftFor, setCraftFor] = useState(null);
       const [delTarget, setDelTarget] = useState(null); // 待确认删除的资产（确认框见 DeleteAssetModal）
+      const [assetName, setAssetName] = useState(''); // 删除确认框的输入内容
       const fileRef = useRef(null);
       useEffect(() => {
         probeCraft();
@@ -5734,14 +5735,15 @@ window.__ModuleLoader__.load({
               })),
             ),
         delTarget ? h(DeleteAssetModal, {
-          key: 'delasset', target: delTarget, onCancel: () => setDelTarget(null),
-          onConfirm: async () => { const t = delTarget; setDelTarget(null); await del(t); },
+          key: 'delasset', target: delTarget, name: assetName, setName: setAssetName,
+          onCancel: () => { setDelTarget(null); setAssetName(''); },
+          onConfirm: async () => { const t = delTarget; setDelTarget(null); setAssetName(''); await del(t); },
         }) : null,
       ];
     }
     /** 删除资产确认框：与项目删除同一套交互 —— 名字可选中，手打确认，不做一键填入。 */
-    function DeleteAssetModal({ target, name, setName, onCancel, onConfirm }) {
-      const matched = name.trim() === (target.name || '') && name.trim() !== '';
+    function DeleteAssetModal({ target, name = '', setName = () => {}, onCancel = () => {}, onConfirm = () => {} }) {
+      const matched = String(name || '').trim() === (target.name || '') && String(name || '').trim() !== '';
       useEffect(() => {
         const fn = (e) => { if (e.key === 'Escape') onCancel(); };
         window.addEventListener('keydown', fn);
