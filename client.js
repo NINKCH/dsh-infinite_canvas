@@ -91,6 +91,13 @@ window.__ModuleLoader__.load({
       for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
       return new Blob([arr], { type: mime || 'application/octet-stream' });
     }
+    function arrayBufferToBase64(buf) {
+      const bytes = new Uint8Array(buf);
+      let bin = '';
+      const CH = 0x8000;
+      for (let i = 0; i < bytes.length; i += CH) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + CH));
+      return btoa(bin);
+    }
     function blobToDataUrl(blob) {
       return new Promise((res, rej) => {
         const r = new FileReader();
@@ -1709,11 +1716,30 @@ window.__ModuleLoader__.load({
       return new Blob(chunks, { type: mime.split(';')[0] });
     }
 
+    /** 图片 API 请求统一经 Host 代理：浏览器直连第三方图片接口会被 CORS 拦截
+     *  （带 Authorization 的 POST 触发预检，网关不返回 CORS 头 → TypeError: Failed to fetch）。
+     *  返回 { ok, status, contentType, text, blob }。 */
+    async function apiImageViaProxy(url, { method = 'POST', headers = {}, body = null, bodyRaw = null, bodyContentType = '', timeoutMs = 120000, label = '图片 API' } = {}) {
+      const payload = { url, method, headers, timeoutMs };
+      if (bodyRaw != null) { payload.bodyRaw = bodyRaw; payload.bodyContentType = bodyContentType; }
+      else if (body != null) payload.body = body;
+      // 客户端→Host 的预算比上游超时多 15s：让上游超时（504/带原因）先到，而不是客户端先断
+      const res = await fetchT('/' + NS + '/api/image-proxy', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
+      }, Number(timeoutMs) + 15000, label + '(代理)');
+      const ct = res.headers.get('content-type') || '';
+      const buf = await res.arrayBuffer();
+      const blob = new Blob([buf], { type: ct || 'application/octet-stream' });
+      let text = '';
+      if (!ct || /json|text|plain/.test(ct)) { try { text = new TextDecoder().decode(buf); } catch { text = ''; } }
+      return { ok: res.ok, status: res.status, contentType: ct, text, blob };
+    }
     async function apiImage(prompt, refBlobs, s, opts) {
       if (!s.baseUrl) throw new Error('未配置图片 API');
       const base = s.baseUrl.replace(/\/+$/, '');
       const refs = refBlobs || [];
       const auth = s.apiKey ? { Authorization: 'Bearer ' + s.apiKey } : {};
+      const upstreamTimeout = Number(s.timeoutMs) > 0 ? Number(s.timeoutMs) : 120000; // 商汤等同步接口 20s+，默认 120s
       // 参考图编辑模式：multipart 上传到 /images/edits（OpenAI gpt-image-1 兼容）
       if (refs.length && s.mode === 'edits') {
         const fd = new FormData();
@@ -1722,15 +1748,20 @@ window.__ModuleLoader__.load({
         fd.append('n', '1');
         if (s.size) fd.append('size', s.size);
         refs.forEach((b, i) => fd.append('image[]', b, 'ref-' + i + '.png'));
-        const res = await fetchT(base + '/images/edits', { method: 'POST', headers: auth, body: fd }, s.timeoutMs, '图片编辑 API');
-        if (!res.ok) throw new Error('图片编辑 API HTTP ' + res.status + '：' + (await res.text()).slice(0, 300));
-        const j = await res.json();
+        // FormData 经 Response 序列化为 multipart 字节（含 boundary）→ base64 经代理原样转发
+        const serialized = new Response(fd);
+        const bodyRaw = arrayBufferToBase64(await serialized.arrayBuffer());
+        const bodyContentType = serialized.headers.get('content-type') || 'multipart/form-data';
+        const res = await apiImageViaProxy(base + '/images/edits', { headers: auth, bodyRaw, bodyContentType, timeoutMs: upstreamTimeout, label: '图片编辑 API' });
+        if (!res.ok) throw new Error('图片编辑 API HTTP ' + res.status + '：' + res.text.slice(0, 300));
+        let j = null;
+        try { j = JSON.parse(res.text); } catch { j = null; }
         const d = j && j.data && j.data[0];
         if (d && d.b64_json) return base64ToBlob(d.b64_json, 'image/png');
         if (d && d.url) {
-          const r2 = await fetchT(d.url, null, 60000, '下载图片');
+          const r2 = await apiImageViaProxy(d.url, { method: 'GET', timeoutMs: 120000, label: '下载图片' });
           if (!r2.ok) throw new Error('下载生成图片失败 HTTP ' + r2.status);
-          return await r2.blob();
+          return r2.blob;
         }
         throw new Error('图片编辑 API 响应中没有 data[0].b64_json / url');
       }
@@ -1744,22 +1775,19 @@ window.__ModuleLoader__.load({
       const sizeOverride = String(s.size || '').trim();
       if (sizeOverride) body.size = sizeOverride;
       else { const dims = imageDimsFor(opts); body.size = `${dims.w}x${dims.h}`; }
-      // 文生图模式（generations）按界面说明**忽略参考图**；参考图只在 edits 模式使用，
-      // 否则会把大体积 base64 数组发给不识别的网关 → HTTP 400，用户看到的却是"没反应"
-      if (refs.length && (s.mode === 'edits')) body.images = await Promise.all(refs.map((b) => blobToDataUrl(b)));
-      const res = await fetchT(base + '/images/generations', {
-        method: 'POST',
+      const res = await apiImageViaProxy(base + '/images/generations', {
         headers: { 'Content-Type': 'application/json', ...auth },
-        body: JSON.stringify(body),
-      }, s.timeoutMs, '图片 API');
-      if (!res.ok) throw new Error('图片 API HTTP ' + res.status + '：' + (await res.text()).slice(0, 300));
-      const j = await res.json();
+        body, timeoutMs: upstreamTimeout, label: '图片 API',
+      });
+      if (!res.ok) throw new Error('图片 API HTTP ' + res.status + '：' + res.text.slice(0, 300));
+      let j = null;
+      try { j = JSON.parse(res.text); } catch { j = null; }
       const d = j && j.data && j.data[0];
       if (d && d.b64_json) return base64ToBlob(d.b64_json, 'image/png');
       if (d && d.url) {
-        const r2 = await fetchT(d.url, null, 60000, '下载图片');
+        const r2 = await apiImageViaProxy(d.url, { method: 'GET', timeoutMs: 120000, label: '下载图片' });
         if (!r2.ok) throw new Error('下载生成图片失败 HTTP ' + r2.status);
-        return await r2.blob();
+        return r2.blob;
       }
       throw new Error('图片 API 响应中没有 data[0].b64_json / url');
     }

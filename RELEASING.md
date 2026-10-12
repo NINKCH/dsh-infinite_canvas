@@ -40,9 +40,9 @@ npm 发布**完全由 GitHub Actions 自动完成**（npm 已绑定 GitHub，Tru
 
 1. 在 `dev` 完成改动并自测（全绿才算过）：
    - `node --check index.js client.js`
-   - 11 项回归测试：`scripts/audit.mjs`、`smoke-render.mjs`、`test-tools.mjs`、`test-mentions.mjs`、
+   - 12 项回归测试：`scripts/audit.mjs`、`smoke-render.mjs`、`test-tools.mjs`、`test-mentions.mjs`、
      `test-update.mjs`、`test-host-hardening.mjs`、`test-llm-stream.mjs`、`test-sync-bible.mjs`、
-     `test-user-scenarios.mjs`、`test-dataroot.mjs`、`check-pack.mjs`
+     `test-user-scenarios.mjs`、`test-dataroot.mjs`、`test-image-proxy.mjs`、`check-pack.mjs`
    - 涉及 UI/工作流的：重启 Harness + 刷新后人工验证（画布操作是给用户用的，必须真实点一遍）
 2. **向维护者汇报"改了什么 + 测了什么 + 结果 + 建议版本号"，获得明确批准**。
 3. 确认 `package.json` 的 `version` 已是目标版本号（发版前自查，别指望守卫兜底）。

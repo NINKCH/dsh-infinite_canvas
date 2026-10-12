@@ -61,6 +61,7 @@ node scripts/test-llm-stream.mjs   # LLM 流式与推理模型重试（思考实
 node scripts/test-sync-bible.mjs   # 同步合并回归（设定集拉回/边墓碑防复活）
 node scripts/test-user-scenarios.mjs # 用户实测场景定向复验（轮询无损/自动连线/设定集读写）
 node scripts/test-dataroot.mjs       # 数据目录回归（项目名文件夹/文档镜像/资产索引/一键导入）
+node scripts/test-image-proxy.mjs    # 图片 API 代理回归（CORS 规避：JSON/二进制/状态码透传/超时）
 ```
 
 `check-pack` 防的三类事故：漏打包（如 locale/icon 没进包）、多打包（`.github`/`scripts` 混入）、元数据漂移（版本/exports/`dsh.bundle.patch`）。

@@ -639,6 +639,35 @@ function clearDeletedProjectId(id) {
   cfg.ui = { ...cfg.ui, deletedProjectIds: cfg.ui.deletedProjectIds.filter((x) => x !== pid) };
   writeIcConfig(cfg);
 }
+/** 图片 API 代理转发：浏览器直连第三方图片接口会被 CORS 拦截（带 Authorization 头的 POST
+ *  触发预检，绝大多数图片网关不返回 CORS 头 → TypeError: Failed to fetch）。
+ *  由 Host 服务端（Node fetch，无 CORS）代为请求并原样回传状态码与响应体。
+ *  req: { url, method?, headers?, body?（对象→JSON 序列化）, bodyRaw?（base64 原文，multipart 用）, bodyContentType?, timeoutMs? } */
+async function imageProxyForward(reqBody) {
+  const url = String((reqBody && reqBody.url) || '');
+  if (!/^https?:\/\//i.test(url)) throw new Error('需要 http(s) 图片接口 url');
+  const method = String((reqBody && reqBody.method) || 'POST').toUpperCase();
+  const headers = { ...((reqBody && reqBody.headers && typeof reqBody.headers === 'object') ? reqBody.headers : {}) };
+  let body;
+  if (method !== 'GET' && method !== 'HEAD') {
+    if (reqBody && reqBody.bodyRaw != null) {
+      body = Buffer.from(String(reqBody.bodyRaw), 'base64');
+      if (reqBody.bodyContentType) headers['content-type'] = String(reqBody.bodyContentType);
+    } else if (reqBody && reqBody.body != null) {
+      body = typeof reqBody.body === 'string' ? reqBody.body : JSON.stringify(reqBody.body);
+      if (!headers['content-type']) headers['content-type'] = 'application/json';
+    }
+  }
+  const ms = Number(reqBody && reqBody.timeoutMs) > 0 ? Number(reqBody.timeoutMs) : 120000;
+  const upstream = await fetch(url, {
+    method,
+    headers,
+    ...(body !== undefined ? { body } : {}),
+    signal: AbortSignal.timeout(ms),
+  });
+  const buf = Buffer.from(await upstream.arrayBuffer());
+  return { status: upstream.status, contentType: upstream.headers.get('content-type') || 'application/json; charset=utf-8', buf };
+}
 /** 设置数据根目录（绝对路径）并立即迁移布局；供 RPC 与测试复用。 */
 function setDataRoot(raw) {
   raw = String(raw ?? '').trim();
@@ -1298,7 +1327,7 @@ async function updateInstall() {
 export const inject = ['webServer', 'tools'];
 
 // 仅供诊断 / 自动化测试（不属于 RPC 面，运行时行为不受影响）
-export const _internals = { updateCheck, updateInstall, npmLatestVersion, cmpVer, findPnpm, getProfileDir: () => PROFILE_DIR, getVersion: () => VERSION, dataRoot, setDataRoot, dataRootMigrate, dataRootImport, ensureProjectFolder, physicalRel, mirrorProjectToDataRoot, writeAssetIndex, removeAssetIndexEntry, readDataRootMeta, removeDataRootProject, deletedProjectIds, addDeletedProjectId, clearDeletedProjectId, safeJoin, mimeOf, pipeFile, getIcConfigPath: () => CONFIG_PATH, canvasCreateProject, canvasWriteNode, canvasConnect, canvasDeleteProject, canvasDeleteNode, canvasRunNode, canvasNodeStatus, canvasGetBible, canvasUpdateBible, canvasCreateNode, canvasOpen, projectsList, projectsPut, projectsGet, projectsDelete, projectsSync };
+export const _internals = { updateCheck, updateInstall, npmLatestVersion, cmpVer, findPnpm, getProfileDir: () => PROFILE_DIR, getVersion: () => VERSION, dataRoot, setDataRoot, dataRootMigrate, dataRootImport, ensureProjectFolder, physicalRel, mirrorProjectToDataRoot, writeAssetIndex, removeAssetIndexEntry, readDataRootMeta, removeDataRootProject, deletedProjectIds, addDeletedProjectId, clearDeletedProjectId, imageProxyForward, safeJoin, mimeOf, pipeFile, getIcConfigPath: () => CONFIG_PATH, canvasCreateProject, canvasWriteNode, canvasConnect, canvasDeleteProject, canvasDeleteNode, canvasRunNode, canvasNodeStatus, canvasGetBible, canvasUpdateBible, canvasCreateNode, canvasOpen, projectsList, projectsPut, projectsGet, projectsDelete, projectsSync };
 
 function resolveModel(providers, want) {
   const byProvider = want && want.provider
@@ -1987,6 +2016,39 @@ export function apply(ctx) {
           } catch (e) {
             res.statusCode = 400;
             res.end(JSON.stringify({ error: String((e && e.message) || e) }));
+          }
+        },
+      }),
+      // 图片 API 代理：浏览器直连第三方图片接口会被 CORS 拦（Failed to fetch），由 Host 代为请求
+      ctx.webServer.register({
+        kind: 'exact',
+        path: `/${NAME}/api/image-proxy`,
+        async handler(req, res) {
+          try {
+            if (req.method !== 'POST') {
+              res.statusCode = 405;
+              res.setHeader('content-type', 'application/json; charset=utf-8');
+              res.end(JSON.stringify({ error: '仅接受 POST' }));
+              return;
+            }
+            const chunks = [];
+            let size = 0;
+            for await (const c of req) {
+              size += c.length;
+              if (size > 16e6) { res.statusCode = 413; res.setHeader('content-type', 'application/json; charset=utf-8'); res.end(JSON.stringify({ error: '请求体过大（上限 16MB）' })); return; }
+              chunks.push(c);
+            }
+            let payload = {};
+            try { payload = JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}'); } catch { payload = {}; }
+            const out = await imageProxyForward(payload);
+            res.statusCode = out.status;
+            res.setHeader('content-type', out.contentType);
+            res.end(out.buf);
+          } catch (e) {
+            const timedOut = e && (e.name === 'TimeoutError' || /aborted|timeout/i.test(String((e && e.message) || e)));
+            res.statusCode = timedOut ? 504 : 502;
+            res.setHeader('content-type', 'application/json; charset=utf-8');
+            res.end(JSON.stringify({ error: (timedOut ? '图片接口代理超时：' : '图片接口代理请求失败：') + String((e && e.message) || e) }));
           }
         },
       }),
