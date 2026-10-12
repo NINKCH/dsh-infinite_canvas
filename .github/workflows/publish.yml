@@ -1,29 +1,59 @@
-name: publish
+# Publishes @ninkch/dsh-infinite-canvas to npm via Trusted Publishing (OIDC).
+#
+# 触发：GitHub Release 发布（published）时自动发布到 npm —— 无令牌、无 OTP。
+# 发布流程见 RELEASING.md（红线：Release 只能打在 main 上，tag 必须等于 package.json version）。
+#
+# npm 侧 Trusted Publisher 配置（一次性）：
+#   Organization or user: NINKCH
+#   Repository          : dsh-infinite-canvas
+#   Workflow filename   : publish.yml
+#   Environment name    : (留空)
+#   Allowed actions     : ☑ Allow npm publish
+#
+# 需要 npm >= 11.5.1 以支持 OIDC 可信发布（工作流内已升级）。
 
-# 发布触发方式（二选一）：
-#   1) GitHub 仓库 → Releases → Draft a new release → 发布（tag 即版本号，如 v0.17.0）
-#   2) Actions 页 → publish → Run workflow → 手动输入版本号
-# 依赖 npm Trusted Publishing（OIDC）：无需任何 npm 令牌。
+name: publish
 
 on:
   release:
     types: [published]
   workflow_dispatch:
-    inputs:
-      version:
-        description: 'Version to publish (e.g. 0.17.0). Empty = keep package.json version.'
-        required: false
-        default: ''
 
 permissions:
   contents: read
-  id-token: write # npm Trusted Publishing (OIDC)
+  id-token: write   # OIDC —— 代替一切 npm 令牌
 
 jobs:
   publish:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.release.tag_name || github.ref_name }}
+
+      - name: Guard — only release commits on main may publish
+        run: |
+          git fetch origin main --quiet
+          for i in 1 2 3; do
+            if git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+              echo "release commit is on main (attempt $i)"
+              exit 0
+            fi
+            echo "attempt $i: release commit not on main yet — retrying in 15s"
+            sleep 15
+            git fetch origin main --quiet
+          done
+          echo "::error::Release commit is not on main. Releases are only cut from main after dev-branch testing and maintainer approval (see RELEASING.md)."
+          exit 1
+
+      - name: Guard — package.json version must match the release tag
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          PKG=$(node -p "require('./package.json').version")
+          if [ "$TAG" != "$PKG" ]; then
+            echo "::error::package.json version ($PKG) does not match release tag (v$TAG). Bump the version before releasing."
+            exit 1
+          fi
 
       - uses: actions/setup-node@v4
         with:
@@ -31,24 +61,8 @@ jobs:
           registry-url: 'https://registry.npmjs.org'
 
       # Trusted Publishing 需要 npm >= 11.5.1（Node 24 自带 npm 11）
-      - name: Use latest npm
+      - name: Ensure npm supports trusted publishing
         run: npm install -g npm@latest
 
-      - name: Resolve version
-        env:
-          EVENT: ${{ github.event_name }}
-          TAG: ${{ github.event.release.tag_name }}
-          INPUT_VERSION: ${{ github.event.inputs.version }}
-        run: |
-          if [ "$EVENT" = "release" ] && [ -n "$TAG" ]; then
-            V="${TAG#v}"
-          elif [ -n "$INPUT_VERSION" ]; then
-            V="$INPUT_VERSION"
-          else
-            V=$(node -p "require('./package.json').version")
-          fi
-          node -e "const f='./package.json',j=require(f);j.version=process.argv[1];require('fs').writeFileSync(f,JSON.stringify(j,null,2)+'\n')" "$V"
-          echo "Publishing version $V"
-
-      - name: Publish to npm
-        run: npm publish --access public --provenance
+      - name: Publish
+        run: npm publish --access public
