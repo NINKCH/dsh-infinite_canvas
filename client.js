@@ -1298,12 +1298,16 @@ window.__ModuleLoader__.load({
         entLines.length ? (zh ? '设定集：' : 'Series bible: ') + entLines.join('；') : '',
       ].filter(Boolean).join('\n');
     }
-    /** 资产命名：优先节点名（如「角色-张山 多视图」），否则用命中实体，最后兜底。 */
+    /** 资产命名时间戳（MM-DD HH:MM）：同节点多次生成靠它区分。 */
+    function nowStamp() {
+      return new Date().toISOString().slice(5, 16).replace('T', ' ');
+    }
+    /** 资产命名：**节点名 + 时间**（用户规则）；无节点名退回实体名/类型前缀 + 时间。 */
     function assetNameFor(node, entities, fallbackKind) {
       const label = String((node && node.data && node.data.label) || '').trim();
-      if (label) return label;
-      if (entities && entities.length) return entityLabelOf(entities[0].kind) + '-' + entities[0].name;
-      return (fallbackKind === 'video' ? '视频' : '图片') + '-' + new Date().toISOString().slice(5, 16).replace('T', ' ');
+      if (label) return label + ' ' + nowStamp();
+      if (entities && entities.length) return entityLabelOf(entities[0].kind) + '-' + entities[0].name + ' ' + nowStamp();
+      return (fallbackKind === 'video' ? '视频' : '图片') + '-' + nowStamp();
     }
     // <<<MENTION_PURE_END>>>
 
@@ -1573,6 +1577,7 @@ window.__ModuleLoader__.load({
         if (isText) next.text = rec.text; // 文本保留在元数据里：预览/下载不必回读文件
         else delete next.blob;
         await idbPut(next);
+        mirrorAssetIndex(next); // 迁移后刷新数据目录 assets.json（补 rel/size）
         assetUrlCache.delete(rec.id); // 旧 objectURL 失效，改走文件 URL
         done++;
         if (onProgress) onProgress(done, targets.length);
@@ -3607,7 +3612,7 @@ window.__ModuleLoader__.load({
         if (!String(text || '').trim()) throw new Error(T('aiEmptyResult'));
         update((s) => { const nd = s.graph.nodes[n.id]; if (nd) { nd.data.output = text; nd.data.prevOutput = null; nd.data.aiStatus = 'idle'; nd.data.status = 'done'; nd.data.error = null; } s.assetsTick++; });
         await saveTextAssetRecord(S.activeId, {
-          name: T('scriptAssetPrefix') + new Date().toISOString().slice(5, 16).replace('T', ' '),
+          name: (String(n.data.label || '').trim() || T('scriptAssetPrefix')) + ' ' + nowStamp(),
           text, category: 'script', prompt: n.data.idea,
         });
         update((s) => { s.assetsTick++; });
@@ -3650,7 +3655,7 @@ window.__ModuleLoader__.load({
         // 分镜里出现的新角色/场景/道具 → 自动补进设定集（描述留空待补充），保证设定集始终是唯一事实源
         try { await autoRegisterBibleEntries(shots); } catch { /* 补录失败不影响分镜 */ }
         await saveTextAssetRecord(S.activeId, {
-          name: T('storyboardAssetPrefix') + new Date().toISOString().slice(5, 16).replace('T', ' '),
+          name: (String(n.data.label || '').trim() || T('storyboardAssetPrefix')) + ' ' + nowStamp(),
           text: storyboardAssetText(shots),
           category: 'storyboard', prompt: st.slice(0, 200),
         });
@@ -3706,7 +3711,7 @@ window.__ModuleLoader__.load({
           update((s) => { const nd = s.graph.nodes[n.id]; if (nd) nd.data.progress = Math.round(frac * 100) + '% · ' + name; });
         });
         const rec = await saveAssetRecord(S.activeId, 'video', blob, {
-          name: T('finalCutDone') + '-' + new Date().toISOString().slice(5, 16).replace('T', ' '),
+          name: (String(n.data.label || '').trim() || T('finalCutDone')) + ' ' + nowStamp(),
           prompt: metas.length + ' segments', source: 'finalcut', category: 'finalcut',
         });
         metas.forEach((m) => URL.revokeObjectURL(m.url));
@@ -5047,7 +5052,7 @@ window.__ModuleLoader__.load({
             type: 'button', className: 'dshic-mini is-ghost', title: T('saveTextAsset'),
             onPointerDown: (e) => e.stopPropagation(),
             onClick: async () => {
-              await saveTextAssetRecord(S.activeId, { name: T('scriptAssetPrefix') + new Date().toISOString().slice(5, 16).replace('T', ' '), text: n.data.output, category: 'script', prompt: n.data.idea });
+              await saveTextAssetRecord(S.activeId, { name: (String(n.data.label || '').trim() || T('scriptAssetPrefix')) + ' ' + nowStamp(), text: n.data.output, category: 'script', prompt: n.data.idea });
               update((s) => { s.assetsTick++; });
               toast(T('savedOk'));
             },
@@ -5137,7 +5142,7 @@ window.__ModuleLoader__.load({
                 onClick: async () => {
                   try {
                     await saveTextAssetRecord(S.activeId, {
-                      name: T('storyboardAssetPrefix') + new Date().toISOString().slice(5, 16).replace('T', ' '),
+                      name: (String(n.data.label || '').trim() || T('storyboardAssetPrefix')) + ' ' + nowStamp(),
                       text: storyboardAssetText(shots), category: 'storyboard',
                       prompt: String(n.data.script || '').slice(0, 200),
                     });
@@ -5844,7 +5849,11 @@ window.__ModuleLoader__.load({
         if (files.length) setTick((x) => x + 1);
       };
       const del = async (a) => {
-        if (a.rel) { try { await hostRpc('assetDelete', { rel: a.rel }); } catch { /* 磁盘清理失败不阻塞 */ } }
+        // 数据目录同步：删文件（逻辑路径由 Host 映射到项目名文件夹）+ 清 assets.json 索引
+        const proj = S.projects.find((p) => p.id === (a.projectId || S.activeId));
+        try {
+          await hostRpc('assetDelete', { projectId: a.projectId || S.activeId, projectName: (proj && proj.name) || '', id: a.id, rel: a.rel || '' });
+        } catch { /* 磁盘/索引清理失败不阻塞 */ }
         await idbDelete(a.id);
         update((s) => {
           for (const nd of Object.values(s.graph.nodes)) {

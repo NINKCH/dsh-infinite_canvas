@@ -88,6 +88,14 @@ ok(idx.ok, 'writeAssetIndex 失败');
 const assetsJson = JSON.parse(fs.readFileSync(path.join(DATA, 'projects', '时光邮局·第二版', 'assets.json'), 'utf8'));
 ok(assetsJson.length === 2 && assetsJson.some((x) => x.id === 'a_txt1' && x.text === '【镜1】3s'), 'assets.json 未正确写入（含文本资产）');
 
+// 7b) 资产删除 → 索引同步删除（保持数据目录与应用一致）
+const rm1 = I.removeAssetIndexEntry(pid, '时光邮局·第二版', 'a_img1');
+ok(rm1.ok && rm1.removed === true, 'removeAssetIndexEntry 未删除索引条目');
+const rm2 = I.removeAssetIndexEntry(pid, '时光邮局·第二版', '不存在的id');
+ok(rm2.ok && rm2.removed === false, '删除不存在的索引条目应幂等');
+const assetsJson2 = JSON.parse(fs.readFileSync(path.join(DATA, 'projects', '时光邮局·第二版', 'assets.json'), 'utf8'));
+ok(assetsJson2.length === 1 && assetsJson2[0].id === 'a_txt1', '索引删除后 assets.json 未保持一致');
+
 // 8) 一键导入：本机较新 → 跳过
 const imp1 = I.dataRootImport();
 ok(imp1.ok && !imp1.imported.some((x) => x.id === pid), '本机文档较新时导入不应覆盖');

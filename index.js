@@ -306,6 +306,26 @@ function dataRootMigrate() {
   }
   return { ok: true, projects: folders.filter(Boolean).length, filesMoved, folders };
 }
+/** 从项目的 assets.json 索引里移除一条资产记录（资产被删除时保持数据目录同步）。 */
+function removeAssetIndexEntry(pid, projectName, assetId) {
+  const root = dataRoot();
+  if (!root || !pid || !assetId) return { ok: true, removed: false };
+  let folder = null;
+  try { folder = ensureProjectFolder(pid, projectName || pid); } catch { return { ok: true, removed: false }; }
+  if (!folder) return { ok: true, removed: false };
+  const f = path.join(root, 'projects', folder, 'assets.json');
+  let list = [];
+  try {
+    const parsed = JSON.parse(readFileSync(f, 'utf8'));
+    if (Array.isArray(parsed)) list = parsed;
+  } catch { return { ok: true, removed: false }; }
+  const next = list.filter((x) => x && x.id !== assetId);
+  if (next.length === list.length) return { ok: true, removed: false };
+  const tmp = f + '.' + process.pid + '.tmp';
+  writeFileSync(tmp, JSON.stringify(next, null, 1), 'utf8');
+  renameSync(tmp, f);
+  return { ok: true, removed: true };
+}
 /** 一键导入：扫描数据目录 → 合并 project.json 进主存储（updatedAt 新者胜）→ 返回资产元数据供客户端入 IDB。 */
 function dataRootImport() {
   const root = dataRoot();
@@ -1241,7 +1261,7 @@ async function updateInstall() {
 export const inject = ['webServer', 'tools'];
 
 // 仅供诊断 / 自动化测试（不属于 RPC 面，运行时行为不受影响）
-export const _internals = { updateCheck, updateInstall, npmLatestVersion, cmpVer, findPnpm, getProfileDir: () => PROFILE_DIR, getVersion: () => VERSION, dataRoot, setDataRoot, dataRootMigrate, dataRootImport, ensureProjectFolder, physicalRel, mirrorProjectToDataRoot, writeAssetIndex, readDataRootMeta, removeDataRootProject, safeJoin, mimeOf, pipeFile, getIcConfigPath: () => CONFIG_PATH, canvasCreateProject, canvasWriteNode, canvasConnect, canvasDeleteProject, canvasDeleteNode, canvasRunNode, canvasNodeStatus, canvasGetBible, canvasUpdateBible, canvasCreateNode, canvasOpen, projectsList, projectsPut, projectsGet, projectsDelete, projectsSync };
+export const _internals = { updateCheck, updateInstall, npmLatestVersion, cmpVer, findPnpm, getProfileDir: () => PROFILE_DIR, getVersion: () => VERSION, dataRoot, setDataRoot, dataRootMigrate, dataRootImport, ensureProjectFolder, physicalRel, mirrorProjectToDataRoot, writeAssetIndex, removeAssetIndexEntry, readDataRootMeta, removeDataRootProject, safeJoin, mimeOf, pipeFile, getIcConfigPath: () => CONFIG_PATH, canvasCreateProject, canvasWriteNode, canvasConnect, canvasDeleteProject, canvasDeleteNode, canvasRunNode, canvasNodeStatus, canvasGetBible, canvasUpdateBible, canvasCreateNode, canvasOpen, projectsList, projectsPut, projectsGet, projectsDelete, projectsSync };
 
 function resolveModel(providers, want) {
   const byProvider = want && want.provider
@@ -1467,9 +1487,21 @@ export function apply(ctx) {
       async canvasOpen(args) { return canvasOpen(args); },
       async assetDelete(args) {
         const root = dataRoot();
-        if (!root) throw new Error('未设置数据根目录');
-        const { abs } = safeJoin(root, (args && args.rel) || '');
-        try { unlinkSync(abs); } catch { /* 已不存在视为成功 */ }
+        const rel = String((args && args.rel) || '');
+        // 逻辑路径（pid）→ 物理路径（项目名文件夹）：不映射会删不到真实文件
+        if (root && rel) {
+          const mapped = physicalRel(rel) || rel;
+          try {
+            const { abs } = safeJoin(root, mapped);
+            unlinkSync(abs);
+          } catch { /* 已不存在视为成功 */ }
+        }
+        // 同步清掉 assets.json 里的记录，保持数据目录与应用状态一致
+        const pid = String((args && args.projectId) || '');
+        const assetId = String((args && args.id) || '');
+        if (pid && assetId) {
+          try { removeAssetIndexEntry(pid, String((args && args.projectName) || ''), assetId); } catch { /* 索引清理失败不影响 */ }
+        }
         return { ok: true };
       },
       async listSkills() {

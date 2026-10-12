@@ -14,7 +14,7 @@ const body = m[1];
 const catLabel = (c) => ({ character: '角色', scene: '场景', prop: '道具', general: '通用' }[c] || '通用');
 const effLang = () => 'zh';
 const factory = new Function('catLabel', 'effLang', body + `
-  return { parseMentions, highlightMentions, stripMentionMarks, matchBibleEntity, assetBelongsToEntity, entityLabelOf, entityCategoryOf, buildEffectivePrompt, assetNameFor };
+  return { parseMentions, highlightMentions, stripMentionMarks, matchBibleEntity, assetBelongsToEntity, entityLabelOf, entityCategoryOf, buildEffectivePrompt, assetNameFor, nowStamp };
 `);
 const api = factory(catLabel, effLang);
 
@@ -67,9 +67,9 @@ if (!eff.includes('[图1] 角色 张山（40 岁，短发，深灰风衣）')) e
 if (!eff.includes('[图2]')) errs.push('第二个参考图未编号');
 if (!eff.includes('设定集：角色 张山：40 岁，短发')) errs.push('未注入命中实体的设定描述');
 
-// 7) 资产命名：节点名优先 → 实体 → 兜底
-eq(api.assetNameFor({ data: { label: '角色-张山 多视图' } }, [], 'image'), '角色-张山 多视图', '节点名优先');
-eq(api.assetNameFor({ data: {} }, [{ kind: 'scene', name: '褶皱巷' }], 'image'), '场景-褶皱巷', '实体命名');
+// 7) 资产命名：节点名 + 时间（用户规则）→ 实体 + 时间 → 兜底 + 时间
+eq(api.assetNameFor({ data: { label: '角色-张山 多视图' } }, [], 'image'), '角色-张山 多视图 ' + api.nowStamp(), '节点名+时间');
+eq(api.assetNameFor({ data: {} }, [{ kind: 'scene', name: '褶皱巷' }], 'image'), '场景-褶皱巷 ' + api.nowStamp(), '实体命名+时间');
 if (!api.assetNameFor({ data: {} }, [], 'video').startsWith('视频-')) errs.push('兜底命名不正确');
 eq(api.entityCategoryOf('character'), 'character', '实体→资产品类');
 

@@ -195,6 +195,11 @@ ok(afterRedo.tombstones && afterRedo.tombstones.includes('n2'), 'redo 删除节�
 // 3c) 键盘 Delete 必须走 removeNodes（源码绊线：曾经的裸删分支是"Delete 复活"的根因）
 ok(/e\.key === 'Delete'[\s\S]{0,600}removeNodes\(\[\.\.\.S\.sel\]/.test(src), '键盘 Delete/Backspace 未走 removeNodes（裸删会复活）');
 
+// 3d) 资产命名规则 = 节点名 + 时间（用户规则：不得退回"分镜-时间"这类通用前缀）
+ok(/function nowStamp\(\)/.test(src), 'nowStamp 时间戳助手缺失');
+ok(/function assetNameFor[\s\S]{0,400}nowStamp\(\)/.test(src), 'assetNameFor 未使用「节点名+时间」命名规则');
+ok(!/name: T\('storyboardAssetPrefix'\) \+ new Date\(\)/.test(src), '分镜资产命名仍在用通用前缀+时间（应为节点名+时间）');
+
 // 4) loadBible 读取（BibleTab 的数据源）
 const loaded = sync.loadBible('p2');
 ok(loaded.worldview === '测试世界观' && loaded.characters.length === 1, 'loadBible 读取不一致');
