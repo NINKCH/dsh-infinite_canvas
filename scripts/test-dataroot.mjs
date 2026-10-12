@@ -125,6 +125,29 @@ ok(!fs.existsSync(path.join(DATA, 'projects', e2.folder)), '删除项目后数�
 const meta3 = I.readDataRootMeta();
 ok(!meta3.projects.some((x) => x.id === p2.projectId), '删除项目后清单条目未清理');
 
+// 11) 项目删除墓碑：删除后迟到的 projectsPut（竞速/启动快照推送）被拒收，项目不复活；
+//     dataRootImport 恢复时撤墓碑，推送恢复有效
+const docBackup = await I.projectsGet({ id: pid });
+await I.projectsDelete({ id: pid });
+ok(!fs.existsSync(path.join(DATA, 'projects', '时光邮局·第二版')), 'projectsDelete 后数据目录文件夹未清理');
+ok(!I.readDataRootMeta().projects.some((x) => x.id === pid), 'projectsDelete 后清单条目未清理');
+let threw = false;
+try { await I.projectsGet({ id: pid }); } catch { threw = true; }
+ok(threw, '删除后项目文档应不存在');
+const late = await I.projectsPut({ id: pid, name: '时光邮局·第二版', doc: { nodes: {}, edges: [], ts: Date.now() } });
+ok(late.deleted === true, '删除后迟到的 projectsPut 未被墓碑拒收（项目会原地复活）');
+threw = false;
+try { await I.projectsGet({ id: pid }); } catch { threw = true; }
+ok(threw, '墓碑拒收后项目文档不应被复活');
+// 模拟"新机器/恢复"：数据目录里重新有 project.json → 导入 → 墓碑撤销 → 推送恢复有效
+I.mirrorProjectToDataRoot(pid, docBackup);
+const imp3 = I.dataRootImport();
+ok(imp3.imported.some((x) => x.id === pid), '导入未恢复被删项目');
+const okPut = await I.projectsPut({ id: pid, name: '时光邮局·第二版', doc: { nodes: {}, edges: [], ts: Date.now() } });
+ok(okPut.ok && !okPut.deleted, '导入恢复后推送仍被墓碑拒收（墓碑未撤销）');
+const restored2 = await I.projectsGet({ id: pid });
+ok(!!restored2 && restored2.name === '时光邮局·第二版', '导入恢复后项目文档不可读');
+
 fs.rmSync(SANDBOX, { recursive: true, force: true });
 if (errs.length) {
   console.error('✗ 数据目录回归测试未通过（' + errs.length + ' 项）：');

@@ -351,6 +351,7 @@ function dataRootImport() {
     if (!cur || (cur.updatedAt || 0) < (doc.updatedAt || 0)) {
       doc.updatedAt = Date.now();
       writeIcDoc(id, doc); // 会同步镜像回数据目录（无害）
+      clearDeletedProjectId(id); // 导入恢复：撤掉长效墓碑，后续客户端推送不再被拒收
       imported.push({ id, name: doc.name || id });
     }
     try {
@@ -507,6 +508,9 @@ function projectsList() {
 }
 async function projectsPut(args) {
   const id = String((args && args.id) || '');
+  // 项目删除墓碑（长效）：删除后迟到的全量推送（450ms 防抖竞速 / 启动 pushAllProjectsToHost 快照）
+  // 一律拒收——否则项目原地复活（资产/设定集已清，复活即残废）。客户端不会复用项目 id，拒收永不误伤。
+  if (deletedProjectIds().includes(id)) return { ok: true, id, deleted: true };
   const f = projectFile(id);
   const doc = (args && args.doc) || {};
   let prev = {};
@@ -613,6 +617,28 @@ async function projectsPut(args) {
 async function projectsGet(args) {
   return readDoc(String((args && args.id) || ''));
 }
+/** 长效项目删除墓碑（区别于 projectsSync 的一次性 deletedProjects 通知信号）：
+ *  删除后任何迟到的 projectsPut 都被拒收，直到 dataRootImport 显式恢复该 id。 */
+function deletedProjectIds(cfg) {
+  const c = cfg || readIcConfig();
+  return (c.ui && Array.isArray(c.ui.deletedProjectIds)) ? c.ui.deletedProjectIds : [];
+}
+function addDeletedProjectId(id) {
+  const pid = String(id || '');
+  if (!pid) return;
+  const cfg = readIcConfig();
+  const prev = (cfg.ui && Array.isArray(cfg.ui.deletedProjectIds)) ? cfg.ui.deletedProjectIds : [];
+  cfg.ui = { ...(cfg.ui || {}), deletedProjectIds: [...new Set([...prev, pid])].slice(-200) };
+  writeIcConfig(cfg);
+}
+function clearDeletedProjectId(id) {
+  const pid = String(id || '');
+  if (!pid) return;
+  const cfg = readIcConfig();
+  if (!cfg.ui || !Array.isArray(cfg.ui.deletedProjectIds) || !cfg.ui.deletedProjectIds.includes(pid)) return;
+  cfg.ui = { ...cfg.ui, deletedProjectIds: cfg.ui.deletedProjectIds.filter((x) => x !== pid) };
+  writeIcConfig(cfg);
+}
 /** 设置数据根目录（绝对路径）并立即迁移布局；供 RPC 与测试复用。 */
 function setDataRoot(raw) {
   raw = String(raw ?? '').trim();
@@ -631,8 +657,10 @@ function setDataRoot(raw) {
   return { ok: true, dataRoot: root, migrated };
 }
 async function projectsDelete(args) {
-  try { unlinkSync(projectFile(args && args.id)); } catch { /* 已不存在视为成功 */ }
-  try { removeDataRootProject(args && args.id); } catch { /* 数据目录镜像清理失败不影响删除 */ }
+  const id = String((args && args.id) || '');
+  try { unlinkSync(projectFile(id)); } catch { /* 已不存在视为成功 */ }
+  try { addDeletedProjectId(id); } catch { /* 墓碑写失败不影响删除 */ }
+  try { removeDataRootProject(id); } catch { /* 数据目录镜像清理失败不影响删除 */ }
   return { ok: true };
 }
 async function projectsSync() {
@@ -1011,10 +1039,15 @@ async function canvasDeleteProject(args) {
   try { name = JSON.parse(readFileSync(f, 'utf8')).name || id; } catch { /* 本来就不存在 */ }
   try { unlinkSync(f); } catch { /* 已删除 */ }
   try { removeDataRootProject(id); } catch { /* 数据目录镜像清理失败不影响删除 */ }
-  // 通知客户端把这个项目也从本地删掉，否则下次推送会把它复活
+  // 通知客户端把这个项目也从本地删掉，否则下次推送会把它复活 + 长效墓碑：拒收迟到的推送
   const cfg = readIcConfig();
   const prev = (cfg.ui && cfg.ui.deletedProjects) || [];
-  cfg.ui = { ...(cfg.ui || {}), deletedProjects: [...new Set([...prev, id])].slice(-50) };
+  const prevTomb = Array.isArray(cfg.ui.deletedProjectIds) ? cfg.ui.deletedProjectIds : [];
+  cfg.ui = {
+    ...(cfg.ui || {}),
+    deletedProjects: [...new Set([...prev, id])].slice(-50),
+    deletedProjectIds: [...new Set([...prevTomb, id])].slice(-200),
+  };
   writeIcConfig(cfg);
   return { ok: true, projectId: id, name };
 }
@@ -1265,7 +1298,7 @@ async function updateInstall() {
 export const inject = ['webServer', 'tools'];
 
 // 仅供诊断 / 自动化测试（不属于 RPC 面，运行时行为不受影响）
-export const _internals = { updateCheck, updateInstall, npmLatestVersion, cmpVer, findPnpm, getProfileDir: () => PROFILE_DIR, getVersion: () => VERSION, dataRoot, setDataRoot, dataRootMigrate, dataRootImport, ensureProjectFolder, physicalRel, mirrorProjectToDataRoot, writeAssetIndex, removeAssetIndexEntry, readDataRootMeta, removeDataRootProject, safeJoin, mimeOf, pipeFile, getIcConfigPath: () => CONFIG_PATH, canvasCreateProject, canvasWriteNode, canvasConnect, canvasDeleteProject, canvasDeleteNode, canvasRunNode, canvasNodeStatus, canvasGetBible, canvasUpdateBible, canvasCreateNode, canvasOpen, projectsList, projectsPut, projectsGet, projectsDelete, projectsSync };
+export const _internals = { updateCheck, updateInstall, npmLatestVersion, cmpVer, findPnpm, getProfileDir: () => PROFILE_DIR, getVersion: () => VERSION, dataRoot, setDataRoot, dataRootMigrate, dataRootImport, ensureProjectFolder, physicalRel, mirrorProjectToDataRoot, writeAssetIndex, removeAssetIndexEntry, readDataRootMeta, removeDataRootProject, deletedProjectIds, addDeletedProjectId, clearDeletedProjectId, safeJoin, mimeOf, pipeFile, getIcConfigPath: () => CONFIG_PATH, canvasCreateProject, canvasWriteNode, canvasConnect, canvasDeleteProject, canvasDeleteNode, canvasRunNode, canvasNodeStatus, canvasGetBible, canvasUpdateBible, canvasCreateNode, canvasOpen, projectsList, projectsPut, projectsGet, projectsDelete, projectsSync };
 
 function resolveModel(providers, want) {
   const byProvider = want && want.provider

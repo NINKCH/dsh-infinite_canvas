@@ -5641,7 +5641,9 @@ window.__ModuleLoader__.load({
       const confirmDel = async () => {
         const pid = delTarget && delTarget.id;
         if (!pid) return;
-        flushSave();
+        // 只刷"非待删项目"的待存文档：flushSave 推的是 S.activeId 的全量文档，
+        // 若推的正是待删项目，会与 projectsDelete 竞速把项目原地复活（资产/设定集已清的残废形态）
+        if (pid !== S.activeId) flushSave();
         update((s) => {
           s.projects = s.projects.filter((p) => p.id !== pid);
           try { localStorage.removeItem(LS_GRAPH + pid); } catch { /* 忽略 */ }
