@@ -54,6 +54,8 @@ node scripts/test-mentions.mjs  # @引用解析单测（解析/高亮转义/设�
 node scripts/audit.mjs          # 机械化体检（i18n 键对齐/CSS 类/节点类型覆盖/RPC 与工具一致）
 node scripts/test-host-hardening.mjs # Host 加固回归（读流错误接管/项目合并与墓碑/来源校验等）
 node scripts/test-llm-stream.mjs   # LLM 流式与推理模型重试（思考实时推送/按配置上限重试）
+node scripts/test-sync-bible.mjs   # 同步合并回归（设定集拉回/边墓碑防复活）
+node scripts/test-user-scenarios.mjs # 用户实测场景定向复验（轮询无损/自动连线/设定集读写）
 ```
 
 `check-pack` 防的三类事故：漏打包（如 locale/icon 没进包）、多打包（`.github`/`scripts` 混入）、元数据漂移（版本/exports/`dsh.bundle.patch`）。
