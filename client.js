@@ -359,6 +359,9 @@ window.__ModuleLoader__.load({
       'collapse': '折叠',
       'foldOpen': '展开',
       'craftReadyCount': '{r}/{n} 就绪',
+      'craftDirLabel': '当前项目后期目录',
+      'craftDataRootNeed': '请先在上方设置画布数据根目录：Craft 后期文件将存放于 数据根目录\\projects\\<项目>\\craft',
+      'craftRootMismatch': 'ArtCraft 自身数据目录与画布数据根目录不一致：请在 ArtCraft 设置里把数据目录改成同一根目录，否则后期文件会落到两处',
       'dataRootImportBtn': '从数据目录导入',
       'dataRootImported': '导入完成：合并 {n} 个项目、补入 {a} 条资产元数据',
       'dataRootImportHint': '换电脑迁移：把整个数据目录拷到新机器 → 设置为数据根目录 → 点"从数据目录导入"即可恢复项目/节点/设定集/资产',
@@ -693,6 +696,9 @@ window.__ModuleLoader__.load({
       'collapse': 'Collapse',
       'foldOpen': 'Expand',
       'craftReadyCount': '{r}/{n} ready',
+      'craftDirLabel': 'Project craft dir',
+      'craftDataRootNeed': 'Set the canvas data root above first: craft files go to <root>\\projects\\<project>\\craft',
+      'craftRootMismatch': "ArtCraft's own data root differs from the canvas data root — point ArtCraft at the same root or craft files will land in two places",
       'dataRootImportBtn': 'Import from data root',
       'dataRootImported': 'Imported: {n} projects merged, {a} asset records added',
       'dataRootImportHint': 'Migration: copy the whole data folder to the new machine, set it as data root, then click "Import from data root" to restore projects/nodes/bible/assets',
@@ -2308,7 +2314,9 @@ window.__ModuleLoader__.load({
       const pid = S.activeId;
       const map = craftMapLoad(pid);
       if (!opts.force && map[rec.id]) return map[rec.id];
-      const rel = craftProjectSlug() + '/media/' + assetFileBase(rec) + extForMime(rec.mime, rec.name);
+      // Craft 后期数据统一放在**画布数据根目录**的项目目录下：projects/<项目>/<slug 前缀去掉>/craft/…
+      // （ArtCraft 数据根目录 = 画布数据根目录时，即落在 <root>/projects/<项目>/craft/media/）
+      const rel = 'projects/' + craftProjectSlug() + '/craft/media/' + assetFileBase(rec) + extForMime(rec.mime, rec.name);
       const blob = rec.blob || await assetBlob(rec.id);
       if (!blob) throw new Error('资产内容不可用: ' + rec.id);
       await craft.write(rel, blob);
@@ -5337,12 +5345,12 @@ window.__ModuleLoader__.load({
           width: dims.w, height: dims.h,
         });
         try {
-          await craft.writeText(slug + '/craft/timeline.xml', xml);
-          await craft.writeText(slug + '/craft/subs.srt', buildSrt(items));
+          await craft.writeText('projects/' + slug + '/craft/timeline.xml', xml);
+          await craft.writeText('projects/' + slug + '/craft/subs.srt', buildSrt(items));
         } catch (e) { return; /* craftFetch 已提示 */ }
         setFcDialog({
-          args: JSON.stringify(['--project', slug + '/craft/drama.fcproj', '--import', slug + '/craft/timeline.xml', '--export', slug + '/out/final.mp4'], null, 1),
-          outRel: slug + '/out/final.mp4',
+          args: JSON.stringify(['--project', 'projects/' + slug + '/craft/drama.fcproj', '--import', 'projects/' + slug + '/craft/timeline.xml', '--export', 'projects/' + slug + '/craft/out/final.mp4'], null, 1),
+          outRel: 'projects/' + slug + '/craft/out/final.mp4',
         });
       };
       const submitFc = (args, outRel) => {
@@ -6367,6 +6375,11 @@ window.__ModuleLoader__.load({
       const cs = S.craftStatus;
       const data = cs && cs.data;
       const slug = craftProjectSlug();
+      // Craft 后期目录 = **画布数据根目录** + 项目目录 + \craft（不再有 ArtCraft 独立数据目录的 second 口径）
+      const craftDir = S.dataRoot ? (S.dataRoot.replace(/[\\/]+$/, '') + '\\projects\\' + slug + '\\craft') : '';
+      // ArtCraft 自身的数据目录若与画布数据根目录不一致 → 后期文件会落到两处，必须提醒
+      const artRoot = data && data.dataRoot ? data.dataRoot.path : '';
+      const rootMismatch = !!(S.dataRoot && artRoot && artRoot.replace(/[\\/]+$/, '') !== S.dataRoot.replace(/[\\/]+$/, ''));
       // Craft 家族全量动态渲染：ArtCraft /status 返回几款 bins 就渲染几款（当前 12 款），不再写死
       const binKeys = (data && data.bins ? Object.keys(data.bins) : []).sort();
       const readyCount = binKeys.filter((k) => data.bins[k] && data.bins[k].found).length;
@@ -6393,11 +6406,9 @@ window.__ModuleLoader__.load({
           h('span', { style: { flex: 'none', fontSize: 10, transition: 'transform .15s', transform: open ? 'rotate(90deg)' : 'rotate(0deg)' } }, '▶'),
         ),
         open ? [
-          data
-            ? h('div', { className: 'dshic-hint' }, T('craftDataRoot') + '：' + ((data.dataRoot && data.dataRoot.path) || '—'))
-            : h('div', { className: 'dshic-err' }, T('craftUnreachable')),
+          craftDir ? h('div', { className: 'dshic-hint' }, T('craftDirLabel') + '：' + craftDir) : h('div', { className: 'dshic-err' }, T('craftDataRootNeed')),
+          rootMismatch ? h('div', { className: 'dshic-err' }, T('craftRootMismatch')) : null,
           ...(data ? binKeys.map((k) => binRow(k)) : []),
-          data ? h('div', { className: 'dshic-hint' }, T('craftProjectDir') + '：' + slug + '/') : null,
         ] : null,
       );
     }
@@ -6427,7 +6438,7 @@ window.__ModuleLoader__.load({
         setRunning(true); setErr(null); setProgress('…');
         try {
           const mediaRel = await ensureAssetOnDisk(rec);
-          const outRel = craftProjectSlug() + '/out/graded/' + rec.id + '-graded' + extForMime(rec.mime, rec.name);
+          const outRel = 'projects/' + craftProjectSlug() + '/craft/out/graded/' + rec.id + '-graded' + extForMime(rec.mime, rec.name);
           const job = await craft.jobStart({
             bin: 'photocraft',
             args: ['run', mediaRel, '--cmd', cmd, '--params', JSON.stringify(paramsObj), '--out', outRel],
@@ -6650,8 +6661,6 @@ window.__ModuleLoader__.load({
       };
       const field = (label, value, onChange, placeholder, password) => h(Field, { label, value, onChange, placeholder, password });
       return [
-        h(CraftCard, { key: 'craft' }),
-        h(DataRootCard, { key: 'dataroot' }),
         h('div', { key: 'lang', className: 'dshic-card' },
           h('div', { className: 'dshic-row' }, Ic('text', 12), h('strong', { style: { fontSize: 12 } }, T('langLabel'))),
           h('select', {
@@ -6667,6 +6676,9 @@ window.__ModuleLoader__.load({
             h('option', { value: 'zh' }, T('langZh')),
             h('option', { value: 'en' }, T('langEn'))),
         ),
+        h(DataRootCard, { key: 'dataroot' }),
+        h(CraftCard, { key: 'craft' }),
+        // 文本模型卡：只选模型，参数全用 Harness 默认；与下方图片/视频卡片同款式
         h('div', { key: 'llm', className: 'dshic-card' },
           h('div', { className: 'dshic-row' },
             Ic('spark', 12),
@@ -6674,8 +6686,12 @@ window.__ModuleLoader__.load({
             InfoTip(T('llmHint')),
           ),
           h(LlmModelSelect),
+        ),
+        // 专家与技能卡：独立于模型选择
+        h('div', { key: 'skills', className: 'dshic-card' },
           h('div', { className: 'dshic-row' },
-            h('span', { className: 'dshic-field-label', style: { flex: 1, minWidth: 0 } }, T('skillEnhance')),
+            Ic('spark', 12),
+            h('strong', { style: { fontSize: 12, flex: 1, minWidth: 0 } }, T('skillEnhance')),
             InfoTip(T('skillHint')),
           ),
           h(SkillSelect, { label: T('skillScript'), value: s.skillScript, onChange: (v) => apply((d) => { d.skillScript = v; }) }),
