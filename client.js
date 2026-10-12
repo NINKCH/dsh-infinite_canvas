@@ -356,6 +356,9 @@ window.__ModuleLoader__.load({
       'dataRootOpen': '打开目录',
       'dataRootMigrate': '迁移历史资产',
       'dataRootMigrated': '已迁移 {n} 个资产到数据根目录',
+      'collapse': '折叠',
+      'foldOpen': '展开',
+      'craftReadyCount': '{r}/{n} 就绪',
       'dataRootImportBtn': '从数据目录导入',
       'dataRootImported': '导入完成：合并 {n} 个项目、补入 {a} 条资产元数据',
       'dataRootImportHint': '换电脑迁移：把整个数据目录拷到新机器 → 设置为数据根目录 → 点"从数据目录导入"即可恢复项目/节点/设定集/资产',
@@ -687,6 +690,9 @@ window.__ModuleLoader__.load({
       'dataRootOpen': 'Open folder',
       'dataRootMigrate': 'Migrate existing assets',
       'dataRootMigrated': 'Migrated {n} assets to the data root',
+      'collapse': 'Collapse',
+      'foldOpen': 'Expand',
+      'craftReadyCount': '{r}/{n} ready',
       'dataRootImportBtn': 'Import from data root',
       'dataRootImported': 'Imported: {n} projects merged, {a} asset records added',
       'dataRootImportHint': 'Migration: copy the whole data folder to the new machine, set it as data root, then click "Import from data root" to restore projects/nodes/bible/assets',
@@ -1092,8 +1098,8 @@ window.__ModuleLoader__.load({
       try { localStorage.setItem(key, JSON.stringify(value)); } catch { /* 忽略配额错误 */ }
     }
     const DEFAULT_SETTINGS = {
-      // 生成参数一律"留空即不发送"，由 Harness 适配器/模型用已配置的默认值（不在代码里写死）
-      textLlm: { provider: '', model: '', maxTokens: '', temperature: '' },
+      // 文本模型全部用 Harness 的当前模型与默认参数：画布只选择模型，不单独配置生成参数
+      textLlm: { provider: '', model: '' },
       imageApis: [],   // [{id, name, baseUrl, apiKey, model, mode, size?, responseFormat?}]
       videoApis: [],   // [{id, name, url, apiKey, model, protocol?, watermark?, generateAudio?}]
       ttsApis: [],     // [{id, name, baseUrl, apiKey, model, voice}]
@@ -1107,7 +1113,7 @@ window.__ModuleLoader__.load({
     function loadSettings() {
       const s = lsGet(LS_SETTINGS, {}) || {};
       const out = {
-        textLlm: { ...DEFAULT_SETTINGS.textLlm, ...(s.textLlm || {}) },
+        textLlm: { provider: (s.textLlm && s.textLlm.provider) || '', model: (s.textLlm && s.textLlm.model) || '' },
         imageApis: Array.isArray(s.imageApis) ? s.imageApis : [],
         videoApis: Array.isArray(s.videoApis) ? s.videoApis : [],
         ttsApis: Array.isArray(s.ttsApis) ? s.ttsApis : [],
@@ -6131,13 +6137,12 @@ window.__ModuleLoader__.load({
       // 默认项 = 内置专家 persona + 内置创作方法论 canvas-craft（自动叠加）
       const options = [{ value: '', label: T('builtinExpert') }].concat((data.skills || []).map((x) => ({ value: x.name, label: x.name })));
       return h('div', { className: 'dshic-field' },
-        h('span', { className: 'dshic-field-label' }, label),
+        h('span', { className: 'dshic-field-label' }, label, InfoTip(T('skillHint'))),
         h('select', {
           className: 'dshic-select', value: value || '',
           onChange: (e) => onChange(e.target.value),
           onPointerDown: (e) => e.stopPropagation(),
-        }, options.map((o) => h('option', { key: o.value, value: o.value }, o.label))),
-        h('div', { className: 'dshic-hint' }, T('skillHint')));
+        }, options.map((o) => h('option', { key: o.value, value: o.value }, o.label))));
     }
 
     function LlmModelSelect() {
@@ -6188,7 +6193,6 @@ window.__ModuleLoader__.load({
           },
           onPointerDown: (e) => e.stopPropagation(),
         }),
-        h('div', { className: 'dshic-hint' }, T('llmHint')),
       );
     }
 
@@ -6201,6 +6205,13 @@ window.__ModuleLoader__.load({
           onChange: (e) => onChange(e.target.value),
           onPointerDown: (e) => e.stopPropagation(),
         }));
+    }
+    /** ⓘ 悬停说明：界面简洁化——长解释一律收进悬停提示（原生 title），不再平铺文字。 */
+    function InfoTip(text) {
+      return h('span', {
+        title: String(text || ''), 'aria-label': String(text || ''),
+        style: { flex: 'none', width: 14, height: 14, lineHeight: '13px', textAlign: 'center', fontSize: 10, borderRadius: '50%', border: '1px solid var(--dsw-alias-border-secondary, #777)', color: 'var(--dsw-alias-label-secondary, #999)', cursor: 'help', userSelect: 'none', opacity: 0.85 },
+      }, 'i');
     }
     function ApiListEditor({ kind }) {
       const [s, setS] = useState(loadSettings);
@@ -6351,10 +6362,14 @@ window.__ModuleLoader__.load({
     /** T2：设置面板 Craft 后期卡片（连接状态 / 工具灯 / 数据目录）。 */
     function CraftCard() {
       const [, force] = useState(0);
+      const [open, setOpen] = useState(false); // 默认折叠：界面简洁，摘要常显
       useEffect(() => { probeCraft().then(() => force((x) => x + 1)); }, []);
       const cs = S.craftStatus;
       const data = cs && cs.data;
       const slug = craftProjectSlug();
+      // Craft 家族全量动态渲染：ArtCraft /status 返回几款 bins 就渲染几款（当前 12 款），不再写死
+      const binKeys = (data && data.bins ? Object.keys(data.bins) : []).sort();
+      const readyCount = binKeys.filter((k) => data.bins[k] && data.bins[k].found).length;
       const binRow = (key) => {
         const info = data && data.bins ? data.bins[key] : null;
         const ok = !!(info && info.found);
@@ -6366,18 +6381,24 @@ window.__ModuleLoader__.load({
         );
       };
       return h('div', { className: 'dshic-card' },
-        h('div', { className: 'dshic-row' },
+        h('div', {
+          className: 'dshic-row', style: { cursor: 'pointer' },
+          onPointerDown: (e) => e.stopPropagation(), onClick: () => setOpen((x) => !x),
+          title: open ? T('collapse') : T('foldOpen'),
+        },
           Ic('film', 12),
           h('strong', { style: { fontSize: 12, flex: 1, minWidth: 0 } }, T('craftCard')),
-          h('button', { type: 'button', className: 'dshic-mini is-ghost', onPointerDown: (e) => e.stopPropagation(), onClick: () => { probeCraft().then(() => force((x) => x + 1)); } }, '↻'),
+          data ? h('span', { className: 'dshic-hint', style: { flex: 'none' } }, T('craftReadyCount').replace('{r}', String(readyCount)).replace('{n}', String(binKeys.length))) : null,
+          h('button', { type: 'button', className: 'dshic-mini is-ghost', onPointerDown: (e) => e.stopPropagation(), onClick: (e) => { e.stopPropagation(); probeCraft().then(() => force((x) => x + 1)); } }, '↻'),
+          h('span', { style: { flex: 'none', fontSize: 10, transition: 'transform .15s', transform: open ? 'rotate(90deg)' : 'rotate(0deg)' } }, '▶'),
         ),
-        data
-          ? h('div', { className: 'dshic-hint' }, T('craftDataRoot') + '：' + ((data.dataRoot && data.dataRoot.path) || '—'))
-          : h('div', { className: 'dshic-err' }, T('craftUnreachable')),
-        data ? binRow('photocraft') : null,
-        data ? binRow('filmcraft') : null,
-        data ? binRow('effectcraft') : null,
-        data ? h('div', { className: 'dshic-hint' }, T('craftProjectDir') + '：' + slug + '/') : null,
+        open ? [
+          data
+            ? h('div', { className: 'dshic-hint' }, T('craftDataRoot') + '：' + ((data.dataRoot && data.dataRoot.path) || '—'))
+            : h('div', { className: 'dshic-err' }, T('craftUnreachable')),
+          ...(data ? binKeys.map((k) => binRow(k)) : []),
+          data ? h('div', { className: 'dshic-hint' }, T('craftProjectDir') + '：' + slug + '/') : null,
+        ] : null,
       );
     }
 
@@ -6587,7 +6608,11 @@ window.__ModuleLoader__.load({
         setBusy(false);
       };
       return h('div', { key: 'dataroot', className: 'dshic-card' },
-        h('div', { className: 'dshic-row' }, Ic('image', 12), h('strong', { style: { fontSize: 12 } }, T('dataRootLabel'))),
+        h('div', { className: 'dshic-row' },
+          Ic('image', 12),
+          h('strong', { style: { fontSize: 12, flex: 1, minWidth: 0 } }, T('dataRootLabel')),
+          InfoTip(T('dataRootHint')),
+        ),
         S.dataRootSupported === false
           ? h('div', { className: 'dshic-hint' }, T('dataRootUnsupported'))
           : [
@@ -6600,7 +6625,6 @@ window.__ModuleLoader__.load({
                 h('button', { type: 'button', className: 'dshic-mini', disabled: busy || picking, onPointerDown: (e) => e.stopPropagation(), onClick: save }, T('dataRootSave')),
               ),
               picking ? h('div', { className: 'dshic-hint', key: 'picking' }, T('dataRootPicking')) : null,
-              h('div', { className: 'dshic-hint', key: 'hint' }, T('dataRootHint')),
               h('div', { className: 'dshic-row', key: 'row2' },
                 S.dataRoot ? h('button', { type: 'button', className: 'dshic-mini', onPointerDown: (e) => e.stopPropagation(), onClick: openDir }, T('dataRootOpen')) : null,
                 S.dataRoot ? h('button', { type: 'button', className: 'dshic-mini', disabled: busy || picking || !!mig, onPointerDown: (e) => e.stopPropagation(), onClick: migrate }, mig === 'done' ? T('dataRootMigratedDone') : T('dataRootMigrate')) : null,
@@ -6608,9 +6632,9 @@ window.__ModuleLoader__.load({
               ),
               h('div', { className: 'dshic-row', key: 'row3' },
                 S.dataRoot ? h('button', { type: 'button', className: 'dshic-mini is-ghost', disabled: busy || picking, onPointerDown: (e) => e.stopPropagation(), onClick: importFromRoot }, Ic('folder', 11), T('dataRootImportBtn')) : null,
+                S.dataRoot ? InfoTip(T('dataRootImportHint')) : null,
                 h('div', { className: 'dshic-flex' }),
               ),
-              S.dataRoot ? h('div', { className: 'dshic-hint', key: 'importHint' }, T('dataRootImportHint')) : null,
             ],
       );
     }
@@ -6644,20 +6668,16 @@ window.__ModuleLoader__.load({
             h('option', { value: 'en' }, T('langEn'))),
         ),
         h('div', { key: 'llm', className: 'dshic-card' },
-          h('div', { className: 'dshic-row' }, Ic('spark', 12), h('strong', { style: { fontSize: 12 } }, T('llmLabel'))),
+          h('div', { className: 'dshic-row' },
+            Ic('spark', 12),
+            h('strong', { style: { fontSize: 12, flex: 1, minWidth: 0 } }, T('llmLabel')),
+            InfoTip(T('llmHint')),
+          ),
           h(LlmModelSelect),
           h('div', { className: 'dshic-row' },
-            h(Field, {
-              label: T('llmMaxTokens'), value: s.textLlm.maxTokens || '', placeholder: T('llmParamAuto'),
-              onChange: (v) => apply((d) => { d.textLlm.maxTokens = v; }),
-            }),
-            h(Field, {
-              label: T('llmTemperature'), value: s.textLlm.temperature || '', placeholder: T('llmParamAuto'),
-              onChange: (v) => apply((d) => { d.textLlm.temperature = v; }),
-            }),
+            h('span', { className: 'dshic-field-label', style: { flex: 1, minWidth: 0 } }, T('skillEnhance')),
+            InfoTip(T('skillHint')),
           ),
-          h('div', { className: 'dshic-hint' }, T('llmParamHint')),
-          h('div', { className: 'dshic-hint' }, T('skillEnhance')),
           h(SkillSelect, { label: T('skillScript'), value: s.skillScript, onChange: (v) => apply((d) => { d.skillScript = v; }) }),
           h(SkillSelect, { label: T('skillStoryboard'), value: s.skillStoryboard, onChange: (v) => apply((d) => { d.skillStoryboard = v; }) }),
         ),
