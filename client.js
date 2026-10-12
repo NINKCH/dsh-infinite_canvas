@@ -248,7 +248,8 @@ window.__ModuleLoader__.load({
       'allProjects': '全部项目',
       'currentProject': '当前项目',
       'expandDone': '已铺开 {n} 个分镜到画布',
-      'aiNeedScript': '请先连接或填写剧本',
+      'aiNeedScript': '分镜节点还没有剧本来源：连线上游剧本节点，或在节点里粘贴剧本',
+      'upstreamStillRunning': '上游剧本节点还没生成完成（有连线时内容只从连线取）；等它完成后再生成分镜',
       'expandNoShots': '还没有分镜，请先 AI 生成',
       'aiRunning': 'AI 生成中…',
       'langLabel': '界面语言',
@@ -564,7 +565,8 @@ window.__ModuleLoader__.load({
       'allProjects': 'All projects',
       'currentProject': 'Current project',
       'expandDone': 'Expanded {n} shots onto the canvas',
-      'aiNeedScript': 'Connect or paste a script first',
+      'aiNeedScript': 'The storyboard has no script source: connect an upstream script node, or paste a script into the node',
+      'upstreamStillRunning': 'The upstream script node is still generating (with a wire, content comes only from the wire); wait for it before splitting shots',
       'expandNoShots': 'No shots yet — run AI generation first',
       'aiRunning': 'AI generating…',
       'langLabel': 'UI language',
@@ -2852,7 +2854,13 @@ window.__ModuleLoader__.load({
       });
       const parsed = parseJsonBalanced(text);
       const shots = parsed && Array.isArray(parsed.shots) ? parsed.shots : null;
-      if (!shots || !shots.length) throw new Error(T('errParseStoryboard'));
+      if (!shots || !shots.length) {
+        // 解析失败必须带上下文（长度 + 首尾原文），才能判断是被截断还是格式跑偏
+        const raw = String(text || '').trim();
+        const head = raw.slice(0, 160);
+        const tail = raw.slice(-160);
+        throw new Error(T('errParseStoryboard') + '（正文 ' + raw.length + ' 字；开头: ' + head + '；结尾: ' + tail + '）');
+      }
       return shots.slice(0, 24).map((s, i) => ({
         title: String(s.title || (T('shotPrefix') + (i + 1))).slice(0, 24),
         visual: String(s.visual || ''),
@@ -3352,12 +3360,25 @@ window.__ModuleLoader__.load({
     // ============================================================
     const cancelRef = { cancelled: false };
 
-    /** 分镜节点的剧本来源：优先连线（script 成稿 / text 正文），否则节点自身的 script 字段。 */
+    /** 分镜节点的剧本来源：**连线上游与手动粘贴二选一**——
+     *  连了线就只用连线（上游没生成完会明确报错，绝不偷用粘贴的文本混着来）。 */
     function storyboardScriptText(n) {
       const e = S.graph.edges.find((x) => x.toNode === n.id && x.toPort === 'script');
-      const src = e && S.graph.nodes[e.fromNode];
-      if (src && src.type === 'script' && (src.data.output || '').trim()) return src.data.output.trim();
-      if (src && src.type === 'text' && (src.data.text || '').trim()) return src.data.text.trim();
+      if (e) {
+        const src = S.graph.nodes[e.fromNode];
+        if (!src) throw new Error(T('aiNeedScript'));
+        if (src.type === 'script') {
+          const out = String(src.data.output || '').trim();
+          if (!out) throw new Error(T('upstreamStillRunning'));
+          return out;
+        }
+        if (src.type === 'text') {
+          const txt = String(src.data.text || '').trim();
+          if (!txt) throw new Error(T('upstreamStillRunning'));
+          return txt;
+        }
+        throw new Error(T('aiNeedScript'));
+      }
       return String(n.data.script || '').trim();
     }
     const setNodeAiError = (nodeId, message) => update((s) => {
@@ -3368,13 +3389,22 @@ window.__ModuleLoader__.load({
     /** 剧本节点：idea → 成稿。按钮与对话触发的 canvas_run_node 共用同一实现。 */
     async function genScriptNode(n) {
       if (!String(n.data.idea || '').trim()) throw new Error(T('needIdea'));
-      update((s) => { const nd = s.graph.nodes[n.id]; if (nd) { nd.data.aiStatus = 'running'; nd.data.aiError = null; } });
+      update((s) => {
+        const nd = s.graph.nodes[n.id];
+        if (nd) {
+          // 生成开始即清空结果框（旧稿备份，失败自动还原）：避免"还在生成中，结果框却挂着上一版"的误解
+          nd.data.prevOutput = nd.data.output || '';
+          nd.data.output = '';
+          nd.data.aiStatus = 'running';
+          nd.data.aiError = null;
+        }
+      });
       aiStreamClear(n.id);
       flushSave();
       try {
         const text = await aiScriptNodes(n.data.idea, n.data.model, (kind, d) => aiStreamAppend(n.id, kind, d));
         if (!String(text || '').trim()) throw new Error(T('aiEmptyResult'));
-        update((s) => { const nd = s.graph.nodes[n.id]; if (nd) { nd.data.output = text; nd.data.aiStatus = 'idle'; nd.data.status = 'done'; nd.data.error = null; } s.assetsTick++; });
+        update((s) => { const nd = s.graph.nodes[n.id]; if (nd) { nd.data.output = text; nd.data.prevOutput = null; nd.data.aiStatus = 'idle'; nd.data.status = 'done'; nd.data.error = null; } s.assetsTick++; });
         await saveTextAssetRecord(S.activeId, {
           name: T('scriptAssetPrefix') + new Date().toISOString().slice(5, 16).replace('T', ' '),
           text, category: 'script', prompt: n.data.idea,
@@ -3383,6 +3413,11 @@ window.__ModuleLoader__.load({
         flushSave();
         return text;
       } catch (e) {
+        update((s) => {
+          const nd = s.graph.nodes[n.id];
+          // 失败时还原上一版成稿，不让用户白丢内容
+          if (nd && !String(nd.data.output || '').trim() && nd.data.prevOutput) { nd.data.output = nd.data.prevOutput; nd.data.prevOutput = null; }
+        });
         setNodeAiError(n.id, (e && e.message) || e);
         flushSave();
         throw e;

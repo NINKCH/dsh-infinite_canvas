@@ -257,20 +257,25 @@ try {
   if (after3 !== before3 + 1) errs.push(`name 匹配不到时应新建剧本节点（${before3} → ${after3}）`);
   if (w3.nodeId === w.nodeId) errs.push('name 匹配不到时复用了旧节点（会给旧节点改名并覆盖稿件）');
   if (String(doc3.nodes[w.nodeId].data.output || '') !== '第二版成稿') errs.push('新建节点时旧节点的成稿被改动');
-  // 分镜必须用分镜表节点：create_node(storyboard) → 写 shots JSON → 落到 data.shots（而非 output）
-  const sb = await byName.get('canvas_create_node').execute({ projectId, type: 'storyboard', name: '第一节分镜表', prompt: '剧本来源文本' }, {});
-  const shotsJson = JSON.stringify({ shots: [{ title: '镜1', visual: '中景', motion: '推', characters: ['陈拾'], scene: '巷口', props: [], duration: 5 }] });
-  await byName.get('canvas_write_node').execute({ projectId, nodeId: sb.nodeId, target: 'output', text: shotsJson, overwrite: true }, {});
+  // 分镜必须用分镜表节点：创建时**自动连线**到已有剧本（二选一：有连线不收 prompt/粘贴）
+  const sb = await byName.get('canvas_create_node').execute({ projectId, type: 'storyboard', name: '第一节分镜表', prompt: '这段提示词应被忽略' }, {});
   const docSb = await mod._internals.projectsGet({ id: projectId });
   const sbNode = docSb.nodes[sb.nodeId];
   if (!sbNode || sbNode.type !== 'storyboard') errs.push('storyboard 节点类型不正确');
-  if (!sbNode || !Array.isArray(sbNode.data.shots) || sbNode.data.shots.length !== 1) errs.push('shots JSON 未写入分镜节点的 data.shots');
-  if (sbNode && String(sbNode.data.output || '').trim()) errs.push('分镜内容被错误写进了 output（应为 data.shots）');
-  await byName.get('canvas_write_node').execute({ projectId, nodeId: sb.nodeId, target: 'output', text: '普通剧本来源文本', overwrite: true }, {});
-  const docSb2 = await mod._internals.projectsGet({ id: projectId });
-  if (docSb2.nodes[sb.nodeId].data.script !== '普通剧本来源文本') errs.push('普通文本未作为分镜节点的剧本来源写入 data.script');
+  const autoEdge = (docSb.edges || []).find((e) => e.toNode === sb.nodeId && e.toPort === 'script');
+  if (!autoEdge) errs.push('分镜表节点未自动连线到上游剧本（二选一约束失效）');
+  if (sbNode && String(sbNode.data.script || '').trim()) errs.push('已连线的分镜表仍接收了 prompt 文本（连线与提示词未二选一）');
+  // 已连线的分镜表：拒绝把剧本文本粘贴进来（内容只从连线取）
+  let wiredBlocked = false;
+  try { await byName.get('canvas_write_node').execute({ projectId, nodeId: sb.nodeId, target: 'output', text: '手写剧本来源', overwrite: true }, {}); } catch { wiredBlocked = true; }
+  if (!wiredBlocked) errs.push('已连线的分镜表被写入了粘贴的剧本来源（应拒绝，连线与粘贴二选一）');
+  // shots JSON 写入不受二选一限制（这是分镜的输出通道）：落到 data.shots 而非 output
+  const shotsJson = JSON.stringify({ shots: [{ title: '镜1', visual: '中景', motion: '推', characters: ['陈拾'], scene: '巷口', props: [], duration: 5 }] });
+  await byName.get('canvas_write_node').execute({ projectId, nodeId: sb.nodeId, target: 'output', text: shotsJson, overwrite: true }, {});
+  const docSb3 = await mod._internals.projectsGet({ id: projectId });
+  if (!docSb3.nodes[sb.nodeId] || !Array.isArray(docSb3.nodes[sb.nodeId].data.shots) || docSb3.nodes[sb.nodeId].data.shots.length !== 1) errs.push('shots JSON 未写入分镜节点的 data.shots');
   // 连线工具：剧本 → 分镜表（工作流的核心，必须有边且类型校验生效）
-  const scriptNode = Object.values(docSb2.nodes).find((n) => n.type === 'script' && n.data.label === '第一节剧本');
+  const scriptNode = Object.values(docSb3.nodes).find((n) => n.type === 'script' && n.data.label === '第一节剧本');
   const conn = await byName.get('canvas_connect').execute({ projectId, fromNode: scriptNode.id, toNode: sb.nodeId }, {});
   if (!conn || !conn.ok || !conn.edgeId) errs.push('canvas_connect 未返回 edgeId');
   const docC = await mod._internals.projectsGet({ id: projectId });

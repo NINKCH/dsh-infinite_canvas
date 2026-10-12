@@ -474,6 +474,12 @@ function canvasWriteNode(args) {
         node.data.aiStatus = 'idle';
         node.data.aiError = null;
       } else {
+        // 二选一强约束（不可用 overwrite 绕过）：已连线到上游剧本的分镜表，内容只从连线取——
+        // 两套来源并存会让生成结果不可预期。如需改用粘贴，请先删除该连线或重建分镜表节点。
+        const wired = (doc.edges || []).some((e) => e.toNode === node.id && e.toPort === 'script');
+        if (wired) {
+          throw new Error('该分镜表已连线到上游剧本节点，内容将从连线读取（连线与粘贴二选一，不可并用）；请编辑上游剧本节点。');
+        }
         node.data.script = text;
       }
     }
@@ -610,6 +616,9 @@ function canvasCreateNode(args) {
   const label = args && args.name ? String(args.name).slice(0, 40) : '';
   const prompt = String((args && args.prompt) || '');
   const pos = nextNodePos(doc);
+  let connected = null;
+  let autoConnected = null;
+  const connectFrom = String((args && args.connectFrom) || '');
   let node;
   if (type === 'image-gen') {
     node = agentNode('text', '', pos.x, pos.y, label || '图片生成');
@@ -625,7 +634,14 @@ function canvasCreateNode(args) {
     node = agentNode('text', '', pos.x, pos.y, label || '分镜表');
     node.type = 'storyboard';
     node.w = 360;
-    node.data = { ...node.data, status: 'idle', error: null, script: prompt, requirement: String((args && args.requirement) || ''), count: Number(args && args.count) || 6, shots: [], aiStatus: 'idle', aiError: null, warnings: [] };
+    // 连线与提示词**二选一**：创建时若项目里已有剧本节点且未显式指定 connectFrom，
+    // 自动连线到最新的剧本节点；此时 prompt 会被忽略（内容从连线取，最多用 requirement 加额外要求）。
+    const autoScript = [...Object.values(doc.nodes || {})]
+      .filter((n) => n.type === 'script' && String((n.data && n.data.output) || '').trim())
+      .pop();
+    const autoConnectId = connectFrom || (autoScript ? autoScript.id : '');
+    node.data = { ...node.data, status: 'idle', error: null, script: autoConnectId ? '' : prompt, requirement: String((args && args.requirement) || ''), count: Number(args && args.count) || 6, shots: [], aiStatus: 'idle', aiError: null, warnings: [] };
+    autoConnected = autoConnectId ? { from: autoConnectId, ignoredPrompt: Boolean(prompt && autoConnectId) } : null;
   } else if (type === 'finalcut') {
     node = agentNode('text', '', pos.x, pos.y, label || '成片');
     node.type = 'finalcut';
@@ -638,17 +654,23 @@ function canvasCreateNode(args) {
   }
   doc.nodes[node.id] = node;
   // connectFrom：创建即连线（如分镜表连到上游剧本、image-gen 连到 shot/文本），一次调用完成建点+连线
-  let connected = null;
-  const connectFrom = String((args && args.connectFrom) || '');
+  const explicitConnect = Boolean(connectFrom);
   if (connectFrom) {
     if (!doc.nodes[connectFrom]) throw new Error('connectFrom 指向的节点不存在: ' + connectFrom);
     const edge = connectEdge(doc, connectFrom, node.id, args && args.connectFromPort, args && args.connectToPort);
+    connected = edge.id;
+  } else if (type === 'storyboard' && autoConnected) {
+    // 未指定连线但项目里已有剧本 → 默认自动连线（工作流的默认形态，不依赖 Agent 记得）
+    const edge = connectEdge(doc, autoConnected.from, node.id);
     connected = edge.id;
   }
   doc.updatedAt = Date.now();
   writeIcDoc(id, doc);
   markDocChanged(id);
-  return { ok: true, projectId: id, nodeId: node.id, type: node.type, label: (node.data && node.data.label) || '', edgeId: connected || undefined };
+  const note = autoConnected && autoConnected.ignoredPrompt
+    ? '已自动连线到上游剧本节点，传入的 prompt 被忽略（内容从连线取）。'
+    : '';
+  return { ok: true, projectId: id, nodeId: node.id, type: node.type, label: (node.data && node.data.label) || '', edgeId: connected || undefined, note: note || undefined };
 }
 
 async function canvasDeleteProject(args) {
@@ -1156,7 +1178,28 @@ export function apply(ctx) {
     const toolDisposers = [];
     try {
       if (ctx.tools && typeof ctx.tools.register === 'function') {
-        const reg = (def) => { try { toolDisposers.push(ctx.tools.register(def)); } catch { /* 单个工具失败不阻塞其余 */ } };
+        /** 深度剥掉 undefined 值：DSH 对工具结果做"无损 JSON"校验（snapshotJsonValue），
+         *  任意一层出现 undefined（NaN/Infinity 同理）都会让整个结果被判非法
+         *  ——此前 canvas_node_status 在无产物节点上必炸（assetId: undefined）就是这条。 */
+        const stripUndefined = (value) => {
+          if (Array.isArray(value)) return value.map((v) => (v === undefined ? null : stripUndefined(v)));
+          if (value && typeof value === 'object') {
+            const out = {};
+            for (const [k, v] of Object.entries(value)) {
+              if (v === undefined) continue;
+              out[k] = stripUndefined(v);
+            }
+            return out;
+          }
+          return value;
+        };
+        const reg = (def) => {
+          try {
+            const inner = def.execute;
+            def.execute = async (args, exec) => stripUndefined(await inner(args, exec));
+            toolDisposers.push(ctx.tools.register(def));
+          } catch { /* 单个工具失败不阻塞其余 */ }
+        };
         // 输出 schema：显式声明字段但不用 additionalProperties:false（工具返回值的校验不能比参数更严，
         // 否则多返回一个字段就会让整轮请求被 API 拒绝）
         const textOutput = {
