@@ -2434,15 +2434,21 @@ window.__ModuleLoader__.load({
     function mergeHostDoc(pid, full) {
       if (!full) return;
       const local = loadGraphDoc(pid) || emptyGraph();
-      // 节点墓碑：本地已删除的节点，绝不允许从 Host 拉回复活（删除后 3 秒内的同步拉取曾把节点又带回来）
-      const deadNodes = new Set([...(local.tombstones || []), ...(full.tombstones || [])]);
+      // 节点墓碑：本地已删除的节点，绝不允许从 Host 拉回复活（删除后 3 秒内的同步拉取曾把节点又带回来）。
+      // 墓碑以**内存中的当前画布**为准（可能还没落盘），否则 450ms 防抖窗口内的拉取会复活节点。
+      const live = (pid === S.activeId && S.graph) ? S.graph : null;
+      const deadNodes = new Set([
+        ...((local.tombstones) || []),
+        ...((full.tombstones) || []),
+        ...((live && live.tombstones) || []),
+      ]);
       const nodes = { ...local.nodes };
       for (const [nid, n] of Object.entries(full.nodes || {})) {
         if (deadNodes.has(nid)) continue;
         nodes[nid] = n; // Host 为准（Agent 写入是有意的）
       }
-      const deadEdges = new Set([...(local.edgeTombstones || []), ...(full.edgeTombstones || [])]);
-      const edges = [...(local.edges || [])];
+      const deadEdges = new Set([...(local.edgeTombstones || []), ...(full.edgeTombstones || []), ...((live && live.edgeTombstones) || [])]);
+      const edges = (live && live.edges) ? [...live.edges] : [...(local.edges || [])];
       for (const e of (full.edges || [])) {
         if (deadEdges.has(e.id)) continue;
         const i = edges.findIndex((x) => x.id === e.id);
@@ -2450,13 +2456,14 @@ window.__ModuleLoader__.load({
         else edges.push(e);
       }
       const keep = edges.filter((e) => !deadEdges.has(e.id) && nodes[e.fromNode] && nodes[e.toNode]);
-      saveGraphDoc(pid, { nodes, edges: keep, view: local.view, tombstones: local.tombstones || [], edgeTombstones: local.edgeTombstones || [] });
+      const tombOut = [...new Set([...(local.tombstones || []), ...((live && live.tombstones) || [])])].slice(-200);
+      saveGraphDoc(pid, { nodes, edges: keep, view: local.view, tombstones: tombOut, edgeTombstones: local.edgeTombstones || [] });
       // 设定集随全量文档一起合并：Agent 用 canvas_update_bible 补的设定集在这里落地
       if (full.bible) {
         saveBibleLocal(pid, full.bible);
         if (full.bibleUpdatedAt) lsSet(LS_BIBLE_SYNC + pid, full.bibleUpdatedAt);
       }
-      if (pid === S.activeId) update((s) => { s.graph = { nodes, edges: keep, view: s.graph.view, tombstones: local.tombstones || [], edgeTombstones: local.edgeTombstones || [] }; s.assetsTick++; });
+      if (pid === S.activeId) update((s) => { s.graph = { nodes, edges: keep, view: s.graph.view, tombstones: tombOut, edgeTombstones: local.edgeTombstones || [] }; s.assetsTick++; });
     }
     async function hostSyncTick() {
       if (hostSyncStopped) return;
@@ -2542,8 +2549,10 @@ window.__ModuleLoader__.load({
                 });
               }
             }
-            // 缺失节点拉回：跳过本地已标墓碑的节点（本地删除后 Host 尚未落地时的拉取不能让节点复活）
-            const localDead = new Set([...((doc && doc.tombstones) || [])]);
+            // 缺失节点拉回：跳过本地已标墓碑的节点（本地删除后 Host 尚未落地时的拉取不能让节点复活）。
+            // 墓碑以内存中的当前画布为准（防抖窗口内的删除也要生效）。
+            const liveT = (hp.id === S.activeId && S.graph) ? (S.graph.tombstones || []) : [];
+            const localDead = new Set([...((doc && doc.tombstones) || []), ...liveT]);
             const missing = (hp.nodeIds || []).filter((nid) => (!doc || !doc.nodes[nid]) && !localDead.has(nid));
             if (!known) await importHostProject(hp);
             else if (missing.length && doc) {
@@ -3265,6 +3274,7 @@ window.__ModuleLoader__.load({
         s.graph.tombstones = [...new Set([...(s.graph.tombstones || []), ...ids])].slice(-200);
       });
       pushHistory();
+      flushSave(); // 删除立即推送（不等 450ms 防抖）：同步把 Host 上的节点删掉，压缩"拉回复活"的时间窗
     }
     function duplicateSelection() {
       const clones = [];
