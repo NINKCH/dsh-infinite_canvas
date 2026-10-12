@@ -1515,14 +1515,18 @@ window.__ModuleLoader__.load({
     async function migrateAssetsToDisk(onProgress) {
       if (!S.dataRoot) throw new Error('请先设置数据根目录');
       const all = await idbAll();
-      const targets = all.filter((r) => r.blob && !r.rel);
+      // 二进制资产（有 blob）与文本资产（text，此前从不落盘）都要迁移
+      const targets = all.filter((r) => (r.blob && !r.rel) || (r.kind === 'text' && !r.rel && typeof r.text === 'string' && r.text.length));
       let done = 0;
       for (const rec of targets) {
-        const rel = `projects/${rec.projectId}/${rec.kind}/${assetFileBase(rec)}.${extFromMime(rec.mime)}`;
-        const r = await fetch('/' + NS + '/api/asset?rel=' + encodeURIComponent(rel), { method: 'POST', body: rec.blob });
+        const isText = rec.kind === 'text' && !rec.blob;
+        const rel = `projects/${rec.projectId}/${rec.kind}/${assetFileBase(rec)}.${isText ? 'md' : extFromMime(rec.mime)}`;
+        const blob = isText ? new Blob([rec.text || ''], { type: 'text/markdown' }) : rec.blob;
+        const r = await fetch('/' + NS + '/api/asset?rel=' + encodeURIComponent(rel), { method: 'POST', body: blob });
         if (!r.ok) throw new Error('迁移失败: ' + rel + ' — ' + (await r.text()));
-        const next = { ...rec, rel, size: rec.blob.size, stored: 'disk' };
-        delete next.blob;
+        const next = { ...rec, rel, size: blob.size, stored: 'disk' };
+        if (isText) next.text = rec.text; // 文本保留在元数据里：预览/下载不必回读文件
+        else delete next.blob;
         await idbPut(next);
         assetUrlCache.delete(rec.id); // 旧 objectURL 失效，改走文件 URL
         done++;
@@ -3012,6 +3016,22 @@ window.__ModuleLoader__.load({
         source: (meta && meta.source) || 'ai',
         category: (meta && meta.category) || 'script',
       };
+      // 文本资产同样落盘到数据根目录（<root>/projects/<项目>/text/<名>.md），
+      // IndexedDB 保留元数据与 text 字段（文本很小，预览/下载不必回读文件）。
+      // 落盘失败降级为仅 IndexedDB（绝不阻塞生成主流程），控制台留痕。
+      if (S.dataRoot) {
+        try {
+          const rel = `projects/${projectId}/text/${assetFileBase(rec)}.md`;
+          const blob = new Blob([rec.text], { type: 'text/markdown' });
+          const r = await fetch('/' + NS + '/api/asset?rel=' + encodeURIComponent(rel), { method: 'POST', body: blob });
+          if (!r.ok) throw new Error(await r.text());
+          rec.rel = rel;
+          rec.size = blob.size;
+          rec.stored = 'disk';
+        } catch (err) {
+          console.warn('[infinite-canvas] 文本资产落盘失败（降级为浏览器存储）:', String((err && err.message) || err));
+        }
+      }
       await idbPut(rec);
       assetNameCache.set(rec.id, rec.name);
       return rec;
