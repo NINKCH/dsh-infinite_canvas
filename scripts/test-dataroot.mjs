@@ -96,6 +96,17 @@ ok(rm2.ok && rm2.removed === false, '删除不存在的索引条目应幂等');
 const assetsJson2 = JSON.parse(fs.readFileSync(path.join(DATA, 'projects', '时光邮局·第二版', 'assets.json'), 'utf8'));
 ok(assetsJson2.length === 1 && assetsJson2[0].id === 'a_txt1', '索引删除后 assets.json 未保持一致');
 
+// 7c) 整表替换语义（启动全量同步自愈）：传入子集 → 幽灵条目被清除；空项目占位 → 清空对齐
+const bulk = I.writeAssetIndex(pid, '时光邮局·第二版', [
+  { id: 'a_txt1', kind: 'text', name: '第一节分镜表', rel: `projects/${pid}/text/b.md`, text: '【镜1】3s', category: 'storyboard' },
+], { replace: true });
+ok(bulk.ok && bulk.count === 1, '整表替换未生效');
+const assetsJson3 = JSON.parse(fs.readFileSync(path.join(DATA, 'projects', '时光邮局·第二版', 'assets.json'), 'utf8'));
+ok(assetsJson3.length === 1 && assetsJson3[0].id === 'a_txt1', '整表替换后仍残留幽灵条目');
+I.writeAssetIndex(pid, '时光邮局·第二版', [], { replace: true });
+const assetsJson4 = JSON.parse(fs.readFileSync(path.join(DATA, 'projects', '时光邮局·第二版', 'assets.json'), 'utf8'));
+ok(Array.isArray(assetsJson4) && assetsJson4.length === 0, '空项目占位未清空 assets.json');
+
 // 8) 一键导入：本机较新 → 跳过
 const imp1 = I.dataRootImport();
 ok(imp1.ok && !imp1.imported.some((x) => x.id === pid), '本机文档较新时导入不应覆盖');

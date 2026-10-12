@@ -229,8 +229,10 @@ function mirrorProjectToDataRoot(id, doc) {
     renameSync(tmp, path.join(dir, 'project.json'));
   } catch { /* 镜像失败不影响主存储 */ }
 }
-/** 资产元数据索引 upsert：<项目文件夹>/assets.json。 */
-function writeAssetIndex(pid, projectName, assets) {
+/** 资产元数据索引 upsert：<项目文件夹>/assets.json。
+ *  opts.replace=true 时整表替换（客户端启动全量同步用：IndexedDB 是资产库的唯一事实源，
+ *  替换语义能自愈"删除后残留的幽灵条目"）；默认按 id 合并（单资产保存用）。 */
+function writeAssetIndex(pid, projectName, assets, opts) {
   const root = dataRoot();
   if (!root) throw new Error('未设置数据根目录');
   const folder = ensureProjectFolder(pid, projectName || pid);
@@ -239,10 +241,12 @@ function writeAssetIndex(pid, projectName, assets) {
   mkdirSync(dir, { recursive: true });
   const f = path.join(dir, 'assets.json');
   let list = [];
-  try {
-    const parsed = JSON.parse(readFileSync(f, 'utf8'));
-    if (Array.isArray(parsed)) list = parsed;
-  } catch { /* 首次/损坏 → 重建 */ }
+  if (!(opts && opts.replace)) {
+    try {
+      const parsed = JSON.parse(readFileSync(f, 'utf8'));
+      if (Array.isArray(parsed)) list = parsed;
+    } catch { /* 首次/损坏 → 重建 */ }
+  }
   for (const a of assets || []) {
     if (!a || !a.id) continue;
     const i = list.findIndex((x) => x.id === a.id);
@@ -1450,14 +1454,15 @@ export function apply(ctx) {
         const items = Array.isArray(args && args.items) ? args.items : [];
         const byProject = new Map();
         for (const it of items) {
-          if (!it || !it.projectId || !it.asset || !it.asset.id) continue;
+          if (!it || !it.projectId) continue;
           const key = String(it.projectId);
           if (!byProject.has(key)) byProject.set(key, { name: String(it.projectName || key), list: [] });
-          byProject.get(key).list.push(it.asset);
+          if (it.asset && it.asset.id) byProject.get(key).list.push(it.asset); // asset=null 的项目占位也入组：assets.json 清空对齐
         }
         let indexed = 0;
+        // 整表替换：客户端 IDB 是资产库唯一事实源，启动全量同步借此自愈残留的幽灵条目
         for (const [pid, { name, list }] of byProject) {
-          writeAssetIndex(pid, name, list);
+          writeAssetIndex(pid, name, list, { replace: true });
           indexed += list.length;
         }
         return { ok: true, indexed, projects: byProject.size };

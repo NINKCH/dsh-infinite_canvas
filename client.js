@@ -1544,7 +1544,8 @@ window.__ModuleLoader__.load({
         projectId: rec.projectId, projectName: (proj && proj.name) || rec.projectId, asset: assetIndexRecord(rec),
       }).catch(() => { /* 索引失败不影响资产本身 */ });
     }
-    /** 启动/设置数据目录后：一次性把 IndexedDB 里的全部资产元数据同步进 assets.json（补齐历史资产索引）。 */
+    /** 启动/设置数据目录后：一次性把 IndexedDB 里的全部资产元数据同步进 assets.json（补齐历史资产索引）。
+     *  全量**替换**语义（含空项目占位）：IndexedDB 是资产库唯一事实源，借此自愈删除后残留的幽灵条目。 */
     let assetIndexSynced = false;
     async function syncAssetIndexToHost() {
       if (assetIndexSynced || !S.dataRoot) return;
@@ -1552,10 +1553,16 @@ window.__ModuleLoader__.load({
       try {
         const all = await idbAll();
         const items = [];
+        const seen = new Set();
         const projName = new Map(S.projects.map((p) => [p.id, p.name]));
         for (const rec of all) {
           if (!rec || !rec.id || !rec.projectId) continue;
+          seen.add(rec.projectId);
           items.push({ projectId: rec.projectId, projectName: projName.get(rec.projectId) || rec.projectId, asset: assetIndexRecord(rec) });
+        }
+        // 本机已知但没有任何资产的项目也要发占位：assets.json 清空对齐（否则删除后会残留幽灵条目）
+        for (const p of S.projects) {
+          if (!seen.has(p.id)) items.push({ projectId: p.id, projectName: p.name, asset: null });
         }
         if (items.length) await hostRpc('assetIndexBulkPut', { items });
       } catch { /* 索引同步失败不影响 */ }
