@@ -2,15 +2,19 @@
 
 > 维护者向导：如何从"本地改动"走到"公众可用的 npm 版本"。
 > 铁律见 §0；测试三层漏斗见 §1；日常操作 §2–§5；更新检查逻辑 §6。
+> **发版红线与标准流程以仓库根目录 [`RELEASING.md`](../RELEASING.md) 为准绳**（npm 已绑定 GitHub，
+> 发布走 GitHub Release → OIDC 自动发布）。
 
 ## 0. 铁律（不可违反）
 
-1. **未经用户明确批准，绝不 `npm publish`、绝不合并 main、绝不 `git push origin main`。**
-2. **绝不自动重启 Harness、绝不自动刷新页面。** 更新/安装后只提示（横幅/文案），何时生效由用户决定。
-3. **beta 版本号绝不复用**（npm 本身也禁止覆盖已发布版本）；**正式版本号只在 main 上诞生**。
-4. **版本单一来源 = `package.json`**。改版本一律用 `npm version …`，不手改；Host 运行时读取它，禁止在代码里硬编码版本号。
-5. **版本号一律按 0.0.x（patch）递增**（如 0.17.3 → 0.17.4），不做 minor/major 升级——新功能同样走 patch 号。
-6. npm token 只通过命令行注入，**绝不写入任何文件**。
+1. **未经用户明确批准，绝不发版**（不建 GitHub Release、不打 v 标签、不合并 main、不 `git push origin main`）。
+2. **本机绝不手动 `npm publish`**——本机默认 registry 是淘宝镜像（必 404），npmjs 令牌也无发布权限；
+   发布只走 GitHub Release → Actions OIDC（见 `RELEASING.md` 与 `.github/workflows/publish.yml`）。
+3. **绝不自动重启 Harness、绝不自动刷新页面。** 更新/安装后只提示（横幅/文案），何时生效由用户决定。
+4. **beta 版本号绝不复用**（npm 本身也禁止覆盖已发布版本）；**正式版本号只在 main 上诞生**。
+5. **版本单一来源 = `package.json`**；Host 运行时读取它，禁止在代码里硬编码版本号。
+6. **版本号一律按 0.0.x（patch）递增**（如 0.17.5 → 0.17.6），不做 minor/major 升级——新功能同样走 patch 号。
+7. npm token 只通过命令行注入，**绝不写入任何文件**（且经典令牌已不能发布，仅存档）。
 
 ## 1. 测试三层漏斗
 
@@ -60,50 +64,32 @@ node scripts/test-user-scenarios.mjs # 用户实测场景定向复验（轮询�
 
 `check-pack` 防的三类事故：漏打包（如 locale/icon 没进包）、多打包（`.github`/`scripts` 混入）、元数据漂移（版本/exports/`dsh.bundle.patch`）。
 
-## 4. 层②：Beta 集成测试
+## 4. 层②：Beta 集成测试（已随令牌时代退场，存档）
+
+> 旧流程靠手动注入 npm 令牌发 `--tag next`；经典令牌已不能发布，且发布统一走 OIDC 后
+> beta 需要工作流加 prerelease 分支（`--tag next`）才能不占 `latest`——尚未实现。
+> 当前集成测试以"dev link 态 + 全量回归脚本 + 重启实测"替代；要发 beta 先在对话里与维护者确认方案。
+
+## 5. 层③：正式发布（需用户批准版本号；流程细则见 `RELEASING.md`）
 
 ```
-# 1) 打 beta 号（每轮自增，绝不复用；dev 分支上操作）
-npm version 0.17.3-beta.0        # 显式指定；或 npm version prerelease --preid=beta
+# 1) 确认 package.json version 已是目标版本（版本号的单一来源，发版前自查）
+#    dev 分支自测全绿 + 用户明确批准版本号
 
-# 2) 提交 beta 号变更到 dev
-git add package.json && git commit -m "chore: v0.17.3-beta.0" && git push origin dev
-
-# 3) 经用户批准后发布到 next 标签（绝不占 latest）
-npm publish --tag next --access public --registry=https://registry.npmjs.org '--//registry.npmjs.org/:_authToken=<TOKEN>'
-
-# 4) 安装测试
-#    在插件管理安装 @ninkch/dsh-infinite-canvas 精确版本 0.17.3-beta.0
-#    → 手动重启 Harness → 冒烟：RPC ping + 页面渲染 + 核心流程
-
-# 5) 回滚（任何问题）：安装回正式精确版本 → 重启，零残留
-```
-
-说明：
-
-- prerelease 排序低于同号正式版，安装器不会把 beta 当"更新"推给正式用户；beta 留在 registry 无害。
-- 清理 next 标签（可选）：`npm dist-tag rm @ninkch/dsh-infinite-canvas next`
-
-## 5. 层③：正式发布（全部需用户批准）
-
-```
-# 1) 合并
+# 2) 合并（Release 只能打在 main 上；工作流 main 守卫会拒绝 dev 上的发布）
 git checkout main
 git merge dev
-git push origin main
+git push origin main dev
 
-# 2) 出正式号（在 main 上打）
-npm version 0.17.3
-git push origin main --follow-tags   # npm version 会自动打 git tag vX.Y.Z
+# 3) 建 GitHub Release 触发自动发布（无令牌、无 OTP）：
+#    GitHub → Releases → Draft a new release → 选/建 tag vX.Y.Z（指向 main）→ Publish release
+#    （或 API：POST /repos/NINKCH/dsh-infinite_canvas/releases，tag_name=vX.Y.Z, target_commitish=main）
+#    tag 必须与 package.json version 一致（工作流第二步守卫，不一致直接失败）
 
-# 3) 发布（两条路任选）
-#    a. GitHub Actions Trusted Publishing（首选，无 token）：GitHub 建 Release vX.Y.Z → Actions 自动发布
-#    b. 手动注入：
-npm publish --access public --registry=https://registry.npmjs.org '--//registry.npmjs.org/:_authToken=<TOKEN>'
-
-# 4) 验证
-npm view @ninkch/dsh-infinite-canvas version   # 应为新版
-GET /infinite-canvas/api/rpc ping               # 安装重启后 version 应为新版
+# 4) 验证（三件套，缺一不可）
+#    a. GitHub Actions 的 publish 运行绿
+#    b. npm view @ninkch/dsh-infinite-canvas version --registry=https://registry.npmjs.org   # 应为新版
+#    c. 重启 Harness 后画布功能正常
 ```
 
 发布完成汇报模板：**"已发布 vX.Y.Z，重启 Harness 后生效"**（绝不替用户重启）。
@@ -124,8 +110,9 @@ GET /infinite-canvas/api/rpc ping               # 安装重启后 version 应为
 ## 7. 发布日检查清单
 
 - [ ] dev 全部改动已提交并推送
-- [ ] `node --check` × 2 + `smoke-render` + `check-pack` 全绿
-- [ ] beta 版实测通过（层②）
-- [ ] **用户明确批准发布**
-- [ ] 合并 main → `npm version` → publish → 确认 registry
+- [ ] 10 项回归脚本全绿（§3 清单）+ 涉及 UI 的重启实测通过
+- [ ] `package.json` version = 目标版本号（自查，勿依赖守卫）
+- [ ] **用户明确批准版本号**
+- [ ] 合并 main 并推送 → 建 GitHub Release `vX.Y.Z`（指向 main）
+- [ ] Actions 绿 + `npm view`（官方源）版本正确
 - [ ] 汇报版本号 + "重启 Harness 后生效"
