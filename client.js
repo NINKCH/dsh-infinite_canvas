@@ -1975,8 +1975,9 @@ window.__ModuleLoader__.load({
           v.onerror = () => rej(new Error('视频加载失败: ' + seg.name));
           setTimeout(res, 15000);
         });
-        totalMs += isFinite(v.duration) && v.duration > 0 ? v.duration * 1000 : 8000;
-        vids.push({ v, name: seg.name, sub: seg.sub || '', withAudio: seg.withAudio !== false, ttsUrl: seg.ttsUrl || null, ttsEl: null, ttsSrc: null, started: false, srcNode: null });
+        const trimSec = seg.dur && seg.dur > 0 ? Math.min(seg.dur, (isFinite(v.duration) && v.duration > 0 ? v.duration : seg.dur)) : 0;
+        totalMs += trimSec * 1000 || (isFinite(v.duration) && v.duration > 0 ? v.duration * 1000 : 8000);
+        vids.push({ v, name: seg.name, sub: seg.sub || '', withAudio: seg.withAudio !== false, ttsUrl: seg.ttsUrl || null, ttsEl: null, ttsSrc: null, started: false, srcNode: null, dur: seg.dur || null, startAt: 0 });
       }
       const cv = document.createElement('canvas'); cv.width = W; cv.height = H;
       const g = cv.getContext('2d');
@@ -2004,6 +2005,7 @@ window.__ModuleLoader__.load({
       function startPlayback(item) {
         if (item.started) return;
         item.started = true;
+        item.startAt = performance.now();
         const v = item.v;
         const wantAudio = !!audio && opts.keepAudio !== false && item.withAudio;
         if (wantAudio) {
@@ -2059,7 +2061,9 @@ window.__ModuleLoader__.load({
           blackUntil = 0;
           startPlayback(item);
           if (lastProgressIdx !== idx) { lastProgressIdx = idx; if (onProgress) onProgress(idx / Math.max(1, vids.length), item.name); }
-          const dur = isFinite(v.duration) && v.duration > 0 ? v.duration : 0;
+          const clipDur = isFinite(v.duration) && v.duration > 0 ? v.duration : 0;
+          const effDur = item.dur && item.dur > 0 ? Math.min(item.dur, clipDur || item.dur) : clipDur;
+          const elapsed = item.startAt ? (now - item.startAt) / 1000 : 0;
           const remainMs = dur ? (dur - v.currentTime) * 1000 : Infinity;
           // 叠化：临近结束时提前启动下一片段
           let next = null;
@@ -2084,7 +2088,7 @@ window.__ModuleLoader__.load({
             g.save(); g.globalAlpha = 1 - fadeT; drawSubtitle(g, W, H, item.sub); g.restore();
           }
           // 推进
-          const ended = v.ended || (dur > 0 && v.currentTime >= dur - 0.03);
+          const ended = v.ended || (effDur > 0 && elapsed >= effDur - 0.03);
           if (ended) {
             stopItem(item);
             idx++;
@@ -2854,11 +2858,11 @@ window.__ModuleLoader__.load({
             '把剧本拆解为用于「参考图生图 + 图生视频」管线的短剧分镜。',
             '只输出一个 JSON 对象：{"shots":[{"title":"…","visual":"…","motion":"…","characters":["…"],"scene":"…","props":["…"],"duration":5}]}。',
             '规则：',
-            '- visual 是首帧静态画面描述（景别、人物外观与站位、场景、光线、构图，60 字内），供图片生成当提示词；',
+            '- visual 是首帧静态画面描述（景别、人物外观与站位、场景、光线、构图、机位，60 字内，写清可生成的细节），供图片生成当提示词；',
             '- **visual 与 motion 里的角色/场景/道具必须写成 @名称 引用形式**（如 `@张山`、`@褶皱巷`），插件会自动带上该实体的设定描述与其参考图资产，保证跨镜跨集一致；',
-            '- motion 是本镜动作与运镜（动作节拍、镜头运动、节奏，50 字内），供视频生成当提示词；两者不重复；',
+            '- motion 是本镜动作与运镜（主体动作节拍、机位运动方向与速度、情绪节奏，50 字内），供视频生成当提示词；两者不重复；',
             '- characters/scene/props 使用剧本与设定集中的名称（不带 @），便于匹配资产；无道具给空数组；',
-            '- duration 为该镜视频秒数，3-10 的整数；镜头之间保持剧情连续；',
+            '- duration 为该镜**成片时长**，1-3 的整数（短剧快节奏：一个镜头只拍一个动作；一个 10 秒的片段由 4-8 个分镜组成）；全部 duration 之和 ≈ 目标成片时长；',
             '- 只输出 JSON，不要输出任何其他内容。',
           ].join('\n')
         : [
@@ -2869,7 +2873,7 @@ window.__ModuleLoader__.load({
             '- **characters/scenes/props inside visual and motion must be written as @name references** (e.g. `@ZhangSan`); the plugin then attaches that entity\'s bible description and reference images automatically;',
             '- motion = action & camera for the video prompt (<=50 words); do not repeat visual;',
             '- characters/scene/props arrays must use plain names from the script and series bible (no @) so assets match; empty props array if none;',
-            '- duration is seconds per shot, an integer 3-10; keep narrative continuity;',
+            '- duration is the EDIT seconds per shot, an integer 1-3 (fast short-drama pacing: one action per shot; a 10s clip is composed of 4-8 shots); sum of durations ~= target length;',
             '- Output JSON only.',
           ].join('\n');
       const methodology = await loadSkillRules(settings.skillStoryboard, zh)
@@ -3503,7 +3507,7 @@ window.__ModuleLoader__.load({
       aiStreamClear(n.id);
       flushSave();
       try {
-        const shots = await aiStoryboardShots(st, n.data.requirement, n.data.count || 6, n.data.model, (kind, d) => aiStreamAppend(n.id, kind, d));
+        const shots = await aiStoryboardShots(st, n.data.requirement, n.data.count || 12, n.data.model, (kind, d) => aiStreamAppend(n.id, kind, d));
         const warnings = await checkShotConsistency(shots);
         update((s) => {
           const nd = s.graph.nodes[n.id];
@@ -3551,7 +3555,9 @@ window.__ModuleLoader__.load({
           if (blob) {
             const ttsId = n.data.tts && n.data.tts[x.e.id] && n.data.tts[x.e.id].assetId;
             const ttsUrl = ttsId ? await assetUrl(ttsId) : null;
-            metas.push({ url: URL.createObjectURL(blob), name: (rec && rec.name) || 'seg', sub: getSub(x), ttsUrl });
+            // 分镜的编辑时长（1-3s 级）作为成片裁剪依据：API 生成的片段偏长，成片时裁到分镜时长
+            const editDur = Number(x.nd.data.editDuration) || null;
+            metas.push({ url: URL.createObjectURL(blob), name: (rec && rec.name) || 'seg', sub: getSub(x), ttsUrl, dur: editDur || undefined });
           }
         } catch { /* 跳过加载失败的片段 */ }
       }
@@ -4966,8 +4972,8 @@ window.__ModuleLoader__.load({
         }),
         h('div', { key: 'row', className: 'dshic-node-row' },
           h(MiniSelect, {
-            value: String(n.data.count || 6), title: T('storyboardCountLabel'), width: 72,
-            options: [3, 4, 5, 6, 8, 10, 12].map((x) => ({ value: String(x), label: x + ' ' + T('shotsUnit') })),
+            value: String(n.data.count || 12), title: T('storyboardCountLabel'), width: 72,
+            options: [3, 6, 9, 12, 16, 20, 24, 30].map((x) => ({ value: String(x), label: x + ' ' + T('shotsUnit') })),
             onChange: (v) => update((s) => { const nd = s.graph.nodes[n.id]; if (nd) nd.data.count = Number(v); }),
           }),
           h('div', { className: 'dshic-flex' }),
@@ -5040,9 +5046,11 @@ window.__ModuleLoader__.load({
             s.graph.nodes[nd.id] = nd;
             return nd;
           };
-          const shotNode = mk('shot', cx, cy, { visual: shot.visual, motion: shot.motion }, shot.title);
+          const shotNode = mk('shot', cx, cy, { visual: shot.visual, motion: shot.motion, editDuration: Math.max(1, Number(shot.duration) || 3) }, shot.title);
           const imageGen = mk('image-gen', cx + 300, cy - 20, { prompt: shot.visual });
-          const videoGen = mk('video-gen', cx + 300, cy + 300, { prompt: shot.motion, duration: shot.duration });
+          // 生成时长用 API 可接受值（≥3s，模型片段通常比分镜长）；成片按分镜的编辑时长裁剪
+          const genDur = Math.max(3, Math.min(10, Number(shot.duration) || 3));
+          const videoGen = mk('video-gen', cx + 300, cy + 300, { prompt: shot.motion, duration: genDur, editDuration: Math.max(1, Number(shot.duration) || 3) });
           const videoAsset = mk('video-asset', cx + 600, cy + 300);
           const wireRef = (names, port) => {
             let plcRow = 0;
@@ -5125,7 +5133,9 @@ window.__ModuleLoader__.load({
             const blob = await assetBlob(x.nd.data.assetId);
             if (!blob) continue;
             const rel = await ensureAssetOnDisk({ ...(rec || {}), id: x.nd.data.assetId, blob });
-            items.push({ rel, name: (rec && rec.name) || 'seg', sub: getSub(x), dur: await videoDurationOf(blob) });
+            const vd = await videoDurationOf(blob);
+            const ed = Number(x.nd.data.editDuration) || 0;
+            items.push({ rel, name: (rec && rec.name) || 'seg', sub: getSub(x), dur: ed > 0 ? Math.min(ed, vd) : vd });
           } catch (e) { toast('Craft: ' + (e.message || e)); return; }
         }
         if (!items.length) { toast(T('noSegments')); return; }
