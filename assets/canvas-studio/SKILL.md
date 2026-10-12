@@ -27,9 +27,9 @@ description: 用无限画布（Infinite Canvas）做短剧/视频创作时使用
 4. **每个节点都要有可识别的名字。** 新建节点时传 `name`（如「第一节剧本」「第一节分镜表」「第2集剧本」）；
    同名节点必须加区分后缀。**不存在"创作意图/设定"类节点**——那些内容在设定集里。
 5. **一个剧本节点必须同时有 `idea` 与 `output`——绝不把一个剧本拆成两个节点。**
-   - `idea`＝本节创作意图/提示词；`output`＝**完整剧本正文**（分场、场景描述、人物动作、对白）
-   - 正确：一次调用写全 → `canvas_write_node({ projectId, text: 剧本正文, target: 'output', idea: 创作意图, name: '第一节剧本' })`
-   - 或建项目时写全 → `canvas_create_project({ name, scriptText: 创作意图, scriptOutput: 剧本正文, nodeName: '第一节剧本' })`
+   - `idea`＝本节创作提示词（**对话侧负责填写**）；`output`＝完整剧本正文
+   - **正常情况：output 由节点自己生成**（写好 idea → `canvas_run_node`），对话侧不要代替节点写成稿；
+     仅当用户明确要求"直接写稿"时才用 `target:'output'` / `scriptOutput` 由对话填写
    - **禁止**：一个只有 `idea` 的剧本节点 + 另一个只有 `output` 的剧本节点；**禁止**只写提纲、计划或"待生成"占位
    - **分镜内容只能放分镜表节点（storyboard）**，绝不要写进剧本节点
 6. **删除是破坏性操作。** 先 `canvas_list_projects` 确认 id，且仅在用户明确要求时执行
@@ -37,27 +37,25 @@ description: 用无限画布（Infinite Canvas）做短剧/视频创作时使用
 7. **完成后让用户看到结果**：调用 `canvas_open({ projectId })`，画布会在数秒内自动跳转。
 8. **汇报固定要素**：项目名 + 项目 id + 节点名/id + 成稿摘要（若已生成）；有错误如实说明。
 
-## 二、标准工作流（设定集先行，各内容各归其位）
+## 二、标准工作流（对话填提示词+连线+触发，生成由节点完成）
 
 0. **读/补设定集**：`canvas_get_bible` → 缺什么用 `canvas_update_bible` 补。
    创作意图、世界观、风格 → 写进设定集的 worldview/style 字段。
 1. `canvas_list_projects` —— 查重 + 拿到 projectId 与节点 id
-2. **生成剧本**：
-   - 新项目：`canvas_create_project({ name, scriptText: 本节创作意图, scriptOutput: 本节完整成稿, nodeName: '第X节剧本' })`
-     —— 剧本节点的 idea（意图）与 output（成稿）一次写全，**不会产生单独的"意图节点"**
-   - 已有项目：`canvas_write_node({ projectId, text: 成稿, target: 'output', idea: 意图, name: '第X节剧本' })`
-     （名字匹配不到会自动新建节点；已写成稿默认拒绝覆盖，需 overwrite:true）
-3. **分镜** → **必须用分镜表节点（storyboard），并用连线从剧本节点取内容，绝不复制剧本全文**：
-   - `canvas_create_node({ projectId, type: 'storyboard', name: '第X节分镜表' })`
-     （不要传 prompt——分镜内容来自连线的上游剧本节点，这是画布工作流的意义）
-   - **连线**：`canvas_connect({ projectId, fromNode: 剧本节点id, toNode: 分镜表节点id })`
-   - 然后二选一：
-     a) `canvas_run_node` —— 让画布用它配置的模型、基于连线的剧本拆解 → `canvas_node_status` 轮询
-     b) 自己拆好镜头后写入：`canvas_write_node({ projectId, nodeId, target: 'output', text: '{"shots":[…]}' })`
-   - 同理，后续镜头图/视频节点也要用 `canvas_connect` 从分镜/图片节点连线，让工作流成链
+2. **剧本节点**：只写提示词，让节点自己生成剧本——
+   - 新项目：`canvas_create_project({ name, scriptText: 本节创作提示词, nodeName: '第X节剧本' })`
+   - 已有项目：`canvas_write_node({ projectId, text: 提示词, target: 'idea', name: '第X节剧本' })`
+   - 触发生成：`canvas_run_node({ projectId, nodeId })` → `canvas_node_status` 轮询直到 done/error
+   - **【铁律】不要把成稿直接填进 output**——生成是节点的工作（用户在画布上看得到过程与结果）。
+     仅当用户明确说"你直接把剧本写出来、不用节点生成"时，才允许 `target:'output'` 直接写成稿。
+3. **分镜表节点**：**用连线从剧本节点取内容，绝不复制剧本全文**——
+   - `canvas_create_node({ projectId, type: 'storyboard', name: '第X节分镜表', connectFrom: 剧本节点id })`
+     （connectFrom 创建即连线；不要传 prompt——内容来自连线的上游剧本节点）
+   - 触发：`canvas_run_node({ projectId, nodeId })` → 轮询（画布基于连线的剧本拆解镜头）
 4. **生成角色/场景/道具参考图**：为设定集里的每个条目
    `canvas_create_node({ projectId, type: 'image-gen', name: '角色-张山 多视图', prompt: '按设定集写外观关键词' })`
    → `canvas_run_node({ projectId, nodeId })` 触发（画布用它配置的图片接口）
+   - 需要补连任意两节点时用 `canvas_connect({ projectId, fromNode, toNode })`（端口类型必须匹配）
 5. **镜头图/视频** → `canvas_run_node`
 6. `canvas_open({ projectId })` —— 让用户看到画布结果
 

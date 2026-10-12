@@ -633,10 +633,18 @@ function canvasCreateNode(args) {
     node = agentNode('text', prompt, pos.x, pos.y, label || defaultLabel(prompt));
   }
   doc.nodes[node.id] = node;
+  // connectFrom：创建即连线（如分镜表连到上游剧本、image-gen 连到 shot/文本），一次调用完成建点+连线
+  let connected = null;
+  const connectFrom = String((args && args.connectFrom) || '');
+  if (connectFrom) {
+    if (!doc.nodes[connectFrom]) throw new Error('connectFrom 指向的节点不存在: ' + connectFrom);
+    const edge = connectEdge(doc, connectFrom, node.id, args && args.connectFromPort, args && args.connectToPort);
+    connected = edge.id;
+  }
   doc.updatedAt = Date.now();
   writeIcDoc(id, doc);
   markDocChanged(id);
-  return { ok: true, projectId: id, nodeId: node.id, type: node.type, label: (node.data && node.data.label) || '' };
+  return { ok: true, projectId: id, nodeId: node.id, type: node.type, label: (node.data && node.data.label) || '', edgeId: connected || undefined };
 }
 
 async function canvasDeleteProject(args) {
@@ -730,12 +738,8 @@ function markDocChanged(projectId) {
     writeIcConfig(cfg);
   } catch { /* 配置写失败不影响主流程 */ }
 }
-/** 在两个节点间连线（画布工作流的关键：剧本→分镜→图→视频靠连线组织，不要复制文本）。 */
-function canvasConnect(args) {
-  const id = String((args && args.projectId) || '');
-  const doc = readDoc(id);
-  const fromId = String((args && args.fromNode) || '');
-  const toId = String((args && args.toNode) || '');
+/** 在两个节点间连一条边（供 canvasConnect 与 canvasCreateNode 的 connectFrom 复用）。返回边对象。 */
+function connectEdge(doc, fromId, toId, fromPort, toPort) {
   const from = doc.nodes[fromId];
   const to = doc.nodes[toId];
   if (!from) throw new Error('源节点不存在: ' + fromId);
@@ -743,31 +747,42 @@ function canvasConnect(args) {
   if (fromId === toId) throw new Error('不能把节点连到自己');
   const outs = (PORT_TABLE[from.type] && PORT_TABLE[from.type].outputs) || [];
   const ins = (PORT_TABLE[to.type] && PORT_TABLE[to.type].inputs) || [];
+  const fp = String(fromPort || outs[0].id);
+  const tp = String(toPort || ins[0].id);
+  const outDef = outs.find((p) => p.id === fp);
+  const inDef = ins.find((p) => p.id === tp);
+  if (!outDef) throw new Error('源节点没有输出端口 ' + fp);
+  if (!inDef) throw new Error('目标节点没有输入端口 ' + tp);
+  if (outDef.kind !== inDef.kind) throw new Error('端口类型不匹配：' + outDef.kind + ' → ' + inDef.kind + '（剧本/文本输出请连 script/prompt 类输入）');
+  const dup = (doc.edges || []).find((e) => e.fromNode === fromId && e.fromPort === fp && e.toNode === toId && e.toPort === tp);
+  if (dup) return dup;
+  // 单线输入端口（如分镜表的 script、图片的 prompt）：新线替换旧线，与画布拖线行为一致
+  if (!MULTI_INPUT_PORTS.has(tp)) {
+    doc.edges = (doc.edges || []).filter((e) => !(e.toNode === toId && e.toPort === tp));
+  }
+  const edge = { id: 'e' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), fromNode: fromId, fromPort: fp, toNode: toId, toPort: tp };
+  doc.edges.push(edge);
+  return edge;
+}
+/** 在两个节点间连线（画布工作流的关键：剧本→分镜→图→视频靠连线组织，不要复制文本）。 */
+function canvasConnect(args) {
+  const id = String((args && args.projectId) || '');
+  const doc = readDoc(id);
+  const fromId = String((args && args.fromNode) || '');
+  const toId = String((args && args.toNode) || '');
+  const already = (doc.edges || []).some((e) => e.fromNode === fromId && e.toNode === toId);
+  const edge = connectEdge(doc, fromId, toId, args && args.fromPort, args && args.toPort);
+  const from = doc.nodes[fromId];
+  const to = doc.nodes[toId];
   const fromLabel = String((from.data && from.data.label) || fromId);
   const toLabel = String((to.data && to.data.label) || toId);
-  if (!outs.length) throw new Error('「' + fromLabel + '」没有输出端口，不能作为连线起点');
-  if (!ins.length) throw new Error('「' + toLabel + '」没有输入端口，不能作为连线终点');
-  const fromPort = String((args && args.fromPort) || outs[0].id);
-  const toPort = String((args && args.toPort) || ins[0].id);
-  const outDef = outs.find((p) => p.id === fromPort);
-  const inDef = ins.find((p) => p.id === toPort);
-  if (!outDef) throw new Error('「' + fromLabel + '」没有输出端口 ' + fromPort);
-  if (!inDef) throw new Error('「' + toLabel + '」没有输入端口 ' + toPort);
-  if (outDef.kind !== inDef.kind) throw new Error('端口类型不匹配：' + outDef.kind + ' → ' + inDef.kind + '（剧本/文本输出请连 script/prompt 类输入）');
-  const dup = (doc.edges || []).find((e) => e.fromNode === fromId && e.fromPort === fromPort && e.toNode === toId && e.toPort === toPort);
-  if (dup) {
-    return { ok: true, projectId: id, edgeId: dup.id, already: true, text: '✅ 两节点间已存在连线（id=' + dup.id + '），无需重复连接。' };
-  }
-  // 单线输入端口（如分镜表的 script、图片的 prompt）：新线替换旧线，与画布拖线行为一致
-  if (!MULTI_INPUT_PORTS.has(toPort)) {
-    doc.edges = (doc.edges || []).filter((e) => !(e.toNode === toId && e.toPort === toPort));
-  }
-  const edge = { id: 'e' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), fromNode: fromId, fromPort, toNode: toId, toPort };
-  doc.edges.push(edge);
   doc.updatedAt = Date.now();
   writeIcDoc(id, doc);
   markDocChanged(id);
-  return { ok: true, projectId: id, edgeId: edge.id, text: '✅ 已连线：「' + fromLabel + '」(' + fromPort + ') → 「' + toLabel + '」(' + toPort + ')。' };
+  return {
+    ok: true, projectId: id, edgeId: edge.id, already,
+    text: '✅ 已连线：「' + fromLabel + '」(' + edge.fromPort + ') → 「' + toLabel + '」(' + edge.toPort + ')。' + (already ? '（此前已连过，本次未重复建线）' : ''),
+  };
 }
 
 /** 读取 npm registry 上 latest dist-tag 的版本号。 */
@@ -1353,7 +1368,7 @@ export function apply(ctx) {
         });
         reg({
           name: 'canvas_create_node',
-          description: '在项目画布上新建指定类型的节点（image-gen 图片生成 / video-gen 视频生成 / storyboard 分镜表 / finalcut 成片 / script 剧本 / text 文本），可同时写入提示词。【分镜必须用 type:"storyboard" 的分镜表节点，绝不要用剧本节点装分镜】。用于按设定集生成角色/场景/道具参考图：先用 canvas_get_bible 取设定，再为每个角色/场景/道具建一个 image-gen 节点（name 用规范命名如「角色-张山 多视图」，prompt 用 @张山 引用设定集条目）并 canvas_run_node 触发。',
+          description: '在项目画布上新建指定类型的节点（image-gen 图片生成 / video-gen 视频生成 / storyboard 分镜表 / finalcut 成片 / script 剧本 / text 文本）。【分镜必须用 type:"storyboard" 的分镜表节点，绝不要用剧本节点装分镜】。【工作流铁律】实际生成由节点完成：你只负责写提示词、连线（connectFrom）、canvas_run_node 触发，不要把成稿直接填进 output。分镜表用 connectFrom 连到上游剧本节点（内容来自连线，不要复制剧本全文）；image-gen/video-gen 没有上游提示词时才在 prompt 里写内容，有上游时靠连线取。',
           parameters: {
             type: 'object',
             properties: {
@@ -1363,6 +1378,9 @@ export function apply(ctx) {
               prompt: { type: 'string', description: '提示词（图片/视频用画面提示词；剧本用创作意图；文本用正文）' },
               size: { type: 'string', description: '可选：图片清晰度 1K/2K/4K' },
               ratio: { type: 'string', description: '可选：比例，如 16:9 / 9:16 / 1:1' },
+              connectFrom: { type: 'string', description: '可选：创建后立即从该节点连一条线到新节点（如剧本节点→分镜表）' },
+              connectFromPort: { type: 'string', description: '可选：连线源端口，默认源节点第一个输出端口' },
+              connectToPort: { type: 'string', description: '可选：连线目标端口，默认新节点第一个输入端口' },
               resolution: { type: 'string', description: '可选：视频分辨率 480P/720P/1080P' },
               duration: { type: 'number', description: '可选：视频时长（秒）' },
               count: { type: 'number', description: '可选：分镜表镜头数' },

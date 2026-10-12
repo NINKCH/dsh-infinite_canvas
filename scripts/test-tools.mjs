@@ -279,6 +279,11 @@ try {
   let mismatchBlocked = false;
   try { await byName.get('canvas_connect').execute({ projectId, fromNode: sb.nodeId, toNode: scriptNode.id }, {}); } catch { mismatchBlocked = true; }
   if (!mismatchBlocked) errs.push('端口类型不匹配的连线未被拒绝（storyboard 无输出端口）');
+  // connectFrom：创建即连线（分镜表连到剧本节点）
+  const sb2 = await byName.get('canvas_create_node').execute({ projectId, type: 'storyboard', name: '第二节分镜表', connectFrom: scriptNode.id }, {});
+  const docCf = await mod._internals.projectsGet({ id: projectId });
+  const cfEdge = (docCf.edges || []).find((e) => e.fromNode === scriptNode.id && e.toNode === sb2.nodeId && e.toPort === 'script');
+  if (!cfEdge) errs.push('connectFrom 未在创建时自动连线');
 } catch (e) {
   errs.push('剧本节点语义校验失败 → ' + ((e && e.message) || e));
 }

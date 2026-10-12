@@ -827,7 +827,7 @@ window.__ModuleLoader__.load({
 .dshic-node.h-manual .dshic-node-body > .dshic-textarea{flex:1 1 auto;min-height:0;}
 .dshic-node.h-manual .dshic-node-body > .dshic-prompt{flex:1 1 auto;display:flex;flex-direction:column;}
 .dshic-node.h-manual .dshic-node-body > .dshic-prompt > .dshic-prompt-input{flex:1 1 auto;min-height:0;}
-.dshic-textarea{width:100%;box-sizing:border-box;min-height:56px;resize:none;border:1px solid var(--dsw-alias-border-l2);
+.dshic-textarea{width:100%;box-sizing:border-box;min-height:56px;resize:vertical;border:1px solid var(--dsw-alias-border-l2);
   border-radius:8px;background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);font:inherit;
   /* 节点内文本统一字号/行高/内距：与 .dshic-prompt-back/.dshic-prompt-input 必须逐项一致（透明叠层对齐） */
   font-size:12px;line-height:18px;padding:7px 9px;outline:none;user-select:text;-webkit-user-select:text;cursor:text;}
@@ -963,7 +963,7 @@ window.__ModuleLoader__.load({
   border:1px solid transparent;border-radius:6px;}
 .dshic-prompt-ph{color:var(--dsw-alias-label-tertiary);}
 .dshic-prompt-input{position:relative;background:transparent;color:transparent;caret-color:var(--dsw-alias-label-primary);
-  resize:none;}
+  resize:vertical;}
 .dshic-prompt-input::placeholder{color:transparent;}
 .dshic-mention{color:#2f7cf6;font-weight:700;}
 /* 生成中的一行思考内容：单行、省略号，让用户看到"在动"而不是卡住 */
