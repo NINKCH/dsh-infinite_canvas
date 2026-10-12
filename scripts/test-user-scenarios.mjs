@@ -68,11 +68,43 @@ const b = await mod._internals.canvasGetBible({ projectId });
 if (!b.bible || b.bible.worldview !== '测试世界观') errs.push('设定集写入后读回不一致');
 if (!doc.bibleUpdatedAt && !b.bibleUpdatedAt) errs.push('设定集缺少同步时间戳');
 
+// Host 侧墓碑语义：删除记墓碑 → 撤销恢复（节点随推送回来）必须清墓碑，
+// 否则恢复的节点被 Host dead 过滤永久丢弃（"Ctrl+Z 之后节点又消失"）
+const undoNode = { id: 'n_undo', type: 'text', x: 0, y: 0, w: 280, h: 96, data: { status: 'idle', text: '待撤销的节点' } };
+await mod._internals.projectsPut({ id: projectId, name: '验证项目', doc: { nodes: { [undoNode.id]: undoNode }, edges: [] } }, {});
+let d1 = await mod._internals.projectsGet({ id: projectId });
+if (!d1.nodes[undoNode.id]) errs.push('前置失败：n_undo 未落库');
+// 用户删除（推送缺节点 + 墓碑）
+await mod._internals.projectsPut({ id: projectId, name: '验证项目', doc: { nodes: {}, edges: [], tombstones: [undoNode.id] } }, {});
+d1 = await mod._internals.projectsGet({ id: projectId });
+if (d1.nodes[undoNode.id]) errs.push('墓碑未生效：删除的节点仍在 Host 文档里');
+if (!(d1.tombstones || []).includes(undoNode.id)) errs.push('Host 未保留节点墓碑');
+// 陈旧推送（删除前的快照：节点在场但无 ts）不得借"在场"清墓碑复活
+await mod._internals.projectsPut({ id: projectId, name: '验证项目', doc: { nodes: { [undoNode.id]: undoNode }, edges: [], tombstones: [] } }, {});
+d1 = await mod._internals.projectsGet({ id: projectId });
+if (d1.nodes[undoNode.id]) errs.push('陈旧推送（无 ts）把墓碑节点复活了');
+// 用户 Ctrl+Z 恢复（节点随推送回来，且推送带发送时刻 ts）→ 墓碑必须被撤掉、节点必须保留
+await mod._internals.projectsPut({ id: projectId, name: '验证项目', doc: { ts: Date.now(), nodes: { [undoNode.id]: undoNode }, edges: [], tombstones: [] } }, {});
+d1 = await mod._internals.projectsGet({ id: projectId });
+if (!d1.nodes[undoNode.id]) errs.push('撤销恢复的节点被 Host 永久丢弃（墓碑未随推送清掉）');
+if ((d1.tombstones || []).includes(undoNode.id)) errs.push('撤销恢复后 Host 仍留旧墓碑（下轮同步会把节点再删掉）');
+// 边墓碑同理：删除记边墓碑 → 恢复随推送回来必须清
+const undoEdge = { id: 'e_undo', fromNode: undoNode.id, fromPort: 'out', toNode: undoNode.id, toPort: 'in' };
+await mod._internals.projectsPut({ id: projectId, name: '验证项目', doc: { nodes: { [undoNode.id]: undoNode }, edges: [undoEdge], tombstones: [] } }, {});
+await mod._internals.projectsPut({ id: projectId, name: '验证项目', doc: { nodes: { [undoNode.id]: undoNode }, edges: [], tombstones: [], edgeTombstones: [undoEdge.id] } }, {});
+d1 = await mod._internals.projectsGet({ id: projectId });
+if ((d1.edgeTombstones || []).includes(undoEdge.id)) {
+  await mod._internals.projectsPut({ id: projectId, name: '验证项目', doc: { ts: Date.now(), nodes: { [undoNode.id]: undoNode }, edges: [undoEdge], tombstones: [], edgeTombstones: [] } }, {});
+  d1 = await mod._internals.projectsGet({ id: projectId });
+  if ((d1.edgeTombstones || []).includes(undoEdge.id)) errs.push('撤销恢复后 Host 仍留旧边墓碑');
+  if (!d1.edges.some((e) => e.id === undoEdge.id)) errs.push('撤销恢复的边被 Host 永久丢弃（边墓碑未随推送清掉）');
+}
+
 fs.rmSync(SANDBOX, { recursive: true, force: true });
 if (errs.length) {
   console.error('✗ 定向复验未通过（' + errs.length + ' 项）：');
   for (const e of errs) console.error('  - ' + e);
   process.exit(1);
 }
-console.log('✓ 定向复验通过：剧本/分镜节点轮询返回无损 JSON（不再"解析错误"）、自动连线存在、设定集读写一致');
+console.log('✓ 定向复验通过：剧本/分镜节点轮询返回无损 JSON（不再"解析错误"）、自动连线存在、设定集读写一致、删除/撤销恢复的墓碑语义正确');
 process.exit(0);

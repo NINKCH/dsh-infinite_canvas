@@ -272,12 +272,60 @@ async function projectsPut(args) {
   const doc = (args && args.doc) || {};
   let prev = {};
   try { prev = JSON.parse(readFileSync(f, 'utf8')); } catch { /* 新项目 */ }
-  // 墓碑：对话删除的节点 + 客户端本地删除的节点（客户端删除时也会写入 tombstones）
-  const tombstones = [...new Set([...(prev.tombstones || []), ...((doc && doc.tombstones) || [])])].slice(-200);
-  const dead = new Set(tombstones);
-  // 边墓碑：画布删除连线时客户端自动记录（与节点墓碑同理，防止被陈旧推送并回来）
-  const edgeTombstones = [...new Set([...(prev.edgeTombstones || []), ...((doc && doc.edgeTombstones) || [])])].slice(-400);
-  const deadEdges = new Set(edgeTombstones);
+  // 墓碑：对话删除的节点 + 客户端本地删除的节点（客户端删除时也会写入 tombstones）。
+  // tombstoneAt 记录每个墓碑的创建时刻：只有**推送时间戳（doc.ts）不早于墓碑时刻**的推送
+  // 才被认定为"撤销恢复"允许清墓碑；陈旧推送（快照早于删除、无 ts 或 ts 更老）不得借
+  // "节点在场"清掉墓碑把已删节点复活。
+  const now = Date.now();
+  const tombstoneAt = { ...((prev.tombstoneAt && typeof prev.tombstoneAt === 'object') ? prev.tombstoneAt : {}) };
+  const edgeTombstoneAt = { ...((prev.edgeTombstoneAt && typeof prev.edgeTombstoneAt === 'object') ? prev.edgeTombstoneAt : {}) };
+  const tombstones = [];
+  for (const t of (prev.tombstones || [])) { // 旧档案迁移：无时刻记录的墓碑按 0 处理（保持旧的宽松语义）
+    if (typeof t !== 'string' || !t) continue;
+    if (!tombstones.includes(t)) tombstones.push(t);
+    if (tombstoneAt[t] === undefined) tombstoneAt[t] = 0;
+  }
+  for (const t of ((doc && doc.tombstones) || [])) { // 新推送来的墓碑：以 Host 接收时刻为创建时刻
+    if (typeof t !== 'string' || !t) continue;
+    if (!tombstones.includes(t)) tombstones.push(t);
+    if (tombstoneAt[t] === undefined) tombstoneAt[t] = now;
+  }
+  const edgeTombstones = [];
+  for (const t of (prev.edgeTombstones || [])) {
+    if (typeof t !== 'string' || !t) continue;
+    if (!edgeTombstones.includes(t)) edgeTombstones.push(t);
+    if (edgeTombstoneAt[t] === undefined) edgeTombstoneAt[t] = 0;
+  }
+  for (const t of ((doc && doc.edgeTombstones) || [])) {
+    if (typeof t !== 'string' || !t) continue;
+    if (!edgeTombstones.includes(t)) edgeTombstones.push(t);
+    if (edgeTombstoneAt[t] === undefined) edgeTombstoneAt[t] = now;
+  }
+  // 撤销恢复：节点/边随推送回来了，且推送发出时刻不早于墓碑创建时刻 → 撤掉对应旧墓碑
+  //（否则 Ctrl+Z 恢复的节点会被下面的 dead 过滤永久丢弃，表现为"Ctrl+Z 之后节点又消失"）
+  const pushTs = Number(doc && doc.ts) || 0;
+  if (doc && doc.nodes) {
+    for (const nid of Object.keys(doc.nodes)) {
+      const i = tombstones.indexOf(nid);
+      if (i >= 0 && pushTs >= (tombstoneAt[nid] || 0)) {
+        tombstones.splice(i, 1);
+        delete tombstoneAt[nid];
+      }
+    }
+  }
+  if (doc && Array.isArray(doc.edges)) {
+    for (const e of doc.edges) {
+      const eid = e && e.id;
+      if (!eid) continue;
+      const i = edgeTombstones.indexOf(eid);
+      if (i >= 0 && pushTs >= (edgeTombstoneAt[eid] || 0)) {
+        edgeTombstones.splice(i, 1);
+        delete edgeTombstoneAt[eid];
+      }
+    }
+  }
+  const dead = new Set(tombstones.slice(-200));
+  const deadEdges = new Set(edgeTombstones.slice(-400));
   // 节点合并：客户端推来的为准，但**保留 Host 上客户端还没有的节点**（对话刚建的节点
   // 在客户端下一次轮询拉回之前不能被 450ms 的全量推送抹掉）；墓碑标记的节点一律丢弃。
   const merged = {};
@@ -294,6 +342,9 @@ async function projectsPut(args) {
   const edgeKey = (e) => e.fromNode + '>' + (e.fromPort || '') + '>' + e.toNode + '>' + (e.toPort || '');
   const seen = new Set(clientEdges.map(edgeKey));
   const edges = clientEdges.concat(prevEdges.filter((e) => !seen.has(edgeKey(e))));
+  const keptTomb = tombstones.slice(-200);
+  const keptEdgeTomb = edgeTombstones.slice(-400);
+  const pruneStamp = (m, keep) => { const o = {}; for (const k of keep) { if (m[k] !== undefined) o[k] = m[k]; } return o; };
   const out = {
     id,
     name: String((args && args.name) || prev.name || id).slice(0, 80),
@@ -303,8 +354,10 @@ async function projectsPut(args) {
     nodes: merged,
     edges,
     view: doc.view || prev.view || { x: 60, y: 40, scale: 1 },
-    tombstones,
-    edgeTombstones,
+    tombstones: keptTomb,
+    edgeTombstones: keptEdgeTomb,
+    tombstoneAt: pruneStamp(tombstoneAt, keptTomb),
+    edgeTombstoneAt: pruneStamp(edgeTombstoneAt, keptEdgeTomb),
   };
   // 设定集（世界观/风格/角色/场景/道具）：随文档一起同步，对话侧可读写
   if (doc.bible !== undefined) {
@@ -702,6 +755,7 @@ async function canvasDeleteNode(args) {
   delete doc.nodes[nodeId];
   doc.edges = (doc.edges || []).filter((e) => e.fromNode !== nodeId && e.toNode !== nodeId);
   doc.tombstones = [...new Set([...(doc.tombstones || []), nodeId])].slice(-100);
+  doc.tombstoneAt = { ...(doc.tombstoneAt || {}), [nodeId]: Date.now() }; // 记录墓碑创建时刻：撤销恢复的推送（ts 更新）才允许清墓碑
   doc.updatedAt = Date.now();
   writeIcDoc(id, doc);
   markDocChanged(id);

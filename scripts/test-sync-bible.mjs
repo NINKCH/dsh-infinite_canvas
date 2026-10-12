@@ -113,20 +113,23 @@ const ctx = {
   locale: { register: noop, subscribe: () => () => {} },
   slots: { inject: (name, cb) => cb(), register: (meta, Comp) => Comp },
 };
+
+// 预置必须在 apply()（initStore）之前：否则活动项目是自动新建的默认项目，
+// removeNodes/undo/redo 会作用在默认项目而不是 p2 上
+localStorageStub.setItem('dsh-ic:projects', JSON.stringify([
+  { id: 'p1', name: '坏项目', createdAt: T, updatedAt: T },
+  { id: 'p2', name: '好项目', createdAt: T, updatedAt: T },
+]));
+localStorageStub.setItem('dsh-ic:active', JSON.stringify('p2')); // lsGet 会 JSON.parse，必须存 JSON 字符串
+
 plugin.apply(ctx);
 
 const sync = windowStub.__DSH_IC_SYNC__;
 if (!sync) { console.error('✗ 未找到 __DSH_IC_SYNC__（冒烟缝隙被移除？）'); process.exit(1); }
 
-// 预置：两个项目对客户端已知（known=true），本地文档为空 —— 走"按项目合并"路径
-localStorageStub.setItem('dsh-ic:projects', JSON.stringify([
-  { id: 'p1', name: '坏项目', createdAt: T, updatedAt: T },
-  { id: 'p2', name: '好项目', createdAt: T, updatedAt: T },
-]));
-localStorageStub.setItem('dsh-ic:active', 'p2');
-
 const errs = [];
 const ok = (cond, msg) => { if (!cond) errs.push(msg); };
+ok(sync.state().activeId === 'p2', '前置失败：活动项目不是 p2（localStorage 预置未生效）');
 
 // 1) mergeHostDoc：节点 + 连线 + 设定集一次合并（Agent 改文档后的画布拉回路径）
 sync.mergeHostDoc('p2', {
@@ -160,11 +163,15 @@ const graph3 = JSON.parse(localStorageStub.getItem('dsh-ic:graph:p2') || 'null')
 ok(!!graph3 && graph3.nodes.n2, '二次合并丢节点');
 ok(!!graph3 && Array.isArray(graph3.edges) && graph3.edges.length === 0, '被用户删除的连线（边墓碑）被陈旧推送复活');
 
-// 3) 用户删除了节点（节点墓碑）→ Host 拉回不得复活（用户实测：删除后 3 秒内节点又回来）
-const g3 = JSON.parse(localStorageStub.getItem('dsh-ic:graph:p2') || 'null');
-g3.nodes = {}; // 用户删掉了所有节点
-g3.tombstones = ['n2'];
-localStorageStub.setItem('dsh-ic:graph:p2', JSON.stringify(g3));
+// 3) 用户删除节点（走真实 removeNodes 路径：内存墓碑 + 立即推送）→ Host 拉回不得复活
+//    （用户实测：× 正常、Delete 键删除后自动恢复 —— 根因是键盘路径曾裸删不记墓碑）
+sync.pushHistory(); // 记住删除前状态，供撤销往返使用
+const before = sync.graph();
+if (!before.nodes.n2) errs.push('前置失败：n2 不在内存画布上');
+sync.removeNodes(['n2']);
+const afterDel = sync.graph();
+ok(!afterDel.nodes.n2, 'removeNodes 未删除节点');
+ok(afterDel.tombstones && afterDel.tombstones.includes('n2'), 'removeNodes 未记节点墓碑');
 sync.mergeHostDoc('p2', {
   nodes: { n2: { id: 'n2', type: 'script', x: 0, y: 0, w: 320, h: 100, data: { status: 'idle', label: '剧本', idea: '', output: '' } } },
   edges: [], bible: { worldview: '测试世界观', style: '写实', characters: [{ name: '张山', desc: '主角' }], scenes: [], props: [] },
@@ -173,6 +180,20 @@ sync.mergeHostDoc('p2', {
 const graph4 = JSON.parse(localStorageStub.getItem('dsh-ic:graph:p2') || 'null');
 ok(!graph4.nodes.n2, '被用户删除的节点（节点墓碑）被 Host 拉回复活（删除后又出现/需要删多次）');
 ok(!!graph4.tombstones && graph4.tombstones.includes('n2'), '合并后节点墓碑丢失（下次推送会复活）');
+
+// 3b) 撤销恢复 → 墓碑必须同步撤销（否则 Ctrl+Z 恢复的节点被下一轮同步再次抹掉）；
+//     重做删除 → 墓碑必须补回（否则重做的删除被同步复活）
+sync.undo();
+const afterUndo = sync.graph();
+ok(!!afterUndo.nodes.n2, 'undo 未恢复节点');
+ok(!afterUndo.tombstones || !afterUndo.tombstones.includes('n2'), 'undo 恢复节点后旧墓碑未撤销（节点会被同步再次抹掉）');
+sync.redo();
+const afterRedo = sync.graph();
+ok(!afterRedo.nodes.n2, 'redo 未重新删除节点');
+ok(afterRedo.tombstones && afterRedo.tombstones.includes('n2'), 'redo 删除节点后未补墓碑（节点会被同步复活）');
+
+// 3c) 键盘 Delete 必须走 removeNodes（源码绊线：曾经的裸删分支是"Delete 复活"的根因）
+ok(/e\.key === 'Delete'[\s\S]{0,600}removeNodes\(\[\.\.\.S\.sel\]/.test(src), '键盘 Delete/Backspace 未走 removeNodes（裸删会复活）');
 
 // 4) loadBible 读取（BibleTab 的数据源）
 const loaded = sync.loadBible('p2');

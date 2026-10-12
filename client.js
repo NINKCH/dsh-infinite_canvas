@@ -2442,7 +2442,9 @@ window.__ModuleLoader__.load({
         ...((full.tombstones) || []),
         ...((live && live.tombstones) || []),
       ]);
-      const nodes = { ...local.nodes };
+      // 节点以内存画布为种子（与下方 edges 的 live 优先同理）：450ms 防抖窗口内新建的节点、
+      // 刚被 Ctrl+Z 恢复的节点都只存在于内存，若从落盘文档起合并会被本次合并结果抹掉
+      const nodes = { ...((live && live.nodes) ? live.nodes : local.nodes) };
       for (const [nid, n] of Object.entries(full.nodes || {})) {
         if (deadNodes.has(nid)) continue;
         nodes[nid] = n; // Host 为准（Agent 写入是有意的）
@@ -2536,15 +2538,18 @@ window.__ModuleLoader__.load({
             }
             // 对话删过的节点（墓碑）：本地同步删除，避免被推送复活
             const dead = (hp.tombstones || []).filter((nid) => doc && doc.nodes[nid]);
-            if (known && dead.length) {
-              for (const nid of dead) delete doc.nodes[nid];
-              doc.edges = (doc.edges || []).filter((e) => !dead.includes(e.fromNode) && !dead.includes(e.toNode));
+            // 内存画布为准：当前画布上还存在的节点不算死（撤销恢复后 Host 可能仍留旧墓碑）
+            const liveNodes = (hp.id === S.activeId && S.graph) ? S.graph.nodes : null;
+            const deadEff = liveNodes ? dead.filter((nid) => !liveNodes[nid]) : dead;
+            if (known && deadEff.length) {
+              for (const nid of deadEff) delete doc.nodes[nid];
+              doc.edges = (doc.edges || []).filter((e) => !deadEff.includes(e.fromNode) && !deadEff.includes(e.toNode));
               saveGraphDoc(hp.id, doc);
               if (hp.id === S.activeId) {
                 update((s) => {
-                  for (const nid of dead) delete s.graph.nodes[nid];
-                  s.graph.edges = s.graph.edges.filter((e) => !dead.includes(e.fromNode) && !dead.includes(e.toNode));
-                  s.sel = new Set([...s.sel].filter((x) => !dead.includes(x)));
+                  for (const nid of deadEff) delete s.graph.nodes[nid];
+                  s.graph.edges = s.graph.edges.filter((e) => !deadEff.includes(e.fromNode) && !deadEff.includes(e.toNode));
+                  s.sel = new Set([...s.sel].filter((x) => !deadEff.includes(x)));
                   s.assetsTick++;
                 });
               }
@@ -2553,6 +2558,10 @@ window.__ModuleLoader__.load({
             // 墓碑以内存中的当前画布为准（防抖窗口内的删除也要生效）。
             const liveT = (hp.id === S.activeId && S.graph) ? (S.graph.tombstones || []) : [];
             const localDead = new Set([...((doc && doc.tombstones) || []), ...liveT]);
+            // 内存画布为准：撤销恢复的节点虽然墓碑可能还没清干净，但画布上还在 → 不能当死节点拦掉拉回
+            if (hp.id === S.activeId && S.graph) {
+              for (const nid of [...localDead]) { if (S.graph.nodes[nid]) localDead.delete(nid); }
+            }
             const missing = (hp.nodeIds || []).filter((nid) => (!doc || !doc.nodes[nid]) && !localDead.has(nid));
             if (!known) await importHostProject(hp);
             else if (missing.length && doc) {
@@ -3069,6 +3078,7 @@ window.__ModuleLoader__.load({
         hostRpc('projectsPut', {
           id: S.activeId, name: (proj && proj.name) || S.activeId,
           doc: {
+            ts: Date.now(), // 推送发出时刻：Host 据此区分"撤销恢复"（清墓碑）与"陈旧推送"（墓碑继续生效）
             nodes: S.graph.nodes, edges: S.graph.edges, view: S.graph.view,
             tombstones: S.graph.tombstones || [], // 本地删除标记：Host 依据它判定节点真的被删
             ...(bibleField.__bibleChanged ? { bible: bibleField.bible } : {}),
@@ -3147,9 +3157,15 @@ window.__ModuleLoader__.load({
       const snap = history.stack[history.idx];
       if (!snap) return;
       const doc = JSON.parse(snap);
+      const prevIds = S.graph ? Object.keys(S.graph.nodes || {}) : [];
       update((s) => {
         s.graph.nodes = doc.nodes;
         s.graph.edges = doc.edges;
+        // 撤销/重做必须对齐墓碑：快照里消失的节点=这次撤销动作删掉的（补墓碑，防同步复活）；
+        // 快照里出现的节点=被恢复的（撤墓碑，否则 Ctrl+Z 恢复的节点会被下一轮同步按旧墓碑再次抹掉）
+        const live = new Set(Object.keys(s.graph.nodes || {}));
+        s.graph.tombstones = [...new Set([...(s.graph.tombstones || []), ...prevIds])]
+          .filter((id) => !live.has(id)).slice(-200);
         s.sel = new Set();
         s.selEdge = null;
       });
@@ -3263,15 +3279,15 @@ window.__ModuleLoader__.load({
       pushHistory();
       return n;
     }
-    function removeNodes(ids) {
+    function removeNodes(ids, edgeId) {
       update((s) => {
         for (const id of ids) delete s.graph.nodes[id];
-        s.graph.edges = s.graph.edges.filter((e) => !ids.includes(e.fromNode) && !ids.includes(e.toNode));
+        s.graph.edges = s.graph.edges.filter((e) => !ids.includes(e.fromNode) && !ids.includes(e.toNode) && (!edgeId || e.id !== edgeId));
         s.sel = new Set([...s.sel].filter((x) => ids.includes(x) === false));
         if (s.selEdge && !s.graph.edges.some((e) => e.id === s.selEdge)) s.selEdge = null;
         // 本地删除也要留墓碑：Host 侧据此判定"真的被删了"，
         // 否则 Host 合并（保留对话新节点）会把用户刚删的节点又留下来
-        s.graph.tombstones = [...new Set([...(s.graph.tombstones || []), ...ids])].slice(-200);
+        if (ids.length) s.graph.tombstones = [...new Set([...(s.graph.tombstones || []), ...ids])].slice(-200);
       });
       pushHistory();
       flushSave(); // 删除立即推送（不等 450ms 防抖）：同步把 Host 上的节点删掉，压缩"拉回复活"的时间窗
@@ -4028,17 +4044,9 @@ window.__ModuleLoader__.load({
       }
       if ((e.key === 'Delete' || e.key === 'Backspace') && (S.sel.size || S.selEdge)) {
         e.preventDefault();
-        const ids = [...S.sel];
-        update((s) => {
-          for (const id of ids) delete s.graph.nodes[id];
-          if (s.selEdge) {
-            s.graph.edges = s.graph.edges.filter((x) => x.id !== s.selEdge);
-            s.selEdge = null;
-          }
-          s.graph.edges = s.graph.edges.filter((x) => !ids.includes(x.fromNode) && !ids.includes(x.toNode));
-          s.sel = new Set();
-        });
-        pushHistory();
+        // 必须走 removeNodes（记节点墓碑 + 立即推送）。此前这里是裸删：不记墓碑、不立即推送，
+        // Host 合并把删除的节点当"Host 独有"并回来 —— 表现为 Delete 键删除后自动恢复，而 × 删除正常
+        removeNodes([...S.sel], S.selEdge || undefined);
       }
     }
 
@@ -4154,9 +4162,13 @@ window.__ModuleLoader__.load({
           }
         }
         delete s.graph.nodes[id];
+        s.graph.edges = s.graph.edges.filter((e) => e.fromNode !== id && e.toNode !== id);
+        // 解散分组也是删除节点：不记墓碑会被 Host 合并复活
+        s.graph.tombstones = [...new Set([...(s.graph.tombstones || []), id])].slice(-200);
         s.sel.delete(id);
       });
       pushHistory();
+      flushSave();
     }
     function createGroupFromSelection() {
       const ids = [...S.sel].filter((id) => S.graph.nodes[id] && S.graph.nodes[id].type !== 'group');
@@ -5345,6 +5357,7 @@ window.__ModuleLoader__.load({
                 ev.stopPropagation();
                 update((s) => { s.graph.edges = s.graph.edges.filter((x) => x.id !== e.id); if (s.selEdge === e.id) s.selEdge = null; });
                 pushHistory();
+                flushSave(); // 边删除立即推送：压缩 450ms 防抖窗口内的"拉回复活"
               },
             },
               h('circle', { r: 9, className: 'dshic-edge-delbg' }),
@@ -7040,7 +7053,12 @@ window.__ModuleLoader__.load({
         // 直接暴露各页签组件与同步入口，让测试能逐个渲染/驱动，抓白屏与同步断链问题
         if (typeof window !== 'undefined' && window.__DSH_IC_SMOKE__) {
           window.__DSH_IC_TABS__ = { ProjectsTab, AssetsTab, BibleTab, SettingsTab, CanvasPage };
-          window.__DSH_IC_SYNC__ = { hostSyncTick, mergeHostDoc, loadBible, loadGraphDoc, state: () => ({ stopped: hostSyncStopped, busy: hostSyncBusy, projects: S.projects.map((p) => p.id), activeId: S.activeId, ready: S.ready }) };
+          window.__DSH_IC_SYNC__ = {
+            hostSyncTick, mergeHostDoc, loadBible, loadGraphDoc,
+            removeNodes, ungroupNode, undo, redo, pushHistory,
+            graph: () => JSON.parse(JSON.stringify(S.graph)),
+            state: () => ({ stopped: hostSyncStopped, busy: hostSyncBusy, projects: S.projects.map((p) => p.id), activeId: S.activeId, ready: S.ready }),
+          };
         }
       },
     };
