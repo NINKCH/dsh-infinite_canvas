@@ -3561,6 +3561,11 @@ window.__ModuleLoader__.load({
       }
     }
 
+    /** 分镜节点的资产文本（自动入库与手动"存为资产"共用，避免两处格式漂移）。 */
+    function storyboardAssetText(shots) {
+      return (shots || []).map((x) => `【${x.title}】${x.duration}s\n画面：${x.visual}\n动作：${x.motion}\n角色：${(x.characters || []).join('、') || '-'}｜场景：${x.scene || '-'}｜道具：${(x.props || []).join('、') || '-'}`).join('\n\n');
+    }
+
     /** 分镜节点：剧本 → 镜头列表（含一致性检查）。 */
     async function genStoryboardNode(n) {
       const st = storyboardScriptText(n);
@@ -3580,7 +3585,7 @@ window.__ModuleLoader__.load({
         try { await autoRegisterBibleEntries(shots); } catch { /* 补录失败不影响分镜 */ }
         await saveTextAssetRecord(S.activeId, {
           name: T('storyboardAssetPrefix') + new Date().toISOString().slice(5, 16).replace('T', ' '),
-          text: shots.map((x) => `【${x.title}】${x.duration}s\n画面：${x.visual}\n动作：${x.motion}\n角色：${x.characters.join('、') || '-'}｜场景：${x.scene || '-'}｜道具：${x.props.join('、') || '-'}`).join('\n\n'),
+          text: storyboardAssetText(shots),
           category: 'storyboard', prompt: st.slice(0, 200),
         });
         update((s) => { s.assetsTick++; });
@@ -5058,8 +5063,26 @@ window.__ModuleLoader__.load({
             )
           : null,
         shots.length
-          ? h('button', { key: 'expand', type: 'button', className: 'dshic-mini', style: { alignSelf: 'flex-start' }, onClick: () => expandStoryboard(n), onPointerDown: (e) => e.stopPropagation() },
-              Ic('expandAll', 11), T('expand') + ` (${shots.length})`)
+          ? h('div', { key: 'acts', className: 'dshic-node-row', style: { alignSelf: 'flex-start' } },
+              // 手动"存为资产"：AI 生成已自动入库（category=storyboard），这里用于留存当前分镜的一版快照
+              h('button', {
+                key: 'save', type: 'button', className: 'dshic-mini is-ghost', title: T('saveTextAsset'),
+                onPointerDown: (e) => e.stopPropagation(),
+                onClick: async () => {
+                  try {
+                    await saveTextAssetRecord(S.activeId, {
+                      name: T('storyboardAssetPrefix') + new Date().toISOString().slice(5, 16).replace('T', ' '),
+                      text: storyboardAssetText(shots), category: 'storyboard',
+                      prompt: String(n.data.script || '').slice(0, 200),
+                    });
+                    update((s) => { s.assetsTick++; });
+                    toast(T('savedOk'));
+                  } catch (err) { toast(String((err && err.message) || err)); }
+                },
+              }, Ic('download', 11), T('saveTextAsset')),
+              h('button', { key: 'expand', type: 'button', className: 'dshic-mini', onClick: () => expandStoryboard(n), onPointerDown: (e) => e.stopPropagation() },
+                Ic('expandAll', 11), T('expand') + ` (${shots.length})`),
+            )
           : null,
       ];
     }
