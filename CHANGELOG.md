@@ -4,6 +4,17 @@ All notable changes to `@ninkch/dsh-infinite-canvas` are documented here (newest
 GitHub Releases carry the same notes in English; maintainer-facing runbooks live in
 [`RELEASING.md`](RELEASING.md) and [`docs/release.md`](docs/release.md).
 
+## [0.17.10] — 2026-10-13
+
+### Added
+- **Consistency-warning loop closed.** `canvas_node_status` now returns `warnings` for storyboard nodes — the list of entities that appear in shots but are **not registered** in the series bible or **registered with an empty description** (including `@mentions` found in the visual/motion text, which the shot arrays alone could miss). The agent side reads this list and fills every entry via `canvas_update_bible` (names verbatim, workable descriptions) — a hard rule in the skill.
+- Warnings **recompute automatically** whenever they could go stale: shots written, the bible updated from the chat side, or the client pushing bible changes — so a filled bible clears the outdated warnings within seconds.
+- **Asset categories are now derived from the naming convention** (`角色-`/`场景-`/`道具-`/`剧本-`/`分镜-` prefixes → character/scene/prop/script/storyboard) when `@mentions` don't resolve — generated assets no longer fall into "General" just because the prompt skipped the `@` syntax.
+- Startup self-check **re-categorizes legacy assets** that sit in "General" but follow the naming convention (toast reports the count; manually-set categories are never touched).
+
+### Fixed
+- Consistency-check ordering: missing entries are auto-registered (with empty descriptions) **before** the check runs, so the warnings no longer flag entities that were just auto-registered; duplicates removed.
+
 ## [0.17.9] — 2026-10-12
 
 ### Changed
