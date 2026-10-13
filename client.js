@@ -307,6 +307,15 @@ window.__ModuleLoader__.load({
       'vidProtocolHint': '通用 = OpenAI 风格任务接口（JUAI 等聚合平台，URL 填完整 /v1/video/generations）；Seedance 官方 = 火山方舟 contents/generations/tasks',
       'vidAudioOpt': '生成同步音频（勾选才发送 generate_audio）',
       'vidOutFormat': '输出格式 output_format（留空不发送）',
+      'providerLabel': '供应商',
+      'addProvider': '新增供应商',
+      'addModel': '添加模型',
+      'modelsLabel': '模型',
+      'modelNamePh': '模型 ID（如 doubao-seedance-2.0）',
+      'starDefault': '设为默认模型（节点未指定时自动路由到这里）',
+      'noModelsCfg': '未配置模型——节点运行将报错',
+      'errNoImageModel': '未指定图片模型：请在设置里配置图片模型并星标默认模型，或在节点上选择模型',
+      'errNoVideoModel': '未指定视频模型：请在设置里配置视频模型并星标默认模型，或在节点上选择模型',
       'consistencyTitle': '一致性检查',
       'restartHint': '插件后台尚未加载最新版本：请重启一次 DeepSeek Harness 后重试（仅首次更新需要）',
       'rpcFail': '请求失败',
@@ -652,6 +661,15 @@ window.__ModuleLoader__.load({
       'vidProtocolHint': 'Generic = OpenAI-style task API (JUAI etc., URL = full /v1/video/generations); Seedance official = Volcano Ark contents/generations/tasks',
       'vidAudioOpt': 'Generate synced audio (only sent when checked)',
       'vidOutFormat': 'Output format output_format (empty = not sent)',
+      'providerLabel': 'Provider',
+      'addProvider': 'Add provider',
+      'addModel': 'Add model',
+      'modelsLabel': 'Models',
+      'modelNamePh': 'Model id (e.g. doubao-seedance-2.0)',
+      'starDefault': 'Set as default model (nodes without a selection route here)',
+      'noModelsCfg': 'No models configured — node runs will fail',
+      'errNoImageModel': 'No image model selected: configure image models in Settings and star a default, or pick one on the node',
+      'errNoVideoModel': 'No video model selected: configure video models in Settings and star a default, or pick one on the node',
       'consistencyTitle': 'Consistency check',
       'restartHint': 'The plugin backend is not loaded yet: restart DeepSeek Harness once and retry (first update only)',
       'rpcFail': 'Request failed',
@@ -1122,11 +1140,12 @@ window.__ModuleLoader__.load({
     const DEFAULT_SETTINGS = {
       // 文本模型全部用 Harness 的当前模型与默认参数：画布只选择模型，不单独配置生成参数
       textLlm: { provider: '', model: '' },
-      imageApis: [],   // [{id, name, baseUrl, apiKey, model, mode, size?, responseFormat?}]
-      videoApis: [],   // [{id, name, url, apiKey, model, protocol?, watermark?, generateAudio?}]
+      // 供应商 + 模型两级：一个供应商（URL/Key）配一次，下面挂多个模型；★星标模型 = 节点未指定时的默认路由
+      imageProviders: [],  // [{id, name, baseUrl, apiKey, extra, size?, responseFormat?, mode?, models: [{id, model}]}]
+      videoProviders: [],  // [{id, name, url, apiKey, extra, outputFormat?, generateAudio?, protocol?, watermark?, models: [{id, model}]}]
+      imageStar: '',       // 'providerId|modelId'
+      videoStar: '',
       ttsApis: [],     // [{id, name, baseUrl, apiKey, model, voice}]
-      imageApiId: '',
-      videoApiId: '',
       ttsApiId: '',
       lang: '',        // '' = 跟随 Harness
       skillScript: '',       // '' = 内置编剧专家
@@ -1136,11 +1155,11 @@ window.__ModuleLoader__.load({
       const s = lsGet(LS_SETTINGS, {}) || {};
       const out = {
         textLlm: { provider: (s.textLlm && s.textLlm.provider) || '', model: (s.textLlm && s.textLlm.model) || '' },
-        imageApis: Array.isArray(s.imageApis) ? s.imageApis : [],
-        videoApis: Array.isArray(s.videoApis) ? s.videoApis : [],
+        imageProviders: Array.isArray(s.imageProviders) ? s.imageProviders : [],
+        videoProviders: Array.isArray(s.videoProviders) ? s.videoProviders : [],
+        imageStar: s.imageStar || '',
+        videoStar: s.videoStar || '',
         ttsApis: Array.isArray(s.ttsApis) ? s.ttsApis : [],
-        imageApiId: s.imageApiId || '',
-        videoApiId: s.videoApiId || '',
         ttsApiId: s.ttsApiId || '',
         lang: s.lang || '',
         skillScript: s.skillScript || '',
@@ -1149,24 +1168,96 @@ window.__ModuleLoader__.load({
       // v0.3 及以前的单配置自动迁移为列表
       // 注意：id 必须**确定性**——loadSettings 是高频调用（每次渲染/生成都会走），
       // 若这里用 uid() 每次生成新 id，节点上保存的 apiId 会永远匹配不上、默认项也会漂移
-      if (!out.imageApis.length && s.imageApi && s.imageApi.baseUrl) {
-        out.imageApis = [{
+      if (!out.imageProviders.length && !out.imageApis?.length && s.imageApi && s.imageApi.baseUrl) {
+        out.imageProviders = [{
           id: 'legacy-image', name: T('defaultImageCfg'),
           baseUrl: s.imageApi.baseUrl || '', apiKey: s.imageApi.apiKey || '',
-          model: s.imageApi.model || '', mode: s.imageApi.mode || 'generations',
+          mode: s.imageApi.mode || 'generations', models: [{ id: 'legacy-image-m', model: s.imageApi.model || '' }],
         }];
-        out.imageApiId = s.imageApiId || 'legacy-image';
+        out.imageStar = 'legacy-image|legacy-image-m';
       }
-      if (!out.videoApis.length && s.videoApi && s.videoApi.url) {
-        out.videoApis = [{
+      if (!out.videoProviders.length && !out.videoApis?.length && s.videoApi && s.videoApi.url) {
+        out.videoProviders = [{
           id: 'legacy-video', name: T('defaultVideoCfg'),
-          url: s.videoApi.url || '', apiKey: s.videoApi.apiKey || '', model: s.videoApi.model || '',
+          url: s.videoApi.url || '', apiKey: s.videoApi.apiKey || '',
+          models: [{ id: 'legacy-video-m', model: s.videoApi.model || '' }],
         }];
-        out.videoApiId = s.videoApiId || 'legacy-video';
+        out.videoStar = 'legacy-video|legacy-video-m';
+      }
+      // v0.17.x 扁平 API（一配置一模型）→ 供应商 + 模型列表：
+      // 派生 id 确定性沿用旧 cfg id，节点上的旧 apiId 可通过 legacy 映射懒迁移
+      if (!out.imageProviders.length && Array.isArray(s.imageApis) && s.imageApis.length) {
+        out.imageProviders = s.imageApis.map((cfg) => ({
+          id: 'p_' + cfg.id, name: cfg.name || T('defaultImageCfg'),
+          baseUrl: cfg.baseUrl || '', apiKey: cfg.apiKey || '', extra: cfg.extra || '',
+          size: cfg.size || '', responseFormat: cfg.responseFormat || '', mode: cfg.mode || 'generations',
+          models: [{ id: 'm_' + cfg.id, model: cfg.model || '' }],
+        }));
+        out.imageStar = (s.imageApiId && 'p_' + s.imageApiId + '|m_' + s.imageApiId) || (out.imageProviders[0] ? out.imageProviders[0].id + '|' + out.imageProviders[0].models[0].id : '');
+        legacyImageApiRefMap = {};
+        for (const cfg of s.imageApis) legacyImageApiRefMap[cfg.id] = 'p_' + cfg.id + '|m_' + cfg.id;
+      }
+      if (!out.videoProviders.length && Array.isArray(s.videoApis) && s.videoApis.length) {
+        out.videoProviders = s.videoApis.map((cfg) => ({
+          id: 'p_' + cfg.id, name: cfg.name || T('defaultVideoCfg'),
+          url: cfg.url || '', apiKey: cfg.apiKey || '', extra: cfg.extra || '',
+          outputFormat: cfg.outputFormat || '', generateAudio: cfg.generateAudio, protocol: cfg.protocol || 'generic', watermark: cfg.watermark,
+          models: [{ id: 'm_' + cfg.id, model: cfg.model || '' }],
+        }));
+        out.videoStar = (s.videoApiId && 'p_' + s.videoApiId + '|m_' + s.videoApiId) || (out.videoProviders[0] ? out.videoProviders[0].id + '|' + out.videoProviders[0].models[0].id : '');
+        legacyVideoApiRefMap = {};
+        for (const cfg of s.videoApis) legacyVideoApiRefMap[cfg.id] = 'p_' + cfg.id + '|m_' + cfg.id;
       }
       return out;
     }
     function saveSettings(s) { lsSet(LS_SETTINGS, s); }
+
+    // ---------- 供应商 + 模型（图片/视频）：扁平视图与解析 ----------
+    let legacyImageApiRefMap = {}; // 旧扁平配置 id → 'providerId|modelId'（节点字段懒迁移用）
+    let legacyVideoApiRefMap = {};
+    /** 供应商列表 → 扁平模型视图（ref = 'providerId|modelId'）；未填模型名的条目不进下拉。 */
+    function flattenImageModels(settings) {
+      const out = [];
+      for (const p of settings.imageProviders || []) {
+        for (const m of (p.models || [])) {
+          if (!m || !m.id || !String(m.model || '').trim()) continue;
+          out.push({ ref: p.id + '|' + m.id, providerId: p.id, providerName: p.name || p.id, modelId: m.id, model: String(m.model).trim(), baseUrl: p.baseUrl || '', apiKey: p.apiKey || '', extra: p.extra || '', size: p.size || '', responseFormat: p.responseFormat || '', mode: p.mode || 'generations' });
+        }
+      }
+      return out;
+    }
+    function flattenVideoModels(settings) {
+      const out = [];
+      for (const p of settings.videoProviders || []) {
+        for (const m of (p.models || [])) {
+          if (!m || !m.id || !String(m.model || '').trim()) continue;
+          out.push({ ref: p.id + '|' + m.id, providerId: p.id, providerName: p.name || p.id, modelId: m.id, model: String(m.model).trim(), url: p.url || '', apiKey: p.apiKey || '', extra: p.extra || '', outputFormat: p.outputFormat || '', generateAudio: p.generateAudio, protocol: p.protocol || 'generic', watermark: p.watermark });
+        }
+      }
+      return out;
+    }
+    /** 解析节点上的模型引用：空 = 星标默认模型；都没有 = null（运行时报错）。 */
+    function resolveImageModelCfg(settings, ref) {
+      const list = flattenImageModels(settings);
+      const use = String(ref || '').trim() || settings.imageStar || '';
+      return list.find((x) => x.ref === use) || null;
+    }
+    function resolveVideoModelCfg(settings, ref) {
+      const list = flattenVideoModels(settings);
+      const use = String(ref || '').trim() || settings.videoStar || '';
+      return list.find((x) => x.ref === use) || null;
+    }
+    /** 节点上的模型引用（兼容旧扁平 apiId 的懒迁移）。 */
+    function nodeImageModelRef(n) {
+      const d = (n && n.data) || {};
+      if (d.imageModel) return d.imageModel;
+      return legacyImageApiRefMap[d.imageApiId] || '';
+    }
+    function nodeVideoModelRef(n) {
+      const d = (n && n.data) || {};
+      if (d.videoModel) return d.videoModel;
+      return legacyVideoApiRefMap[d.videoApiId] || '';
+    }
 
     function emptyGraph() { return { nodes: {}, edges: [], view: { x: 60, y: 40, scale: 1 } }; }
     function loadGraphDoc(pid) { return lsGet(LS_GRAPH + pid, null); }
@@ -2081,19 +2172,6 @@ window.__ModuleLoader__.load({
       if (!Array.isArray(list) || !list.length) return null;
       return list.find((x) => x.id === wantId) || list.find((x) => x.id === defId) || list[0];
     }
-    async function generateImage(prompt, refMetas, opts) {
-      const settings = loadSettings();
-      const cfg = resolveApiCfg(settings.imageApis, settings.imageApiId, opts && opts.apiId);
-      const blobs = (refMetas || []).map((m) => (m && m.blob) ? m.blob : m);
-      const blob = cfg ? await apiImage(prompt, blobs, cfg, opts || {}) : await demoImageBlob(prompt, blobs, imageDimsFor(opts));
-      return { blob, demo: !cfg };
-    }
-    async function generateVideo(prompt, frameBlob, opts) {
-      const settings = loadSettings();
-      const cfg = resolveApiCfg(settings.videoApis, settings.videoApiId, opts && opts.apiId);
-      const blob = cfg ? await apiVideo(prompt, frameBlob, cfg, opts || {}) : await demoVideoBlob(prompt, videoDimsFor(opts, { capLong: 1280 }), ((opts && opts.duration) || 5) * 1000);
-      return { blob, demo: !cfg };
-    }
 
     /** 从视频 Blob 提取最后一帧为 PNG（通用：任何 API 生成的视频都能取尾帧）。 */
     async function extractLastFrame(videoBlob) {
@@ -2138,7 +2216,7 @@ window.__ModuleLoader__.load({
           nd2.data.duration = n.data.duration || 5;
           nd2.data.resolution = n.data.resolution || '720P';
           nd2.data.ratio = n.data.ratio || '16:9';
-          nd2.data.videoApiId = n.data.videoApiId || '';
+          nd2.data.videoModel = nodeVideoModelRef(n);
         }
         s.graph.edges.push({ id: uid('e'), fromNode: n.id, fromPort: 'last', toNode: nn.id, toPort: 'frame' });
       });
@@ -3917,6 +3995,7 @@ window.__ModuleLoader__.load({
 
     async function runGenNode(n) {
       const type = n.type;
+      const settings = loadSettings(); // 模型解析（供应商+模型）用
       update((s) => {
         const nd = s.graph.nodes[n.id];
         if (nd) { nd.data.status = 'running'; nd.data.error = null; }
@@ -3934,42 +4013,47 @@ window.__ModuleLoader__.load({
           const { refs, entities } = await collectRefs(n, prompt, bible);
           const metas = refs.map((r) => ({ blob: r.blob, name: r.name, category: r.category }));
           const p = buildEffectivePrompt(prompt, refs, entities, bible);
-          const { blob, demo } = await generateImage(p, metas, { size: n.data.size, ratio: n.data.ratio, apiId: n.data.imageApiId });
+          // 模型解析：节点选择优先，未指定路由到星标默认模型；都没有 = 明确报错（不再静默走演示模式）
+          const mcfg = resolveImageModelCfg(settings, nodeImageModelRef(n));
+          if (!mcfg) throw new Error(T('errNoImageModel'));
+          const blob = await apiImage(p, metas, mcfg, { size: n.data.size, ratio: n.data.ratio });
           const rec = await saveAssetRecord(S.activeId, 'image', blob, {
             name: assetNameFor(n, entities, 'image'),
             prompt: stripMentionMarks(prompt), effectivePrompt: p,
-            source: demo ? 'demo' : 'api',
+            source: 'api',
             entity: entities.length ? entities[0].name : undefined,
             entities: entities.map((e) => e.name),
             nodeLabel: (n.data && n.data.label) || '',
             // 分类：@引用命中的实体品类优先；无引用时按命名规范前缀（角色-/场景-/道具-）兜底
             category: entities.length ? entityCategoryOf(entities[0].kind) : (categoryFromName(n.data.label) || 'general'),
           });
-          commitGenResult(n.id, rec.id, demo, 'image');
+          commitGenResult(n.id, rec.id, false, 'image');
         } else {
           const frameBlob = await resolveAssetBlob(n.id, 'frame');
           const { refs, entities } = await collectRefs(n, prompt, bible);
           const p = buildEffectivePrompt(prompt, refs, entities, bible);
-          const { blob, demo } = await generateVideo(p, frameBlob, {
-            duration: n.data.duration, resolution: n.data.resolution, ratio: n.data.ratio, apiId: n.data.videoApiId,
+          const mcfg = resolveVideoModelCfg(settings, nodeVideoModelRef(n));
+          if (!mcfg) throw new Error(T('errNoVideoModel'));
+          const blob = await apiVideo(p, frameBlob, mcfg, {
+            duration: n.data.duration, resolution: n.data.resolution, ratio: n.data.ratio,
             refs: refs.map((r) => r.blob),
           });
           const rec = await saveAssetRecord(S.activeId, 'video', blob, {
             name: assetNameFor(n, entities, 'video'),
             prompt: stripMentionMarks(prompt), effectivePrompt: p,
-            source: demo ? 'demo' : 'api',
+            source: 'api',
             entity: entities.length ? entities[0].name : undefined,
             entities: entities.map((e) => e.name),
             nodeLabel: (n.data && n.data.label) || '',
             category: entities.length ? entityCategoryOf(entities[0].kind) : (categoryFromName(n.data.label) || 'general'),
           });
-          commitGenResult(n.id, rec.id, demo, 'video');
+          commitGenResult(n.id, rec.id, false, 'video');
           // 尾帧提取（通用）：供 last 端口输出与链式下一镜使用
           try {
             const fBlob = await extractLastFrame(blob);
             const fRec = await saveAssetRecord(S.activeId, 'image', fBlob, {
               name: T('lastFrame') + '-' + (n.data.label || n.id.slice(-4)),
-              prompt: 'last frame of ' + prompt.slice(0, 60), source: demo ? 'demo' : 'api', category: 'general',
+              prompt: 'last frame of ' + prompt.slice(0, 60), source: 'api', category: 'general',
             });
             update((s) => {
               const nd = s.graph.nodes[n.id];
@@ -4688,21 +4772,26 @@ window.__ModuleLoader__.load({
 
     function GenSettingsRow({ n, kind }) {
       const settings = loadSettings();
-      const cfgs = kind === 'image' ? (settings.imageApis || []) : (settings.videoApis || []);
-      const cfgValue = (kind === 'image' ? n.data.imageApiId : n.data.videoApiId) || '';
-      const setCfg = (v) => update((s) => {
+      const models = kind === 'image' ? flattenImageModels(settings) : flattenVideoModels(settings);
+      const star = kind === 'image' ? settings.imageStar : settings.videoStar;
+      const cur = kind === 'image' ? nodeImageModelRef(n) : nodeVideoModelRef(n);
+      const setModel = (v) => update((s) => {
         const nd = s.graph.nodes[n.id];
         if (!nd) return;
-        if (kind === 'image') nd.data.imageApiId = v; else nd.data.videoApiId = v;
+        if (kind === 'image') { nd.data.imageModel = v; delete nd.data.imageApiId; }
+        else { nd.data.videoModel = v; delete nd.data.videoApiId; }
       });
-      // 两行布局，避免超出 240px 节点宽度
+      // 模型下拉：只列配置的模型（供应商 · 模型，星标者带 ★）；留空 = 路由到默认模型；没配置 = 空（运行报错）
       return h('div', { key: 'set', style: { display: 'flex', flexDirection: 'column', gap: 5 } },
         h('div', { className: 'dshic-node-row' },
           h('div', { style: { flex: 1, minWidth: 0 } },
             h(MiniSelect, {
-              value: cfgValue, title: T('modelLabel'), width: '100%',
-              options: [{ value: '', label: T('defaultCfg') }].concat(cfgs.map((c) => ({ value: c.id, label: (c.name || c.id) }))),
-              onChange: setCfg,
+              value: cur, title: T('modelLabel'), width: '100%',
+              disabled: !models.length,
+              options: models.length
+                ? models.map((m) => ({ value: m.ref, label: (m.ref === star ? '★ ' : '') + m.providerName + ' · ' + m.model }))
+                : [{ value: '', label: T('noModelsCfg') }],
+              onChange: setModel,
             })),
           h(MiniSelect, {
             value: n.data.ratio || '16:9', title: T('ratioLabel'), width: 64,
@@ -4792,8 +4881,8 @@ window.__ModuleLoader__.load({
       };
       const apply = async () => {
         const settings = loadSettings();
-        const cfg = resolveApiCfg(settings.imageApis, settings.imageApiId, n.data.imageApiId);
-        if (!cfg) { toast(T('errNoImageApi')); return; }
+        const cfg = resolveImageModelCfg(settings, nodeImageModelRef(n));
+        if (!cfg) { toast(T('errNoImageModel')); return; }
         setRunning(true); setErr(null);
         try {
           const mk = maskRef.current;
@@ -4928,7 +5017,7 @@ window.__ModuleLoader__.load({
                         const nd2 = s.graph.nodes[nn.id];
                         if (nd2) {
                           nd2.data.prompt = n.data.prompt || '';
-                          nd2.data.imageApiId = n.data.imageApiId || '';
+                          nd2.data.imageModel = nodeImageModelRef(n);
                           nd2.data.size = n.data.size || '2K';
                           nd2.data.ratio = n.data.ratio || '16:9';
                         }
@@ -6354,6 +6443,99 @@ window.__ModuleLoader__.load({
         style: { flex: 'none', width: 14, height: 14, lineHeight: '13px', textAlign: 'center', fontSize: 10, borderRadius: '50%', border: '1px solid var(--dsw-alias-border-secondary, #777)', color: 'var(--dsw-alias-label-secondary, #999)', cursor: 'help', userSelect: 'none', opacity: 0.85 },
       }, 'i');
     }
+    /** 图片/视频模型配置（供应商 + 模型两级）：一个供应商配一次 URL/Key，下面挂多个模型；
+     *  ★星标模型 = 节点未指定时的默认路由。 */
+    function ModelProviderEditor({ kind }) {
+      const [s, setS] = useState(loadSettings);
+      const [openId, setOpenId] = useState(null);
+      const listKey = kind === 'image' ? 'imageProviders' : 'videoProviders';
+      const starKey = kind === 'image' ? 'imageStar' : 'videoStar';
+      const icon = kind === 'image' ? 'image' : 'video';
+      const labelKey = kind === 'image' ? 'imageApisLabel' : 'videoApisLabel';
+      const nameKey = kind === 'image' ? 'defaultImageCfg' : 'defaultVideoCfg';
+      const urlKey = kind === 'image' ? 'baseUrl' : 'url';
+      const urlPh = kind === 'image'
+        ? 'https://api.example.com/v1（或完整 /images/generations 端点）'
+        : 'https://api.example.com/v1/video/generations（或裸域 / /v1）';
+      const persist = (next) => { setS(next); saveSettings(next); };
+      const mutate = (fn) => { const next = JSON.parse(JSON.stringify(s)); fn(next); persist(next); };
+      const addProvider = () => {
+        const id = uid('prov');
+        mutate((d) => { d[listKey] = (d[listKey] || []).concat([{ id, name: T(nameKey) + ' ' + ((d[listKey] || []).length + 1), [urlKey]: '', apiKey: '', extra: '', models: [], ...(kind === 'image' ? { mode: 'generations' } : {}) }]); });
+        setOpenId(id);
+      };
+      const removeProvider = (id) => {
+        mutate((d) => { d[listKey] = (d[listKey] || []).filter((x) => x.id !== id); if (d[starKey] && d[starKey].startsWith(id + '|')) d[starKey] = ''; });
+        if (openId === id) setOpenId(null);
+      };
+      const patchProvider = (id, k, v) => mutate((d) => { d[listKey] = (d[listKey] || []).map((x) => (x.id === id ? { ...x, [k]: v } : x)); });
+      const addModel = (pid) => mutate((d) => { const p = (d[listKey] || []).find((x) => x.id === pid); if (p) p.models = (p.models || []).concat([{ id: uid('m'), model: '' }]); });
+      const patchModel = (pid, mid, k, v) => mutate((d) => { const p = (d[listKey] || []).find((x) => x.id === pid); if (!p) return; p.models = (p.models || []).map((x) => (x.id === mid ? { ...x, [k]: v } : x)); });
+      const removeModel = (pid, mid) => mutate((d) => {
+        const p = (d[listKey] || []).find((x) => x.id === pid); if (!p) return;
+        p.models = (p.models || []).filter((x) => x.id !== mid);
+        if (d[starKey] === pid + '|' + mid) d[starKey] = '';
+      });
+      const toggleStar = (pid, mid) => { const ref = pid + '|' + mid; mutate((d) => { d[starKey] = d[starKey] === ref ? '' : ref; }); };
+      const list = s[listKey] || [];
+      const modelCount = (p) => (p.models || []).filter((m) => String(m.model || '').trim()).length;
+      return h('div', { className: 'dshic-card' },
+        h('div', { className: 'dshic-row' },
+          Ic(icon, 12),
+          h('strong', { style: { fontSize: 12, flex: 1, minWidth: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' } }, T(labelKey)),
+          h('span', { className: 'dshic-tag st' }, String(list.length)),
+          h('button', { type: 'button', className: 'dshic-mini', onClick: addProvider, onPointerDown: (e) => e.stopPropagation() }, Ic('plus', 11), T('addProvider')),
+        ),
+        list.length === 0 ? h('div', { className: 'dshic-hint' }, T('noCfgHint')) : null,
+        list.map((p) => {
+          const open = openId === p.id;
+          return h('div', { key: p.id, className: 'dshic-card', style: { padding: open ? 8 : 5, gap: 6, background: 'var(--dsw-alias-bg-layer-1)' } },
+            h('div', { className: 'dshic-row' },
+              h('button', { type: 'button', className: 'dshic-iconbtn', title: open ? T('collapse') : T('unfold'), onPointerDown: (e) => e.stopPropagation(), onClick: () => setOpenId(open ? null : p.id) }, open ? '▾' : '▸'),
+              open
+                ? h('input', { className: 'dshic-input', style: { flex: 1, minWidth: 0, fontWeight: 600 }, value: p.name || '', placeholder: T('cfgName'), autoFocus: true, onChange: (e) => patchProvider(p.id, 'name', e.target.value), onPointerDown: (e) => e.stopPropagation() })
+                : h('span', { style: { flex: 1, minWidth: 0, fontSize: 12, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', cursor: 'pointer', color: 'var(--dsw-alias-label-primary)' }, onClick: () => setOpenId(p.id), onPointerDown: (e) => e.stopPropagation(), title: (p[urlKey] || '—') }, p.name || T('cfgName')),
+              h('span', { className: 'dshic-tag st' }, T('modelsLabel') + ' ' + modelCount(p)),
+              h('button', { type: 'button', className: 'dshic-iconbtn', title: T('doDelete'), onPointerDown: (e) => e.stopPropagation(), onClick: () => removeProvider(p.id) }, '×'),
+            ),
+            open ? [
+              h(Field, { key: 'u', label: T('baseUrl'), value: p[urlKey] || '', onChange: (v) => patchProvider(p.id, urlKey, v), placeholder: urlPh }),
+              h(Field, { key: 'k', label: T('apiKey'), value: p.apiKey || '', onChange: (v) => patchProvider(p.id, 'apiKey', v), placeholder: 'sk-…', password: true }),
+              kind === 'image' ? [
+                h(Field, { key: 'size', label: T('imgSizeOverride'), value: p.size || '', onChange: (v) => patchProvider(p.id, 'size', v), placeholder: T('imgSizePlaceholder') }),
+                h(Field, { key: 'rf', label: T('imgResponseFormat'), value: p.responseFormat || '', onChange: (v) => patchProvider(p.id, 'responseFormat', v), placeholder: 'b64_json / url（留空=API 默认）' }),
+                h('div', { key: 'mode', className: 'dshic-field' },
+                  h('span', { className: 'dshic-field-label' }, T('imgMode')),
+                  h('select', { className: 'dshic-select', value: p.mode || 'generations', onChange: (e) => patchProvider(p.id, 'mode', e.target.value), onPointerDown: (e) => e.stopPropagation() },
+                    h('option', { value: 'generations' }, T('modeGenerations')),
+                    h('option', { value: 'edits' }, T('modeEdits')))),
+              ] : [
+                h(Field, { key: 'of', label: T('vidOutFormat'), value: p.outputFormat || '', onChange: (v) => patchProvider(p.id, 'outputFormat', v), placeholder: 'mp4（留空不发送）' }),
+                h('label', { key: 'ga', className: 'dshic-row', style: { gap: 6, fontSize: 11 } },
+                  h('input', { type: 'checkbox', checked: p.generateAudio === true, onChange: (e) => patchProvider(p.id, 'generateAudio', e.target.checked), onPointerDown: (e) => e.stopPropagation() }),
+                  h('span', {}, T('vidAudioOpt'))),
+              ],
+              h(Field, { key: 'extra', label: T('cfgExtra'), value: p.extra || '', onChange: (v) => patchProvider(p.id, 'extra', v), placeholder: '{"watermark":false,"prompt_extend":false}' }),
+              h('div', { className: 'dshic-hint' }, T('cfgExtraHint')),
+              h('div', { className: 'dshic-row', style: { marginTop: 4 } },
+                h('span', { className: 'dshic-field-label', style: { flex: 1, minWidth: 0 } }, T('modelsLabel')),
+                h('button', { type: 'button', className: 'dshic-mini', onPointerDown: (e) => e.stopPropagation(), onClick: () => addModel(p.id) }, Ic('plus', 11), T('addModel')),
+              ),
+              (p.models || []).map((m) => h('div', { key: m.id, className: 'dshic-row' },
+                h('button', {
+                  type: 'button', className: 'dshic-mini is-ghost', title: T('starDefault'),
+                  style: { color: s[starKey] === p.id + '|' + m.id ? 'var(--dsw-alias-state-warn-primary)' : 'inherit' },
+                  onPointerDown: (e) => e.stopPropagation(), onClick: () => toggleStar(p.id, m.id),
+                }, s[starKey] === p.id + '|' + m.id ? '★' : '☆'),
+                h('input', { className: 'dshic-input', style: { flex: 1, minWidth: 0 }, value: m.model || '', placeholder: T('modelNamePh'), onChange: (e) => patchModel(p.id, m.id, 'model', e.target.value), onPointerDown: (e) => e.stopPropagation() }),
+                h('button', { type: 'button', className: 'dshic-iconbtn', title: T('doDelete'), onPointerDown: (e) => e.stopPropagation(), onClick: () => removeModel(p.id, m.id) }, '×'),
+              )),
+              !(p.models || []).length ? h('div', { className: 'dshic-hint' }, T('noModelsCfg')) : null,
+            ] : null,
+          );
+        }),
+      );
+    }
     function ApiListEditor({ kind }) {
       const [s, setS] = useState(loadSettings);
       const [openId, setOpenId] = useState(null);
@@ -6824,8 +7006,8 @@ window.__ModuleLoader__.load({
           ),
           h(LlmModelSelect),
         ),
-        h(ApiListEditor, { key: 'imglist', kind: 'image' }),
-        h(ApiListEditor, { key: 'vidlist', kind: 'video' }),
+        h(ModelProviderEditor, { key: 'imglist', kind: 'image' }),
+        h(ModelProviderEditor, { key: 'vidlist', kind: 'video' }),
         h(ApiListEditor, { key: 'ttslist', kind: 'tts' }),
         h('div', { key: 'note', className: 'dshic-hint' }, 'DeepSeek Harness · dsh-infinite-canvas' + ((S.updateInfo && S.updateInfo.runningVersion) ? ' v' + S.updateInfo.runningVersion : '')),
       ];
