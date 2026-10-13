@@ -302,6 +302,11 @@ window.__ModuleLoader__.load({
       'warnEmptyDesc': '已登记但描述为空（待补全）',
       'catMention': '提及',
       'assetCategoriesFixed': '已按命名规范纠正 {n} 个资产的分类',
+      'cfgExtra': '扩展参数（JSON，可选）',
+      'cfgExtraHint': 'JSON 对象，逐键合并进请求体（留空不发送）——厂商专属参数如 watermark、prompt_extend、output_format、seed 等在此填写，换厂商无需改代码',
+      'vidProtocolHint': '通用 = OpenAI 风格任务接口（JUAI 等聚合平台，URL 填完整 /v1/video/generations）；Seedance 官方 = 火山方舟 contents/generations/tasks',
+      'vidAudioOpt': '生成同步音频（勾选才发送 generate_audio）',
+      'vidOutFormat': '输出格式 output_format（留空不发送）',
       'consistencyTitle': '一致性检查',
       'restartHint': '插件后台尚未加载最新版本：请重启一次 DeepSeek Harness 后重试（仅首次更新需要）',
       'rpcFail': '请求失败',
@@ -642,6 +647,11 @@ window.__ModuleLoader__.load({
       'warnEmptyDesc': 'registered but description is empty (fill it in)',
       'catMention': 'Mention',
       'assetCategoriesFixed': 'Re-categorized {n} assets by naming convention',
+      'cfgExtra': 'Extra params (JSON, optional)',
+      'cfgExtraHint': 'A JSON object merged into the request body (empty = not sent) — vendor-specific params like watermark, prompt_extend, output_format, seed go here; switching vendors needs no code changes',
+      'vidProtocolHint': 'Generic = OpenAI-style task API (JUAI etc., URL = full /v1/video/generations); Seedance official = Volcano Ark contents/generations/tasks',
+      'vidAudioOpt': 'Generate synced audio (only sent when checked)',
+      'vidOutFormat': 'Output format output_format (empty = not sent)',
       'consistencyTitle': 'Consistency check',
       'restartHint': 'The plugin backend is not loaded yet: restart DeepSeek Harness once and retry (first update only)',
       'rpcFail': 'Request failed',
@@ -1798,11 +1808,23 @@ window.__ModuleLoader__.load({
       if (!ct || /json|text|plain/.test(ct)) { try { text = new TextDecoder().decode(buf); } catch { text = ''; } }
       return { ok: res.ok, status: res.status, contentType: ct, text, blob };
     }
+    /** 扩展参数（JSON 字符串 → 对象）：厂商专属参数的通用出口（watermark/prompt_extend/output_format/seed…）。
+     *  非空但不是合法 JSON 对象时抛错（配置错误应当立刻暴露，而不是被静默吞掉）。 */
+    function parseExtraParams(json) {
+      const t = String(json || '').trim();
+      if (!t) return null;
+      const v = JSON.parse(t);
+      if (!v || typeof v !== 'object' || Array.isArray(v)) throw new Error('扩展参数必须是 JSON 对象（如 {"watermark":false}）');
+      return v;
+    }
     async function apiImage(prompt, refBlobs, s, opts) {
       if (!s.baseUrl) throw new Error('未配置图片 API');
-      const base = s.baseUrl.replace(/\/+$/, '');
+      // URL 归一化：裸域 → /v1；粘贴完整端点也不会被二次拼接
+      let base = s.baseUrl.replace(/\/+$/, '').replace(/\/images\/generations$/, '');
+      if (!base.replace(/^https?:\/\//i, '').includes('/')) base = base + '/v1';
       const refs = refBlobs || [];
       const auth = s.apiKey ? { Authorization: 'Bearer ' + s.apiKey } : {};
+      const extra = parseExtraParams(s.extra); // 厂商专属参数（留空不发送）
       const upstreamTimeout = Number(s.timeoutMs) > 0 ? Number(s.timeoutMs) : 120000; // 商汤等同步接口 20s+，默认 120s
       // 参考图编辑模式：multipart 上传到 /images/edits（OpenAI gpt-image-1 兼容）
       if (refs.length && s.mode === 'edits') {
@@ -1839,6 +1861,8 @@ window.__ModuleLoader__.load({
       const sizeOverride = String(s.size || '').trim();
       if (sizeOverride) body.size = sizeOverride;
       else { const dims = imageDimsFor(opts); body.size = `${dims.w}x${dims.h}`; }
+      // 厂商专属扩展参数最后合并（可覆盖以上任何字段）：换厂商不需要改代码
+      if (extra) Object.assign(body, extra);
       const res = await fetchViaProxy(base + '/images/generations', {
         headers: { 'Content-Type': 'application/json', ...auth },
         body, timeoutMs: upstreamTimeout, label: '图片 API',
@@ -1888,9 +1912,13 @@ window.__ModuleLoader__.load({
         ?? (j.data && (j.data.task_id ?? j.data.id ?? j.data.taskId))
         ?? (j.output && (j.output.task_id ?? j.output.id));
     }
-    async function downloadVideo(url, headers) {
+    async function downloadVideo(url, headers, authFallback) {
       // 经 Host 代理：签名下载直连同样会被 CORS 拦
-      const r = await fetchViaProxy(url, { method: 'GET', headers: headers || {}, timeoutMs: 300000, label: '下载视频' });
+      let r = await fetchViaProxy(url, { method: 'GET', headers: headers || {}, timeoutMs: 300000, label: '下载视频' });
+      // 认证内容代理（如 JUAI /v1/videos/{id}/content）返回 401/403 时：用 API 鉴权头重试一次
+      if (!r.ok && (r.status === 401 || r.status === 403) && authFallback && Object.keys(authFallback).length) {
+        r = await fetchViaProxy(url, { method: 'GET', headers: authFallback, timeoutMs: 300000, label: '下载视频' });
+      }
       if (!r.ok) throw new Error('下载视频失败 HTTP ' + r.status);
       return r.blob;
     }
@@ -1915,8 +1943,10 @@ window.__ModuleLoader__.load({
         duration: Number(o.duration) || 5,
         resolution: (o.resolution || '720P').toLowerCase(),
         watermark: s.watermark === true,
-        generate_audio: s.generateAudio !== false,
+        // 勾选才发送/置 true：与通用路径的显式语义一致（默认不发送，用网关默认值）
+        generate_audio: s.generateAudio === true,
       };
+      try { const extra = parseExtraParams(s.extra); if (extra) Object.assign(body, extra); } catch (e) { throw new Error('视频 API 扩展参数配置有误：' + ((e && e.message) || e)); }
       body.ratio = frameBlob ? 'adaptive' : (o.ratio || '16:9');
       const res = await fetchViaProxy(base, { headers, body, timeoutMs: Number(s.timeoutMs) > 0 ? Number(s.timeoutMs) : 120000, label: 'Seedance 视频 API' });
       if (!res.ok) throw new Error('Seedance HTTP ' + res.status + '：' + res.text.slice(0, 300));
@@ -1948,9 +1978,10 @@ window.__ModuleLoader__.load({
         return await seedanceVideo(prompt, frameBlob, o.refs || [], s, o);
       }
       if (!s.url) throw new Error('未配置视频 API');
-      let base = s.url.replace(/\/+$/, '');
-      // OpenAI 风格视频接口（如 JUAI：/v1/video/generations）：只填到 /v1 时自动补全提交端点
-      if (/\/v1$/.test(base)) base = base + '/video/generations';
+      // URL 归一化：裸域 → /v1/video/generations；/v1 → /video/generations；完整端点原样使用
+      let base = s.url.replace(/\/+$/, '').replace(/\/video\/generations$/, '');
+      if (!base.replace(/^https?:\/\//i, '').includes('/')) base = base + '/v1';
+      else if (/\/v1$/.test(base)) base = base + '/video/generations';
       const isOpenaiVideo = /\/video\/generations$/.test(base);
       const headers = { 'Content-Type': 'application/json', ...(s.apiKey ? { Authorization: 'Bearer ' + s.apiKey } : {}) };
       const body = {
@@ -1974,6 +2005,14 @@ window.__ModuleLoader__.load({
           ? await Promise.all(o.refs.map(async (b) => ({ url: await blobToDataUrl(b), role: 'reference_image' })))
           : await Promise.all(o.refs.map((b) => blobToDataUrl(b)));
       }
+      // 可选参数：勾选才发送 generate_audio；output_format 留空不发送
+      if (s.generateAudio === true) body.generate_audio = true;
+      if (String(s.outputFormat || '').trim()) body.output_format = String(s.outputFormat).trim();
+      // 厂商专属扩展参数最后合并（可覆盖以上任何字段）：换厂商不需要改代码
+      try {
+        const extra = parseExtraParams(s.extra);
+        if (extra) Object.assign(body, extra);
+      } catch (e) { throw new Error('视频 API 扩展参数配置有误：' + ((e && e.message) || e)); }
       const res = await fetchViaProxy(base, { headers, body, timeoutMs: Number(s.timeoutMs) > 0 ? Number(s.timeoutMs) : 120000, label: '视频 API' });
       if (!res.ok) throw new Error('视频 API HTTP ' + res.status + '：' + res.text.slice(0, 300));
       let j = null;
@@ -1982,7 +2021,7 @@ window.__ModuleLoader__.load({
       const apiOrigin = (() => { try { return new URL(base).origin; } catch { return ''; } })();
       const dlHeaders = (u) => { try { return new URL(u).origin === apiOrigin ? headers : {}; } catch { return {}; } };
       const direct = extractVideoUrl(j);
-      if (direct) return await downloadVideo(direct, dlHeaders(direct));
+      if (direct) return await downloadVideo(direct, dlHeaders(direct), headers);
       const taskId = extractTaskId(j);
       if (!taskId) throw new Error('视频 API 响应中没有任务 id 或视频地址');
       const deadline = Date.now() + 15 * 60 * 1000;
@@ -1993,7 +2032,7 @@ window.__ModuleLoader__.load({
         let st = null;
         try { st = JSON.parse(r2.text); } catch { /* 忽略 */ }
         const u = extractVideoUrl(st);
-        if (u) return await downloadVideo(u, dlHeaders(u));
+        if (u) return await downloadVideo(u, dlHeaders(u), headers);
         // 失败判定必须看状态字段，不能拿整串 JSON 做子串匹配：
         // 很多网关在 processing 阶段返回 {"status":"processing","error":null}，子串匹配会误判失败
         const failed = taskFailureOf(st);
@@ -6424,7 +6463,7 @@ window.__ModuleLoader__.load({
                 : null,
               kind === 'video'
                 ? h('div', { key: 'proto', className: 'dshic-field' },
-                    h('span', { className: 'dshic-field-label' }, T('vidProtocol')),
+                    h('span', { className: 'dshic-field-label' }, T('vidProtocol'), InfoTip(T('vidProtocolHint'))),
                     h('select', {
                       className: 'dshic-select', value: cfg.protocol || 'generic',
                       onChange: (e) => patch(cfg.id, 'protocol', e.target.value),
@@ -6433,26 +6472,35 @@ window.__ModuleLoader__.load({
                       h('option', { value: 'generic' }, T('protoGeneric')),
                       h('option', { value: 'seedance' }, T('protoSeedance'))))
                 : null,
+              kind === 'video'
+                ? h('label', { key: 'ga', className: 'dshic-row', style: { gap: 6, fontSize: 11 } },
+                    h('input', {
+                      type: 'checkbox', checked: cfg.generateAudio === true,
+                      onChange: (e) => patch(cfg.id, 'generateAudio', e.target.checked),
+                      onPointerDown: (e) => e.stopPropagation(),
+                    }),
+                    h('span', {}, T('vidAudioOpt')))
+                : null,
+              kind === 'video'
+                ? h(Field, { key: 'of', label: T('vidOutFormat'), value: cfg.outputFormat || '', onChange: (v) => patch(cfg.id, 'outputFormat', v), placeholder: 'mp4（留空不发送）' })
+                : null,
+              kind === 'video' && cfg.protocol === 'seedance'
+                ? h('label', { key: 'wm', className: 'dshic-row', style: { gap: 6, fontSize: 11 } },
+                    h('input', {
+                      type: 'checkbox', checked: cfg.watermark === true,
+                      onChange: (e) => patch(cfg.id, 'watermark', e.target.checked),
+                      onPointerDown: (e) => e.stopPropagation(),
+                    }),
+                    h('span', {}, T('seedanceWatermark')))
+                : null,
+              (kind === 'image' || kind === 'video')
+                ? h(Field, { key: 'extra', label: T('cfgExtra'), value: cfg.extra || '', onChange: (v) => patch(cfg.id, 'extra', v), placeholder: '{"watermark":false,"prompt_extend":false}' })
+                : null,
+              (kind === 'image' || kind === 'video')
+                ? h('div', { className: 'dshic-hint' }, T('cfgExtraHint'))
+                : null,
               kind === 'tts'
                 ? h(Field, { key: 'voice', label: T('voice'), value: cfg.voice || '', onChange: (v) => patch(cfg.id, 'voice', v), placeholder: 'alloy' })
-                : null,
-              (kind === 'video' && (cfg.protocol === 'seedance'))
-                ? h('div', { key: 'seedopts', className: 'dshic-field' },
-                    h('label', { className: 'dshic-row', style: { gap: 6, fontSize: 11 } },
-                      h('input', {
-                        type: 'checkbox', checked: cfg.generateAudio !== false,
-                        onChange: (e) => patch(cfg.id, 'generateAudio', e.target.checked),
-                        onPointerDown: (e) => e.stopPropagation(),
-                      }),
-                      h('span', {}, T('seedanceAudio'))),
-                    h('label', { className: 'dshic-row', style: { gap: 6, fontSize: 11 } },
-                      h('input', {
-                        type: 'checkbox', checked: cfg.watermark === true,
-                        onChange: (e) => patch(cfg.id, 'watermark', e.target.checked),
-                        onPointerDown: (e) => e.stopPropagation(),
-                      }),
-                      h('span', {}, T('seedanceWatermark'))),
-                    h('div', { className: 'dshic-hint' }, T('seedanceHint')))
                 : null,
             ] : null,
           );
