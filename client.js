@@ -3336,6 +3336,31 @@ window.__ModuleLoader__.load({
         onText: (d) => onDelta && onDelta('text', d),
       });
     }
+    /** 修复 JSON 字符串值内部未转义的半角引号（模型把 喷漆"拆"字 这类引用原样写进值里）。
+     *  状态机扫描：跟踪是否处于字符串内；串内引号看其后第一个非空白字符——
+     *  是 JSON 结构符（, } ] :）→ 这是字符串结束；否则是值内引号 → 转为全角「 / 」。 */
+    function repairJsonInnerQuotes(s) {
+      const src = String(s);
+      let out = '';
+      let inStr = false, esc = false, innerOpen = false;
+      for (let i = 0; i < src.length; i++) {
+        const ch = src[i];
+        if (!inStr) {
+          if (ch === '"') inStr = true;
+          out += ch;
+          continue;
+        }
+        if (esc) { out += ch; esc = false; continue; }
+        if (ch === '\\') { out += ch; esc = true; continue; }
+        if (ch !== '"') { out += ch; continue; }
+        let j = i + 1;
+        while (j < src.length && /\s/.test(src[j])) j++;
+        const nxt = src[j] || '';
+        if (nxt === ',' || nxt === '}' || nxt === ']' || nxt === ':' || nxt === '') { inStr = false; innerOpen = false; out += ch; }
+        else { out += innerOpen ? '」' : '「'; innerOpen = !innerOpen; }
+      }
+      return out;
+    }
     async function aiStoryboardShots(scriptText, requirement, count, model, onDelta) {
       const settings = loadSettings();
       const bible = bibleBlock(loadBible(S.activeId));
@@ -3351,6 +3376,7 @@ window.__ModuleLoader__.load({
             '- characters/scene/props 使用剧本与设定集中的名称（不带 @），便于匹配资产；无道具给空数组；',
             '- **dialogue 是本镜的角色台词**：把剧本中落在这一镜的对白逐行搬进来（{"role":"角色名","line":"台词原文"}），台词必须**逐字来自剧本**、不新写不改写；本镜无台词给空数组；一镜尽量只放一个角色的台词（单说话人镜头利于声音参考提取）；',
             '- **【完整覆盖】分镜必须覆盖所给剧本的全部内容**：每一个动作、每一句对白都要落在某个镜头里——不概述、不省略、不跳过、不"挑选重点"；镜头数量与总时长由剧本体量自然决定，宁多勿漏（容量超限由上层拆分剧本处理，不由分镜偷工减料）；',
+            '- **JSON 字符串值内部禁止出现半角双引号 "**——引用文字（牌匾/字幕/台词原文）一律用「」；',
             '- duration 为该镜时长，2-5 的整数（一个镜头拍一个连续动作段落）；全部 duration 之和 = 覆盖全剧本所需的自然时长；镜头顺序即叙事顺序，首镜交代场景、末镜收束情绪；',
             '- 只输出 JSON，不要输出任何其他内容。',
           ].join('\n')
@@ -3364,6 +3390,7 @@ window.__ModuleLoader__.load({
             '- characters/scene/props arrays must use plain names from the script and series bible (no @) so assets match; empty props array if none;',
             '- **dialogue = the character lines that fall in this shot**, moved verbatim from the script ({"role":"Name","line":"exact line"}); never rewrite lines; empty array if none; keep one speaker per shot when possible (helps voice-reference extraction);',
             '- **[FULL COVERAGE] the shots must cover EVERYTHING in the given script**: every action and every line must land in some shot — no summarizing, no omitting, no cherry-picking; shot count and total duration follow naturally from the script size (more is better than missing); capacity overflow is handled upstream by splitting the script, never by thinning the shots;',
+            '- **Never use straight double quotes " inside JSON string values** — quoted text (signs/subtitles/lines) uses 「」 instead;',
             '- duration is the shot length in seconds, integer 2-5 (one continuous action beat per shot); the sum of durations = the natural length needed to cover the script; shot order = narrative order; first shot establishes the scene, last shot lands the emotion;',
             '- Output JSON only.',
           ].join('\n');
@@ -3386,7 +3413,12 @@ window.__ModuleLoader__.load({
         onReasoning: (d) => onDelta && onDelta('reasoning', d),
         onText: (d) => onDelta && onDelta('text', d),
       });
-      const parsed = parseJsonBalanced(text);
+      // 解析 + 修复重试：模型常把剧本里的引用文字（如 喷漆"拆"字）原样写进 JSON 字符串值，
+      // 半角引号未转义 → JSON 非法。修复策略：把"闭合引号后不跟 JSON 结构符"的引号对换成「」。
+      let parsed = parseJsonBalanced(text);
+      if (!parsed || !Array.isArray(parsed.shots)) {
+        try { parsed = parseJsonBalanced(repairJsonInnerQuotes(text)); } catch { /* 修复失败保持原错误 */ }
+      }
       const shots = parsed && Array.isArray(parsed.shots) ? parsed.shots : null;
       if (!shots || !shots.length) {
         // 解析失败必须带上下文（长度 + 首尾原文），才能判断是被截断还是格式跑偏
