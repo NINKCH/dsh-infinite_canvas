@@ -1876,6 +1876,8 @@ window.__ModuleLoader__.load({
         j.video && j.video.url,
         j.output && (j.output.url || j.output.video_url),
         j.result && (j.result.url || j.result.video_url),
+        // OpenAI 风格视频任务（如 JUAI）：完成响应把结果放在 metadata.url
+        j.metadata && (j.metadata.url || j.metadata.video_url),
         Array.isArray(j.data) && j.data[0] && (j.data[0].url || j.data[0].video_url),
       ];
       return cands.find((u) => typeof u === 'string' && /^https?:/.test(u)) || null;
@@ -1940,31 +1942,47 @@ window.__ModuleLoader__.load({
     }
     async function apiVideo(prompt, frameBlob, s, opts) {
       const o = opts || {};
-      // 火山 Seedance 官方协议适配
-      if (s.protocol === 'seedance' || (s.url || '').includes('contents/generations/tasks')) {
+      // OpenAI 风格视频接口（JUAI 等：/v1/video/generations）优先识别——
+      // 即使误把协议设成 seedance 也不走火山官方协议（两者状态/结果字段不同）
+      if ((s.protocol === 'seedance' || (s.url || '').includes('contents/generations/tasks')) && !(s.url || '').includes('/video/generations')) {
         return await seedanceVideo(prompt, frameBlob, o.refs || [], s, o);
       }
       if (!s.url) throw new Error('未配置视频 API');
-      const base = s.url.replace(/\/+$/, '');
+      let base = s.url.replace(/\/+$/, '');
+      // OpenAI 风格视频接口（如 JUAI：/v1/video/generations）：只填到 /v1 时自动补全提交端点
+      if (/\/v1$/.test(base)) base = base + '/video/generations';
+      const isOpenaiVideo = /\/video\/generations$/.test(base);
       const headers = { 'Content-Type': 'application/json', ...(s.apiKey ? { Authorization: 'Bearer ' + s.apiKey } : {}) };
       const body = {
         ...(s.model ? { model: s.model } : {}),
         prompt,
         duration: Number(o.duration) || 5,
-        resolution: o.resolution || '720P',
+        // 分辨率一律小写（Seedance 系为 '720p'/'1080p'；'720P' 会被部分网关判为不支持）
+        resolution: (o.resolution || '720p').toLowerCase(),
         ratio: o.ratio || '16:9',
       };
-      // 多参考图（扩展字段）：供支持多参考的视频网关使用
-      if (o.refs && o.refs.length) body.images = await Promise.all(o.refs.map((b) => blobToDataUrl(b)));
+      // 首帧图生视频：构图以首帧为准——Seedance 系要求首帧模式必须 ratio=adaptive
+      if (frameBlob) body.ratio = 'adaptive';
       if (frameBlob) {
         try { body.image = await blobToDataUrl(frameBlob); } catch { /* 忽略首帧编码失败 */ }
+        // OpenAI 风格接口禁止首帧与参考图混用（首帧模式只认 first_frame）→ 有首帧时不带参考图
+        if (!(isOpenaiVideo && o.refs && o.refs.length)) {
+          if (o.refs && o.refs.length) body.images = await Promise.all(o.refs.map((b) => blobToDataUrl(b)));
+        }
+      } else if (o.refs && o.refs.length) {
+        body.images = isOpenaiVideo
+          ? await Promise.all(o.refs.map(async (b) => ({ url: await blobToDataUrl(b), role: 'reference_image' })))
+          : await Promise.all(o.refs.map((b) => blobToDataUrl(b)));
       }
       const res = await fetchViaProxy(base, { headers, body, timeoutMs: Number(s.timeoutMs) > 0 ? Number(s.timeoutMs) : 120000, label: '视频 API' });
       if (!res.ok) throw new Error('视频 API HTTP ' + res.status + '：' + res.text.slice(0, 300));
       let j = null;
       try { j = JSON.parse(res.text); } catch { /* 非 JSON 响应 */ }
+      // 同源结果地址（如认证内容代理）带上鉴权下载；外部公开地址不带
+      const apiOrigin = (() => { try { return new URL(base).origin; } catch { return ''; } })();
+      const dlHeaders = (u) => { try { return new URL(u).origin === apiOrigin ? headers : {}; } catch { return {}; } };
       const direct = extractVideoUrl(j);
-      if (direct) return await downloadVideo(direct, {});
+      if (direct) return await downloadVideo(direct, dlHeaders(direct));
       const taskId = extractTaskId(j);
       if (!taskId) throw new Error('视频 API 响应中没有任务 id 或视频地址');
       const deadline = Date.now() + 15 * 60 * 1000;
@@ -1975,24 +1993,31 @@ window.__ModuleLoader__.load({
         let st = null;
         try { st = JSON.parse(r2.text); } catch { /* 忽略 */ }
         const u = extractVideoUrl(st);
-        if (u) return await downloadVideo(u, {});
+        if (u) return await downloadVideo(u, dlHeaders(u));
         // 失败判定必须看状态字段，不能拿整串 JSON 做子串匹配：
         // 很多网关在 processing 阶段返回 {"status":"processing","error":null}，子串匹配会误判失败
         const failed = taskFailureOf(st);
         if (failed) throw new Error('视频任务失败：' + failed);
+        // 已完成却没有可提取的地址：明确报错并附响应原文，绝不无限轮询
+        if (taskDoneOf(st)) throw new Error('任务已完成但响应中没有视频地址：' + JSON.stringify(st).slice(0, 300));
       }
       throw new Error('视频生成超时（15 分钟）');
     }
-    /** 从任务轮询响应里判断是否真的失败（白名单状态 + 显式错误信息），返回失败原因或 null。 */
-    function taskFailureOf(st) {
-      if (!st || typeof st !== 'object') return null;
+    /** 从任务轮询响应里取状态字符串（小写）。 */
+    function taskStatusOf(st) {
+      if (!st || typeof st !== 'object') return '';
       const pick = (v) => {
         if (typeof v === 'string') return v.toLowerCase();
         if (v && typeof v === 'object' && typeof v.status === 'string') return v.status.toLowerCase();
         return '';
       };
-      const status = pick(st.status) || pick(st.state) || pick(st.task_status)
+      return pick(st.status) || pick(st.state) || pick(st.task_status)
         || pick(st.data && st.data.status) || pick(st.output && st.output.status) || pick(st.result && st.result.status);
+    }
+    /** 从任务轮询响应里判断是否真的失败（白名单状态 + 显式错误信息），返回失败原因或 null。 */
+    function taskFailureOf(st) {
+      if (!st || typeof st !== 'object') return null;
+      const status = taskStatusOf(st);
       const FAIL = ['failed', 'fail', 'error', 'canceled', 'cancelled', 'expired', 'rejected'];
       const DONE = ['succeeded', 'success', 'completed', 'complete', 'done', 'finished'];
       if (status && FAIL.includes(status)) {
@@ -2007,6 +2032,10 @@ window.__ModuleLoader__.load({
         return typeof errObj === 'string' ? errObj.slice(0, 300) : JSON.stringify(errObj).slice(0, 300);
       }
       return null;
+    }
+    /** 任务是否已到达成功终态——轮询方据此终止，绝不无限轮询已完成的任务。 */
+    function taskDoneOf(st) {
+      return ['succeeded', 'success', 'completed', 'complete', 'done', 'finished'].includes(taskStatusOf(st));
     }
 
     function resolveApiCfg(list, defId, wantId) {
