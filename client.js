@@ -2182,7 +2182,7 @@ window.__ModuleLoader__.load({
         if (extra) Object.assign(body, extra);
       } catch (e) { throw new Error('视频 API 扩展参数配置有误：' + ((e && e.message) || e)); }
       const res = await fetchViaProxy(base, { headers, body, timeoutMs: Number(s.timeoutMs) > 0 ? Number(s.timeoutMs) : 120000, label: '视频 API' });
-      if (!res.ok) throw new Error('视频 API HTTP ' + res.status + '：' + res.text.slice(0, 300));
+      if (!res.ok) throw new Error('视频 API HTTP ' + res.status + ' @ ' + base + '：' + res.text.slice(0, 300));
       let j = null;
       try { j = JSON.parse(res.text); } catch { /* 非 JSON 响应 */ }
       // 同源结果地址（如认证内容代理）带上鉴权下载；外部公开地址不带
