@@ -106,6 +106,22 @@ window.__ModuleLoader__.load({
         r.readAsDataURL(blob);
       });
     }
+    /** 参考图/首帧压缩：长边 ≤ maxEdge、JPEG 重编码。
+     *  参考图不需要 2K 原图——多张 2K PNG base64 后会击穿 Host 代理 16MB 上限（HTTP 413）。
+     *  画布/解码失败时回退原始 base64。 */
+    async function blobToDataUrlScaled(blob, maxEdge = 1024) {
+      try {
+        const bmp = await createImageBitmap(blob);
+        const scale = Math.min(1, maxEdge / Math.max(bmp.width, bmp.height));
+        const w = Math.max(1, Math.round(bmp.width * scale));
+        const h = Math.max(1, Math.round(bmp.height * scale));
+        const c = document.createElement('canvas');
+        c.width = w; c.height = h;
+        c.getContext('2d').drawImage(bmp, 0, 0, w, h);
+        bmp.close && bmp.close();
+        return c.toDataURL('image/jpeg', 0.85);
+      } catch { return await blobToDataUrl(blob); }
+    }
     function downloadBlob(blob, name) {
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -2081,8 +2097,8 @@ window.__ModuleLoader__.load({
         text += '\n（' + [...Array(refBlobs.length)].map((_, i) => '[图' + (i + 1) + ']').join('') + ' 为参考图，请保持其人物/场景/道具特征一致）';
       }
       const content = [{ type: 'text', text }];
-      if (frameBlob) content.push({ type: 'image_url', image_url: { url: await blobToDataUrl(frameBlob) }, role: 'first_frame' });
-      for (const b of refBlobs) content.push({ type: 'image_url', image_url: { url: await blobToDataUrl(b) }, role: 'reference_image' });
+      if (frameBlob) content.push({ type: 'image_url', image_url: { url: await blobToDataUrlScaled(frameBlob) }, role: 'first_frame' });
+      for (const b of refBlobs) content.push({ type: 'image_url', image_url: { url: await blobToDataUrlScaled(b) }, role: 'reference_image' });
       const body = {
         model: s.model,
         content,
@@ -2141,15 +2157,15 @@ window.__ModuleLoader__.load({
       // 首帧图生视频：构图以首帧为准——Seedance 系要求首帧模式必须 ratio=adaptive
       if (frameBlob) body.ratio = 'adaptive';
       if (frameBlob) {
-        try { body.image = await blobToDataUrl(frameBlob); } catch { /* 忽略首帧编码失败 */ }
+        try { body.image = await blobToDataUrlScaled(frameBlob); } catch { /* 忽略首帧编码失败 */ }
         // OpenAI 风格接口禁止首帧与参考图混用（首帧模式只认 first_frame）→ 有首帧时不带参考图
         if (!(isOpenaiVideo && o.refs && o.refs.length)) {
-          if (o.refs && o.refs.length) body.images = await Promise.all(o.refs.map((b) => blobToDataUrl(b)));
+          if (o.refs && o.refs.length) body.images = await Promise.all(o.refs.map((b) => blobToDataUrlScaled(b)));
         }
       } else if (o.refs && o.refs.length) {
         body.images = isOpenaiVideo
-          ? await Promise.all(o.refs.map(async (b) => ({ url: await blobToDataUrl(b), role: 'reference_image' })))
-          : await Promise.all(o.refs.map((b) => blobToDataUrl(b)));
+          ? await Promise.all(o.refs.map(async (b) => ({ url: await blobToDataUrlScaled(b), role: 'reference_image' })))
+          : await Promise.all(o.refs.map((b) => blobToDataUrlScaled(b)));
       }
       // 可选参数：勾选才发送 generate_audio；output_format 留空不发送
       if (s.generateAudio === true) body.generate_audio = true;
