@@ -602,13 +602,25 @@ async function projectsPut(args) {
     tombstoneAt: pruneStamp(tombstoneAt, keptTomb),
     edgeTombstoneAt: pruneStamp(edgeTombstoneAt, keptEdgeTomb),
   };
-  // 设定集（世界观/风格/角色/场景/道具）：随文档一起同步，对话侧可读写
+  // 设定集随文档一起同步（世界观/风格/角色/场景/道具）：对话侧可读写
   if (doc.bible !== undefined) {
     out.bible = normalizeBible(doc.bible);
     out.bibleUpdatedAt = Date.now();
   } else if (prev.bible !== undefined) {
     out.bible = prev.bible;
     out.bibleUpdatedAt = prev.bibleUpdatedAt || 0;
+  }
+  // 设定集有更新时重算全部分镜表的一致性告警（客户端侧设定集编辑也走这条路径）
+  if (out.bible !== undefined) {
+    try {
+      const assetNames = readAssetIndexNames(id);
+      for (const nd of Object.values(merged)) {
+        if (nd && nd.type === 'storyboard' && Array.isArray(nd.data && nd.data.shots) && nd.data.shots.length) {
+          const nextW = storyboardConsistencyWarnings(out.bible, nd.data.shots, assetNames);
+          if (JSON.stringify(nextW) !== JSON.stringify(nd.data.warnings || [])) nd.data.warnings = nextW;
+        }
+      }
+    } catch { /* 重算失败不影响保存 */ }
   }
   mkdirSync(PROJECTS_DIR, { recursive: true });
   writeIcDoc(id, out); // 统一走原子写 + 数据目录镜像（此前直写绕过了镜像与原子性）
@@ -847,6 +859,8 @@ function canvasWriteNode(args) {
         }));
         node.data.aiStatus = 'idle';
         node.data.aiError = null;
+        // 写入分镜时同步计算一致性告警：node_status 能立刻返回 warnings（对话侧据此补全设定集）
+        try { node.data.warnings = storyboardConsistencyWarnings(doc.bible || {}, node.data.shots, readAssetIndexNames(id)); } catch { node.data.warnings = []; }
       } else {
         // 二选一强约束（不可用 overwrite 绕过）：已连线到上游剧本的分镜表，内容只从连线取——
         // 两套来源并存会让生成结果不可预期。如需改用粘贴，请先删除该连线或重建分镜表节点。
@@ -983,6 +997,16 @@ async function canvasUpdateBible(args) {
   doc.bible = normalizeBible(next);
   doc.bibleUpdatedAt = Date.now();
   doc.updatedAt = Date.now();
+  // 设定集更新后重算全部分镜表的一致性告警：否则节点上挂着过期告警，用户与对话侧都会被误导
+  try {
+    const assetNames = readAssetIndexNames(id);
+    for (const nd of Object.values(doc.nodes || {})) {
+      if (nd && nd.type === 'storyboard' && Array.isArray(nd.data && nd.data.shots) && nd.data.shots.length) {
+        const nextW = storyboardConsistencyWarnings(doc.bible, nd.data.shots, assetNames);
+        if (JSON.stringify(nextW) !== JSON.stringify(nd.data.warnings || [])) nd.data.warnings = nextW;
+      }
+    }
+  } catch { /* 重算失败不影响设定集写入 */ }
   writeIcDoc(id, doc);
   markDocChanged(id);
   return { projectId: id, bible: doc.bible, bibleUpdatedAt: doc.bibleUpdatedAt };
@@ -1108,6 +1132,57 @@ async function canvasRunNode(args) {
   return { ok: true, projectId: pid, nodeId, type: node.type, label: (node.data && node.data.label) || '' };
 }
 /** 读取节点运行状态与产物（画布执行完成后会把结果推回 Host 文档）。 */
+/** 分镜一致性检查（与客户端 checkShotConsistency 同规则，Host 供状态查询/设定集更新后重算）：
+ *  检查 shots 的角色/场景/道具数组 **以及 visual/motion 文本里的 @提及** 是否都在设定集登记；
+ *  两级告警：「未登记」（设定集/资产都没有）与「已登记但描述为空」（待补全）。 */
+function storyboardConsistencyWarnings(bible, shots, extraNames) {
+  const entries = [];
+  const addEntry = (kind, name, desc) => {
+    const nm = String(name || '').trim();
+    if (nm) entries.push({ kind, name: nm, desc: String(desc || ''), lower: nm.toLowerCase() });
+  };
+  (bible.characters || []).forEach((c) => addEntry('角色', c && c.name, c && c.desc));
+  (bible.scenes || []).forEach((c) => addEntry('场景', c && c.name, c && c.desc));
+  (bible.props || []).forEach((c) => addEntry('道具', c && c.name, c && c.desc));
+  const known = new Set(entries.map((e) => e.lower).concat((extraNames || []).map((n) => String(n).trim().toLowerCase()).filter(Boolean)));
+  const warnings = [];
+  const seen = new Set();
+  const warn = (line) => { if (!seen.has(line) && warnings.length < 12) { seen.add(line); warnings.push(line); } };
+  const check = (title, kind, name) => {
+    const q = String(name || '').trim().toLowerCase();
+    if (!q) return;
+    const exact = entries.find((e) => e.lower === q);
+    if (exact) {
+      if (!exact.desc.trim()) warn(`${title} · ${kind}「${exact.name}」已登记但描述为空（待补全）`);
+      return;
+    }
+    for (const k of known) { if (k.includes(q) || q.includes(k)) return; }
+    warn(`${title} · ${kind}「${String(name).trim()}」未在设定集中登记`);
+  };
+  for (const sh of shots || []) {
+    const title = String((sh && sh.title) || '').trim() || '分镜';
+    for (const nm of (sh.characters || [])) check(title, '角色', nm);
+    check(title, '场景', sh && sh.scene);
+    for (const nm of (sh.props || [])) check(title, '道具', nm);
+    // visual/motion 文本里的 @提及 同样纳入检查（数组外的实体也要登记，杜绝检查漏）
+    const text = String((sh && sh.visual) || '') + ' ' + String((sh && sh.motion) || '');
+    for (const m of (text.match(/@[^\s@，。；、！？:：（）"'）)]+/g) || [])) {
+      check(title, '提及', m.slice(1).replace(/[）)]+$/, ''));
+    }
+  }
+  return warnings;
+}
+/** 从数据目录的项目资产索引里取资产名（与客户端"设定集/资产中登记"的判定口径对齐）。 */
+function readAssetIndexNames(pid) {
+  const root = dataRoot();
+  if (!root || !pid) return [];
+  try {
+    const entry = readDataRootMeta().projects.find((p) => p.id === pid);
+    if (!entry) return [];
+    const list = JSON.parse(readFileSync(path.join(root, 'projects', entry.folder, 'assets.json'), 'utf8'));
+    return Array.isArray(list) ? list.map((x) => x && x.name).filter(Boolean) : [];
+  } catch { return []; }
+}
 async function canvasNodeStatus(args) {
   const pid = String((args && args.projectId) || '');
   const nodeId = String((args && args.nodeId) || '');
@@ -1122,6 +1197,8 @@ async function canvasNodeStatus(args) {
     output: String((n.data && n.data.output) || '').slice(0, 6000),
     idea: String((n.data && n.data.idea) || '').slice(0, 2000),
     assetId: (n.data && n.data.assetId) || null,
+    // 分镜表：一致性告警随状态返回——对话侧据此逐条补全设定集（缺失则要自动补充，绝不忽略）
+    warnings: Array.isArray(n.data && n.data.warnings) ? n.data.warnings : [],
   };
 }
 async function canvasOpen(args) {
@@ -1327,7 +1404,7 @@ async function updateInstall() {
 export const inject = ['webServer', 'tools'];
 
 // 仅供诊断 / 自动化测试（不属于 RPC 面，运行时行为不受影响）
-export const _internals = { updateCheck, updateInstall, npmLatestVersion, cmpVer, findPnpm, getProfileDir: () => PROFILE_DIR, getVersion: () => VERSION, dataRoot, setDataRoot, dataRootMigrate, dataRootImport, ensureProjectFolder, physicalRel, mirrorProjectToDataRoot, writeAssetIndex, removeAssetIndexEntry, readDataRootMeta, removeDataRootProject, deletedProjectIds, addDeletedProjectId, clearDeletedProjectId, fetchProxyForward, safeJoin, mimeOf, pipeFile, getIcConfigPath: () => CONFIG_PATH, canvasCreateProject, canvasWriteNode, canvasConnect, canvasDeleteProject, canvasDeleteNode, canvasRunNode, canvasNodeStatus, canvasGetBible, canvasUpdateBible, canvasCreateNode, canvasOpen, projectsList, projectsPut, projectsGet, projectsDelete, projectsSync };
+export const _internals = { updateCheck, updateInstall, npmLatestVersion, cmpVer, findPnpm, getProfileDir: () => PROFILE_DIR, getVersion: () => VERSION, dataRoot, setDataRoot, dataRootMigrate, dataRootImport, ensureProjectFolder, physicalRel, mirrorProjectToDataRoot, writeAssetIndex, removeAssetIndexEntry, readDataRootMeta, removeDataRootProject, deletedProjectIds, addDeletedProjectId, clearDeletedProjectId, fetchProxyForward, storyboardConsistencyWarnings, readAssetIndexNames, safeJoin, mimeOf, pipeFile, getIcConfigPath: () => CONFIG_PATH, canvasCreateProject, canvasWriteNode, canvasConnect, canvasDeleteProject, canvasDeleteNode, canvasRunNode, canvasNodeStatus, canvasGetBible, canvasUpdateBible, canvasCreateNode, canvasOpen, projectsList, projectsPut, projectsGet, projectsDelete, projectsSync };
 
 function resolveModel(providers, want) {
   const byProvider = want && want.provider
@@ -1730,7 +1807,7 @@ export function apply(ctx) {
         });
         reg({
           name: 'canvas_node_status',
-          description: '查询画布节点的运行状态与产物（状态、错误、剧本成稿内容、生成出的资产 id）。用于确认 canvas_run_node 是否完成。',
+          description: '查询画布节点的运行状态与产物（状态、错误、剧本成稿内容、生成出的资产 id）。分镜表节点还会返回 warnings（一致性告警：未登记/描述为空的实体清单）——非空时必须逐条 canvas_update_bible 补全，绝不忽略。用于确认 canvas_run_node 是否完成。',
           parameters: {
             type: 'object',
             properties: {
@@ -1741,7 +1818,7 @@ export function apply(ctx) {
             additionalProperties: false,
           },
           output: {
-            schema: { type: 'object', properties: { ok: { type: 'boolean' }, text: { type: 'string' }, status: { type: 'string' }, assetId: { type: 'string' } }, required: ['ok', 'text'] },
+            schema: { type: 'object', properties: { ok: { type: 'boolean' }, text: { type: 'string' }, status: { type: 'string' }, assetId: { type: 'string' }, warnings: { type: 'array', items: { type: 'string' } } }, required: ['ok', 'text'] },
             render: (args, value) => [{ type: 'text', text: String(value.text || '') }],
           },
           timeoutMs: 30000,
@@ -1752,7 +1829,13 @@ export function apply(ctx) {
             if (s.assetId) lines.push('产物资产: ' + s.assetId);
             if (s.idea) lines.push('提示词: ' + s.idea.slice(0, 400));
             if (s.output) lines.push('成稿:\n' + s.output);
-            return { ok: true, status: s.status, assetId: s.assetId || undefined, text: lines.join('\n') };
+            // 一致性告警：结构化返回 + 渲染进文本——对话侧据此逐条补全设定集，绝不忽略
+            const warnings = Array.isArray(s.warnings) ? s.warnings : [];
+            if (warnings.length) {
+              lines.push('一致性告警（' + warnings.length + ' 条，须逐条 canvas_update_bible 补全，名称逐字一致）:');
+              warnings.forEach((w) => lines.push(' · ' + w));
+            }
+            return { ok: true, status: s.status, assetId: s.assetId || undefined, warnings: warnings.length ? warnings : undefined, text: lines.join('\n') };
           },
         });
         reg({

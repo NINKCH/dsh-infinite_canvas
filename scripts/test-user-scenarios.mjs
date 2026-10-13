@@ -100,6 +100,23 @@ if ((d1.edgeTombstones || []).includes(undoEdge.id)) {
   if (!d1.edges.some((e) => e.id === undoEdge.id)) errs.push('撤销恢复的边被 Host 永久丢弃（边墓碑未随推送清掉）');
 }
 
+// 一致性告警闭环：分镜引用未登记实体 → node_status 返回 warnings（对话侧据此补全）→
+// 设定集补全后告警自动重算消失；描述为空的条目给"待补全"级告警
+const shotsJson2 = JSON.stringify({ shots: [{ title: '镜1', visual: '中景，@陈拾 在 @城市街头 举起 @神秘包裹', motion: '缓推', characters: ['陈拾'], scene: '城市街头', props: ['神秘包裹'], duration: 3 }] });
+const sb2 = await byName.get('canvas_create_node').execute({ projectId, type: 'storyboard', name: '一致性分镜表' }, {});
+await byName.get('canvas_write_node').execute({ projectId, nodeId: sb2.nodeId, target: 'output', text: shotsJson2, overwrite: true }, {});
+let st2 = await byName.get('canvas_node_status').execute({ projectId, nodeId: sb2.nodeId }, {});
+const w1 = st2.warnings || [];
+if (!w1.some((w) => w.includes('城市街头') && w.includes('未在设定集中登记'))) errs.push('一致性告警缺失：未登记的「城市街头」未出现在 node_status.warnings 里');
+if (!w1.some((w) => w.includes('神秘包裹') && w.includes('未在设定集中登记'))) errs.push('一致性告警缺失：未登记的「神秘包裹」未出现在 node_status.warnings 里');
+if (!/提及「/.test(w1.join(''))) errs.push('一致性告警未覆盖 visual 文本里的 @提及');
+// 设定集补全（名称逐字一致）→ 告警自动重算消失；描述为空 → "待补全"级告警
+await byName.get('canvas_update_bible').execute({ projectId, bible: { characters: [{ name: '陈拾', desc: '26 岁邮递员' }], scenes: [{ name: '城市街头', desc: '深夜旧城边缘街道' }], props: [{ name: '神秘包裹', desc: '' }] } }, {});
+st2 = await byName.get('canvas_node_status').execute({ projectId, nodeId: sb2.nodeId }, {});
+const w2 = st2.warnings || [];
+if (w2.some((w) => w.includes('未在设定集中登记'))) errs.push('设定集补全后「未登记」告警未被自动重算清除：' + w2.join(' | '));
+if (!w2.some((w) => w.includes('神秘包裹') && w.includes('描述为空'))) errs.push('描述为空的已登记条目未给出"待补全"级告警');
+
 fs.rmSync(SANDBOX, { recursive: true, force: true });
 if (errs.length) {
   console.error('✗ 定向复验未通过（' + errs.length + ' 项）：');

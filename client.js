@@ -299,6 +299,8 @@ window.__ModuleLoader__.load({
       'shotsUnit': '镜',
       'savedOk': '已存为资产',
       'warnUnregistered': '未在设定集/资产中登记',
+      'warnEmptyDesc': '已登记但描述为空（待补全）',
+      'catMention': '提及',
       'consistencyTitle': '一致性检查',
       'restartHint': '插件后台尚未加载最新版本：请重启一次 DeepSeek Harness 后重试（仅首次更新需要）',
       'rpcFail': '请求失败',
@@ -636,6 +638,8 @@ window.__ModuleLoader__.load({
       'shotsUnit': 'shots',
       'savedOk': 'Saved as asset',
       'warnUnregistered': 'not in bible/assets',
+      'warnEmptyDesc': 'registered but description is empty (fill it in)',
+      'catMention': 'Mention',
       'consistencyTitle': 'Consistency check',
       'restartHint': 'The plugin backend is not loaded yet: restart DeepSeek Harness once and retry (first update only)',
       'rpcFail': 'Request failed',
@@ -3059,34 +3063,46 @@ window.__ModuleLoader__.load({
         duration: Number.isFinite(Number(s.duration)) ? clamp(Math.round(Number(s.duration)), 1, 15) : 3,
       }));
     }
-    /** 本地一致性检查：分镜里出现的角色/场景/道具名是否都能在设定集或图片资产中找到。 */
+    /** 本地一致性检查：分镜里出现的角色/场景/道具（含 visual/motion 文本里的 @提及）是否都在
+     *  设定集/资产中登记；两级告警——「未登记」与「已登记但描述为空（待补全）」。 */
     async function checkShotConsistency(shots) {
       const bible = loadBible(S.activeId);
-      const known = new Set();
-      const addName = (n) => { const q = String(n || '').trim().toLowerCase(); if (q) known.add(q); };
-      (bible.characters || []).forEach((c) => addName(c.name));
-      (bible.scenes || []).forEach((c) => addName(c.name));
-      (bible.props || []).forEach((c) => addName(c.name));
-      try {
-        const recs = (await idbByProject(S.activeId)).concat(await idbByProject(GENERAL_PID));
-        recs.forEach((r) => addName(r.name));
-      } catch { /* 忽略 */ }
+      const entries = [];
+      const addEntry = (kind, name, desc) => {
+        const nm = String(name || '').trim();
+        if (nm) entries.push({ kind, name: nm, desc: String(desc || ''), lower: nm.toLowerCase() });
+      };
+      (bible.characters || []).forEach((c) => addEntry(T('catCharacter'), c && c.name, c && c.desc));
+      (bible.scenes || []).forEach((c) => addEntry(T('catScene'), c && c.name, c && c.desc));
+      (bible.props || []).forEach((c) => addEntry(T('catProp'), c && c.name, c && c.desc));
+      const known = new Set(entries.map((e) => e.lower));
+      try { ((await idbByProject(S.activeId)).concat(await idbByProject(GENERAL_PID))).forEach((r) => { const q = String(r && r.name || '').trim().toLowerCase(); if (q) known.add(q); }); } catch { /* 忽略 */ }
       const warnings = [];
+      const seen = new Set();
+      const warn = (line) => { if (!seen.has(line) && warnings.length < 12) { seen.add(line); warnings.push(line); } };
+      const check = (title, kind, name) => {
+        const q = String(name || '').trim().toLowerCase();
+        if (!q) return;
+        const exact = entries.find((e) => e.lower === q);
+        if (exact) {
+          if (!exact.desc.trim()) warn(`${title} · ${kind}「${exact.name}」${T('warnEmptyDesc')}`);
+          return;
+        }
+        for (const k of known) { if (k.includes(q) || q.includes(k)) return; }
+        warn(`${title} · ${kind}「${String(name).trim()}」${T('warnUnregistered')}`);
+      };
       for (const sh of shots) {
-        const items = [
-          ...sh.characters.map((n) => [n, T('catCharacter')]),
-          [sh.scene, T('catScene')],
-          ...sh.props.map((n) => [n, T('catProp')]),
-        ];
-        for (const [nm, kind] of items) {
-          const q = String(nm || '').trim().toLowerCase();
-          if (!q) continue;
-          if (![...known].some((k) => k.includes(q) || q.includes(k))) {
-            warnings.push(`${sh.title} · ${kind}「${nm}」${T('warnUnregistered')}`);
-          }
+        const title = String(sh.title || '').trim() || T('shotPrefix');
+        for (const nm of (sh.characters || [])) check(title, T('catCharacter'), nm);
+        check(title, T('catScene'), sh.scene);
+        for (const nm of (sh.props || [])) check(title, T('catProp'), nm);
+        // visual/motion 文本里的 @提及 同样纳入检查（数组外的实体也要登记，杜绝检查漏）
+        const text = String(sh.visual || '') + ' ' + String(sh.motion || '');
+        for (const m of (text.match(/@[^\s@，。；、！？:：（）"'）)]+/g) || [])) {
+          check(title, T('catMention'), m.slice(1).replace(/[）)]+$/, ''));
         }
       }
-      return warnings.slice(0, 12);
+      return warnings;
     }
     /** 分镜生成后：把设定集里没有的角色/场景/道具自动补进设定集（描述留空待用户补充）。 */
     async function autoRegisterBibleEntries(shots) {
@@ -3710,14 +3726,14 @@ window.__ModuleLoader__.load({
       flushSave();
       try {
         const shots = await aiStoryboardShots(st, n.data.requirement, n.data.count || 6, n.data.model, (kind, d) => aiStreamAppend(n.id, kind, d));
+        // 先自动补录缺失条目（空描述），再算一致性告警：否则告警标志的条目其实马上就被自动补录了，"未登记"语义会误导用户与对话侧
+        try { await autoRegisterBibleEntries(shots); } catch { /* 补录失败不影响分镜 */ }
         const warnings = await checkShotConsistency(shots);
         update((s) => {
           const nd = s.graph.nodes[n.id];
           if (nd) { nd.data.shots = shots; nd.data.aiStatus = 'idle'; nd.data.warnings = warnings; nd.data.status = 'done'; nd.data.error = null; }
           s.assetsTick++;
         });
-        // 分镜里出现的新角色/场景/道具 → 自动补进设定集（描述留空待补充），保证设定集始终是唯一事实源
-        try { await autoRegisterBibleEntries(shots); } catch { /* 补录失败不影响分镜 */ }
         await saveTextAssetRecord(S.activeId, {
           name: (String(n.data.label || '').trim() || T('storyboardAssetPrefix')) + ' ' + nowStamp(),
           text: storyboardAssetText(shots),
