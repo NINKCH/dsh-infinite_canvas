@@ -317,6 +317,9 @@ window.__ModuleLoader__.load({
       'voiceTip': '选一段"该角色独占台词"的窗口（多角色同屏的段落不适合做声音参考）。片段将存为「角色-<名> 声音」并绑定实体，之后 @<名> 自动携带音色参考。需要降噪/精细分离时可在 Craft（SoundCraft）中处理后再按同一规范导入。',
       'voiceExtractDone': '已存为声音参考：{name}',
       'voiceExtractSrc': '提取自',
+      'expandScenes': '铺开到场景',
+      'expandScenesDone': '已铺开 {n} 个场景（每场：文本节点 → 分镜表 已连线）',
+      'expandNeedScenes': '未识别到场景分隔标记——剧本需按「【场N】场景名（地点·时间）」分场书写（重新生成或手动补分场标题）',
       'voiceAutoHint': '输入角色名 → 自动按分镜台词定位该角色的全部时间窗，并拼接为一个声音参考文件（无需手动找时间点）',
       'voiceRolesInShots': '分镜台词中的角色：',
       'voiceSegs': '命中镜头',
@@ -687,6 +690,9 @@ window.__ModuleLoader__.load({
       'voiceTip': 'Pick a window where this character speaks alone (overlapping-dialogue segments are bad references). The clip is saved as "Character-<name> voice" bound to the entity; @<name> then carries the voice automatically. For降噪/fine separation process in Craft (SoundCraft) and import with the same naming.',
       'voiceExtractDone': 'Saved voice reference: {name}',
       'voiceExtractSrc': 'Extracted from',
+      'expandScenes': 'Expand to scenes',
+      'expandScenesDone': 'Expanded {n} scenes (each: text node → storyboard, wired)',
+      'expandNeedScenes': 'No scene separators found — the script must use "【SCENE N】name (location · time)" per-scene headers (regenerate or add scene headers manually)',
       'voiceAutoHint': 'Type the character name — all dialogue windows for that role are located automatically from the storyboard and merged into ONE voice reference file',
       'voiceRolesInShots': 'Characters found in shot dialogue: ',
       'voiceSegs': 'Matched shots',
@@ -2861,6 +2867,9 @@ window.__ModuleLoader__.load({
     let hostSyncStopped = false;
     let hostSyncBusy = false; // hostSyncTick 互斥：单次 tick 可能超过 3 秒
     let syncWarned = false;   // 同步失败只提示一次，避免刷屏
+    // 用户在 UI 里删除过的节点（id → 时间戳）：同步的"内存画布为准"豁免只认这里——
+    // 对话侧/Host 删除的节点不在此列，必须照常本地清除（否则旧内存副本会把对话侧刚删的节点复活）
+    const userDeletedNodes = new Map();
     async function importHostProject(hp) {
       const full = await hostRpc('projectsGet', { id: hp.id });
       update((s) => {
@@ -2984,9 +2993,14 @@ window.__ModuleLoader__.load({
             }
             // 对话删过的节点（墓碑）：本地同步删除，避免被推送复活
             const dead = (hp.tombstones || []).filter((nid) => doc && doc.nodes[nid]);
-            // 内存画布为准：当前画布上还存在的节点不算死（撤销恢复后 Host 可能仍留旧墓碑）
+            // "内存画布为准"的豁免**仅限用户自己的撤销恢复**：用户在 UI 删除过（userDeletedNodes 有记录）
+            // 且节点当前 live = 它是被撤销恢复的，Host 墓碑已过期 → 暂不删（等本机推送清墓碑）。
+            // 对话侧(Host)删除的节点不在 userDeletedNodes 里 → 照常本地删除，
+            // 否则旧内存副本会把对话侧刚删的节点复活（陈旧推送 + 过宽豁免的组合 bug）。
             const liveNodes = (hp.id === S.activeId && S.graph) ? S.graph.nodes : null;
-            const deadEff = liveNodes ? dead.filter((nid) => !liveNodes[nid]) : dead;
+            const deadEff = liveNodes
+              ? dead.filter((nid) => !(liveNodes[nid] && userDeletedNodes.has(nid)))
+              : dead;
             if (known && deadEff.length) {
               for (const nid of deadEff) delete doc.nodes[nid];
               doc.edges = (doc.edges || []).filter((e) => !deadEff.includes(e.fromNode) && !deadEff.includes(e.toNode));
@@ -3302,16 +3316,18 @@ window.__ModuleLoader__.load({
       const user = zh ? [
         `创意 / 原文：\n${String(idea ?? '').trim()}`,
         '要求：',
-        '- 3-8 个场次，总片长 1-3 分钟；',
-        '- 每场以「场X 地点（日/夜）· 出场人物」开头；',
-        '- 动作用可视化描述，不写心理；对白单独成行；需要的声音（环境音/旁白）标注在括号里；',
+        '- 本节点输出**一集**的剧本：成片时长 1-2 分钟（60-120 秒），共 4-10 个场景；',
+        '- **每个场景必须以「【场N】场景名（地点·时间）」单独一行开头**（如【场1】城市街头（夜））——这是后续自动铺开到分镜的分场标记，格式不可省略或改写；',
+        '- 每场容量 10-15 秒成片（约 60-150 字，含该场全部对白）；全部场景时长之和 ≈ 1-2 分钟；',
+        '- 场景头之后：可视化动作描写 + 对白（角色：台词，单独成行）；需要的声音（环境音/旁白）标注在括号里；',
         '- 结尾单独一行「人物：」与「场景/道具：」清单，便于后续资产制作。',
       ].join('\n') : [
         `Idea / source:\n${String(idea ?? '').trim()}`,
         'Requirements:',
-        '- 3-8 scenes, 1-3 minutes total;',
-        '- Each scene starts with "SCENE X location (day/night) · characters";',
-        '- Visual actions only, no inner thoughts; dialogue on its own lines; mark sounds in brackets;',
+        '- This node outputs ONE episode: 1-2 minutes of screen time (60-120s), 4-10 scenes;',
+        '- **Every scene MUST start with its own line "【SCENE N】name (location · time)"** — this marker drives the automatic per-scene expansion and must not be omitted;',
+        '- Each scene holds 10-15 seconds of screen time (≈60-150 words incl. dialogue); all scenes sum to ≈1-2 minutes;',
+        '- After each scene header: visual action + dialogue ("Character: line" on its own lines); mark sounds in brackets;',
         '- End with "Characters:" and "Locations/Props:" lists for asset production.',
       ].join('\n');
       return await aiCompleteStream({
@@ -3648,6 +3664,8 @@ window.__ModuleLoader__.load({
         const live = new Set(Object.keys(s.graph.nodes || {}));
         s.graph.tombstones = [...new Set([...(s.graph.tombstones || []), ...prevIds])]
           .filter((id) => !live.has(id)).slice(-200);
+        // 撤销恢复的节点同步撤销"用户删除"记账：同步豁免随之失效，墓碑由推送清除
+        for (const id of live) userDeletedNodes.delete(id);
         s.sel = new Set();
         s.selEdge = null;
       });
@@ -3771,6 +3789,15 @@ window.__ModuleLoader__.load({
         // 否则 Host 合并（保留对话新节点）会把用户刚删的节点又留下来
         if (ids.length) s.graph.tombstones = [...new Set([...(s.graph.tombstones || []), ...ids])].slice(-200);
       });
+      // 用户删除记账：同步的"内存画布为准"豁免只认这里——对话侧(Host)删除的节点不在此列，
+      // 会被正常本地清除（否则旧内存副本会把对话侧刚删的节点复活）
+      for (const id of ids) {
+        userDeletedNodes.set(id, Date.now());
+        if (userDeletedNodes.size > 300) {
+          const oldest = userDeletedNodes.keys().next().value;
+          userDeletedNodes.delete(oldest);
+        }
+      }
       pushHistory();
       flushSave(); // 删除立即推送（不等 450ms 防抖）：同步把 Host 上的节点删掉，压缩"拉回复活"的时间窗
     }
@@ -5566,6 +5593,55 @@ window.__ModuleLoader__.load({
       );
     }
 
+    /** 剧本输出 → 场景数组：按分场标记（【场N】/ 场N：/ ## 场N / SCENE N）切分；
+     *  尾部的「人物：/场景/道具：」清单从最后一场剥离（资产生产参考，不属于场景正文）。 */
+    function parseScriptScenes(output) {
+      const text = String(output || '').replace(/\r\n/g, '\n');
+      const head = /^\s*(?:【\s*场\s*\d+[^】]*】|【?\s*场\s*\d+\s*】?\s*[：:、．.]|场\s*\d+\s*[：:、．.]|#{1,4}\s*场?\s*\d+|SCENE\s*\d+\b)/i;
+      const scenes = [];
+      let cur = null;
+      for (const line of text.split('\n')) {
+        if (head.test(line)) {
+          if (cur && cur.text.trim()) scenes.push(cur);
+          cur = { title: line.trim().replace(/^#{1,4}\s*/, '').slice(0, 60), text: line + '\n' };
+        } else if (cur) {
+          cur.text += line + '\n';
+        }
+      }
+      if (cur && cur.text.trim()) scenes.push(cur);
+      if (scenes.length) {
+        const last = scenes[scenes.length - 1];
+        const i = last.text.search(/\n(?:人物|角色)\s*[:：][\s\S]*$/);
+        if (i >= 0) last.text = last.text.slice(0, i) + '\n';
+      }
+      return scenes.filter((s) => s.text.trim());
+    }
+    /** 剧本节点「铺开到场景」：按【场N】分场标记把整集剧本拆成
+     *  「场景文本节点 → 分镜表节点」组合（每场一组，连线一次生成场景分镜；每场 10-15s）。 */
+    function expandScriptToScenes(n) {
+      const scenes = parseScriptScenes(n.data.output);
+      if (scenes.length < 2) { toast(T('expandNeedScenes')); return; }
+      update((s) => {
+        let row = 0;
+        for (const sc of scenes) {
+          const y = n.y + row * 320;
+          const label = sc.title.slice(0, 40);
+          const tx = newNode('text', { x: n.x + n.w + 160, y });
+          tx.data.label = label;
+          tx.data.text = sc.text.trim();
+          s.graph.nodes[tx.id] = tx;
+          const sb = newNode('storyboard', { x: n.x + n.w + 520, y });
+          sb.data.label = label;
+          s.graph.nodes[sb.id] = sb;
+          s.graph.edges.push({ id: uid('e'), fromNode: tx.id, fromPort: 'out', toNode: sb.id, toPort: 'script' });
+          row++;
+        }
+        s.sel = new Set();
+      });
+      pushHistory();
+      flushSave();
+      toast(T('expandScenesDone').replace('{n}', String(scenes.length)));
+    }
     function ScriptNodeBody({ n }) {
       const running = n.data.aiStatus === 'running';
       const generate = async () => {
@@ -5591,6 +5667,11 @@ window.__ModuleLoader__.load({
           : null,
         h('div', { key: 'btns', className: 'dshic-node-row' },
           h('div', { className: 'dshic-flex' }),
+          n.data.output ? h('button', {
+            type: 'button', className: 'dshic-mini is-ghost', title: T('expandScenes') + '（每场 → 文本+分镜表 组合）',
+            onPointerDown: (e) => e.stopPropagation(),
+            onClick: () => expandScriptToScenes(n),
+          }, Ic('expandAll', 11), T('expandScenes')) : null,
           n.data.output ? h('button', {
             type: 'button', className: 'dshic-mini is-ghost', title: T('saveTextAsset'),
             onPointerDown: (e) => e.stopPropagation(),
