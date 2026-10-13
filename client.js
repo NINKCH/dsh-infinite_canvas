@@ -299,6 +299,7 @@ window.__ModuleLoader__.load({
       'shotsUnit': '镜',
       'savedOk': '已存为资产',
       'warnUnregistered': '未在设定集/资产中登记',
+      'warnScriptTooLong': '剧本较长（{n} 字）≈ 超过单分镜 10-15s 成片容量：请按场景拆分为多个场景剧本节点（每个分镜只连一个场景剧本，长剧本内容会被 24 镜上限截断）',
       'warnEmptyDesc': '已登记但描述为空（待补全）',
       'catMention': '提及',
       'assetCategoriesFixed': '已按命名规范纠正 {n} 个资产的分类',
@@ -668,6 +669,7 @@ window.__ModuleLoader__.load({
       'shotsUnit': 'shots',
       'savedOk': 'Saved as asset',
       'warnUnregistered': 'not in bible/assets',
+      'warnScriptTooLong': 'Script is long ({n} chars) ≈ beyond one storyboard\'s 10-15s capacity: split the script into multiple scene script nodes (each storyboard eats ONE scene; long scripts get truncated at the 24-shot cap)',
       'warnEmptyDesc': 'registered but description is empty (fill it in)',
       'catMention': 'Mention',
       'assetCategoriesFixed': 'Re-categorized {n} assets by naming convention',
@@ -3332,7 +3334,8 @@ window.__ModuleLoader__.load({
             '- motion 是本镜动作与运镜（主体动作节拍、机位运动方向与速度、情绪节奏，50 字内）；与 visual 不重复；',
             '- characters/scene/props 使用剧本与设定集中的名称（不带 @），便于匹配资产；无道具给空数组；',
             '- **dialogue 是本镜的角色台词**：把剧本中落在这一镜的对白逐行搬进来（{"role":"角色名","line":"台词原文"}），台词必须**逐字来自剧本**、不新写不改写；本镜无台词给空数组；一镜尽量只放一个角色的台词（单说话人镜头利于声音参考提取）；',
-            '- duration 为该镜时长，2-5 的整数（一个镜头拍一个连续动作段落）；全部 duration 之和 = 目标视频总时长（如 15 秒 ≈ 4-7 镜）；镜头顺序即叙事顺序，首镜交代场景、末镜收束情绪；',
+            '- **【完整覆盖】分镜必须覆盖所给剧本的全部内容**：每一个动作、每一句对白都要落在某个镜头里——不概述、不省略、不跳过、不"挑选重点"；镜头数量与总时长由剧本体量自然决定，宁多勿漏（容量超限由上层拆分剧本处理，不由分镜偷工减料）；',
+            '- duration 为该镜时长，2-5 的整数（一个镜头拍一个连续动作段落）；全部 duration 之和 = 覆盖全剧本所需的自然时长；镜头顺序即叙事顺序，首镜交代场景、末镜收束情绪；',
             '- 只输出 JSON，不要输出任何其他内容。',
           ].join('\n')
         : [
@@ -3344,7 +3347,8 @@ window.__ModuleLoader__.load({
             '- motion = action & camera for the shot (action beats, camera move, emotional rhythm, <=50 words); do not repeat visual;',
             '- characters/scene/props arrays must use plain names from the script and series bible (no @) so assets match; empty props array if none;',
             '- **dialogue = the character lines that fall in this shot**, moved verbatim from the script ({"role":"Name","line":"exact line"}); never rewrite lines; empty array if none; keep one speaker per shot when possible (helps voice-reference extraction);',
-            '- duration is the shot length in seconds, integer 2-5 (one continuous action beat per shot); the sum of durations = the target total video length (e.g. 15s ≈ 4-7 shots); shot order = narrative order; first shot establishes the scene, last shot lands the emotion;',
+            '- **[FULL COVERAGE] the shots must cover EVERYTHING in the given script**: every action and every line must land in some shot — no summarizing, no omitting, no cherry-picking; shot count and total duration follow naturally from the script size (more is better than missing); capacity overflow is handled upstream by splitting the script, never by thinning the shots;',
+            '- duration is the shot length in seconds, integer 2-5 (one continuous action beat per shot); the sum of durations = the natural length needed to cover the script; shot order = narrative order; first shot establishes the scene, last shot lands the emotion;',
             '- Output JSON only.',
           ].join('\n');
       const methodology = await loadSkillRules(settings.skillStoryboard, zh)
@@ -4054,6 +4058,12 @@ window.__ModuleLoader__.load({
         // 先自动补录缺失条目（空描述），再算一致性告警：否则告警标志的条目其实马上就被自动补录了，"未登记"语义会误导用户与对话侧
         try { await autoRegisterBibleEntries(shots); } catch { /* 补录失败不影响分镜 */ }
         const warnings = await checkShotConsistency(shots);
+        // 容量告警：一个分镜 = 一个 10-15s 的完整场景。剧本过长说明应该按场景拆分成多个场景剧本节点，
+        // 而不是让一个分镜表硬吃全集（shots 上限 24 会悄悄截断覆盖面）
+        const stLen = st.length;
+        if (stLen > 400) {
+          warnings.push(T('warnScriptTooLong').replace('{n}', String(stLen)));
+        }
         update((s) => {
           const nd = s.graph.nodes[n.id];
           if (nd) { nd.data.shots = shots; nd.data.aiStatus = 'idle'; nd.data.warnings = warnings; nd.data.status = 'done'; nd.data.error = null; }
