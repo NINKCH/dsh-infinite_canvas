@@ -1448,36 +1448,42 @@ window.__ModuleLoader__.load({
     }
     // <<<MENTION_PURE_END>>>
 
-    /** 解析提示词里的 @引用：返回命中实体 + 其名下的参考图资产（按实体出现顺序、各实体内按生成时间）。
-     *  实体的参考图来源：① 设定条目里**链接的资产**（assetIds，绑定关系优先）
-     *                  ② 其次按命名/实体字段匹配的资产（角色-张山 多视图 等）。 */
-    async function resolveMentionBundle(prompt, bible, projectId) {
-      const entities = [];
-      for (const m of parseMentions(prompt)) {
-        const hit = matchBibleEntity(m.name, bible);
-        if (hit && !entities.some((e) => e.name === hit.name)) entities.push(hit);
-      }
-      if (!entities.length) return { entities: [], refs: [] };
-      let all = [];
-      try { all = (await idbByProject(projectId)).concat(await idbByProject(GENERAL_PID)); } catch { all = []; }
-      const byId = new Map(all.map((r) => [r.id, r]));
-      const refs = [];
-      for (const ent of entities) {
-        const owned = [];
-        // ① 条目链接的资产（绑定优先，任何类型都认；生成时只有图片能当参考图）
-        for (const aid of ent.assetIds || []) {
-          const rec = byId.get(aid);
-          if (rec && rec.kind === 'image') owned.push(rec);
+      /** 解析提示词里的 @引用：返回命中实体 + 其名下的参考图资产与**声音参考资产**（按实体出现顺序、各实体内按生成时间）。
+       *  实体的参考资产来源：① 设定条目里**链接的资产**（assetIds，绑定关系优先）
+       *                  ② 其次按命名/实体字段匹配的资产（角色-张山 多视图 / 角色-张山 声音 等）。 */
+      async function resolveMentionBundle(prompt, bible, projectId) {
+        const entities = [];
+        for (const m of parseMentions(prompt)) {
+          const hit = matchBibleEntity(m.name, bible);
+          if (hit && !entities.some((e) => e.name === hit.name)) entities.push(hit);
         }
-        // ② 命名/实体匹配的资产
-        for (const r of all) {
-          if (r.kind === 'image' && assetBelongsToEntity(r, ent) && !owned.some((x) => x.id === r.id)) owned.push(r);
+        if (!entities.length) return { entities: [], refs: [], audioRefs: [] };
+        let all = [];
+        try { all = (await idbByProject(projectId)).concat(await idbByProject(GENERAL_PID)); } catch { all = []; }
+        const byId = new Map(all.map((r) => [r.id, r]));
+        const refs = [];
+        const audioRefs = [];
+        for (const ent of entities) {
+          const owned = [];
+          const ownedAudio = [];
+          // ① 条目链接的资产（绑定优先，任何类型都认；生成时图片当参考图、音频当声音参考）
+          for (const aid of ent.assetIds || []) {
+            const rec = byId.get(aid);
+            if (rec && rec.kind === 'image') owned.push(rec);
+            if (rec && rec.kind === 'audio') ownedAudio.push(rec);
+          }
+          // ② 命名/实体匹配的资产
+          for (const r of all) {
+            if (r.kind === 'image' && assetBelongsToEntity(r, ent) && !owned.some((x) => x.id === r.id)) owned.push(r);
+            if (r.kind === 'audio' && assetBelongsToEntity(r, ent) && !ownedAudio.some((x) => x.id === r.id)) ownedAudio.push(r);
+          }
+          owned.sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
+          ownedAudio.sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
+          for (const r of owned) if (!refs.some((x) => x.assetId === r.id)) refs.push({ assetId: r.id, entity: ent.name, kind: ent.kind, name: r.name });
+          for (const r of ownedAudio) if (!audioRefs.some((x) => x.assetId === r.id)) audioRefs.push({ assetId: r.id, entity: ent.name, name: r.name });
         }
-        owned.sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
-        for (const r of owned) if (!refs.some((x) => x.assetId === r.id)) refs.push({ assetId: r.id, entity: ent.name, kind: ent.kind, name: r.name });
+        return { entities, refs, audioRefs };
       }
-      return { entities, refs };
-    }
     /** 合成参考图列表：连线（用户显式顺序）优先，其后追加 @引用命中的设定集资产（去重）。 */
     async function collectRefs(n, prompt, bible) {
       const out = [];
@@ -1505,7 +1511,16 @@ window.__ModuleLoader__.load({
           if (blob) out.push({ assetId: r.assetId, blob, name: (rec && rec.name) || r.name, category: (rec && rec.category) || 'general', source: 'mention', entity: r.entity });
         } catch { /* 忽略 */ }
       }
-      return { refs: out, entities: bundle.entities };
+      // 声音参考：@引用命中实体名下的音频资产（角色音色一致性用），视频生成时作为 audios[] 传出
+      const audioBlobs = [];
+      for (const r of (bundle.audioRefs || [])) {
+        try {
+          const rec = await idbGet(r.assetId);
+          const blob = await assetBlob(r.assetId);
+          if (blob) audioBlobs.push({ blob, name: (rec && rec.name) || r.name, entity: r.entity, assetId: r.assetId });
+        } catch { /* 忽略 */ }
+      }
+      return { refs: out, entities: bundle.entities, audioBlobs };
     }
 
     function outLangLine() {
@@ -2099,6 +2114,12 @@ window.__ModuleLoader__.load({
       // 可选参数：勾选才发送 generate_audio；output_format 留空不发送
       if (s.generateAudio === true) body.generate_audio = true;
       if (String(s.outputFormat || '').trim()) body.output_format = String(s.outputFormat).trim();
+      // 角色声音参考（@引用实体名下的音频资产）→ audios[]：模型生成的对白/声音向参考音色对齐；
+      // 带声音参考时强制开启同步音频（否则参考无意义）
+      if (o.audioRefs && o.audioRefs.length) {
+        body.audios = await Promise.all(o.audioRefs.map((b) => blobToDataUrl(b)));
+        body.generate_audio = true;
+      }
       // 厂商专属扩展参数最后合并（可覆盖以上任何字段）：换厂商不需要改代码
       try {
         const extra = parseExtraParams(s.extra);
@@ -4030,13 +4051,14 @@ window.__ModuleLoader__.load({
           commitGenResult(n.id, rec.id, false, 'image');
         } else {
           const frameBlob = await resolveAssetBlob(n.id, 'frame');
-          const { refs, entities } = await collectRefs(n, prompt, bible);
+          const { refs, entities, audioBlobs } = await collectRefs(n, prompt, bible);
           const p = buildEffectivePrompt(prompt, refs, entities, bible);
           const mcfg = resolveVideoModelCfg(settings, nodeVideoModelRef(n));
           if (!mcfg) throw new Error(T('errNoVideoModel'));
           const blob = await apiVideo(p, frameBlob, mcfg, {
             duration: n.data.duration, resolution: n.data.resolution, ratio: n.data.ratio,
             refs: refs.map((r) => r.blob),
+            audioRefs: audioBlobs.map((a) => a.blob), // 角色声音参考（@引用实体名下的音频资产）
           });
           const rec = await saveAssetRecord(S.activeId, 'video', blob, {
             name: assetNameFor(n, entities, 'video'),
