@@ -2132,6 +2132,46 @@ window.__ModuleLoader__.load({
       }
       throw new Error('Seedance 任务超时（15 分钟）');
     }
+    /** Seedance 原生 content[] 格式兜底（RelayRouter 等：POST /v1/video/generations {model, content, metadata}，
+     *  轮询 GET /v1/video/query?task_id=...）。首帧/参考图角色与 Seedance 原生协议一致（图压缩内联）。 */
+    async function relayVideoContentFallback(base, prompt, frameBlob, o, s, headers) {
+      const content = [{ type: 'text', text: prompt }];
+      if (frameBlob) content.push({ type: 'image_url', image_url: { url: await blobToDataUrlScaled(frameBlob) }, role: 'first_frame' });
+      for (const b of (o.refs || [])) content.push({ type: 'image_url', image_url: { url: await blobToDataUrlScaled(b) }, role: 'reference_image' });
+      const body = {
+        model: s.model,
+        content,
+        metadata: {
+          duration: Math.max(4, Math.min(15, Math.round(Number(o.duration) || 5))),
+          ratio: o.ratio || '16:9',
+          resolution: String(o.resolution || '720p').toLowerCase(),
+        },
+      };
+      const r1 = await fetchViaProxy(base, { headers, body, timeoutMs: 120000, label: '视频 API(content)' });
+      if (!r1.ok) throw new Error('HTTP ' + r1.status + '：' + r1.text.slice(0, 200));
+      let j1 = null;
+      try { j1 = JSON.parse(r1.text); } catch { /* 非 JSON */ }
+      const taskId = extractTaskId(j1);
+      if (!taskId) throw new Error('响应中没有任务 id：' + r1.text.slice(0, 200));
+      let queryEp = '';
+      try { queryEp = new URL(base).origin + '/v1/video/query'; } catch { throw new Error('无法构造轮询地址'); }
+      const dlHeaders = (u) => { try { return new URL(u).origin === new URL(base).origin ? headers : {}; } catch { return {}; } };
+      const deadline = Date.now() + 15 * 60 * 1000;
+      while (Date.now() < deadline) {
+        await sleep(6000);
+        const r2 = await fetchViaProxy(queryEp + '?task_id=' + encodeURIComponent(taskId), { method: 'GET', headers, timeoutMs: 60000, label: '查询视频任务' });
+        if (!r2.ok) throw new Error('查询视频任务失败 HTTP ' + r2.status);
+        let st = null;
+        try { st = JSON.parse(r2.text); } catch { /* 忽略 */ }
+        const u = extractVideoUrl(st);
+        if (u) return await downloadVideo(u, dlHeaders(u), headers);
+        const failed = taskFailureOf(st);
+        if (failed) throw new Error('视频任务失败：' + failed);
+        const status = taskStatusOf(st);
+        if (['failed', 'expired', 'canceled', 'cancelled', 'error'].includes(status)) throw new Error('视频任务失败：' + status);
+      }
+      throw new Error('视频生成超时（15 分钟）');
+    }
     /** Sora 风格 /v1/videos 兜底（RelayRouter 等网关：/v1/video/generations 不接某些视频渠道时）。
      *  提交 POST {model, prompt, seconds, size} → 轮询 GET /v1/videos/{id} →
      *  完成后优先取响应里的地址，否则经 /content 端点（带鉴权）下载。
@@ -2218,13 +2258,18 @@ window.__ModuleLoader__.load({
       } catch (e) { throw new Error('视频 API 扩展参数配置有误：' + ((e && e.message) || e)); }
       const res = await fetchViaProxy(base, { headers, body, timeoutMs: Number(s.timeoutMs) > 0 ? Number(s.timeoutMs) : 120000, label: '视频 API' });
       if (!res.ok) {
-        // 网关实现了 Sora 风格 /v1/videos（如 RelayRouter：/v1/video/generations 不接 seedance 渠道）→ 自动降级重试
-        if (isOpenaiVideo && [400, 404, 503].includes(res.status)) {
+        if (isOpenaiVideo) {
+          // 降级链：① Seedance 原生 content[] 格式（RelayRouter 等，轮询 /v1/video/query）
+          //          ② Sora 风格 /v1/videos
+          let e1 = null, e2 = null;
+          try {
+            return await relayVideoContentFallback(base, prompt, frameBlob, o, s, headers);
+          } catch (e) { e1 = e; }
           try {
             return await soraVideosFallback(base, prompt, o, s, headers);
-          } catch (e2) {
-            throw new Error('视频 API HTTP ' + res.status + ' @ ' + base + '：' + res.text.slice(0, 160) + '；/v1/videos 降级也失败：' + ((e2 && e2.message) || e2));
-          }
+          } catch (e) { e2 = e; }
+          throw new Error('视频 API HTTP ' + res.status + ' @ ' + base + '：' + res.text.slice(0, 160)
+            + '；降级链失败——[content格式] ' + ((e1 && e1.message) || e1) + '；[/v1/videos] ' + ((e2 && e2.message) || e2));
         }
         throw new Error('视频 API HTTP ' + res.status + ' @ ' + base + '：' + res.text.slice(0, 300));
       }
