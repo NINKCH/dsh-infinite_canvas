@@ -301,6 +301,7 @@ window.__ModuleLoader__.load({
       'warnUnregistered': '未在设定集/资产中登记',
       'warnEmptyDesc': '已登记但描述为空（待补全）',
       'catMention': '提及',
+      'assetCategoriesFixed': '已按命名规范纠正 {n} 个资产的分类',
       'consistencyTitle': '一致性检查',
       'restartHint': '插件后台尚未加载最新版本：请重启一次 DeepSeek Harness 后重试（仅首次更新需要）',
       'rpcFail': '请求失败',
@@ -640,6 +641,7 @@ window.__ModuleLoader__.load({
       'warnUnregistered': 'not in bible/assets',
       'warnEmptyDesc': 'registered but description is empty (fill it in)',
       'catMention': 'Mention',
+      'assetCategoriesFixed': 'Re-categorized {n} assets by naming convention',
       'consistencyTitle': 'Consistency check',
       'restartHint': 'The plugin backend is not loaded yet: restart DeepSeek Harness once and retry (first update only)',
       'rpcFail': 'Request failed',
@@ -1274,6 +1276,17 @@ window.__ModuleLoader__.load({
     function entityCategoryOf(kind) {
       return kind === 'character' ? 'character' : kind === 'scene' ? 'scene' : kind === 'prop' ? 'prop' : 'general';
     }
+    /** 按命名规范前缀推导资产品类：角色-/场景-/道具-/剧本-/分镜- → 对应分类（无前缀返回 ''）。
+     *  用于 @引用未命中时（如对话侧直接写角色名）的兜底分类。 */
+    function categoryFromName(name) {
+      const n = String(name || '').trim();
+      if (/^角色[-_／/]/.test(n)) return 'character';
+      if (/^场景[-_／/]/.test(n)) return 'scene';
+      if (/^道具[-_／/]/.test(n)) return 'prop';
+      if (/^剧本[-_／/]/.test(n)) return 'script';
+      if (/^分镜(表)?[-_／/]/.test(n)) return 'storyboard';
+      return '';
+    }
     /** 在设定集里按名称找实体（角色/场景/道具），携带其链接的资产 id。 */
     function matchBibleEntity(name, bible) {
       const want = String(name || '').trim().toLowerCase();
@@ -1613,6 +1626,27 @@ window.__ModuleLoader__.load({
         if (onProgress) onProgress(done, targets.length);
       }
       return { migrated: done, total: targets.length };
+    }
+    /** 启动自检：把分类为「通用」但命名符合规范前缀（角色-/场景-/道具-/剧本-/分镜-）的存量资产纠正分类。 */
+    async function fixGeneralCategories() {
+      try {
+        const all = await idbAll();
+        let fixed = 0;
+        for (const rec of all) {
+          if (!rec || !rec.id || (rec.kind !== 'image' && rec.kind !== 'video')) continue;
+          if ((rec.category || 'general') !== 'general') continue;
+          const c = categoryFromName(rec.name);
+          if (!c) continue;
+          const next = { ...rec, category: c };
+          await idbPut(next);
+          mirrorAssetIndex(next);
+          fixed++;
+        }
+        if (fixed) {
+          update((s) => { s.assetsTick++; });
+          toast(T('assetCategoriesFixed').replace('{n}', String(fixed)));
+        }
+      } catch { /* 静默：失败不影响主流程，下次启动再试 */ }
     }
     /** 数据根目录就绪后自动把浏览器 IndexedDB 里的存量资产搬到磁盘（替代原"迁移历史资产"按钮，全自动无需手动触发）。 */
     async function autoMigrateAssetsToRoot() {
@@ -3840,7 +3874,8 @@ window.__ModuleLoader__.load({
             entity: entities.length ? entities[0].name : undefined,
             entities: entities.map((e) => e.name),
             nodeLabel: (n.data && n.data.label) || '',
-            category: entities.length ? entityCategoryOf(entities[0].kind) : 'general',
+            // 分类：@引用命中的实体品类优先；无引用时按命名规范前缀（角色-/场景-/道具-）兜底
+            category: entities.length ? entityCategoryOf(entities[0].kind) : (categoryFromName(n.data.label) || 'general'),
           });
           commitGenResult(n.id, rec.id, demo, 'image');
         } else {
@@ -3858,7 +3893,7 @@ window.__ModuleLoader__.load({
             entity: entities.length ? entities[0].name : undefined,
             entities: entities.map((e) => e.name),
             nodeLabel: (n.data && n.data.label) || '',
-            category: entities.length ? entityCategoryOf(entities[0].kind) : 'general',
+            category: entities.length ? entityCategoryOf(entities[0].kind) : (categoryFromName(n.data.label) || 'general'),
           });
           commitGenResult(n.id, rec.id, demo, 'video');
           // 尾帧提取（通用）：供 last 端口输出与链式下一镜使用
@@ -7265,8 +7300,8 @@ window.__ModuleLoader__.load({
           probeCraft();
           // 检查更新（Host RPC；Host 旧版未带此方法时静默）
           checkUpdate(true);
-          // 数据根目录（Host 旧版静默降级为 IndexedDB 模式）；就绪后自动搬存量资产到磁盘，再对齐索引
-          refreshDataRoot().then(() => autoMigrateAssetsToRoot()).then(() => syncAssetIndexToHost()).catch(() => { /* 静默 */ });
+          // 数据根目录（Host 旧版静默降级为 IndexedDB 模式）；就绪后自动搬存量资产到磁盘、纠正分类，再对齐索引
+          refreshDataRoot().then(() => autoMigrateAssetsToRoot()).then(() => fixGeneralCategories()).then(() => syncAssetIndexToHost()).catch(() => { /* 静默 */ });
           // 对话 ↔ 画布同步（启动一次 + 3s 轮询；旧 Host 自动停轮询）
           hostSyncTick().then(() => pushAllProjectsToHost());
           const hostSyncTimer = setInterval(() => hostSyncTick(), 3000);
