@@ -856,6 +856,9 @@ function canvasWriteNode(args) {
           scene: String((s && s.scene) || ''),
           props: Array.isArray(s && s.props) ? s.props.map(String) : [],
           duration: Number(s && s.duration) || 5,
+          dialogue: Array.isArray(s && s.dialogue)
+            ? s.dialogue.slice(0, 6).map((d) => ({ role: String(d && d.role || '').trim().slice(0, 24), line: String(d && d.line || '').trim().slice(0, 200) })).filter((d) => d.role && d.line)
+            : [],
         }));
         node.data.aiStatus = 'idle';
         node.data.aiError = null;
@@ -1212,6 +1215,10 @@ async function canvasNodeStatus(args) {
       characters: Array.isArray(s && s.characters) ? s.characters.map(String) : [],
       scene: String((s && s.scene) || '').slice(0, 100),
       props: Array.isArray(s && s.props) ? s.props.map(String) : [],
+      // 台词标注：声音参考提取/对话侧对白定位的数据源
+      dialogue: Array.isArray(s && s.dialogue)
+        ? s.dialogue.slice(0, 6).map((d) => ({ role: String(d && d.role || '').slice(0, 24), line: String(d && d.line || '').slice(0, 200) }))
+        : [],
     }))
     : undefined;
   return {

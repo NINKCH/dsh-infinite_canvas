@@ -316,6 +316,12 @@ window.__ModuleLoader__.load({
       'voiceTip': '选一段"该角色独占台词"的窗口（多角色同屏的段落不适合做声音参考）。片段将存为「角色-<名> 声音」并绑定实体，之后 @<名> 自动携带音色参考。需要降噪/精细分离时可在 Craft（SoundCraft）中处理后再按同一规范导入。',
       'voiceExtractDone': '已存为声音参考：{name}',
       'voiceExtractSrc': '提取自',
+      'voiceAutoHint': '输入角色名 → 自动按分镜台词定位该角色的全部时间窗，并拼接为一个声音参考文件（无需手动找时间点）',
+      'voiceRolesInShots': '分镜台词中的角色：',
+      'voiceSegs': '命中镜头',
+      'voiceNoDialogue': '未找到分镜表或分镜表无镜头——自动定位需要分镜台词标注，请先生成/铺开分镜',
+      'voiceManual': '手动指定时间窗',
+      'voiceRoleNotFound': '分镜台词中没有该角色。可选角色：{roles}',
       'providerLabel': '供应商',
       'addProvider': '新增供应商',
       'addModel': '添加模型',
@@ -679,6 +685,12 @@ window.__ModuleLoader__.load({
       'voiceTip': 'Pick a window where this character speaks alone (overlapping-dialogue segments are bad references). The clip is saved as "Character-<name> voice" bound to the entity; @<name> then carries the voice automatically. For降噪/fine separation process in Craft (SoundCraft) and import with the same naming.',
       'voiceExtractDone': 'Saved voice reference: {name}',
       'voiceExtractSrc': 'Extracted from',
+      'voiceAutoHint': 'Type the character name — all dialogue windows for that role are located automatically from the storyboard and merged into ONE voice reference file',
+      'voiceRolesInShots': 'Characters found in shot dialogue: ',
+      'voiceSegs': 'Matched shots',
+      'voiceNoDialogue': 'No storyboard with shots found — auto location needs the dialogue annotations; generate the storyboard first',
+      'voiceManual': 'Manual time window',
+      'voiceRoleNotFound': 'Role not found in shot dialogue. Available: {roles}',
       'providerLabel': 'Provider',
       'addProvider': 'Add provider',
       'addModel': 'Add model',
@@ -2212,42 +2224,93 @@ window.__ModuleLoader__.load({
       return list.find((x) => x.id === wantId) || list.find((x) => x.id === defId) || list[0];
     }
 
-    /** 从视频/音频 Blob 提取 PCM 并编码 WAV（WebAudio 解码，零外部依赖）：角色声音参考提取用。
-     *  下混单声道、16-bit PCM——声音参考不需要立体声，体积最小（30s ≈ 2.6MB）。 */
-    function encodeWavBlob(audioBuffer, startSec, endSec) {
-      const sr = audioBuffer.sampleRate;
-      const ch = 1;
-      const s0 = Math.max(0, Math.floor(startSec * sr));
-      const s1 = Math.min(audioBuffer.length, Math.ceil(endSec * sr));
-      const n = Math.max(0, s1 - s0);
+    /** PCM 采样数组 → WAV Blob（单声道 16-bit，声音参考不需要立体声）。 */
+    function pcmToWavBlob(samples, sampleRate) {
+      const n = samples.length;
       const data = new ArrayBuffer(44 + n * 2);
       const dv = new DataView(data);
       const wstr = (off, str) => { for (let i = 0; i < str.length; i++) dv.setUint8(off + i, str.charCodeAt(i)); };
       wstr(0, 'RIFF'); dv.setUint32(4, 36 + n * 2, true); wstr(8, 'WAVE'); wstr(12, 'fmt ');
-      dv.setUint32(16, 16, true); dv.setUint16(20, 1, true); dv.setUint16(22, ch, true);
-      dv.setUint32(24, sr, true); dv.setUint32(28, sr * ch * 2, true); dv.setUint16(32, ch * 2, true);
+      dv.setUint32(16, 16, true); dv.setUint16(20, 1, true); dv.setUint16(22, 1, true);
+      dv.setUint32(24, sampleRate, true); dv.setUint32(28, sampleRate * 2, true); dv.setUint16(32, 2, true);
       dv.setUint16(34, 16, true); wstr(36, 'data'); dv.setUint32(40, n * 2, true);
       let off = 44;
-      const chans = [];
-      for (let c = 0; c < audioBuffer.numberOfChannels; c++) chans.push(audioBuffer.getChannelData(c));
       for (let i = 0; i < n; i++) {
-        let v = 0;
-        for (let c = 0; c < chans.length; c++) v += chans[c][s0 + i];
-        v = Math.max(-1, Math.min(1, v / chans.length));
+        const v = Math.max(-1, Math.min(1, samples[i]));
         dv.setInt16(off, v < 0 ? v * 0x8000 : v * 0x7fff, true); off += 2;
       }
       return new Blob([data], { type: 'audio/wav' });
     }
-    /** 解码媒体音轨并裁剪 [startSec, endSec] → WAV Blob。 */
-    async function extractVoiceClip(mediaBlob, startSec, endSec) {
+    /** 解码媒体音轨并按绝对秒区间取 PCM 拼接（多段合成一条）→ WAV Blob。 */
+    async function extractWavRanges(mediaBlob, rangesSec) {
       const ac = new (window.AudioContext || window.webkitAudioContext)();
       try {
         const buf = await ac.decodeAudioData(await mediaBlob.arrayBuffer());
-        const dur = buf.duration;
-        const s = Math.max(0, Math.min(startSec || 0, dur));
-        const e = Math.max(s + 0.2, Math.min(endSec || dur, dur));
-        return { blob: encodeWavBlob(buf, s, e), duration: Math.round(dur * 10) / 10 };
+        const chans = [];
+        for (let c = 0; c < buf.numberOfChannels; c++) chans.push(buf.getChannelData(c));
+        const sr = buf.sampleRate;
+        const pcm = [];
+        for (const [a, b] of rangesSec) {
+          const s0 = Math.max(0, Math.floor(a * sr));
+          const s1 = Math.min(buf.length, Math.ceil(b * sr));
+          for (let i = s0; i < s1; i++) {
+            let v = 0;
+            for (let c = 0; c < chans.length; c++) v += chans[c][i];
+            pcm.push(v / chans.length);
+          }
+        }
+        if (!pcm.length) throw new Error('裁剪区间为空');
+        return { blob: pcmToWavBlob(pcm, sr) };
       } finally { try { ac.close(); } catch { /* 忽略 */ } }
+    }
+    /** 台词驱动的声音参考提取：按分镜 shots 的 dialogue 找到该角色的全部镜头，
+     *  以镜头时长占比把**真实视频时长**映射回各镜头时间窗（±0.15s 呼吸垫），
+     *  逐窗取 PCM **拼接为一个 WAV**（一个角色一个总的声音参考文件）。 */
+    async function extractVoiceAuto(videoBlob, shots, role) {
+      const rl = String(role || '').trim().toLowerCase();
+      const windows = [];
+      let t = 0;
+      for (const s of shots) {
+        const d = Number(s.duration) || 0;
+        const lines = (s.dialogue || []).filter((l) => String(l.role || '').trim().toLowerCase() === rl);
+        if (lines.length) windows.push({ title: s.title, from: t, to: t + d, lines });
+        t += d;
+      }
+      if (!windows.length) {
+        const roles = [...new Set((shots || []).flatMap((s) => (s.dialogue || []).map((l) => String(l.role || '').trim()).filter(Boolean)))];
+        throw new Error(T('voiceRoleNotFound').replace('{roles}', roles.join('、') || '—'));
+      }
+      const ac = new (window.AudioContext || window.webkitAudioContext)();
+      try {
+        const buf = await ac.decodeAudioData(await videoBlob.arrayBuffer());
+        const sumDur = shots.reduce((a, s) => a + (Number(s.duration) || 0), 0) || 1;
+        const k = buf.duration / sumDur; // 请求时长 → 实际时长的比例映射（模型未必精确跟时长）
+        const chans = [];
+        for (let c = 0; c < buf.numberOfChannels; c++) chans.push(buf.getChannelData(c));
+        const sr = buf.sampleRate;
+        const pcm = [];
+        const pad = 0.15; // 呼吸垫：防止窗口边缘切字
+        const segs = [];
+        for (const w of windows) {
+          const a = Math.max(0, w.from * k - (w.from > 0 ? pad : 0));
+          const b = Math.min(buf.duration, w.to * k + pad);
+          const s0 = Math.max(0, Math.floor(a * sr));
+          const s1 = Math.min(buf.length, Math.ceil(b * sr));
+          for (let i = s0; i < s1; i++) {
+            let v = 0;
+            for (let c = 0; c < chans.length; c++) v += chans[c][i];
+            pcm.push(v / chans.length);
+          }
+          segs.push({ title: w.title, from: Math.round(a * 10) / 10, to: Math.round(b * 10) / 10, lines: w.lines.map((l) => l.role + '：' + l.line) });
+        }
+        if (!pcm.length) throw new Error('裁剪区间为空');
+        return { blob: pcmToWavBlob(pcm, sr), segs, duration: Math.round(buf.duration * 10) / 10 };
+      } finally { try { ac.close(); } catch { /* 忽略 */ } }
+    }
+    /** 手动模式：按用户给定的绝对秒区间提取。 */
+    async function extractVoiceClip(mediaBlob, startSec, endSec) {
+      const r = await extractWavRanges(mediaBlob, [[startSec || 0, endSec || 0]]);
+      return { blob: r.blob };
     }
 
     /** 从视频 Blob 提取最后一帧为 PNG（通用：任何 API 生成的视频都能取尾帧）。 */
@@ -3262,23 +3325,25 @@ window.__ModuleLoader__.load({
       const jsonContract = zh
         ? [
             '把剧本拆解为「多镜头一次性视频生成」的分镜脚本：铺开后由**一个视频生成节点**把全部镜头按顺序与时长写进同一条提示词，由视频模型一次性生成整段视频（镜头间由模型直接硬切，不是一镜一视频再拼接）。',
-            '只输出一个 JSON 对象：{"shots":[{"title":"…","visual":"…","motion":"…","characters":["…"],"scene":"…","props":["…"],"duration":3}]}。',
+            '只输出一个 JSON 对象：{"shots":[{"title":"…","visual":"…","motion":"…","characters":["…"],"scene":"…","props":["…"],"duration":3,"dialogue":[{"role":"陈拾","line":"收件时间，1999……"}]}]}。',
             '规则：',
             '- visual 是本镜画面描述（景别、人物外观与站位、场景、光线、构图，60 字内）；',
             '- **visual 与 motion 里的角色/场景/道具必须写成 @名称 引用形式**（如 `@张山`、`@褶皱巷`），插件会自动带上该实体的设定描述与其参考图资产，保证跨镜一致；',
             '- motion 是本镜动作与运镜（主体动作节拍、机位运动方向与速度、情绪节奏，50 字内）；与 visual 不重复；',
             '- characters/scene/props 使用剧本与设定集中的名称（不带 @），便于匹配资产；无道具给空数组；',
+            '- **dialogue 是本镜的角色台词**：把剧本中落在这一镜的对白逐行搬进来（{"role":"角色名","line":"台词原文"}），台词必须**逐字来自剧本**、不新写不改写；本镜无台词给空数组；一镜尽量只放一个角色的台词（单说话人镜头利于声音参考提取）；',
             '- duration 为该镜时长，2-5 的整数（一个镜头拍一个连续动作段落）；全部 duration 之和 = 目标视频总时长（如 15 秒 ≈ 4-7 镜）；镜头顺序即叙事顺序，首镜交代场景、末镜收束情绪；',
             '- 只输出 JSON，不要输出任何其他内容。',
           ].join('\n')
         : [
             'Break the script into shots for ONE multi-shot video generation: after expansion, a single video-gen node composes ALL shots (in order, with durations) into one prompt, and the video model generates the whole clip in one call (hard cuts inside the model — not one video per shot stitched together).',
-            'Output only one JSON object: {"shots":[{"title":"…","visual":"…","motion":"…","characters":["…"],"scene":"…","props":["…"],"duration":3}]}.',
+            'Output only one JSON object: {"shots":[{"title":"…","visual":"…","motion":"…","characters":["…"],"scene":"…","props":["…"],"duration":3,"dialogue":[{"role":"Chen","line":"…"}]}]}.',
             'Rules:',
             '- visual = the shot\'s frame description (shot size, wardrobe, staging, light, framing, <=60 words);',
             '- **characters/scenes/props inside visual and motion must be written as @name references** (e.g. `@ZhangSan`); the plugin then attaches that entity\'s bible description and reference images automatically;',
             '- motion = action & camera for the shot (action beats, camera move, emotional rhythm, <=50 words); do not repeat visual;',
             '- characters/scene/props arrays must use plain names from the script and series bible (no @) so assets match; empty props array if none;',
+            '- **dialogue = the character lines that fall in this shot**, moved verbatim from the script ({"role":"Name","line":"exact line"}); never rewrite lines; empty array if none; keep one speaker per shot when possible (helps voice-reference extraction);',
             '- duration is the shot length in seconds, integer 2-5 (one continuous action beat per shot); the sum of durations = the target total video length (e.g. 15s ≈ 4-7 shots); shot order = narrative order; first shot establishes the scene, last shot lands the emotion;',
             '- Output JSON only.',
           ].join('\n');
@@ -3318,6 +3383,9 @@ window.__ModuleLoader__.load({
         scene: String(s.scene || ''),
         props: Array.isArray(s.props) ? s.props.map(String).slice(0, 6) : [],
         duration: Number.isFinite(Number(s.duration)) ? clamp(Math.round(Number(s.duration)), 1, 15) : 3,
+        dialogue: Array.isArray(s.dialogue)
+          ? s.dialogue.slice(0, 6).map((d) => ({ role: String(d && d.role || '').trim().slice(0, 24), line: String(d && d.line || '').trim().slice(0, 200) })).filter((d) => d.role && d.line)
+          : [],
       }));
     }
     /** 本地一致性检查：分镜里出现的角色/场景/道具（含 visual/motion 文本里的 @提及）是否都在
@@ -4901,31 +4969,52 @@ window.__ModuleLoader__.load({
       );
     }
 
-    /** 声音参考提取：从视频/成片的音轨剪出某角色的台词片段（WebAudio 解码，零外部依赖），
-     *  存为「角色-<名> 声音」音频资产并绑定实体——@引用自动携带到后续视频的 audios[]。
-     *  归属判定靠创作侧数据：剧本对白行「角色：台词」/ 成片字幕 / 一镜一句台词的分镜纪律。 */
+    /** 声音参考提取：输入**角色名** → 自动按分镜表 dialogue 定位该角色的全部台词时间窗，
+     *  逐窗取音轨 PCM **拼接为一个 WAV**（一个角色一个总的声音参考文件，无需手动找时间点）；
+     *  分镜缺少台词标注时降级为手动起止秒模式。 */
     function VoiceExtractDialog({ nodeId, onClose }) {
       const n = S.graph.nodes[nodeId];
       const srcId = (n && n.data && (n.data.assetId || n.data.fcAssetId)) || null;
       const url = useAssetUrl(srcId);
+      // 分镜来源：视频节点 → 上游分镜表；成片节点 → 经片段视频节点的上游分镜表
+      const shots = (() => {
+        const seen = new Set();
+        const out = [];
+        const collect = (nid) => {
+          for (const e of S.graph.edges.filter((x) => x.toNode === nid && x.toPort === 'prompt')) {
+            const sbn = S.graph.nodes[e.fromNode];
+            if (sbn && sbn.type === 'storyboard' && Array.isArray(sbn.data.shots) && sbn.data.shots.length && !seen.has(sbn.id)) { seen.add(sbn.id); out.push(...sbn.data.shots); }
+          }
+        };
+        collect(nodeId);
+        if (!out.length) {
+          for (const e of S.graph.edges.filter((x) => x.toNode === nodeId && x.toPort === 'in')) {
+            collect(e.fromNode); // 片段视频节点的上游分镜
+          }
+        }
+        return out;
+      })();
+      const roles = [...new Set(shots.flatMap((s) => (s.dialogue || []).map((l) => String(l.role || '').trim()).filter(Boolean)))];
       const [role, setRole] = useState('');
+      const [manual, setManual] = useState(false);
       const [startS, setStartS] = useState('0');
       const [endS, setEndS] = useState('');
-      const [dur, setDur] = useState(null);
       const [busy, setBusy] = useState(false);
       const [err, setErr] = useState(null);
-      useEffect(() => {
-        let ok = true;
-        (async () => {
-          if (!url) return;
-          try {
-            const blob = await (await fetch(url)).blob();
-            const d = await videoDurationOf(blob);
-            if (ok) { setDur(Math.round(d * 10) / 10); if (!endS) setEndS(String(Math.round(Math.min(d, 30) * 10) / 10)); }
-          } catch { /* 忽略 */ }
-        })();
-        return () => { ok = false; };
-      }, [url]);
+      const [done, setDone] = useState(null); // {segs}
+      const windows = (() => {
+        const rl = String(role || '').trim().toLowerCase();
+        if (!rl) return [];
+        const out = [];
+        let t = 0;
+        for (const s of shots) {
+          const d = Number(s.duration) || 0;
+          const lines = (s.dialogue || []).filter((l) => String(l.role || '').trim().toLowerCase() === rl);
+          if (lines.length) out.push({ title: s.title, from: t, to: t + d, lines: lines.map((l) => l.role + '：' + l.line) });
+          t += d;
+        }
+        return out;
+      })();
       const submit = async () => {
         const role2 = String(role || '').trim();
         if (!role2) { setErr(T('voiceRoleNeeded')); return; }
@@ -4933,32 +5022,57 @@ window.__ModuleLoader__.load({
         setBusy(true); setErr(null);
         try {
           const blob = await (await fetch(url)).blob();
-          const { blob: wav } = await extractVoiceClip(blob, Number(startS) || 0, Number(endS) || 0);
+          let wav = null;
+          let segs = [];
+          if (!manual) {
+            const r = await extractVoiceAuto(blob, shots, role2);
+            wav = r.blob; segs = r.segs;
+          } else {
+            const r = await extractWavRanges(blob, [[Number(startS) || 0, Number(endS) || Number(startS) || 0]]);
+            wav = r.blob; segs = [{ title: T('voiceManual'), from: Number(startS) || 0, to: Number(endS) || 0, lines: [] }];
+          }
           const rec = await saveAssetRecord(S.activeId, 'audio', wav, {
             name: '角色-' + role2 + ' 声音', entity: role2,
-            prompt: T('voiceExtractSrc') + '：' + ((n.data && n.data.label) || nodeId),
+            prompt: T('voiceExtractSrc') + '：' + ((n.data && n.data.label) || nodeId) + (segs.length ? '（' + segs.map((x) => x.title + ' ' + x.from + '-' + x.to + 's').join('、') + '）' : ''),
             source: 'voice-extract', category: 'audio',
           });
+          setDone(segs);
           update((s2) => { s2.assetsTick++; });
           toast(T('voiceExtractDone').replace('{name}', rec.name));
-          onClose();
         } catch (e) { setErr(String((e && e.message) || e)); }
         setBusy(false);
       };
       return h('div', { className: 'dshic-modal-overlay', onPointerDown: (e) => { if (e.target === e.currentTarget) onClose(); } },
-        h('div', { className: 'dshic-modal', style: { width: 420 } },
+        h('div', { className: 'dshic-modal', style: { width: 440 } },
           h('div', { className: 'dshic-modal-title' }, T('voiceExtractBtn') + ' — ' + ((n && n.data && n.data.label) || '')),
-          dur != null ? h('div', { className: 'dshic-modal-warn' }, T('durationLabel') + '：' + dur + 's') : null,
+          shots.length
+            ? h('div', { className: 'dshic-modal-warn' }, T('voiceAutoHint'))
+            : h('div', { className: 'dshic-modal-warn' }, T('voiceNoDialogue')),
           h(Field, { key: 'role', label: T('voiceRole'), value: role, onChange: setRole, placeholder: T('voiceRolePh') }),
-          h('div', { className: 'dshic-row' },
-            h(Field, { key: 's', label: T('voiceStart'), value: startS, onChange: setStartS, placeholder: '0' }),
-            h(Field, { key: 'e', label: T('voiceEnd'), value: endS, onChange: setEndS, placeholder: '—' }),
-          ),
-          h('div', { className: 'dshic-modal-warn' }, T('voiceTip')),
+          roles.length && !manual
+            ? h('div', { className: 'dshic-modal-warn' }, T('voiceRolesInShots') + roles.join('、'))
+            : null,
+          !manual && windows.length
+            ? h('div', { key: 'segs', className: 'dshic-modal-warn' },
+                T('voiceSegs') + '（' + windows.length + '）：',
+                windows.map((w) => h('div', { key: w.title + w.from, style: { marginTop: 2 } }, '· ' + w.title + ' ' + Math.round(w.from * 10) / 10 + '-' + Math.round(w.to * 10) / 10 + 's — ' + w.lines.join(' / '))))
+            : null,
+          manual
+            ? [
+                h('div', { className: 'dshic-row' },
+                  h(Field, { key: 's', label: T('voiceStart'), value: startS, onChange: setStartS, placeholder: '0' }),
+                  h(Field, { key: 'e', label: T('voiceEnd'), value: endS, onChange: setEndS, placeholder: '—' }),
+                ),
+              ]
+            : null,
+          h('label', { className: 'dshic-row', style: { gap: 6, fontSize: 11 } },
+            h('input', { type: 'checkbox', checked: manual, onChange: (e) => setManual(e.target.checked), onPointerDown: (e) => e.stopPropagation() }),
+            h('span', {}, T('voiceManual'))),
+          done ? h('div', { className: 'dshic-modal-warn' }, T('voiceExtractDone').replace('{name}', '角色-' + (String(role || '').trim() || '—') + ' 声音') + '（' + done.map((x) => x.title).join('、') + '）') : null,
           err ? h('div', { className: 'dshic-err' }, err) : null,
           h('div', { className: 'dshic-modal-actions' },
             h('button', { type: 'button', className: 'dshic-btn dshic-btn-outline', onClick: onClose, onPointerDown: (e) => e.stopPropagation() }, T('cancel')),
-            h('button', { type: 'button', className: 'dshic-gen', style: { width: 'auto', padding: '0 14px' }, disabled: busy, onClick: submit, onPointerDown: (e) => e.stopPropagation() }, busy ? h('span', { className: 'dshic-spin' }) : Ic('audio', 12), T('voiceExtractBtn'))),
+            h('button', { type: 'button', className: 'dshic-gen', style: { width: 'auto', padding: '0 14px' }, disabled: busy || (!manual && !windows.length), onClick: submit, onPointerDown: (e) => e.stopPropagation() }, busy ? h('span', { className: 'dshic-spin' }) : Ic('audio', 12), T('voiceExtractBtn'))),
         ));
     }
     /** 蒙版级局部重绘：涂抹区域导出 mask PNG，走 images/edits 多部分请求。 */
