@@ -2132,6 +2132,41 @@ window.__ModuleLoader__.load({
       }
       throw new Error('Seedance 任务超时（15 分钟）');
     }
+    /** Sora 风格 /v1/videos 兜底（RelayRouter 等网关：/v1/video/generations 不接某些视频渠道时）。
+     *  提交 POST {model, prompt, seconds, size} → 轮询 GET /v1/videos/{id} →
+     *  完成后优先取响应里的地址，否则经 /content 端点（带鉴权）下载。
+     *  注意：该格式暂不支持首帧注入——跨段连贯由提示词承接。 */
+    async function soraVideosFallback(base, prompt, o, s, headers) {
+      const root = base.replace(/\/v1\/video\/generations$/i, '').replace(/\/+$/, '');
+      const ep = root + '/v1/videos';
+      const secs = String(Math.max(4, Math.min(15, Math.round(Number(o.duration) || 5))));
+      const vertical = (o.ratio || '16:9') === '9:16';
+      const hd = String(o.resolution || '720p').toLowerCase().includes('1080');
+      const size = hd ? (vertical ? '1080x1920' : '1920x1080') : (vertical ? '720x1280' : '1280x720');
+      const body = { model: s.model, prompt, seconds: secs, size };
+      const r1 = await fetchViaProxy(ep, { headers, body, timeoutMs: 120000, label: '视频 API(/v1/videos)' });
+      if (!r1.ok) throw new Error('HTTP ' + r1.status + ' @ ' + ep + '：' + r1.text.slice(0, 200));
+      let j1 = null;
+      try { j1 = JSON.parse(r1.text); } catch { /* 非 JSON */ }
+      const taskId = j1 && (j1.id || j1.task_id || (j1.data && j1.data[0] && j1.data[0].id));
+      if (!taskId) throw new Error('/v1/videos 响应中没有任务 id：' + r1.text.slice(0, 200));
+      const deadline = Date.now() + 15 * 60 * 1000;
+      while (Date.now() < deadline) {
+        await sleep(6000);
+        const r2 = await fetchViaProxy(ep + '/' + taskId, { method: 'GET', headers, timeoutMs: 60000, label: '查询视频任务' });
+        if (!r2.ok) throw new Error('查询视频任务失败 HTTP ' + r2.status);
+        let st = null;
+        try { st = JSON.parse(r2.text); } catch { /* 忽略 */ }
+        const u = extractVideoUrl(st);
+        if (u) return await downloadVideo(u, {}, headers);
+        const failed = taskFailureOf(st);
+        if (failed) throw new Error('视频任务失败：' + failed);
+        const status = taskStatusOf(st);
+        if (taskDoneOf(st)) return await downloadVideo(ep + '/' + taskId + '/content', {}, headers);
+        if (['failed', 'expired', 'canceled', 'cancelled', 'error'].includes(status)) throw new Error('视频任务失败：' + status);
+      }
+      throw new Error('视频生成超时（15 分钟）');
+    }
     async function apiVideo(prompt, frameBlob, s, opts) {
       const o = opts || {};
       // OpenAI 风格视频接口（JUAI 等：/v1/video/generations）优先识别——
@@ -2182,7 +2217,17 @@ window.__ModuleLoader__.load({
         if (extra) Object.assign(body, extra);
       } catch (e) { throw new Error('视频 API 扩展参数配置有误：' + ((e && e.message) || e)); }
       const res = await fetchViaProxy(base, { headers, body, timeoutMs: Number(s.timeoutMs) > 0 ? Number(s.timeoutMs) : 120000, label: '视频 API' });
-      if (!res.ok) throw new Error('视频 API HTTP ' + res.status + ' @ ' + base + '：' + res.text.slice(0, 300));
+      if (!res.ok) {
+        // 网关实现了 Sora 风格 /v1/videos（如 RelayRouter：/v1/video/generations 不接 seedance 渠道）→ 自动降级重试
+        if (isOpenaiVideo && [400, 404, 503].includes(res.status)) {
+          try {
+            return await soraVideosFallback(base, prompt, o, s, headers);
+          } catch (e2) {
+            throw new Error('视频 API HTTP ' + res.status + ' @ ' + base + '：' + res.text.slice(0, 160) + '；/v1/videos 降级也失败：' + ((e2 && e2.message) || e2));
+          }
+        }
+        throw new Error('视频 API HTTP ' + res.status + ' @ ' + base + '：' + res.text.slice(0, 300));
+      }
       let j = null;
       try { j = JSON.parse(res.text); } catch { /* 非 JSON 响应 */ }
       // 同源结果地址（如认证内容代理）带上鉴权下载；外部公开地址不带
