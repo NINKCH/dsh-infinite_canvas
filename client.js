@@ -320,6 +320,7 @@ window.__ModuleLoader__.load({
       'expandScenes': '铺开到场景',
       'expandScenesDone': '已铺开 {n} 个场景（每场：文本节点 → 分镜表 已连线）',
       'expandNeedScenes': '未识别到场景分隔标记——剧本需按「【场N】场景名（地点·时间）」分场书写（重新生成或手动补分场标题）',
+      'autoShots': '自动（按内容节拍）',
       'voiceAutoHint': '输入角色名 → 自动按分镜台词定位该角色的全部时间窗，并拼接为一个声音参考文件（无需手动找时间点）',
       'voiceRolesInShots': '分镜台词中的角色：',
       'voiceSegs': '命中镜头',
@@ -693,6 +694,7 @@ window.__ModuleLoader__.load({
       'expandScenes': 'Expand to scenes',
       'expandScenesDone': 'Expanded {n} scenes (each: text node → storyboard, wired)',
       'expandNeedScenes': 'No scene separators found — the script must use "【SCENE N】name (location · time)" per-scene headers (regenerate or add scene headers manually)',
+      'autoShots': 'Auto (by content beats)',
       'voiceAutoHint': 'Type the character name — all dialogue windows for that role are located automatically from the storyboard and merged into ONE voice reference file',
       'voiceRolesInShots': 'Characters found in shot dialogue: ',
       'voiceSegs': 'Matched shots',
@@ -3376,8 +3378,9 @@ window.__ModuleLoader__.load({
             '- characters/scene/props 使用剧本与设定集中的名称（不带 @），便于匹配资产；无道具给空数组；',
             '- **dialogue 是本镜的角色台词**：把剧本中落在这一镜的对白逐行搬进来（{"role":"角色名","line":"台词原文"}），台词必须**逐字来自剧本**、不新写不改写；本镜无台词给空数组；一镜尽量只放一个角色的台词（单说话人镜头利于声音参考提取）；',
             '- **【完整覆盖】分镜必须覆盖所给剧本的全部内容**：每一个动作、每一句对白都要落在某个镜头里——不概述、不省略、不跳过、不"挑选重点"；镜头数量与总时长由剧本体量自然决定，宁多勿漏（容量超限由上层拆分剧本处理，不由分镜偷工减料）；',
+            '- **镜头按实际内容切分**：一个连续动作段落 = 一镜，数量由内容自然决定（3-10 镜都正常）——绝不凑数、绝不使用固定数量；',
             '- **JSON 字符串值内部禁止出现半角双引号 "**——引用文字（牌匾/字幕/台词原文）一律用「」；',
-            '- duration 为该镜时长，2-5 的整数（一个镜头拍一个连续动作段落）；全部 duration 之和 = 覆盖全剧本所需的自然时长；镜头顺序即叙事顺序，首镜交代场景、末镜收束情绪；',
+            '- duration 为该镜时长，2-5 的整数（一个镜头拍一个连续动作段落）；全部 duration 之和 **≤ 15 秒**（一个分镜表 = 一个 10-15s 的场景视频）——超了就合并精简镜头，而不是拉长单镜；镜头顺序即叙事顺序，首镜交代场景、末镜收束情绪；',
             '- 只输出 JSON，不要输出任何其他内容。',
           ].join('\n')
         : [
@@ -3391,7 +3394,8 @@ window.__ModuleLoader__.load({
             '- **dialogue = the character lines that fall in this shot**, moved verbatim from the script ({"role":"Name","line":"exact line"}); never rewrite lines; empty array if none; keep one speaker per shot when possible (helps voice-reference extraction);',
             '- **[FULL COVERAGE] the shots must cover EVERYTHING in the given script**: every action and every line must land in some shot — no summarizing, no omitting, no cherry-picking; shot count and total duration follow naturally from the script size (more is better than missing); capacity overflow is handled upstream by splitting the script, never by thinning the shots;',
             '- **Never use straight double quotes " inside JSON string values** — quoted text (signs/subtitles/lines) uses 「」 instead;',
-            '- duration is the shot length in seconds, integer 2-5 (one continuous action beat per shot); the sum of durations = the natural length needed to cover the script; shot order = narrative order; first shot establishes the scene, last shot lands the emotion;',
+            '- **Split shots by actual content**: one continuous action beat = one shot; the count is decided by the content (3-10 shots are all normal) — never pad, never use a fixed number;',
+            '- duration is the shot length in seconds, integer 2-5 (one continuous action beat per shot); the sum of durations must be **≤ 15 seconds** (one storyboard = one 10-15s scene video) — if over, merge and tighten shots instead of stretching; shot order = narrative order; first shot establishes the scene, last shot lands the emotion;',
             '- Output JSON only.',
           ].join('\n');
       const methodology = await loadSkillRules(settings.skillStoryboard, zh)
@@ -3403,10 +3407,13 @@ window.__ModuleLoader__.load({
         bible ? (zh ? '项目设定集（名称必须与之一致）：\n' : 'Series bible (names must match):\n') + bible : '',
         outLangLine(),
       ].filter(Boolean).join('\n');
+      const countLine = (Number(count) > 0)
+        ? `${zh ? '参考镜头数量' : 'Reference shot count'}：约 ${count} 镜（**仅作参考**——必须按实际动作节拍切分，内容需要更多就更多，绝不凑数）`
+        : `${zh ? '镜头数量' : 'Shot count'}：**不固定**——按实际动作节拍切分，由内容自然决定`;
       const user = [
         `${zh ? '剧本' : 'Script'}：\n${String(scriptText ?? '').trim()}`,
         `${zh ? '额外要求' : 'Extra requirements'}：${String(requirement ?? '').trim() || (zh ? '无' : 'none')}`,
-        `${zh ? '目标分镜数量' : 'Shot count'}：${count}`,
+        countLine,
       ].join('\n\n');
       const text = await aiCompleteStream({
         system, user, model,
@@ -3427,7 +3434,17 @@ window.__ModuleLoader__.load({
         const tail = raw.slice(-160);
         throw new Error(T('errParseStoryboard') + '（正文 ' + raw.length + ' 字；开头: ' + head + '；结尾: ' + tail + '）');
       }
-      return shots.slice(0, 24).map((s, i) => ({
+      // 硬性容量保证：一个分镜表 ≤ 15s（视频模型单次上限）——超限从最长镜头开始逐秒压缩（每镜最低 1s）
+      const capped = shots.map((s) => ({ ...s }));
+      for (let guard = 0; guard < 300; guard++) {
+        const sum = capped.reduce((a, s) => a + (Number(s.duration) || 0), 0);
+        if (sum <= 15) break;
+        let maxI = -1, maxV = 1;
+        capped.forEach((s, i) => { const d = Number(s.duration) || 0; if (d > maxV) { maxV = d; maxI = i; } });
+        if (maxI < 0) break;
+        capped[maxI].duration = maxV - 1;
+      }
+      return capped.slice(0, 24).map((s, i) => ({
         title: String(s.title || (T('shotPrefix') + (i + 1))).slice(0, 24),
         visual: String(s.visual || ''),
         motion: String(s.motion || ''),
@@ -3779,7 +3796,7 @@ window.__ModuleLoader__.load({
       if (type === 'shot') { data.visual = ''; data.motion = ''; }
       if (type === 'script') { data.idea = ''; data.output = ''; data.aiStatus = 'idle'; data.aiError = null; }
       if (type === 'storyboard') {
-        data.script = ''; data.requirement = ''; data.count = 6;
+        data.script = ''; data.requirement = ''; data.count = 0; // 0 = 自动：镜头数按内容节拍，不锚定固定数量
         data.shots = []; data.aiStatus = 'idle'; data.aiError = null;
       }
       if (type === 'image-gen' || type === 'video-gen') {
@@ -5764,8 +5781,8 @@ window.__ModuleLoader__.load({
         }),
         h('div', { key: 'row', className: 'dshic-node-row' },
           h(MiniSelect, {
-            value: String(n.data.count || 6), title: T('storyboardCountLabel'), width: 72,
-            options: [3, 4, 6, 8, 10, 12, 16].map((x) => ({ value: String(x), label: x + ' ' + T('shotsUnit') })),
+            value: String(n.data.count || 0), title: T('storyboardCountLabel'), width: 88,
+            options: [{ value: '0', label: T('autoShots') }].concat([3, 4, 6, 8, 10, 12, 16].map((x) => ({ value: String(x), label: x + ' ' + T('shotsUnit') }))),
             onChange: (v) => update((s) => { const nd = s.graph.nodes[n.id]; if (nd) nd.data.count = Number(v); }),
           }),
           h('div', { className: 'dshic-flex' }),

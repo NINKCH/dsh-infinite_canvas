@@ -1063,7 +1063,7 @@ function canvasCreateNode(args) {
     const scripts = Object.values(doc.nodes || {}).filter((n) => n.type === 'script');
     const autoScript = scripts.filter((n) => String((n.data && n.data.output) || '').trim()).pop() || scripts[scripts.length - 1] || null;
     const autoConnectId = connectFrom || (autoScript ? autoScript.id : '');
-    node.data = { ...node.data, status: 'idle', error: null, script: autoConnectId ? '' : prompt, requirement: String((args && args.requirement) || ''), count: Number(args && args.count) || 6, shots: [], aiStatus: 'idle', aiError: null, warnings: [] };
+    node.data = { ...node.data, status: 'idle', error: null, script: autoConnectId ? '' : prompt, requirement: String((args && args.requirement) || ''), count: Number(args && args.count) || 0, shots: [], aiStatus: 'idle', aiError: null, warnings: [] };
     autoConnected = autoConnectId ? { from: autoConnectId, ignoredPrompt: Boolean(prompt && autoConnectId) } : null;
   } else if (type === 'finalcut') {
     node = agentNode('text', '', pos.x, pos.y, label || '成片');
