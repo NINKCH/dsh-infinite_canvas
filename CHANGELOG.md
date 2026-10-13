@@ -4,6 +4,37 @@ All notable changes to `@ninkch/dsh-infinite-canvas` are documented here (newest
 GitHub Releases carry the same notes in English; maintainer-facing runbooks live in
 [`RELEASING.md`](RELEASING.md) and [`docs/release.md`](docs/release.md).
 
+## [0.17.11] — 2026-10-14
+
+### Script → Scene → Storyboard → Video pipeline (macro rework)
+- **Script nodes produce one episode** (60–120s of screen time, 4–10 scenes) and every scene must start with its own `【场N】name (location · time)` header — the machine-readable hook for scene expansion.
+- **New "Expand to scenes" action on script nodes**: splits the episode by scene headers into per-scene text nodes + storyboard nodes, wired automatically (text → storyboard, one storyboard per 10–15s scene). The agent side replicates the same split via `canvas_create_node` / `canvas_write_node` / `canvas_connect`.
+- **Storyboard contract hardened**: full coverage of the wired scene (every action and every line lands in a shot — no summarizing, no cherry-picking); per-shot `dialogue` annotations (verbatim lines with roles — feeds voice-reference extraction); shot count follows the actual action beats (auto mode — never a fixed number); total duration hard-capped to **≤ 15s** (longest shots auto-trimmed after parse).
+- Capacity warnings: a wired source far beyond one storyboard's 10–15s budget raises a warning the agent can see on `canvas_node_status`.
+- Skill rewritten around the macro flow: episode script → expand to scenes → per-scene multi-shot video → tail-frame chaining; hard rules against wiring a whole episode into one storyboard or manufacturing per-shot image/video nodes.
+
+### Video API compatibility
+- **OpenAI-style video endpoints** (JUAI and similar aggregators): URL normalization (bare domain / `/v1` / full endpoint all work), lowercase resolution, first-frame mode forces `ratio: "adaptive"`, references sent as `{url, role}` objects, first-frame and references never mixed, result extracted from `metadata.url`, terminal "completed without URL" reported instead of polling forever.
+- **Automatic fallback chain** when the primary submit is rejected: flat format → Seedance-native `content[]` format (poll `GET /v1/video/query?task_id=`) → Sora-style `/v1/videos` (submit / poll / authenticated content download). Covers gateways such as RelayRouter where `/v1/video/generations` does not serve seedance channels.
+- Video errors now include the actual request URL and a response excerpt.
+
+### Model configuration: providers + models
+- Image/video API settings restructured into **two levels** — a provider (URL/key configured once) with multiple models underneath; star one model as the **default route**.
+- Node model dropdowns list configured models directly (the "default config" pseudo-entry is gone): an empty selection routes to the starred default; nothing configured fails the run with a clear error instead of silently generating a demo.
+- **Extra params (JSON)** per provider merge vendor-specific keys (`watermark`, `prompt_extend`, `output_format`, `seed`, …) into the request body last — switching vendors needs no code changes.
+- Optional video params: `generate_audio` (sent only when checked) and `output_format` (sent only when filled).
+- Video downloads retry once with credentials on 401/403 (authenticated content proxies).
+- Legacy flat API configs and node-level api ids migrate automatically.
+
+### Voice consistency
+- **Character voice references**: audio assets bound to a character (named `角色-<name> 声音` or linked to the bible entry) are attached automatically as `audios[]` (`reference_audio`) to video requests; sync audio is force-enabled when present.
+- **"Extract voice reference"** on video/finalcut nodes: type a character name — every dialogue window is located automatically from the storyboard `dialogue` annotations (shot-duration-proportional mapping onto the real timeline with breath padding) and merged into **one WAV** reference file (WebAudio decoding, no external dependencies). Manual time-range mode stays as a fallback.
+
+### Fixes
+- Agent-side node deletions are no longer resurrected by stale client pushes: the sync "live canvas wins" exemption now applies only to nodes the user deleted in the UI and restored via undo.
+- Storyboard JSON containing unescaped straight quotes inside string values (e.g. `喷漆"拆"字`) is repaired (state-machine scan → 「」) and re-parsed instead of failing the whole generation.
+- Reference images and first frames are downscaled (1024px JPEG) before embedding — multi-reference requests no longer exceed the 16MB proxy limit (HTTP 413).
+
 ## [0.17.10] — 2026-10-13
 
 ### Added
