@@ -1189,6 +1189,19 @@ async function canvasNodeStatus(args) {
   const doc = readDoc(pid);
   const n = doc.nodes[nodeId];
   if (!n) throw new Error('节点不存在: ' + nodeId);
+  // 分镜表：返回镜头清单（结构化）——对话侧据此组织视频提示词，绝不自行推导/编造镜头表
+  const shots = (n.type === 'storyboard' && Array.isArray(n.data && n.data.shots))
+    ? n.data.shots.map((s, i) => ({
+      index: i + 1,
+      title: String((s && s.title) || '').slice(0, 60),
+      duration: Number(s && s.duration) || 0,
+      visual: String((s && s.visual) || '').slice(0, 400),
+      motion: String((s && s.motion) || '').slice(0, 300),
+      characters: Array.isArray(s && s.characters) ? s.characters.map(String) : [],
+      scene: String((s && s.scene) || '').slice(0, 100),
+      props: Array.isArray(s && s.props) ? s.props.map(String) : [],
+    }))
+    : undefined;
   return {
     projectId: pid, nodeId, type: n.type, label: (n.data && n.data.label) || '',
     status: (n.data && n.data.status) || 'idle',
@@ -1199,6 +1212,7 @@ async function canvasNodeStatus(args) {
     assetId: (n.data && n.data.assetId) || null,
     // 分镜表：一致性告警随状态返回——对话侧据此逐条补全设定集（缺失则要自动补充，绝不忽略）
     warnings: Array.isArray(n.data && n.data.warnings) ? n.data.warnings : [],
+    shots,
   };
 }
 async function canvasOpen(args) {
@@ -1807,7 +1821,7 @@ export function apply(ctx) {
         });
         reg({
           name: 'canvas_node_status',
-          description: '查询画布节点的运行状态与产物（状态、错误、剧本成稿内容、生成出的资产 id）。分镜表节点还会返回 warnings（一致性告警：未登记/描述为空的实体清单）——非空时必须逐条 canvas_update_bible 补全，绝不忽略。用于确认 canvas_run_node 是否完成。',
+          description: '查询画布节点的运行状态与产物（状态、错误、剧本成稿内容、生成出的资产 id）。分镜表节点会返回 shots（镜头清单：标题/时长/画面/动作/角色/场景/道具——视频提示词的镜头序列必须来自它）与 warnings（一致性告警：未登记/描述为空的实体清单）——warnings 非空时必须逐条 canvas_update_bible 补全，绝不忽略。',
           parameters: {
             type: 'object',
             properties: {
@@ -1818,7 +1832,7 @@ export function apply(ctx) {
             additionalProperties: false,
           },
           output: {
-            schema: { type: 'object', properties: { ok: { type: 'boolean' }, text: { type: 'string' }, status: { type: 'string' }, assetId: { type: 'string' }, warnings: { type: 'array', items: { type: 'string' } } }, required: ['ok', 'text'] },
+            schema: { type: 'object', properties: { ok: { type: 'boolean' }, text: { type: 'string' }, status: { type: 'string' }, assetId: { type: 'string' }, warnings: { type: 'array', items: { type: 'string' } }, shots: { type: 'array', items: { type: 'object', properties: { index: { type: 'number' }, title: { type: 'string' }, duration: { type: 'number' }, visual: { type: 'string' }, motion: { type: 'string' }, characters: { type: 'array', items: { type: 'string' } }, scene: { type: 'string' }, props: { type: 'array', items: { type: 'string' } } } } } }, required: ['ok', 'text'] },
             render: (args, value) => [{ type: 'text', text: String(value.text || '') }],
           },
           timeoutMs: 30000,
@@ -1829,13 +1843,19 @@ export function apply(ctx) {
             if (s.assetId) lines.push('产物资产: ' + s.assetId);
             if (s.idea) lines.push('提示词: ' + s.idea.slice(0, 400));
             if (s.output) lines.push('成稿:\n' + s.output);
+            // 镜头清单：结构化返回 + 渲染进文本——对话侧据此组织多镜头视频提示词（绝不自行编造镜头表）
+            const shots = Array.isArray(s.shots) ? s.shots : [];
+            if (shots.length) {
+              lines.push('镜头清单（' + shots.length + ' 镜，总时长 ' + shots.reduce((a, x) => a + (Number(x.duration) || 0), 0) + 's）——视频提示词的镜头序列以此为准:');
+              shots.forEach((sh) => lines.push(sh.index + '. ' + sh.title + '（' + sh.duration + 's）角色:' + (sh.characters.join('/') || '-') + '｜场景:' + (sh.scene || '-') + '｜道具:' + (sh.props.join('/') || '-') + '\n   画面: ' + sh.visual + '\n   动作: ' + sh.motion));
+            }
             // 一致性告警：结构化返回 + 渲染进文本——对话侧据此逐条补全设定集，绝不忽略
             const warnings = Array.isArray(s.warnings) ? s.warnings : [];
             if (warnings.length) {
               lines.push('一致性告警（' + warnings.length + ' 条，须逐条 canvas_update_bible 补全，名称逐字一致）:');
               warnings.forEach((w) => lines.push(' · ' + w));
             }
-            return { ok: true, status: s.status, assetId: s.assetId || undefined, warnings: warnings.length ? warnings : undefined, text: lines.join('\n') };
+            return { ok: true, status: s.status, assetId: s.assetId || undefined, warnings: warnings.length ? warnings : undefined, shots: shots.length ? shots : undefined, text: lines.join('\n') };
           },
         });
         reg({

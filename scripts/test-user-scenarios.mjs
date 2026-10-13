@@ -106,6 +106,7 @@ const shotsJson2 = JSON.stringify({ shots: [{ title: '镜1', visual: '中景，@
 const sb2 = await byName.get('canvas_create_node').execute({ projectId, type: 'storyboard', name: '一致性分镜表' }, {});
 await byName.get('canvas_write_node').execute({ projectId, nodeId: sb2.nodeId, target: 'output', text: shotsJson2, overwrite: true }, {});
 let st2 = await byName.get('canvas_node_status').execute({ projectId, nodeId: sb2.nodeId }, {});
+if (!Array.isArray(st2.shots) || st2.shots.length !== 1 || st2.shots[0].title !== '镜1' || st2.shots[0].duration !== 3) errs.push('node_status 未返回分镜 shots 清单（对话侧只能自行编造镜头表）');
 const w1 = st2.warnings || [];
 if (!w1.some((w) => w.includes('城市街头') && w.includes('未在设定集中登记'))) errs.push('一致性告警缺失：未登记的「城市街头」未出现在 node_status.warnings 里');
 if (!w1.some((w) => w.includes('神秘包裹') && w.includes('未在设定集中登记'))) errs.push('一致性告警缺失：未登记的「神秘包裹」未出现在 node_status.warnings 里');
