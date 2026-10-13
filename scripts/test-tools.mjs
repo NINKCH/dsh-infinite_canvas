@@ -315,11 +315,13 @@ try {
   if (!vgEdge) errs.push('video-gen 未自动连线到上游分镜表（多镜头一次性生成工作流失效）');
   if (vgEdge && vgEdge.fromNode !== sb.nodeId) errs.push('video-gen 自动连线未优先选择有镜头的分镜表');
   if (docVg.nodes[vg.nodeId] && String(docVg.nodes[vg.nodeId].data.prompt || '').trim()) errs.push('已连线的 video-gen 仍写入了 prompt（连线与提示词未二选一）');
-  // 显式 prompt 的 video-gen 不自动连线（尊重显式意图），但允许手动连分镜表（分镜表现在有文本输出口）
+  // 显式 prompt 的 video-gen：分镜表已拆解镜头 → **结构性强制**连线分镜表、prompt 忽略（多镜头铁律封死旁路）
   const vg2 = await byName.get('canvas_create_node').execute({ projectId, type: 'video-gen', name: '第二节单镜头视频', prompt: '固定镜头，猫跳上柜台' }, {});
   const docVg2 = await mod._internals.projectsGet({ id: projectId });
   const vg2Edge = (docVg2.edges || []).find((e) => e.toNode === vg2.nodeId && e.toPort === 'prompt');
-  if (vg2Edge) errs.push('显式 prompt 的 video-gen 被自动连线（应尊重显式意图）');
+  if (!vg2Edge || vg2Edge.fromNode !== sb.nodeId) errs.push('显式 prompt 的 video-gen 未被强制连线到分镜表（多镜头铁律的结构性强制失效）');
+  if (docVg2.nodes[vg2.nodeId] && String(docVg2.nodes[vg2.nodeId].data.prompt || '').trim()) errs.push('强制连线的 video-gen 仍保留手写 prompt');
+  // 连线工具可用性：手动连 sb2 → vg2（单线输入端口替换语义）
   const connSbVg = await byName.get('canvas_connect').execute({ projectId, fromNode: sb2.nodeId, toNode: vg2.nodeId }, {});
   if (!connSbVg || !connSbVg.edgeId) errs.push('分镜表 → 视频生成 连线被拒（storyboard 应有文本输出口）');
 } catch (e) {

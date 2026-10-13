@@ -1034,14 +1034,22 @@ function canvasCreateNode(args) {
     node = agentNode('text', '', pos.x, pos.y, label || '视频生成');
     node.type = 'video-gen';
     node.w = 280;
-    // 多镜头工作流：未写 prompt 且项目里已有分镜表 → 自动连到最新分镜表
-    //（多镜头提示词从分镜表组合：全部镜头按顺序+时长合成一条提示词，一次性生成整段视频）
+    // 多镜头工作流（结构性强制）：项目里已有**拆解过镜头**的分镜表 → 一律自动连线分镜表、prompt 忽略。
+    // 一个分镜表 = 一个完整视频，镜头清单只从分镜表读取；对话侧手写 prompt 绕过分镜表是高频错误，这里直接封死。
     const sbs = Object.values(doc.nodes || {}).filter((n) => n.type === 'storyboard');
-    const autoSb = sbs.filter((n) => Array.isArray(n.data && n.data.shots) && n.data.shots.length).pop() || sbs[sbs.length - 1] || null;
+    const sbWithShots = sbs.filter((n) => Array.isArray(n.data && n.data.shots) && n.data.shots.length).pop() || null;
+    const sbEmpty = sbs[sbs.length - 1] || null; // 存在但尚未拆解镜头
     const hasPrompt = Boolean(String(prompt || '').trim());
-    const autoConnectId = (!hasPrompt && autoSb) ? autoSb.id : '';
+    let autoConnectId = '';
+    let forced = false;
+    if (sbWithShots) {
+      autoConnectId = sbWithShots.id; // 无论是否传 prompt：镜头清单只认分镜表
+      forced = hasPrompt;
+    } else if (!hasPrompt && sbEmpty) {
+      autoConnectId = sbEmpty.id; // 分镜表存在但 shots 为空：先连线占位（生成前需先拆解镜头）
+    }
     node.data = { ...node.data, status: 'idle', error: null, prompt: autoConnectId ? '' : prompt, assetId: null, demo: false, duration: Number(args && args.duration) || 5, resolution: (args && args.resolution) || '720P', ratio: (args && args.ratio) || '16:9' };
-    autoConnected = autoConnectId ? { from: autoConnectId, ignoredPrompt: false } : null;
+    autoConnected = autoConnectId ? { from: autoConnectId, ignoredPrompt: forced && hasPrompt, emptyShots: !sbWithShots && !!sbEmpty } : null;
   } else if (type === 'storyboard') {
     node = agentNode('text', '', pos.x, pos.y, label || '分镜表');
     node.type = 'storyboard';
@@ -1080,8 +1088,12 @@ function canvasCreateNode(args) {
   writeIcDoc(id, doc);
   markDocChanged(id);
   const note = autoConnected && autoConnected.ignoredPrompt
-    ? '已自动连线到上游剧本节点，传入的 prompt 被忽略（内容从连线取）。'
-    : '';
+    ? (type === 'video-gen'
+      ? '⚠️ 已强制连线到分镜表（多镜头工作流：一个分镜表 = 一个完整视频，镜头清单从分镜表读取），传入的 prompt 已忽略——不要手写视频提示词绕过分镜表。'
+      : '已自动连线到上游剧本节点，传入的 prompt 被忽略（内容从连线取）。')
+    : (autoConnected && autoConnected.emptyShots
+      ? '已连线到分镜表；该分镜表尚未拆解镜头（shots 为空）——先 canvas_run_node 分镜表生成镜头，再生成视频。'
+      : '');
   return { ok: true, projectId: id, nodeId: node.id, type: node.type, label: (node.data && node.data.label) || '', edgeId: connected || undefined, note: note || undefined };
 }
 
