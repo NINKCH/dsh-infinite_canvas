@@ -307,6 +307,15 @@ window.__ModuleLoader__.load({
       'vidProtocolHint': '通用 = OpenAI 风格任务接口（JUAI 等聚合平台，URL 填完整 /v1/video/generations）；Seedance 官方 = 火山方舟 contents/generations/tasks',
       'vidAudioOpt': '生成同步音频（勾选才发送 generate_audio）',
       'vidOutFormat': '输出格式 output_format（留空不发送）',
+      'voiceExtractBtn': '提取声音参考',
+      'voiceRole': '角色名',
+      'voiceRolePh': '陈拾',
+      'voiceRoleNeeded': '需要角色名',
+      'voiceStart': '开始秒',
+      'voiceEnd': '结束秒（留空 = 到片尾）',
+      'voiceTip': '选一段"该角色独占台词"的窗口（多角色同屏的段落不适合做声音参考）。片段将存为「角色-<名> 声音」并绑定实体，之后 @<名> 自动携带音色参考。需要降噪/精细分离时可在 Craft（SoundCraft）中处理后再按同一规范导入。',
+      'voiceExtractDone': '已存为声音参考：{name}',
+      'voiceExtractSrc': '提取自',
       'providerLabel': '供应商',
       'addProvider': '新增供应商',
       'addModel': '添加模型',
@@ -661,6 +670,15 @@ window.__ModuleLoader__.load({
       'vidProtocolHint': 'Generic = OpenAI-style task API (JUAI etc., URL = full /v1/video/generations); Seedance official = Volcano Ark contents/generations/tasks',
       'vidAudioOpt': 'Generate synced audio (only sent when checked)',
       'vidOutFormat': 'Output format output_format (empty = not sent)',
+      'voiceExtractBtn': 'Extract voice reference',
+      'voiceRole': 'Character',
+      'voiceRolePh': 'e.g. Chen Shi',
+      'voiceRoleNeeded': 'Character name required',
+      'voiceStart': 'Start (s)',
+      'voiceEnd': 'End (s, empty = to end)',
+      'voiceTip': 'Pick a window where this character speaks alone (overlapping-dialogue segments are bad references). The clip is saved as "Character-<name> voice" bound to the entity; @<name> then carries the voice automatically. For降噪/fine separation process in Craft (SoundCraft) and import with the same naming.',
+      'voiceExtractDone': 'Saved voice reference: {name}',
+      'voiceExtractSrc': 'Extracted from',
       'providerLabel': 'Provider',
       'addProvider': 'Add provider',
       'addModel': 'Add model',
@@ -2192,6 +2210,44 @@ window.__ModuleLoader__.load({
     function resolveApiCfg(list, defId, wantId) {
       if (!Array.isArray(list) || !list.length) return null;
       return list.find((x) => x.id === wantId) || list.find((x) => x.id === defId) || list[0];
+    }
+
+    /** 从视频/音频 Blob 提取 PCM 并编码 WAV（WebAudio 解码，零外部依赖）：角色声音参考提取用。
+     *  下混单声道、16-bit PCM——声音参考不需要立体声，体积最小（30s ≈ 2.6MB）。 */
+    function encodeWavBlob(audioBuffer, startSec, endSec) {
+      const sr = audioBuffer.sampleRate;
+      const ch = 1;
+      const s0 = Math.max(0, Math.floor(startSec * sr));
+      const s1 = Math.min(audioBuffer.length, Math.ceil(endSec * sr));
+      const n = Math.max(0, s1 - s0);
+      const data = new ArrayBuffer(44 + n * 2);
+      const dv = new DataView(data);
+      const wstr = (off, str) => { for (let i = 0; i < str.length; i++) dv.setUint8(off + i, str.charCodeAt(i)); };
+      wstr(0, 'RIFF'); dv.setUint32(4, 36 + n * 2, true); wstr(8, 'WAVE'); wstr(12, 'fmt ');
+      dv.setUint32(16, 16, true); dv.setUint16(20, 1, true); dv.setUint16(22, ch, true);
+      dv.setUint32(24, sr, true); dv.setUint32(28, sr * ch * 2, true); dv.setUint16(32, ch * 2, true);
+      dv.setUint16(34, 16, true); wstr(36, 'data'); dv.setUint32(40, n * 2, true);
+      let off = 44;
+      const chans = [];
+      for (let c = 0; c < audioBuffer.numberOfChannels; c++) chans.push(audioBuffer.getChannelData(c));
+      for (let i = 0; i < n; i++) {
+        let v = 0;
+        for (let c = 0; c < chans.length; c++) v += chans[c][s0 + i];
+        v = Math.max(-1, Math.min(1, v / chans.length));
+        dv.setInt16(off, v < 0 ? v * 0x8000 : v * 0x7fff, true); off += 2;
+      }
+      return new Blob([data], { type: 'audio/wav' });
+    }
+    /** 解码媒体音轨并裁剪 [startSec, endSec] → WAV Blob。 */
+    async function extractVoiceClip(mediaBlob, startSec, endSec) {
+      const ac = new (window.AudioContext || window.webkitAudioContext)();
+      try {
+        const buf = await ac.decodeAudioData(await mediaBlob.arrayBuffer());
+        const dur = buf.duration;
+        const s = Math.max(0, Math.min(startSec || 0, dur));
+        const e = Math.max(s + 0.2, Math.min(endSec || dur, dur));
+        return { blob: encodeWavBlob(buf, s, e), duration: Math.round(dur * 10) / 10 };
+      } finally { try { ac.close(); } catch { /* 忽略 */ } }
     }
 
     /** 从视频 Blob 提取最后一帧为 PNG（通用：任何 API 生成的视频都能取尾帧）。 */
@@ -4845,6 +4901,66 @@ window.__ModuleLoader__.load({
       );
     }
 
+    /** 声音参考提取：从视频/成片的音轨剪出某角色的台词片段（WebAudio 解码，零外部依赖），
+     *  存为「角色-<名> 声音」音频资产并绑定实体——@引用自动携带到后续视频的 audios[]。
+     *  归属判定靠创作侧数据：剧本对白行「角色：台词」/ 成片字幕 / 一镜一句台词的分镜纪律。 */
+    function VoiceExtractDialog({ nodeId, onClose }) {
+      const n = S.graph.nodes[nodeId];
+      const srcId = (n && n.data && (n.data.assetId || n.data.fcAssetId)) || null;
+      const url = useAssetUrl(srcId);
+      const [role, setRole] = useState('');
+      const [startS, setStartS] = useState('0');
+      const [endS, setEndS] = useState('');
+      const [dur, setDur] = useState(null);
+      const [busy, setBusy] = useState(false);
+      const [err, setErr] = useState(null);
+      useEffect(() => {
+        let ok = true;
+        (async () => {
+          if (!url) return;
+          try {
+            const blob = await (await fetch(url)).blob();
+            const d = await videoDurationOf(blob);
+            if (ok) { setDur(Math.round(d * 10) / 10); if (!endS) setEndS(String(Math.round(Math.min(d, 30) * 10) / 10)); }
+          } catch { /* 忽略 */ }
+        })();
+        return () => { ok = false; };
+      }, [url]);
+      const submit = async () => {
+        const role2 = String(role || '').trim();
+        if (!role2) { setErr(T('voiceRoleNeeded')); return; }
+        if (!url) { setErr(T('noResult')); return; }
+        setBusy(true); setErr(null);
+        try {
+          const blob = await (await fetch(url)).blob();
+          const { blob: wav } = await extractVoiceClip(blob, Number(startS) || 0, Number(endS) || 0);
+          const rec = await saveAssetRecord(S.activeId, 'audio', wav, {
+            name: '角色-' + role2 + ' 声音', entity: role2,
+            prompt: T('voiceExtractSrc') + '：' + ((n.data && n.data.label) || nodeId),
+            source: 'voice-extract', category: 'audio',
+          });
+          update((s2) => { s2.assetsTick++; });
+          toast(T('voiceExtractDone').replace('{name}', rec.name));
+          onClose();
+        } catch (e) { setErr(String((e && e.message) || e)); }
+        setBusy(false);
+      };
+      return h('div', { className: 'dshic-modal-overlay', onPointerDown: (e) => { if (e.target === e.currentTarget) onClose(); } },
+        h('div', { className: 'dshic-modal', style: { width: 420 } },
+          h('div', { className: 'dshic-modal-title' }, T('voiceExtractBtn') + ' — ' + ((n && n.data && n.data.label) || '')),
+          dur != null ? h('div', { className: 'dshic-modal-warn' }, T('durationLabel') + '：' + dur + 's') : null,
+          h(Field, { key: 'role', label: T('voiceRole'), value: role, onChange: setRole, placeholder: T('voiceRolePh') }),
+          h('div', { className: 'dshic-row' },
+            h(Field, { key: 's', label: T('voiceStart'), value: startS, onChange: setStartS, placeholder: '0' }),
+            h(Field, { key: 'e', label: T('voiceEnd'), value: endS, onChange: setEndS, placeholder: '—' }),
+          ),
+          h('div', { className: 'dshic-modal-warn' }, T('voiceTip')),
+          err ? h('div', { className: 'dshic-err' }, err) : null,
+          h('div', { className: 'dshic-modal-actions' },
+            h('button', { type: 'button', className: 'dshic-btn dshic-btn-outline', onClick: onClose, onPointerDown: (e) => e.stopPropagation() }, T('cancel')),
+            h('button', { type: 'button', className: 'dshic-gen', style: { width: 'auto', padding: '0 14px' }, disabled: busy, onClick: submit, onPointerDown: (e) => e.stopPropagation() }, busy ? h('span', { className: 'dshic-spin' }) : Ic('audio', 12), T('voiceExtractBtn'))),
+        ));
+    }
     /** 蒙版级局部重绘：涂抹区域导出 mask PNG，走 images/edits 多部分请求。 */
     function MaskEditor({ nodeId, onClose }) {
       const n = S.graph.nodes[nodeId];
@@ -4972,6 +5088,7 @@ window.__ModuleLoader__.load({
     function GenNodeBody({ n, kind }) {
       const [showMask, setShowMask] = useState(false);
       const [showCraft, setShowCraft] = useState(false);
+      const [voiceDlg, setVoiceDlg] = useState(false);
       useEffect(() => { probeCraft(); }, []);
       const promptEdge = S.graph.edges.find((x) => x.toNode === n.id && x.toPort === 'prompt');
       const promptSrc = promptEdge && S.graph.nodes[promptEdge.fromNode];
@@ -5072,10 +5189,18 @@ window.__ModuleLoader__.load({
                     onClick: () => chainNext(n),
                   }, Ic('film', 11), T('chainNext'))
                 : null,
+              kind === 'video' && assetUrlV
+                ? h('button', {
+                    type: 'button', className: 'dshic-mini is-ghost', title: T('voiceExtractBtn') + '（' + T('voiceTip') + '）',
+                    onPointerDown: (e) => e.stopPropagation(),
+                    onClick: () => setVoiceDlg(true),
+                  }, Ic('audio', 11), T('voiceExtractBtn'))
+                : null,
               h('div', { className: 'dshic-flex' }),
             )
           : null,
         showMask && assetUrlV ? h(MaskEditor, { key: 'mask', nodeId: n.id, onClose: () => setShowMask(false) }) : null,
+        voiceDlg && assetUrlV ? h(VoiceExtractDialog, { key: 'voice', nodeId: n.id, onClose: () => setVoiceDlg(false) }) : null,
         showCraft && n.data.assetId ? h(PhotoCraftDialog, { key: 'pccd', assetId: n.data.assetId, onClose: () => setShowCraft(false) }) : null,
         (n.data.history || []).length > 1
           ? h('div', { key: 'hist', className: 'dshic-hist' },
@@ -5530,6 +5655,7 @@ window.__ModuleLoader__.load({
         .sort((a, b) => (a.nd.y - b.nd.y) || (a.nd.x - b.nd.x));
       const assetUrlV = useAssetUrl(n.data.assetId);
       const fcUrl = useAssetUrl(n.data.fcAssetId);
+      const [voiceDlg, setVoiceDlg] = useState(false);
       useEffect(() => { probeCraft(); }, []);
       const getSub = (x) => {
         const defSub = x.nd.type === 'video-gen' ? (x.nd.data.prompt || '') : (x.nd.data.label || TYPE_LABEL()[x.nd.type]);
@@ -5713,9 +5839,15 @@ window.__ModuleLoader__.load({
                   onPointerDown: (e) => e.stopPropagation(),
                   onClick: () => downloadBlobFromUrl(fcUrl, 'finalcut-fc-' + n.id.slice(-5) + '.mp4'),
                 }, Ic('download', 11), T('download')),
+                h('button', {
+                  type: 'button', className: 'dshic-mini is-ghost', title: T('voiceExtractBtn'),
+                  onPointerDown: (e) => e.stopPropagation(),
+                  onClick: () => setVoiceDlg(true),
+                }, Ic('audio', 11), T('voiceExtractBtn')),
                 h('div', { className: 'dshic-flex' })),
             ]
           : null,
+        voiceDlg && (n.data.fcAssetId || n.data.assetId) ? h(VoiceExtractDialog, { key: 'vcdlg', nodeId: n.id, onClose: () => setVoiceDlg(false) }) : null,
         fcDialog ? h(FilmcraftArgsDialog, { key: 'fcdlg', info: fcDialog, onSubmit: submitFc, onClose: () => setFcDialog(null) }) : null,
         assetUrlV
           ? [
