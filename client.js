@@ -5497,7 +5497,7 @@ window.__ModuleLoader__.load({
           } catch { /* 提取失败静默：不影响视频预览与 out 口 */ }
         })();
         return () => { cancelled = true; };
-      }, [kind, n.data.assetId, n.data.label]);
+      }, [kind, n.data.assetId, n.data.label, S.assetsTick]);
       const promptEdge = S.graph.edges.find((x) => x.toNode === n.id && x.toPort === 'prompt');
       const promptSrc = promptEdge && S.graph.nodes[promptEdge.fromNode];
       const fromStoryboard = !!(promptSrc && promptSrc.type === 'storyboard');
@@ -5757,7 +5757,7 @@ window.__ModuleLoader__.load({
           } catch { /* 尾帧提取失败静默：不影响视频预览与 out 口输出 */ }
         })();
         return () => { cancelled = true; };
-      }, [kind, n.data.assetId, n.data.label]);
+      }, [kind, n.data.assetId, n.data.label, S.assetsTick]);
       const onFiles = async (e) => {
         const f = e.target.files && e.target.files[0];
         e.target.value = '';
