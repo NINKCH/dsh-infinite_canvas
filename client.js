@@ -2151,19 +2151,12 @@ window.__ModuleLoader__.load({
       const taskId = j && j.id;
       if (!taskId) throw new Error('Seedance 响应中没有任务 id');
       if (o.onTask) { try { o.onTask(taskId, base + '/' + taskId); } catch { /* 持久化失败不影响生成 */ } }
-      const deadline = Date.now() + 15 * 60 * 1000;
-      let pollFails = 0;
+      const deadline = Date.now() + 120 * 60 * 1000; // 2 小时：视频任务含排队可能很久，查询层绝不先放弃
       while (Date.now() < deadline) {
         await sleep(10000);
         let r2 = null;
         try { r2 = await fetchViaProxy(base + '/' + taskId, { method: 'GET', headers, timeoutMs: 60000, label: '查询 Seedance 任务' }); } catch { /* 网络抖动重试 */ }
-        if (!r2 || !r2.ok) {
-          // 网关瞬时抖动（504 等）：任务仍在服务端继续——连续失败达阈值才判死，绝不一次失败就放弃
-          pollFails++;
-          if (pollFails >= 5) throw new Error('查询 Seedance 任务连续 ' + pollFails + ' 次失败（HTTP ' + (r2 ? r2.status : '网络错误') + '）');
-          continue;
-        }
-        pollFails = 0;
+        if (!r2 || !r2.ok) continue; // 查询层任何失败（网关 5xx/429/断连）都不算任务失败——只等生成任务自身的终态
         let st = null;
         try { st = JSON.parse(r2.text || '{}'); } catch { continue; }
         if (st.status === 'succeeded') {
@@ -2175,7 +2168,7 @@ window.__ModuleLoader__.load({
           throw new Error('Seedance 任务失败：' + ((st.error && st.error.message) || st.status));
         }
       }
-      throw new Error('Seedance 任务超时（15 分钟）');
+      throw new Error('Seedance 任务超过 2 小时未返回（任务 id 已保存在节点上，可凭 id 回查结果）');
     }
     /** Seedance 原生 content[] 格式兜底（RelayRouter 等：POST /v1/video/generations {model, content, metadata}，
      *  轮询 GET /v1/video/query?task_id=...）。首帧/参考图角色与 Seedance 原生协议一致（图压缩内联）。 */
@@ -2208,18 +2201,12 @@ window.__ModuleLoader__.load({
       try { queryEp = new URL(base).origin + '/v1/video/query'; } catch { throw new Error('无法构造轮询地址'); }
       if (o.onTask) { try { o.onTask(taskId, queryEp + '?task_id=' + encodeURIComponent(taskId)); } catch { /* 持久化失败不影响生成 */ } }
       const dlHeaders = (u) => { try { return new URL(u).origin === new URL(base).origin ? headers : {}; } catch { return {}; } };
-      const deadline = Date.now() + 15 * 60 * 1000;
-      let pollFails = 0;
+      const deadline = Date.now() + 120 * 60 * 1000; // 2 小时：查询层绝不先放弃
       while (Date.now() < deadline) {
         await sleep(6000);
         let r2 = null;
         try { r2 = await fetchViaProxy(queryEp + '?task_id=' + encodeURIComponent(taskId), { method: 'GET', headers, timeoutMs: 60000, label: '查询视频任务' }); } catch { /* 网络抖动重试 */ }
-        if (!r2 || !r2.ok) {
-          pollFails++; // 网关瞬时抖动：任务仍在服务端继续，连续失败达阈值才判死
-          if (pollFails >= 5) throw new Error('查询视频任务连续 ' + pollFails + ' 次失败（HTTP ' + (r2 ? r2.status : '网络错误') + '）');
-          continue;
-        }
-        pollFails = 0;
+        if (!r2 || !r2.ok) continue; // 查询层失败 ≠ 任务失败，只等生成任务自身的终态
         let st = null;
         try { st = JSON.parse(r2.text); } catch { /* 忽略 */ }
         const u = extractVideoUrl(st);
@@ -2229,7 +2216,7 @@ window.__ModuleLoader__.load({
         const status = taskStatusOf(st);
         if (['failed', 'expired', 'canceled', 'cancelled', 'error'].includes(status)) throw new Error('视频任务失败：' + status);
       }
-      throw new Error('视频生成超时（15 分钟）');
+      throw new Error('视频生成超过 2 小时未返回（任务 id 已保存在节点上，可凭 id 回查结果）');
     }
     /** Sora 风格 /v1/videos 兜底（RelayRouter 等网关：/v1/video/generations 不接某些视频渠道时）。
      *  提交 POST {model, prompt, seconds, size} → 轮询 GET /v1/videos/{id} →
@@ -2250,18 +2237,12 @@ window.__ModuleLoader__.load({
       const taskId = j1 && (j1.id || j1.task_id || (j1.data && j1.data[0] && j1.data[0].id));
       if (!taskId) throw new Error('/v1/videos 响应中没有任务 id：' + r1.text.slice(0, 200));
       if (o.onTask) { try { o.onTask(taskId, ep + '/' + taskId); } catch { /* 持久化失败不影响生成 */ } }
-      const deadline = Date.now() + 15 * 60 * 1000;
-      let pollFails = 0;
+      const deadline = Date.now() + 120 * 60 * 1000; // 2 小时：查询层绝不先放弃
       while (Date.now() < deadline) {
         await sleep(6000);
         let r2 = null;
         try { r2 = await fetchViaProxy(ep + '/' + taskId, { method: 'GET', headers, timeoutMs: 60000, label: '查询视频任务' }); } catch { /* 网络抖动重试 */ }
-        if (!r2 || !r2.ok) {
-          pollFails++; // 网关瞬时抖动：任务仍在服务端继续，连续失败达阈值才判死
-          if (pollFails >= 5) throw new Error('查询视频任务连续 ' + pollFails + ' 次失败（HTTP ' + (r2 ? r2.status : '网络错误') + '）');
-          continue;
-        }
-        pollFails = 0;
+        if (!r2 || !r2.ok) continue; // 查询层失败 ≠ 任务失败，只等生成任务自身的终态
         let st = null;
         try { st = JSON.parse(r2.text); } catch { /* 忽略 */ }
         const u = extractVideoUrl(st);
@@ -2272,7 +2253,7 @@ window.__ModuleLoader__.load({
         if (taskDoneOf(st)) return await downloadVideo(ep + '/' + taskId + '/content', {}, headers);
         if (['failed', 'expired', 'canceled', 'cancelled', 'error'].includes(status)) throw new Error('视频任务失败：' + status);
       }
-      throw new Error('视频生成超时（15 分钟）');
+      throw new Error('视频生成超过 2 小时未返回（任务 id 已保存在节点上，可凭 id 回查结果）');
     }
     async function apiVideo(prompt, frameBlob, s, opts) {
       const o = opts || {};
@@ -2351,18 +2332,12 @@ window.__ModuleLoader__.load({
       const taskId = extractTaskId(j);
       if (!taskId) throw new Error('视频 API 响应中没有任务 id 或视频地址');
       if (o.onTask) { try { o.onTask(taskId, base + '/' + taskId); } catch { /* 持久化失败不影响生成 */ } }
-      const deadline = Date.now() + 15 * 60 * 1000;
-      let pollFails = 0;
+      const deadline = Date.now() + 120 * 60 * 1000; // 2 小时：查询层绝不先放弃
       while (Date.now() < deadline) {
         await sleep(3000);
         let r2 = null;
         try { r2 = await fetchViaProxy(base + '/' + taskId, { method: 'GET', headers, timeoutMs: 60000, label: '查询视频任务' }); } catch { /* 网络抖动重试 */ }
-        if (!r2 || !r2.ok) {
-          pollFails++; // 网关瞬时抖动：任务仍在服务端继续，连续失败达阈值才判死
-          if (pollFails >= 5) throw new Error('查询视频任务连续 ' + pollFails + ' 次失败（HTTP ' + (r2 ? r2.status : '网络错误') + '）');
-          continue;
-        }
-        pollFails = 0;
+        if (!r2 || !r2.ok) continue; // 查询层失败 ≠ 任务失败，只等生成任务自身的终态
         let st = null;
         try { st = JSON.parse(r2.text); } catch { /* 忽略 */ }
         const u = extractVideoUrl(st);
@@ -2374,7 +2349,7 @@ window.__ModuleLoader__.load({
         // 已完成却没有可提取的地址：明确报错并附响应原文，绝不无限轮询
         if (taskDoneOf(st)) throw new Error('任务已完成但响应中没有视频地址：' + JSON.stringify(st).slice(0, 300));
       }
-      throw new Error('视频生成超时（15 分钟）');
+      throw new Error('视频生成超过 2 小时未返回（任务 id 已保存在节点上，可凭 id 回查结果）');
     }
     /** 从任务轮询响应里取状态字符串（小写）。 */
     function taskStatusOf(st) {
