@@ -859,6 +859,7 @@ function canvasWriteNode(args) {
           dialogue: Array.isArray(s && s.dialogue)
             ? s.dialogue.slice(0, 6).map((d) => ({ role: String(d && d.role || '').trim().slice(0, 24), line: String(d && d.line || '').trim().slice(0, 200) })).filter((d) => d.role && d.line)
             : [],
+          sfx: String((s && s.sfx) || '').trim().slice(0, 120),
         }));
         node.data.aiStatus = 'idle';
         node.data.aiError = null;
@@ -1219,6 +1220,8 @@ async function canvasNodeStatus(args) {
       dialogue: Array.isArray(s && s.dialogue)
         ? s.dialogue.slice(0, 6).map((d) => ({ role: String(d && d.role || '').slice(0, 24), line: String(d && d.line || '').slice(0, 200) }))
         : [],
+      // 音效/环境音：声音设计提示，随镜头透出给对话侧与视频提示词
+      sfx: String((s && s.sfx) || '').slice(0, 120),
     }))
     : undefined;
   return {
@@ -1866,7 +1869,13 @@ export function apply(ctx) {
             const shots = Array.isArray(s.shots) ? s.shots : [];
             if (shots.length) {
               lines.push('镜头清单（' + shots.length + ' 镜，总时长 ' + shots.reduce((a, x) => a + (Number(x.duration) || 0), 0) + 's）——视频提示词的镜头序列以此为准:');
-              shots.forEach((sh) => lines.push(sh.index + '. ' + sh.title + '（' + sh.duration + 's）角色:' + (sh.characters.join('/') || '-') + '｜场景:' + (sh.scene || '-') + '｜道具:' + (sh.props.join('/') || '-') + '\n   画面: ' + sh.visual + '\n   动作: ' + sh.motion));
+              shots.forEach((sh) => {
+                const dl = (sh.dialogue || []).map((d) => d.role + '：' + d.line).join('；');
+                lines.push(sh.index + '. ' + sh.title + '（' + sh.duration + 's）角色:' + (sh.characters.join('/') || '-') + '｜场景:' + (sh.scene || '-') + '｜道具:' + (sh.props.join('/') || '-')
+                  + '\n   画面: ' + sh.visual + '\n   动作: ' + sh.motion
+                  + (dl ? '\n   台词: ' + dl : '')
+                  + (sh.sfx ? '\n   音效: ' + sh.sfx : ''));
+              });
             }
             // 一致性告警：结构化返回 + 渲染进文本——对话侧据此逐条补全设定集，绝不忽略
             const warnings = Array.isArray(s.warnings) ? s.warnings : [];

@@ -3499,13 +3499,14 @@ window.__ModuleLoader__.load({
       const jsonContract = zh
         ? [
             '把剧本拆解为「多镜头一次性视频生成」的分镜脚本：铺开后由**一个视频生成节点**把全部镜头按顺序与时长写进同一条提示词，由视频模型一次性生成整段视频（镜头间由模型直接硬切，不是一镜一视频再拼接）。',
-            '只输出一个 JSON 对象：{"shots":[{"title":"…","visual":"…","motion":"…","characters":["…"],"scene":"…","props":["…"],"duration":3,"dialogue":[{"role":"陈拾","line":"收件时间，1999……"}]}]}。',
+            '只输出一个 JSON 对象：{"shots":[{"title":"…","visual":"…","motion":"…","characters":["…"],"scene":"…","props":["…"],"duration":3,"dialogue":[{"role":"陈拾","line":"收件时间，1999……"}],"sfx":"邮包搭扣声、撕纸声"}]}。',
             '规则：',
             '- visual 是本镜画面描述（景别、人物外观与站位、场景、光线、构图，60 字内）；',
             '- **visual 与 motion 里的角色/场景/道具必须写成 @名称 引用形式**（如 `@张山`、`@褶皱巷`），插件会自动带上该实体的设定描述与其参考图资产，保证跨镜一致；',
             '- motion 是本镜动作与运镜（主体动作节拍、机位运动方向与速度、情绪节奏，50 字内）；与 visual 不重复；',
             '- characters/scene/props 使用剧本与设定集中的名称（不带 @），便于匹配资产；无道具给空数组；',
             '- **dialogue 是本镜的角色台词**：把剧本中落在这一镜的对白逐行搬进来（{"role":"角色名","line":"台词原文"}），台词必须**逐字来自剧本**、不新写不改写；本镜无台词给空数组；一镜尽量只放一个角色的台词（单说话人镜头利于声音参考提取）；',
+            '- **sfx 是本镜的音效/环境音**：剧本里括号标注的「（音效：…）（环境音：…）」按内容对齐到最贴近的镜头**逐字搬入**（多个用顿号连接）；无音效的镜头给空字符串——音效是成片声音设计的一部分，绝不丢弃；',
             '- **【完整覆盖】分镜必须覆盖所给剧本的全部内容**：每一个动作、每一句对白都要落在某个镜头里——不概述、不省略、不跳过、不"挑选重点"；镜头数量与总时长由剧本体量自然决定，宁多勿漏（容量超限由上层拆分剧本处理，不由分镜偷工减料）；',
             '- **镜头按实际内容切分**：一个连续动作段落 = 一镜，数量由内容自然决定（3-10 镜都正常）——绝不凑数、绝不使用固定数量；',
             '- **JSON 字符串值内部禁止出现半角双引号 "**——引用文字（牌匾/字幕/台词原文）一律用「」；',
@@ -3514,13 +3515,14 @@ window.__ModuleLoader__.load({
           ].join('\n')
         : [
             'Break the script into shots for ONE multi-shot video generation: after expansion, a single video-gen node composes ALL shots (in order, with durations) into one prompt, and the video model generates the whole clip in one call (hard cuts inside the model — not one video per shot stitched together).',
-            'Output only one JSON object: {"shots":[{"title":"…","visual":"…","motion":"…","characters":["…"],"scene":"…","props":["…"],"duration":3,"dialogue":[{"role":"Chen","line":"…"}]}]}.',
+            'Output only one JSON object: {"shots":[{"title":"…","visual":"…","motion":"…","characters":["…"],"scene":"…","props":["…"],"duration":3,"dialogue":[{"role":"Chen","line":"…"}],"sfx":"zipper snap, paper tear"}]}.',
             'Rules:',
             '- visual = the shot\'s frame description (shot size, wardrobe, staging, light, framing, <=60 words);',
             '- **characters/scenes/props inside visual and motion must be written as @name references** (e.g. `@ZhangSan`); the plugin then attaches that entity\'s bible description and reference images automatically;',
             '- motion = action & camera for the shot (action beats, camera move, emotional rhythm, <=50 words); do not repeat visual;',
             '- characters/scene/props arrays must use plain names from the script and series bible (no @) so assets match; empty props array if none;',
             '- **dialogue = the character lines that fall in this shot**, moved verbatim from the script ({"role":"Name","line":"exact line"}); never rewrite lines; empty array if none; keep one speaker per shot when possible (helps voice-reference extraction);',
+            '- **sfx = sound cues / ambience for this shot**: bracketed notes like (SFX: ...) (Ambience: ...) from the script are moved verbatim into the closest matching shot (join multiples with commas); empty string if none — sound design is part of the film, never drop it;',
             '- **[FULL COVERAGE] the shots must cover EVERYTHING in the given script**: every action and every line must land in some shot — no summarizing, no omitting, no cherry-picking; shot count and total duration follow naturally from the script size (more is better than missing); capacity overflow is handled upstream by splitting the script, never by thinning the shots;',
             '- **Never use straight double quotes " inside JSON string values** — quoted text (signs/subtitles/lines) uses 「」 instead;',
             '- **Split shots by actual content**: one continuous action beat = one shot; the count is decided by the content (3-10 shots are all normal) — never pad, never use a fixed number;',
@@ -3584,6 +3586,7 @@ window.__ModuleLoader__.load({
         dialogue: Array.isArray(s.dialogue)
           ? s.dialogue.slice(0, 6).map((d) => ({ role: String(d && d.role || '').trim().slice(0, 24), line: String(d && d.line || '').trim().slice(0, 200) })).filter((d) => d.role && d.line)
           : [],
+        sfx: String(s.sfx || '').trim().slice(0, 120),
       }));
     }
     /** 本地一致性检查：分镜里出现的角色/场景/道具（含 visual/motion 文本里的 @提及）是否都在
@@ -4104,16 +4107,25 @@ window.__ModuleLoader__.load({
       if (!shots.length) return '';
       const zh = effLang() !== 'en';
       const total = shots.reduce((a, s) => a + Math.max(1, Number(s.duration) || 3), 0);
+      const hasDialogue = shots.some((s) => (s.dialogue || []).length);
       const lines = [
         zh
           ? `【多镜头一次性生成】共 ${shots.length} 镜、总时长 ${total} 秒。严格按下列顺序与时长切镜（每镜时长不可变），镜头之间直接硬切，不要叠加转场：`
           : `[Multi-shot single generation] ${shots.length} shots, ${total}s total. Cut strictly in this order with exact per-shot durations, hard cuts only, no transitions:`,
       ];
+      if (hasDialogue) {
+        lines.push(zh
+          ? '标注「台词」的角色对白必须由角色当场说出（口型同步、语气贴合情绪）；同步音频开启时按台词生成人声。'
+          : 'Dialogue lines must be spoken on screen by the character (lip-synced, matching the emotion); generate speech when synced audio is on.');
+      }
       shots.forEach((s, i) => {
         const dur = Math.max(1, Number(s.duration) || 3);
         const parts = [];
         if (String(s.visual || '').trim()) parts.push(String(s.visual).trim());
         if (String(s.motion || '').trim()) parts.push((zh ? '运镜/动作：' : 'Camera/Action: ') + String(s.motion).trim());
+        const dls = (s.dialogue || []).map((d) => String(d && d.role || '').trim() + '：' + String(d && d.line || '').trim()).filter((x) => x.replace('：', '').trim());
+        if (dls.length) parts.push((zh ? '台词：' : 'Dialogue: ') + dls.join(zh ? '；' : '; '));
+        if (String(s.sfx || '').trim()) parts.push((zh ? '音效：' : 'SFX: ') + String(s.sfx).trim());
         lines.push((zh ? `镜头${i + 1}（${dur}s）：` : `Shot ${i + 1} (${dur}s): `) + parts.join(zh ? '；' : '; '));
       });
       return lines.join('\n');
@@ -4248,7 +4260,14 @@ window.__ModuleLoader__.load({
 
     /** 分镜节点的资产文本（自动入库与手动"存为资产"共用，避免两处格式漂移）。 */
     function storyboardAssetText(shots) {
-      return (shots || []).map((x) => `【${x.title}】${x.duration}s\n画面：${x.visual}\n动作：${x.motion}\n角色：${(x.characters || []).join('、') || '-'}｜场景：${x.scene || '-'}｜道具：${(x.props || []).join('、') || '-'}`).join('\n\n');
+      return (shots || []).map((x) => {
+        const dls = (x.dialogue || []).map((d) => `${d.role}：${d.line}`).join('\n');
+        const sfx = String(x.sfx || '').trim();
+        return `【${x.title}】${x.duration}s\n画面：${x.visual}\n动作：${x.motion}`
+          + (dls ? `\n${dls}` : '')
+          + (sfx ? `\n音效：${sfx}` : '')
+          + `\n角色：${(x.characters || []).join('、') || '-'}｜场景：${x.scene || '-'}｜道具：${(x.props || []).join('、') || '-'}`;
+      }).join('\n\n');
     }
 
     /** 分镜节点：剧本 → 镜头列表（含一致性检查）。 */
@@ -5933,7 +5952,14 @@ window.__ModuleLoader__.load({
         shots.length
           ? h('div', { key: 'list', className: 'dshic-shot-list' },
               shots.map((sh, i) => h('div', { key: i, className: 'dshic-shot-item' },
-                h('strong', {}, `${sh.title} · ${sh.duration}s `), sh.visual)),
+                h('strong', {}, `${sh.title} · ${sh.duration}s `), sh.visual,
+                (sh.dialogue || []).length
+                  ? h('div', { className: 'dshic-shot-label', style: { marginTop: 3 } }, '台词 ' + sh.dialogue.map((d) => `${d.role}：${d.line}`).join('；'))
+                  : null,
+                String(sh.sfx || '').trim()
+                  ? h('div', { className: 'dshic-shot-label', style: { marginTop: 2, opacity: 0.85 } }, '音效 ' + String(sh.sfx).trim())
+                  : null,
+              )),
             )
           : null,
         shots.length
