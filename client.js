@@ -2151,11 +2151,20 @@ window.__ModuleLoader__.load({
       const taskId = j && j.id;
       if (!taskId) throw new Error('Seedance 响应中没有任务 id');
       const deadline = Date.now() + 15 * 60 * 1000;
+      let pollFails = 0;
       while (Date.now() < deadline) {
         await sleep(10000);
-        const r2 = await fetchViaProxy(base + '/' + taskId, { method: 'GET', headers, timeoutMs: 60000, label: '查询 Seedance 任务' });
-        if (!r2.ok) throw new Error('查询 Seedance 任务失败 HTTP ' + r2.status);
-        const st = JSON.parse(r2.text || '{}');
+        let r2 = null;
+        try { r2 = await fetchViaProxy(base + '/' + taskId, { method: 'GET', headers, timeoutMs: 60000, label: '查询 Seedance 任务' }); } catch { /* 网络抖动重试 */ }
+        if (!r2 || !r2.ok) {
+          // 网关瞬时抖动（504 等）：任务仍在服务端继续——连续失败达阈值才判死，绝不一次失败就放弃
+          pollFails++;
+          if (pollFails >= 5) throw new Error('查询 Seedance 任务连续 ' + pollFails + ' 次失败（HTTP ' + (r2 ? r2.status : '网络错误') + '）');
+          continue;
+        }
+        pollFails = 0;
+        let st = null;
+        try { st = JSON.parse(r2.text || '{}'); } catch { continue; }
         if (st.status === 'succeeded') {
           const u = st.content && st.content.video_url;
           if (!u) throw new Error('Seedance 任务成功但未返回视频地址');
@@ -2198,10 +2207,17 @@ window.__ModuleLoader__.load({
       try { queryEp = new URL(base).origin + '/v1/video/query'; } catch { throw new Error('无法构造轮询地址'); }
       const dlHeaders = (u) => { try { return new URL(u).origin === new URL(base).origin ? headers : {}; } catch { return {}; } };
       const deadline = Date.now() + 15 * 60 * 1000;
+      let pollFails = 0;
       while (Date.now() < deadline) {
         await sleep(6000);
-        const r2 = await fetchViaProxy(queryEp + '?task_id=' + encodeURIComponent(taskId), { method: 'GET', headers, timeoutMs: 60000, label: '查询视频任务' });
-        if (!r2.ok) throw new Error('查询视频任务失败 HTTP ' + r2.status);
+        let r2 = null;
+        try { r2 = await fetchViaProxy(queryEp + '?task_id=' + encodeURIComponent(taskId), { method: 'GET', headers, timeoutMs: 60000, label: '查询视频任务' }); } catch { /* 网络抖动重试 */ }
+        if (!r2 || !r2.ok) {
+          pollFails++; // 网关瞬时抖动：任务仍在服务端继续，连续失败达阈值才判死
+          if (pollFails >= 5) throw new Error('查询视频任务连续 ' + pollFails + ' 次失败（HTTP ' + (r2 ? r2.status : '网络错误') + '）');
+          continue;
+        }
+        pollFails = 0;
         let st = null;
         try { st = JSON.parse(r2.text); } catch { /* 忽略 */ }
         const u = extractVideoUrl(st);
@@ -2232,10 +2248,17 @@ window.__ModuleLoader__.load({
       const taskId = j1 && (j1.id || j1.task_id || (j1.data && j1.data[0] && j1.data[0].id));
       if (!taskId) throw new Error('/v1/videos 响应中没有任务 id：' + r1.text.slice(0, 200));
       const deadline = Date.now() + 15 * 60 * 1000;
+      let pollFails = 0;
       while (Date.now() < deadline) {
         await sleep(6000);
-        const r2 = await fetchViaProxy(ep + '/' + taskId, { method: 'GET', headers, timeoutMs: 60000, label: '查询视频任务' });
-        if (!r2.ok) throw new Error('查询视频任务失败 HTTP ' + r2.status);
+        let r2 = null;
+        try { r2 = await fetchViaProxy(ep + '/' + taskId, { method: 'GET', headers, timeoutMs: 60000, label: '查询视频任务' }); } catch { /* 网络抖动重试 */ }
+        if (!r2 || !r2.ok) {
+          pollFails++; // 网关瞬时抖动：任务仍在服务端继续，连续失败达阈值才判死
+          if (pollFails >= 5) throw new Error('查询视频任务连续 ' + pollFails + ' 次失败（HTTP ' + (r2 ? r2.status : '网络错误') + '）');
+          continue;
+        }
+        pollFails = 0;
         let st = null;
         try { st = JSON.parse(r2.text); } catch { /* 忽略 */ }
         const u = extractVideoUrl(st);
@@ -2325,10 +2348,17 @@ window.__ModuleLoader__.load({
       const taskId = extractTaskId(j);
       if (!taskId) throw new Error('视频 API 响应中没有任务 id 或视频地址');
       const deadline = Date.now() + 15 * 60 * 1000;
+      let pollFails = 0;
       while (Date.now() < deadline) {
         await sleep(3000);
-        const r2 = await fetchViaProxy(base + '/' + taskId, { method: 'GET', headers, timeoutMs: 60000, label: '查询视频任务' });
-        if (!r2.ok) throw new Error('查询视频任务失败 HTTP ' + r2.status);
+        let r2 = null;
+        try { r2 = await fetchViaProxy(base + '/' + taskId, { method: 'GET', headers, timeoutMs: 60000, label: '查询视频任务' }); } catch { /* 网络抖动重试 */ }
+        if (!r2 || !r2.ok) {
+          pollFails++; // 网关瞬时抖动：任务仍在服务端继续，连续失败达阈值才判死
+          if (pollFails >= 5) throw new Error('查询视频任务连续 ' + pollFails + ' 次失败（HTTP ' + (r2 ? r2.status : '网络错误') + '）');
+          continue;
+        }
+        pollFails = 0;
         let st = null;
         try { st = JSON.parse(r2.text); } catch { /* 忽略 */ }
         const u = extractVideoUrl(st);
