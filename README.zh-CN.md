@@ -2,7 +2,7 @@
 
 **DeepSeek Harness 内的节点式短剧工作室。** 从一句话创意出发，在无限画布上完成剧本、分镜、角色资产、画面生成、视频生成，直到带转场、字幕、配音的成片。
 
-[English](./README.md) | 简体中文 | [操作手册（含《时空邮递员》全流程截图）](./docs/guide.zh-CN.md)
+[English](./README.md) | 简体中文 · **操作手册：[中文版](./docs/guide.zh-CN.md)** · [English guide](./docs/guide.en.md)
 
 <!-- 徽标位：发布后在顶部添加 CI / npm / license 徽标 -->
 
@@ -27,21 +27,25 @@
 
 ## 案例：时空邮递员
 
-用上面的流程完整制作的一集。资产批次完成后的画布——十个参考图节点（角色/场景/道具多视图）加第一集的六个场景文本节点：
+用上面的流程完整制作的一集。整集铺开后的画布全览（32%）——左侧：剧本 → 各场文本 → 各场分镜表 → 场1视频（带预览与参考图）；右侧：资产面板：
 
-![画布：资产节点与场景文本节点](./docs/images/case-canvas-assets.png)
+![画布全览（中文界面）](./docs/images/overview-zh.png)
 
-剧本节点连线分镜表（剧本带【场N】分场标记；分镜表把一个场景拆成镜头，逐镜带 `dialogue` 台词标注）：
+场1 连线细节——场1文本 → 场1分镜表 → 场1视频，分镜表带镜头清单与逐镜台词标注：
 
-![剧本 → 分镜](./docs/images/case-script-storyboard.png)
+![场1 连线细节](./docs/images/pipeline-zh.png)
 
 场景视频节点：模型来自供应商模型列表，时长/比例/分辨率在节点上可调，四张参考图按顺序绑定：
 
-![视频节点与参考图](./docs/images/case-video-node-refs.png)
+![视频节点与参考图](./docs/images/video-node-refs.png)
 
 供应商配置一次（地址 + Key + 厂商专属扩展参数），下面可挂多个模型——点 ★ 星标作为默认路由：
 
-![供应商详情](./docs/images/model-provider-detail.png)
+![供应商详情](./docs/images/provider-detail.png)
+
+设置页签——数据根目录、Craft 状态（12/12 就绪）、技能增强、文本模型与图片/视频/TTS 供应商列表：
+
+![设置页签](./docs/images/panel-settings-zh.png)
 
 ## 工作方式
 

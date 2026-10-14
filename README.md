@@ -2,7 +2,7 @@
 
 **A node-based short-drama studio inside DeepSeek Harness.** Start from a one-line idea, walk out with a storyboarded, voiced, subtitled video cut — right on an infinite canvas.
 
-English | [简体中文](./README.zh-CN.md) | [操作手册 / User Guide (中文)](./docs/guide.zh-CN.md)
+English | [简体中文](./README.zh-CN.md) · **User guide: [English](./docs/guide.en.md)** · [操作手册（中文）](./docs/guide.zh-CN.md)
 
 <!-- Badges: add CI / npm / license badges here after publishing -->
 
@@ -27,21 +27,25 @@ The heavy lifting — bibles, episode scripts, storyboard breakdowns, batches of
 
 ## Case study: Time-Postman (时空邮递员)
 
-A full episode produced end to end with the flow above. The canvas after the asset pass — ten reference-image nodes (character / scene / prop multi-view sheets) plus the six per-scene text nodes of episode 1:
+A full episode produced end to end with the flow above. The canvas at 32% — the script node, the expanded per-scene text + storyboard groups, the scene-1 video node with its bound references and preview, and the Assets panel:
 
-![Canvas — asset nodes and scene text nodes](./docs/images/case-canvas-assets.png)
+![Canvas overview — episode 1 pipeline (EN UI)](./docs/images/overview-en.png)
 
-Script node wired to its storyboard node (the script carries `【场N】` scene headers; the storyboard breaks one scene into shots with per-shot `dialogue` annotations):
+Scene 1 up close — text → storyboard → video wiring, with the storyboard's shot list and the video node's bound references:
 
-![Script → storyboard](./docs/images/case-script-storyboard.png)
+![Scene 1 pipeline (ZH UI)](./docs/images/scene1-zh.png)
 
 A scene video node: model picked from the provider's model list, duration/ratio/resolution on the node, four reference images bound in order:
 
-![Video node with references](./docs/images/case-video-node-refs.png)
+![Video node with references](./docs/images/video-node-refs.png)
 
 Providers are configured once (URL + key + vendor-specific extra params) and can hold many models — one is starred as the default route:
 
-![Provider detail](./docs/images/model-provider-detail.png)
+![Provider detail](./docs/images/provider-detail.png)
+
+The Settings panel — data root, Craft status (12/12 ready), skills, text model, and the image/video/TTS provider lists (EN / 中文 versions of the same UI):
+
+![Settings (EN UI)](./docs/images/panel-settings-en.png)
 
 ## How it works
 
