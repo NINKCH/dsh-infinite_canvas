@@ -2089,7 +2089,7 @@ window.__ModuleLoader__.load({
      *  尾帧+参考图同连时尾帧降级为第一张衔接参考图，靠顺序+标注控制用途。 */
     function videoRefNote(refNames) {
       const names = (refNames || []).map((x) => String(x || '').trim()).filter(Boolean);
-      const parts = ['[图1] 为上一镜尾帧，仅用于镜头衔接：视频起始画面必须从该帧自然延续'];
+      const parts = ['[图1] 为上一镜尾帧，作为本镜首帧使用：视频起始画面必须从该帧自然延续'];
       names.forEach((nm, i) => { parts.push('[图' + (i + 2) + '] 为「' + nm + '」的参考图'); });
       parts.push('除尾帧外请保持各实体外观与参考图一致');
       return '（' + parts.join('；') + '）';
