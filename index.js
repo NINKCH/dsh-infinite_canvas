@@ -253,6 +253,24 @@ function writeAssetIndex(pid, projectName, assets, opts) {
     if (i >= 0) list[i] = a;
     else list.push(a);
   }
+  // replace 语义保留"文件仍存在"的孤儿记录：手工放进数据目录/导入中的资产不被启动对齐误清；
+  // 文件已不存在的记录才是真幽灵（删除后残留），照常清理。
+  if (opts && opts.replace) {
+    const keepIds = new Set(list.map((x) => x.id));
+    const orphans = [];
+    try {
+      const prev = JSON.parse(readFileSync(f, 'utf8'));
+      for (const a of (Array.isArray(prev) ? prev : [])) {
+        if (!a || !a.id || keepIds.has(a.id)) continue;
+        let alive = false;
+        if (a.rel) {
+          try { const pr = physicalRel(a.rel); if (pr) alive = existsSync(path.join(root, pr)); } catch { alive = false; }
+        }
+        if (alive) orphans.push(a);
+      }
+    } catch { /* 首次/损坏 → 无孤儿可保留 */ }
+    for (const a of orphans) list.push(a);
+  }
   const tmp = f + '.' + process.pid + '.tmp';
   writeFileSync(tmp, JSON.stringify(list, null, 1), 'utf8');
   renameSync(tmp, f);
@@ -1262,7 +1280,7 @@ const PORT_TABLE = {
   'image-gen': { inputs: [{ id: 'prompt', kind: 'text' }, { id: 'ref', kind: 'image' }], outputs: [{ id: 'out', kind: 'image' }] },
   'video-gen': { inputs: [{ id: 'prompt', kind: 'text' }, { id: 'frame', kind: 'image' }, { id: 'ref', kind: 'image' }], outputs: [{ id: 'out', kind: 'video' }, { id: 'last', kind: 'image' }] },
   'image-asset': { inputs: [{ id: 'in', kind: 'image' }], outputs: [{ id: 'out', kind: 'image' }] },
-  'video-asset': { inputs: [{ id: 'in', kind: 'video' }], outputs: [{ id: 'out', kind: 'video' }] },
+  'video-asset': { inputs: [{ id: 'in', kind: 'video' }], outputs: [{ id: 'out', kind: 'video' }, { id: 'last', kind: 'image' }] },
   'finalcut': { inputs: [{ id: 'in', kind: 'video' }], outputs: [] },
   'group': { inputs: [], outputs: [] },
 };

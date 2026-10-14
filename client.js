@@ -44,7 +44,7 @@ window.__ModuleLoader__.load({
         outputs: [{ id: 'out', kind: 'video' }, { id: 'last', kind: 'image' }],
       },
       'image-asset': { inputs: [{ id: 'in', kind: 'image' }], outputs: [{ id: 'out', kind: 'image' }] },
-      'video-asset': { inputs: [{ id: 'in', kind: 'video' }], outputs: [{ id: 'out', kind: 'video' }] },
+      'video-asset': { inputs: [{ id: 'in', kind: 'video' }], outputs: [{ id: 'out', kind: 'video' }, { id: 'last', kind: 'image' }] },
       'finalcut': { inputs: [{ id: 'in', kind: 'video' }], outputs: [] },
       'group': { inputs: [], outputs: [] },
     };
@@ -52,7 +52,7 @@ window.__ModuleLoader__.load({
     const MULTI_INPUT_PORTS = new Set(['ref', 'char', 'scene', 'prop']);
     // 分镜端口期望的资产分类（仅用于连接时的非阻断提示）
     const PORT_CATEGORY = { char: 'character', scene: 'scene', prop: 'prop' };
-    const CATEGORIES = ['character', 'scene', 'prop', 'script', 'storyboard', 'audio', 'finalcut', 'general'];
+    const CATEGORIES = ['character', 'scene', 'prop', 'script', 'storyboard', 'audio', 'finalcut', 'image', 'general'];
     const RATIOS = ['16:9', '9:16', '1:1', '4:3', '3:4', '21:9'];
     const IMAGE_SIZES = ['1K', '2K', '4K'];
     const VIDEO_DURATIONS = [4, 5, 6, 8, 10, 12, 15];
@@ -233,6 +233,7 @@ window.__ModuleLoader__.load({
       'catScene': '场景',
       'catProp': '道具',
       'catGeneral': '通用',
+      'catImage': '图片',
       'catLabel': '分类',
       'rename': '重命名',
       'cancel': '取消',
@@ -613,6 +614,7 @@ window.__ModuleLoader__.load({
       'catScene': 'Scene',
       'catProp': 'Prop',
       'catGeneral': 'General',
+      'catImage': 'Image',
       'catLabel': 'Category',
       'rename': 'Rename',
       'cancel': 'Cancel',
@@ -4072,7 +4074,7 @@ window.__ModuleLoader__.load({
       const map = {
         character: T('catCharacter'), scene: T('catScene'), prop: T('catProp'),
         script: T('nScript'), storyboard: T('nStoryboard'),
-        audio: T('ttsCategory'), finalcut: T('finalcutCategory'), general: T('catGeneral'),
+        audio: T('ttsCategory'), finalcut: T('finalcutCategory'), image: T('catImage'), general: T('catGeneral'),
       };
       return map[c] || c;
     }
@@ -4459,7 +4461,7 @@ window.__ModuleLoader__.load({
             entity: entities.length ? entities[0].name : undefined,
             entities: entities.map((e) => e.name),
             nodeLabel: (n.data && n.data.label) || '',
-            category: entities.length ? entityCategoryOf(entities[0].kind) : (categoryFromName(n.data.label) || 'general'),
+            category: 'finalcut', // 节点生成的视频 = 成片（实体归属由 entities 字段承担，不占用分类）
           });
           commitGenResult(n.id, rec.id, false, 'video');
           // 尾帧提取（通用）：供 last 端口输出与链式下一镜使用
@@ -4467,7 +4469,7 @@ window.__ModuleLoader__.load({
             const fBlob = await extractLastFrame(blob);
             const fRec = await saveAssetRecord(S.activeId, 'image', fBlob, {
               name: T('lastFrame') + '-' + (n.data.label || n.id.slice(-4)),
-              prompt: 'last frame of ' + prompt.slice(0, 60), source: 'api', category: 'general',
+              prompt: 'last frame of ' + prompt.slice(0, 60), source: 'api', category: 'image',
             });
             update((s) => {
               const nd = s.graph.nodes[n.id];
@@ -5708,6 +5710,30 @@ window.__ModuleLoader__.load({
     function AssetNodeBody({ n, kind }) {
       const assetUrlV = useAssetUrl(n.data.assetId);
       const fileRef = useRef(null);
+      // 视频资产自动提取尾帧：外部导入的视频也能走 last → frame 跨镜衔接（生成后/换视频后触发一次）
+      useEffect(() => {
+        if (kind !== 'video' || !n.data.assetId) return;
+        if (n.data.lastAssetId && n.data.lastAssetVideo === n.data.assetId) return; // 已提取过当前视频
+        let cancelled = false;
+        (async () => {
+          try {
+            const blob = await assetBlob(n.data.assetId);
+            if (!blob || cancelled) return;
+            const fBlob = await extractLastFrame(blob);
+            if (!fBlob || cancelled) return;
+            const rec = await saveAssetRecord(S.activeId, 'image', fBlob, {
+              name: T('lastFrame') + '-' + (n.data.label || n.data.placeholderName || n.id.slice(-4)),
+              prompt: 'last frame of imported video', source: 'upload', category: 'image',
+            });
+            update((s) => {
+              const nd = s.graph.nodes[n.id];
+              if (nd && nd.data.assetId === n.data.assetId) { nd.data.lastAssetId = rec.id; nd.data.lastAssetVideo = n.data.assetId; }
+              s.assetsTick++;
+            });
+          } catch { /* 尾帧提取失败静默：不影响视频预览与 out 口输出 */ }
+        })();
+        return () => { cancelled = true; };
+      }, [kind, n.data.assetId, n.data.label]);
       const onFiles = async (e) => {
         const f = e.target.files && e.target.files[0];
         e.target.value = '';
@@ -5722,7 +5748,7 @@ window.__ModuleLoader__.load({
         if (!rec) return;
         update((s) => {
           const nd = s.graph.nodes[n.id];
-          if (nd) { nd.data.assetId = rec.id; nd.data.status = 'done'; nd.data.placeholderName = null; }
+          if (nd) { nd.data.assetId = rec.id; nd.data.status = 'done'; nd.data.placeholderName = null; if (kind === 'video') { nd.data.lastAssetId = null; nd.data.lastAssetVideo = null; } }
           s.assetsTick++;
         });
       };
@@ -7513,19 +7539,23 @@ window.__ModuleLoader__.load({
         if (busy) return;
         setBusy(true);
         try {
+          const same = S.dataRoot && val.trim() && S.dataRoot === val.trim().replace(/[\\/]+$/, '');
           await hostRpc('dataRootSet', { root: val.trim() });
           await refreshDataRoot();
           toast(T('dataRootSaved') + (S.dataRoot ? '：' + S.dataRoot : ''));
+          if (same) { setBusy(false); return; } // 同目录重复保存：不重建索引（避免误清数据目录里手工补充的资产记录）
           assetIndexSynced = false; // 换了目录：索引要往新目录重建
           autoMigrateAssetsToRoot().then(() => syncAssetIndexToHost()); // 先搬存量资产，再对齐索引
         } catch (e) { toast('设置失败：' + ((e && e.message) || e)); }
         setBusy(false);
       };
       const applyRoot = async (root) => {
+        const same = S.dataRoot && root && S.dataRoot === String(root).replace(/[\\/]+$/, '');
         await hostRpc('dataRootSet', { root });
         await refreshDataRoot();
         setVal(S.dataRoot || root);
         toast(T('dataRootSaved') + '：' + S.dataRoot);
+        if (same) return; // 同目录：不重建索引
         assetIndexSynced = false; // 换了目录：索引要往新目录重建
         autoMigrateAssetsToRoot().then(() => syncAssetIndexToHost());
       };
@@ -7548,6 +7578,8 @@ window.__ModuleLoader__.load({
         if (busy || picking) return;
         setBusy(true);
         try {
+          if (!S.dataRoot) { await refreshDataRoot(); } // 未就绪先拉一次；仍无目录才提示（不必先点"设置此目录"）
+          if (!S.dataRoot) { toast(T('dataRootHint')); setBusy(false); return; }
           const r = await hostRpc('dataRootImport');
           // 资产元数据 → IndexedDB（本机已存在的同 id 资产跳过，绝不覆盖）
           let assets = 0;
@@ -7589,8 +7621,7 @@ window.__ModuleLoader__.load({
               picking ? h('div', { className: 'dshic-hint', key: 'picking' }, T('dataRootPicking')) : null,
               h('div', { className: 'dshic-row', key: 'row2' },
                 S.dataRoot ? h('button', { type: 'button', className: 'dshic-mini', onPointerDown: (e) => e.stopPropagation(), onClick: openDir }, T('dataRootOpen')) : null,
-                S.dataRoot ? h('button', { type: 'button', className: 'dshic-mini is-ghost', disabled: busy || picking, onPointerDown: (e) => e.stopPropagation(), onClick: importFromRoot }, Ic('folder', 11), T('dataRootImportBtn')) : null,
-                S.dataRoot ? InfoTip(T('dataRootImportHint')) : null,
+                h('button', { type: 'button', className: 'dshic-mini is-ghost', disabled: busy || picking, title: T('dataRootImportHint'), onPointerDown: (e) => e.stopPropagation(), onClick: importFromRoot }, Ic('folder', 11), T('dataRootImportBtn')),
                 h('div', { className: 'dshic-flex' }),
               ),
             ],
