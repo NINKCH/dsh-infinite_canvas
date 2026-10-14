@@ -270,6 +270,7 @@ window.__ModuleLoader__.load({
       'copiedOk': '已复制到剪贴板',
       'copyFail': '复制失败：请手动选择文本复制',
       'lbHint': '点击空白处或按 Esc 关闭',
+      'resizeList': '拖拽调整分镜列表高度',
       'textAssetHint': '文本资产点击可放入画布文本节点',
       'placeholderAsset': '待补充',
       'searchLabel': '搜索名称 / 提示词 / 内容 / 项目',
@@ -649,6 +650,7 @@ window.__ModuleLoader__.load({
       'copiedOk': 'Copied to clipboard',
       'copyFail': 'Copy failed — select the text manually',
       'lbHint': 'Click outside or press Esc to close',
+      'resizeList': 'Drag to resize the shot list',
       'textAssetHint': 'Click a text asset to place it as a canvas text node',
       'placeholderAsset': 'missing',
       'searchLabel': 'Search name / prompt / content / project',
@@ -1102,6 +1104,10 @@ window.__ModuleLoader__.load({
 .dshic-shot-item{border:1px solid var(--dsw-alias-border-l1);border-radius:7px;padding:5px 7px;font-size:11px;line-height:15px;
   color:var(--dsw-alias-label-secondary);background:var(--dsw-alias-bg-layer-2);user-select:text;-webkit-user-select:text;cursor:text;}
 .dshic-shot-item strong{color:var(--dsw-alias-label-primary);font-size:11px;}
+.dshic-shot-grip{position:absolute;right:3px;bottom:3px;width:18px;height:14px;display:flex;align-items:center;justify-content:center;
+  color:var(--dsw-alias-label-secondary);font-size:13px;line-height:1;cursor:ns-resize;opacity:.6;user-select:none;-webkit-user-select:none;
+  background:var(--dsw-alias-bg-layer-2);border:1px solid var(--dsw-alias-border-l1);border-radius:4px;}
+.dshic-shot-grip:hover{opacity:1;color:var(--dsw-alias-label-primary);}
 .dshic-lightbox{position:fixed;inset:0;z-index:90;background:rgba(0,0,0,.82);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;padding:24px;}
 .dshic-lightbox img,.dshic-lightbox video{max-width:92vw;max-height:80vh;border-radius:8px;background:#000;box-shadow:0 12px 48px rgba(0,0,0,.5);}
 .dshic-lightbox-cap{font-size:12px;color:#eee;user-select:text;-webkit-user-select:text;max-width:80vw;word-break:break-all;text-align:center;}
@@ -5500,11 +5506,6 @@ window.__ModuleLoader__.load({
               h('button', {
                 type: 'button', className: 'dshic-mini is-ghost',
                 onPointerDown: (e) => e.stopPropagation(),
-                onClick: () => openLightbox(kind, assetUrlV, n.data.label),
-              }, Ic('expandAll', 11), T('zoomView')),
-              h('button', {
-                type: 'button', className: 'dshic-mini is-ghost',
-                onPointerDown: (e) => e.stopPropagation(),
                 onClick: () => downloadBlobFromUrl(assetUrlV, (kind === 'image' ? 'image' : 'video') + '-' + n.id.slice(-5) + (kind === 'image' ? '.png' : '.webm')),
               }, Ic('download', 11), T('download')),
               h('button', {
@@ -5703,11 +5704,6 @@ window.__ModuleLoader__.load({
       };
       return [
         h('div', { key: 'row', className: 'dshic-node-row' },
-          assetUrlV ? h('button', {
-            type: 'button', className: 'dshic-mini is-ghost',
-            onPointerDown: (e) => e.stopPropagation(),
-            onClick: () => openLightbox(kind, assetUrlV, n.data.label || n.data.placeholderName),
-          }, Ic('expandAll', 11), T('zoomView')) : null,
           h('button', {
             type: 'button', className: 'dshic-mini is-ghost',
             onPointerDown: (e) => e.stopPropagation(),
@@ -5916,7 +5912,19 @@ window.__ModuleLoader__.load({
 
     function StoryboardNodeBody({ n }) {
       const running = n.data.aiStatus === 'running';
-      const [zoomDlg, setZoomDlg] = useState(false);
+      // 分镜列表高度：右下角手柄拖拽调整（存进节点数据，随画布持久化）
+      const listH = Math.max(80, Math.min(1200, Number(n.data.shotsListH) || 180));
+      const startResize = (e) => {
+        e.stopPropagation(); e.preventDefault();
+        const startY = e.clientY; const startH = listH;
+        const onMove = (ev) => {
+          const nh = Math.max(80, Math.min(1200, startH + (ev.clientY - startY)));
+          update((s) => { const nd = s.graph.nodes[n.id]; if (nd) nd.data.shotsListH = nh; });
+        };
+        const onUp = () => { window.removeEventListener('pointermove', onMove); window.removeEventListener('pointerup', onUp); flushSave(); };
+        window.addEventListener('pointermove', onMove);
+        window.addEventListener('pointerup', onUp);
+      };
       const scriptEdge = S.graph.edges.some((x) => x.toNode === n.id && x.toPort === 'script');
       const scriptText = () => {
         if (scriptEdge) {
@@ -5974,25 +5982,31 @@ window.__ModuleLoader__.load({
             )
           : null,
         shots.length
-          ? h('div', { key: 'list', className: 'dshic-shot-list' },
-              shots.map((sh, i) => h('div', { key: i, className: 'dshic-shot-item', onPointerDown: (e) => e.stopPropagation() },
-                h('strong', {}, `${sh.title} · ${sh.duration}s `), sh.visual,
-                (sh.dialogue || []).length
-                  ? h('div', { className: 'dshic-shot-label', style: { marginTop: 3 } }, '台词 ' + sh.dialogue.map((d) => `${d.role}：${d.line}`).join('；'))
-                  : null,
-                String(sh.sfx || '').trim()
-                  ? h('div', { className: 'dshic-shot-label', style: { marginTop: 2, opacity: 0.85 } }, '音效 ' + String(sh.sfx).trim())
-                  : null,
-              )),
+          ? h('div', { key: 'listwrap', style: { position: 'relative', alignSelf: 'stretch' } },
+              h('div', { key: 'list', className: 'dshic-shot-list', style: { maxHeight: listH + 'px' } },
+                shots.map((sh, i) => h('div', { key: i, className: 'dshic-shot-item', onPointerDown: (e) => e.stopPropagation() },
+                  h('strong', {}, `${sh.title} · ${sh.duration}s `), sh.visual,
+                  (sh.dialogue || []).length
+                    ? h('div', { className: 'dshic-shot-label', style: { marginTop: 3 } }, '台词 ' + sh.dialogue.map((d) => `${d.role}：${d.line}`).join('；'))
+                    : null,
+                  String(sh.sfx || '').trim()
+                    ? h('div', { className: 'dshic-shot-label', style: { marginTop: 2, opacity: 0.85 } }, '音效 ' + String(sh.sfx).trim())
+                    : null,
+                )),
+              ),
+              h('div', { key: 'grip', className: 'dshic-shot-grip', title: T('resizeList'), onPointerDown: startResize }, '⌟'),
             )
           : null,
         shots.length
           ? h('div', { key: 'acts', className: 'dshic-node-row', style: { alignSelf: 'flex-start' } },
               h('button', {
-                key: 'zoom', type: 'button', className: 'dshic-mini', title: T('zoomView'),
+                key: 'copy', type: 'button', className: 'dshic-mini is-ghost', title: T('copyAll'),
                 onPointerDown: (e) => e.stopPropagation(),
-                onClick: () => setZoomDlg(true),
-              }, Ic('expandAll', 11), T('zoomView')),
+                onClick: async () => {
+                  try { await navigator.clipboard.writeText(storyboardAssetText(shots)); toast(T('copiedOk')); }
+                  catch { toast(T('copyFail')); }
+                },
+              }, T('copyAll')),
               // 手动"存为资产"：AI 生成已自动入库（category=storyboard），这里用于留存当前分镜的一版快照
               h('button', {
                 key: 'save', type: 'button', className: 'dshic-mini is-ghost', title: T('saveTextAsset'),
@@ -6011,36 +6025,6 @@ window.__ModuleLoader__.load({
               }, Ic('download', 11), T('saveTextAsset')),
               h('button', { key: 'expand', type: 'button', className: 'dshic-mini', onClick: () => expandStoryboard(n), onPointerDown: (e) => e.stopPropagation() },
                 Ic('expandAll', 11), T('expand') + ` (${shots.length})`),
-            )
-          : null,
-        zoomDlg && shots.length
-          ? h('div', { key: 'zoomdlg', className: 'dshic-modal-overlay', onPointerDown: (e) => { if (e.target === e.currentTarget) setZoomDlg(false); } },
-              h('div', { className: 'dshic-modal', style: { width: 640, maxWidth: 'calc(100vw - 48px)' } },
-                h('div', { className: 'dshic-modal-title' }, (n.data.label || T('storyboardAssetPrefix')) + ' · ' + shots.length + ' 镜 / ' + shots.reduce((a, x) => a + (Number(x.duration) || 0), 0) + 's'),
-                h('div', { style: { maxHeight: '62vh', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 6, marginTop: 8 } },
-                  shots.map((sh, i) => h('div', { key: i, className: 'dshic-shot-item' },
-                    h('strong', {}, `${i + 1}. ${sh.title} · ${sh.duration}s `), sh.visual,
-                    String(sh.motion || '').trim()
-                      ? h('div', { className: 'dshic-shot-label', style: { marginTop: 3 } }, '动作 ' + sh.motion)
-                      : null,
-                    (sh.dialogue || []).length
-                      ? h('div', { className: 'dshic-shot-label', style: { marginTop: 3 } }, '台词 ' + sh.dialogue.map((d) => `${d.role}：${d.line}`).join('；'))
-                      : null,
-                    String(sh.sfx || '').trim()
-                      ? h('div', { className: 'dshic-shot-label', style: { marginTop: 3, opacity: 0.85 } }, '音效 ' + String(sh.sfx).trim())
-                      : null,
-                  ))),
-                h('div', { className: 'dshic-modal-actions' },
-                  h('button', {
-                    type: 'button', className: 'dshic-mini',
-                    onClick: async () => {
-                      try { await navigator.clipboard.writeText(storyboardAssetText(shots)); toast(T('copiedOk')); }
-                      catch { toast(T('copyFail')); }
-                    },
-                  }, T('copyAll')),
-                  h('button', { type: 'button', className: 'dshic-mini', onClick: () => setZoomDlg(false) }, '✕'),
-                ),
-              ),
             )
           : null,
       ];
