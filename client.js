@@ -272,6 +272,12 @@ window.__ModuleLoader__.load({
       'copyFail': '复制失败：请手动选择文本复制',
       'lbHint': '点击空白处或按 Esc 关闭',
       'resizeList': '拖拽调整分镜列表高度',
+      'frameModeLabel': '衔接',
+      'frameModeHint': '首帧口连线时的处理方式。网关禁止首帧与参考图混用：融合=尾帧降级为第1张参考图（保留实体参考图，衔接为软约束）；硬首帧=用真首帧参数（画面绝对承接，但放弃参考图）；忽略=不使用首帧',
+      'frameModeAuto': '参考图融合',
+      'frameModeHard': '硬首帧（弃参考图）',
+      'frameModeOff': '忽略首帧',
+      'contFrom': '承接',
       'textAssetHint': '文本资产点击可放入画布文本节点',
       'placeholderAsset': '待补充',
       'searchLabel': '搜索名称 / 提示词 / 内容 / 项目',
@@ -653,6 +659,12 @@ window.__ModuleLoader__.load({
       'copyFail': 'Copy failed — select the text manually',
       'lbHint': 'Click outside or press Esc to close',
       'resizeList': 'Drag to resize the shot list',
+      'frameModeLabel': 'Chaining',
+      'frameModeHint': 'How the first-frame input is used. The gateway forbids mixing first_frame with reference_image: Fuse = the tail frame becomes reference image #1 (keeps entity refs; continuity is a soft constraint); Hard = true first_frame param (exact continuity, drops refs); Ignore = do not use the frame',
+      'frameModeAuto': 'Fuse with refs',
+      'frameModeHard': 'Hard first frame',
+      'frameModeOff': 'Ignore frame',
+      'contFrom': 'Continues',
       'textAssetHint': 'Click a text asset to place it as a canvas text node',
       'placeholderAsset': 'missing',
       'searchLabel': 'Search name / prompt / content / project',
@@ -2110,9 +2122,9 @@ window.__ModuleLoader__.load({
      *  尾帧+参考图同连时尾帧降级为第一张衔接参考图，靠顺序+标注控制用途。 */
     function videoRefNote(refNames) {
       const names = (refNames || []).map((x) => String(x || '').trim()).filter(Boolean);
-      const parts = ['[图1] 为上一镜尾帧，作为本镜首帧使用：视频起始画面必须从该帧自然延续'];
+      const parts = ['【衔接硬约束】[图1] 是上一镜的尾帧：本镜视频的第 1 帧必须与 [图1] 画面一致，并从该画面自然延续——不得跳回远景、不得重新建立场景、不得切换机位'];
       names.forEach((nm, i) => { parts.push('[图' + (i + 2) + '] 为「' + nm + '」的参考图'); });
-      parts.push('除尾帧外请保持各实体外观与参考图一致');
+      parts.push('除 [图1] 用于衔接外，各实体外观须与对应参考图一致');
       return '（' + parts.join('；') + '）';
     }
     /** 火山方舟 Seedance 官方协议：创建任务 → 轮询 → 下载（支持首帧 + 最多 4 张参考图）。 */
@@ -2124,12 +2136,12 @@ window.__ModuleLoader__.load({
       const o = opts || {};
       // first_frame 与 reference_image 互斥（网关 400）。跨镜衔接（尾帧+参考图同连）→
       // 首帧降级为第一张衔接参考图：全部按 reference_image 传、提示词按序标注、比例不锁 adaptive
-      const rawRefs = (refs || []).slice(0, 8);
+      const rawRefs = o.hardFrame ? [] : (refs || []).slice(0, 8);
       const downgrade = Boolean(frameBlob && rawRefs.length);
       const refBlobs = downgrade ? [frameBlob].concat(rawRefs) : rawRefs;
       let text = prompt;
       if (downgrade) {
-        text += '\n' + videoRefNote(o.refNames);
+        text = videoRefNote(o.refNames) + '\n' + text; // 前置硬约束：衔接要求放在最前，否则模型容易忽略
       } else if (refBlobs.length && !/\[图\d\]/.test(prompt)) {
         text += '\n（' + [...Array(refBlobs.length)].map((_, i) => '[图' + (i + 1) + ']').join('') + ' 为参考图，请保持其人物/场景/道具特征一致）';
       }
@@ -2176,10 +2188,10 @@ window.__ModuleLoader__.load({
      *  轮询 GET /v1/video/query?task_id=...）。首帧/参考图角色与 Seedance 原生协议一致（图压缩内联）。 */
     async function relayVideoContentFallback(base, prompt, frameBlob, o, s, headers) {
       // 尾帧+参考图同连（跨镜衔接）→ 尾帧降级为第一张衔接参考图（first_frame/reference_image 互斥）
-      const rawRefs = (o.refs || []).slice(0, 8);
+      const rawRefs = o.hardFrame ? [] : (o.refs || []).slice(0, 8);
       const downgrade = Boolean(frameBlob && rawRefs.length);
       const refBlobs = downgrade ? [frameBlob].concat(rawRefs) : rawRefs;
-      // 注意：prompt 由调用方（apiVideo 通用路径）传入，downgrade 时的 videoRefNote 已在通用路径追加，这里不重复
+      // 注意：prompt 由调用方（apiVideo 通用路径）传入，downgrade 时的 videoRefNote 已在通用路径前置，这里不重复
       const text = prompt;
       const content = [{ type: 'text', text }];
       if (frameBlob && !downgrade) content.push({ type: 'image_url', image_url: { url: await blobToDataUrlScaled(frameBlob) }, role: 'first_frame' });
@@ -2259,10 +2271,14 @@ window.__ModuleLoader__.load({
     }
     async function apiVideo(prompt, frameBlob, s, opts) {
       const o = opts || {};
+      // 衔接模式：auto=尾帧降级为参考图（保留实体参考图）；hard=硬首帧（放弃参考图，画面绝对承接）；
+      // off=忽略首帧。网关禁止 first_frame 与 reference_image 混用，故 hard 模式必须放弃参考图。
+      if (o.frameMode === 'off') frameBlob = null;
+      if (o.frameMode === 'hard' && frameBlob) o.hardFrame = true;
       // OpenAI 风格视频接口（JUAI 等：/v1/video/generations）优先识别——
       // 即使误把协议设成 seedance 也不走火山官方协议（两者状态/结果字段不同）
       if ((s.protocol === 'seedance' || (s.url || '').includes('contents/generations/tasks')) && !(s.url || '').includes('/video/generations')) {
-        return await seedanceVideo(prompt, frameBlob, o.refs || [], s, o);
+        return await seedanceVideo(prompt, frameBlob, o.hardFrame ? [] : (o.refs || []), s, o);
       }
       if (!s.url) throw new Error('未配置视频 API');
       // URL 归一化：裸域 → /v1/video/generations；/v1 → /video/generations；完整端点原样使用
@@ -2272,9 +2288,9 @@ window.__ModuleLoader__.load({
       const isOpenaiVideo = /\/video\/generations$/.test(base);
       const headers = { 'Content-Type': 'application/json', ...(s.apiKey ? { Authorization: 'Bearer ' + s.apiKey } : {}) };
       // 尾帧+参考图同连（跨镜衔接）→ 尾帧降级为第一张衔接参考图（first_frame/reference_image 互斥），标注写在提示词里
-      const vRefs = (o.refs || []).slice(0, 8);
+      const vRefs = o.hardFrame ? [] : (o.refs || []).slice(0, 8);
       const downgrade = Boolean(frameBlob && vRefs.length);
-      if (downgrade) prompt += '\n' + videoRefNote(o.refNames);
+      if (downgrade) prompt = videoRefNote(o.refNames) + '\n' + prompt; // 前置硬约束
       const body = {
         ...(s.model ? { model: s.model } : {}),
         prompt,
@@ -3522,7 +3538,7 @@ window.__ModuleLoader__.load({
       }
       return out;
     }
-    async function aiStoryboardShots(scriptText, requirement, count, model, onDelta) {
+    async function aiStoryboardShots(scriptText, requirement, count, model, onDelta, prevTail) {
       const settings = loadSettings();
       const bible = bibleBlock(loadBible(S.activeId));
       const zh = effLang() !== 'en';
@@ -3540,7 +3556,7 @@ window.__ModuleLoader__.load({
             '- **【完整覆盖】分镜必须覆盖所给剧本的全部内容**：每一个动作、每一句对白都要落在某个镜头里——不概述、不省略、不跳过、不"挑选重点"；镜头数量与总时长由剧本体量自然决定，宁多勿漏（容量超限由上层拆分剧本处理，不由分镜偷工减料）；',
             '- **镜头按实际内容切分**：一个连续动作段落 = 一镜，数量由内容自然决定（3-10 镜都正常）——绝不凑数、绝不使用固定数量；',
             '- **JSON 字符串值内部禁止出现半角双引号 "**——引用文字（牌匾/字幕/台词原文）一律用「」；',
-            '- duration 为该镜时长，2-5 的整数（一个镜头拍一个连续动作段落）；全部 duration 之和 **≤ 15 秒**（一个分镜表 = 一个 10-15s 的场景视频）——超了就合并精简镜头，而不是拉长单镜；镜头顺序即叙事顺序，首镜交代场景、末镜收束情绪；',
+            '- duration 为该镜时长，2-5 的整数（一个镜头拍一个连续动作段落）；全部 duration 之和 **≤ 15 秒**（一个分镜表 = 一个 10-15s 的场景视频）——超了就合并精简镜头，而不是拉长单镜；镜头顺序即叙事顺序，末镜收束情绪；**若下方给了「承接约束」，第 1 镜必须承接上一场尾镜的画面与人物状态（不得重新建立场景/跳回远景），无承接约束时首镜才交代场景**；',
             '- 只输出 JSON，不要输出任何其他内容。',
           ].join('\n')
         : [
@@ -3556,7 +3572,7 @@ window.__ModuleLoader__.load({
             '- **[FULL COVERAGE] the shots must cover EVERYTHING in the given script**: every action and every line must land in some shot — no summarizing, no omitting, no cherry-picking; shot count and total duration follow naturally from the script size (more is better than missing); capacity overflow is handled upstream by splitting the script, never by thinning the shots;',
             '- **Never use straight double quotes " inside JSON string values** — quoted text (signs/subtitles/lines) uses 「」 instead;',
             '- **Split shots by actual content**: one continuous action beat = one shot; the count is decided by the content (3-10 shots are all normal) — never pad, never use a fixed number;',
-            '- duration is the shot length in seconds, integer 2-5 (one continuous action beat per shot); the sum of durations must be **≤ 15 seconds** (one storyboard = one 10-15s scene video) — if over, merge and tighten shots instead of stretching; shot order = narrative order; first shot establishes the scene, last shot lands the emotion;',
+            '- duration is the shot length in seconds, integer 2-5 (one continuous action beat per shot); the sum of durations must be **≤ 15 seconds** (one storyboard = one 10-15s scene video) — if over, merge and tighten shots instead of stretching; shot order = narrative order; last shot lands the emotion; **if a CONTINUITY CONSTRAINT is given below, shot 1 must continue the previous scene\'s last frame and character state (no re-establishing, no wide reset); only without a constraint does shot 1 establish the scene**;',
             '- Output JSON only.',
           ].join('\n');
       const methodology = await loadSkillRules(settings.skillStoryboard, zh)
@@ -3571,11 +3587,28 @@ window.__ModuleLoader__.load({
       const countLine = (Number(count) > 0)
         ? `${zh ? '参考镜头数量' : 'Reference shot count'}：约 ${count} 镜（**仅作参考**——必须按实际动作节拍切分，内容需要更多就更多，绝不凑数）`
         : `${zh ? '镜头数量' : 'Shot count'}：**不固定**——按实际动作节拍切分，由内容自然决定`;
+      // 承接约束：把上一场（场 N-1）分镜表的**最后一镜**作为硬性承接条件注入——
+      // 分镜自身就先连贯，视频端的尾帧衔接才有落点（否则两场各拍各的，剪在一起必然跳）
+      const prevLine = (prevTail && prevTail.shot)
+        ? (zh
+          ? `【承接约束·硬性】本分镜承接上一场「${prevTail.label}」的最后一镜（该镜内容如下）：\n`
+            + `  画面：${String(prevTail.shot.visual || '').trim()}\n`
+            + `  动作：${String(prevTail.shot.motion || '').trim()}\n`
+            + ((prevTail.shot.dialogue || []).length ? `  台词：${(prevTail.shot.dialogue || []).map((d) => d.role + '：' + d.line).join('；')}\n` : '')
+            + `本分镜的**第 1 镜必须从该镜结束时的画面与人物状态自然继续**（同一空间、同一人物位置与情绪状态），`
+            + `不得重新建立场景、不得跳回远景做交代、不得切换地点；第 1 镜的画面描述里要明确写出这种承接关系。`
+          : `[CONTINUITY CONSTRAINT - HARD] This storyboard continues the last shot of the previous scene "${prevTail.label}":\n`
+            + `  Frame: ${String(prevTail.shot.visual || '').trim()}\n`
+            + `  Action: ${String(prevTail.shot.motion || '').trim()}\n`
+            + ((prevTail.shot.dialogue || []).length ? `  Dialogue: ${(prevTail.shot.dialogue || []).map((d) => d.role + ': ' + d.line).join('; ')}\n` : '')
+            + `Shot 1 of this storyboard MUST continue naturally from the frame and character state where that shot ended (same space, same position and emotion) - no re-establishing the scene, no wide reset, no location change; state this continuity explicitly in shot 1's frame description.`)
+        : '';
       const user = [
         `${zh ? '剧本' : 'Script'}：\n${String(scriptText ?? '').trim()}`,
         `${zh ? '额外要求' : 'Extra requirements'}：${String(requirement ?? '').trim() || (zh ? '无' : 'none')}`,
         countLine,
-      ].join('\n\n');
+        prevLine,
+      ].filter(Boolean).join('\n\n');
       const text = await aiCompleteStream({
         system, user, model,
         onReasoning: (d) => onDelta && onDelta('reasoning', d),
@@ -4217,6 +4250,28 @@ window.__ModuleLoader__.load({
       return metas;
     }
 
+    /** 上一场分镜表的尾镜（衔接约束用）：按剧本文本里的【场N】序号找场 N-1 的分镜表，
+     *  取其最后一镜作为本场第 1 镜的承接依据；首场或找不到序号时返回 null（不加约束）。 */
+    function prevSceneTail(n) {
+      const noOf = (txt) => {
+        const m = /【\s*场\s*(\d+)\s*】/.exec(String(txt || ''));
+        return m ? Number(m[1]) : null;
+      };
+      let mine = null;
+      try { mine = noOf(storyboardScriptText(n)); } catch { mine = null; }
+      if (!mine || mine <= 1) return null;
+      for (const other of Object.values(S.graph.nodes || {})) {
+        if (!other || other.type !== 'storyboard' || other.id === n.id) continue;
+        const shots = (other.data && other.data.shots) || [];
+        if (!shots.length) continue;
+        let oNo = null;
+        try { oNo = noOf(storyboardScriptText(other)); } catch { oNo = null; }
+        if (oNo !== mine - 1) continue;
+        return { label: String((other.data && other.data.label) || ('场' + oNo)), sceneNo: oNo, shot: shots[shots.length - 1] };
+      }
+      return null;
+    }
+
     // ============================================================
     // 工作流执行
     // ============================================================
@@ -4308,7 +4363,8 @@ window.__ModuleLoader__.load({
       aiStreamClear(n.id);
       flushSave();
       try {
-        const shots = await aiStoryboardShots(st, n.data.requirement, n.data.count || 6, n.data.model, (kind, d) => aiStreamAppend(n.id, kind, d));
+        const prev = prevSceneTail(n); // 场 N-1 的尾镜 → 作为本场第 1 镜的硬性承接约束
+        const shots = await aiStoryboardShots(st, n.data.requirement, n.data.count || 6, n.data.model, (kind, d) => aiStreamAppend(n.id, kind, d), prev);
         // 先自动补录缺失条目（空描述），再算一致性告警：否则告警标志的条目其实马上就被自动补录了，"未登记"语义会误导用户与对话侧
         try { await autoRegisterBibleEntries(shots); } catch { /* 补录失败不影响分镜 */ }
         const warnings = await checkShotConsistency(shots);
@@ -4320,7 +4376,7 @@ window.__ModuleLoader__.load({
         }
         update((s) => {
           const nd = s.graph.nodes[n.id];
-          if (nd) { nd.data.shots = shots; nd.data.aiStatus = 'idle'; nd.data.warnings = warnings; nd.data.status = 'done'; nd.data.error = null; }
+          if (nd) { nd.data.shots = shots; nd.data.aiStatus = 'idle'; nd.data.warnings = warnings; nd.data.status = 'done'; nd.data.error = null; nd.data.contFrom = prev ? prev.label : null; }
           s.assetsTick++;
         });
         await saveTextAssetRecord(S.activeId, {
@@ -4445,6 +4501,7 @@ window.__ModuleLoader__.load({
           if (!mcfg) throw new Error(T('errNoVideoModel'));
           const blob = await apiVideo(p, frameBlob, mcfg, {
             duration: n.data.duration, resolution: n.data.resolution, ratio: n.data.ratio,
+            frameMode: n.data.frameMode || 'auto', // auto=尾帧降级为参考图 / hard=硬首帧（放弃参考图） / off=忽略首帧
             refs: refs.map((r) => r.blob),
             refNames: refs.map((r) => r.entity || r.name || ''), // 跨镜衔接标注用（图2..N 的实体名）
             // 任务提交成功即持久化 task id：轮询中断/页面关闭后仍可凭 id 回查结果（钱花了就必须能找回）
@@ -5532,6 +5589,21 @@ window.__ModuleLoader__.load({
           ? h('div', { key: 'ref', className: 'dshic-hint' },
               T('portFrame') + ' × ' + refEdges.length + ' · ' + T('connected'))
           : null,
+        kind === 'video' && S.graph.edges.some((x) => x.toNode === n.id && x.toPort === 'frame')
+          ? h('div', { key: 'fmode', className: 'dshic-node-row' },
+              h('span', { className: 'dshic-shot-label', style: { flex: 'none' } }, T('frameModeLabel')),
+              h('select', {
+                className: 'dshic-select', style: { flex: 1, minWidth: 0 }, title: T('frameModeHint'),
+                value: n.data.frameMode || 'auto',
+                onPointerDown: (e) => e.stopPropagation(),
+                onChange: (e) => update((s) => { const nd = s.graph.nodes[n.id]; if (nd) nd.data.frameMode = e.target.value; }),
+              },
+                h('option', { value: 'auto' }, T('frameModeAuto')),
+                h('option', { value: 'hard' }, T('frameModeHard')),
+                h('option', { value: 'off' }, T('frameModeOff')),
+              ),
+            )
+          : null,
         h(RefRows, { key: 'refrows', n, portId: 'ref' }),
         h(MentionInfo, { key: 'mn', n }),
         n.data.error ? h('div', { key: 'err', className: 'dshic-err' }, n.data.error) : null,
@@ -6047,6 +6119,9 @@ window.__ModuleLoader__.load({
         running && aiStreamLine(n.id)
           ? h('div', { key: 'stream', className: 'dshic-stream', title: aiStreamLine(n.id) },
               h('span', { className: 'dshic-stream-dot' }), aiStreamLine(n.id))
+          : null,
+        n.data.contFrom
+          ? h('div', { key: 'cont', className: 'dshic-hint' }, '↩ ' + T('contFrom') + '：' + n.data.contFrom + ' ' + T('lastFrame'))
           : null,
         n.data.aiError ? h('div', { key: 'err', className: 'dshic-err' }, n.data.aiError) : null,
         (n.data.warnings || []).length
