@@ -251,6 +251,7 @@ window.__ModuleLoader__.load({
       'catMismatch': '提示：资产分类为「{a}」，端口期望「{b}」，已保留连接',
       'nStoryboard': '分镜表',
       'nScript': '剧本',
+      'vendorLabel': '厂商格式（选后只需填 Base URL + 模型 id）',
       'portScript': '剧本',
       'portPrev': '衔接上一镜（尾镜）',
       'portTail': '尾镜（供下一分镜衔接）',
@@ -641,6 +642,7 @@ window.__ModuleLoader__.load({
       'nStoryboard': 'Storyboard',
       'nScript': 'Script',
       'portScript': 'script',
+      'vendorLabel': 'Vendor format (then just Base URL + model id)',
       'portPrev': 'Continue prev tail',
       'portTail': 'Tail shot (for next)',
       'aiScript': 'AI write script',
@@ -2277,15 +2279,324 @@ window.__ModuleLoader__.load({
       }
       throw new Error('视频生成超过 2 小时未返回（任务 id 已保存在节点上，可凭 id 回查结果）');
     }
+    // ============================================================
+    // 视频厂商预设层：用户只配「厂商格式 + Base URL + 模型 id」，
+    // 端点路径/鉴权方式/参数格式/轮询语义全部由代码按各家官方 API 适配。
+    // ============================================================
+    const VIDEO_VENDORS = {
+      openai:    { label: 'OpenAI 兼容格式（通用/中转站）', note: '适配 /v1/video/generations、Seedance content[]、/v1/videos 三段自动降级' },
+      seedance:  { label: '火山方舟 · Seedance（豆包视频）', base: 'https://ark.cn-beijing.volces.com/api/v3/contents/generations/tasks', keyPh: 'ARK API Key', note: 'Base URL 填方舟提交端点或 /api/v3 均可；模型 id 如 doubao-seedance-2-0-260128' },
+      kling:     { label: '快手可灵 Kling', base: 'https://api.klingai.com', keyPh: 'AK:SK（冒号分隔）', note: 'Key 填 AK:SK，代码自动签 JWT；国际站把 Base URL 改为 api-singapore.klingai.com；时长按官方 5/10s 取整' },
+      wan:       { label: '阿里通义万相 Wan（DashScope）', base: 'https://dashscope.aliyuncs.com', note: '异步任务制；国际站把 Base URL 改为 dashscope-intl.aliyuncs.com；图生视频走 img_url' },
+      minimax:   { label: 'MiniMax 海螺视频', base: 'https://api.minimaxi.com', note: '异步任务制；时长按官方 6/10s 取整；首帧图支持 base64' },
+      vidu:      { label: '生数科技 Vidu', base: 'https://api.vidu.com', note: '图片支持 base64；时长按官方 4/8s 取整' },
+      runway:    { label: 'Runway Gen-4', base: 'https://api.dev.runwayml.com', note: '代码自动带 X-Runway-Version 头；时长 5/10s；首帧图支持 dataURL' },
+      veo:       { label: 'Google Veo（Gemini API）', base: 'https://generativelanguage.googleapis.com', keyPh: 'API Key', note: '模型 id 如 veo-3.0-fast-generate-preview；图生视频走 inlineData base64' },
+      luma:      { label: 'Luma Dream Machine', base: 'https://api.lumalabs.ai/dream-machine/v1', note: '图生视频需要公网图片 URL（本地图片仅支持文生视频）' },
+      pixverse:  { label: 'PixVerse', base: 'https://app-api.pixverse.ai/openapi/v2', keyPh: 'API-KEY', note: '图片支持 base64；时长 5/8s；清晰度映射 540p/720p/1080p' },
+      stability: { label: 'Stability AI 图生视频', base: 'https://api.stability.ai', note: 'SVD 纯图生视频（无提示词/无音频）；必须有首帧图' },
+    };
+    function detectVideoVendor(s) {
+      if (s && s.vendor) return s.vendor;
+      if (s && (s.protocol === 'seedance' || String(s.url || '').includes('contents/generations/tasks'))) return 'seedance';
+      return 'openai';
+    }
+    function b64Pure(blob) {
+      return new Promise((res, rej) => {
+        const r = new FileReader();
+        r.onload = () => res(String(r.result).split(',')[1] || '');
+        r.onerror = () => rej(new Error('图片编码失败'));
+        r.readAsDataURL(blob);
+      });
+    }
+    /** 厂商任务轮询：查询层任何失败（网络/5xx）都不判死——只认任务自身的终态；2 小时兜底。 */
+    async function vendorPoll(label, step, query) {
+      const deadline = Date.now() + 120 * 60 * 1000;
+      while (Date.now() < deadline) {
+        await sleep(step);
+        let r = null;
+        try { r = await query(); } catch { continue; }
+        if (!r) continue;
+        if (r.state === 'done') return r.url;
+        if (r.state === 'fail') throw new Error(label + '任务失败：' + (r.error || '未知原因'));
+      }
+      throw new Error(label + '超过 2 小时未返回（任务 id 已保存在节点上，可凭 id 回查结果）');
+    }
+    const VIDEO_VENDOR_RUNNERS = {
+      // —— 快手可灵 Kling：JWT(AK:SK) 鉴权，i2v/t2v，轮询 task_id ——
+      async kling(prompt, frameBlob, s, o) {
+        const [ak, sk] = String(s.apiKey || '').split(':');
+        if (!ak || !sk) throw new Error('可灵的 Key 请填 AK:SK（冒号分隔，在可灵开放平台获取）');
+        const enc = new TextEncoder();
+        const b64u = (u8) => btoa(String.fromCharCode.apply(null, u8)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+        const hj = b64u(enc.encode(JSON.stringify({ alg: 'HS256', typ: 'JWT' })));
+        const now = Math.floor(Date.now() / 1000);
+        const pj = b64u(enc.encode(JSON.stringify({ iss: ak, exp: now + 1800, nbf: now - 5 })));
+        const key = await crypto.subtle.importKey('raw', enc.encode(sk), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+        const sg = b64u(new Uint8Array(await crypto.subtle.sign('HMAC', key, enc.encode(hj + '.' + pj))));
+        const jwt = hj + '.' + pj + '.' + sg;
+        const headers = { 'Content-Type': 'application/json', Authorization: 'Bearer ' + jwt };
+        const base = String(s.url || VIDEO_VENDORS.kling.base).replace(/\/+$/, '');
+        const path = frameBlob ? 'image2video' : 'text2video';
+        const body = {
+          model_name: s.model || 'kling-v1', prompt,
+          cfg_scale: 0.5, mode: 'std',
+          aspect_ratio: (o.ratio || '16:9') === '9:16' ? '9:16' : (o.ratio || '16:9') === '1:1' ? '1:1' : '16:9',
+          duration: String(Math.max(5, Math.min(10, Number(o.duration) || 5)) <= 5 ? 5 : 10),
+        };
+        if (frameBlob) body.image = await blobToDataUrlScaled(frameBlob);
+        const r1 = await fetchViaProxy(base + '/v1/video/' + path, { headers, body, label: 'Kling 提交' });
+        if (!r1.ok) throw new Error('Kling 提交 HTTP ' + r1.status + '：' + r1.text.slice(0, 300));
+        const j1 = JSON.parse(r1.text || '{}');
+        const tid = j1 && j1.data && j1.data.task_id;
+        if (!tid) throw new Error('Kling 响应中没有 task_id：' + r1.text.slice(0, 200));
+        const url = await vendorPoll('Kling', 8000, async () => {
+          const r = await fetchViaProxy(base + '/v1/video/' + path + '/' + tid, { method: 'GET', headers, timeoutMs: 60000, label: 'Kling 查询' });
+          if (!r || !r.ok) return { state: 'wait' };
+          let j = null; try { j = JSON.parse(r.text); } catch { return { state: 'wait' }; }
+          const st = j && j.data && j.data.task_status;
+          if (st === 'succeed') {
+            const v = j.data.result && j.data.result.videos && j.data.result.videos[0];
+            return v && v.url ? { state: 'done', url: v.url } : { state: 'fail', error: '成功但无视频地址' };
+          }
+          if (st === 'failed') return { state: 'fail', error: (j.data && j.data.task_status_msg) || st };
+          return { state: 'wait' };
+        });
+        return await downloadVideo(url, {});
+      },
+      // —— 阿里通义万相 Wan：DashScope 异步，X-DashScope-Async ——
+      async wan(prompt, frameBlob, s, o) {
+        const base = String(s.url || VIDEO_VENDORS.wan.base).replace(/\/+$/, '');
+        const headers = { 'Content-Type': 'application/json', Authorization: 'Bearer ' + (s.apiKey || ''), 'X-DashScope-Async': 'enable' };
+        const body = {
+          model: s.model || 'wan2.2-t2v-plus',
+          input: { prompt, ...(frameBlob ? { img_url: await blobToDataUrlScaled(frameBlob) } : {}) },
+          parameters: { prompt_extend: true },
+        };
+        const r1 = await fetchViaProxy(base + '/api/v1/services/aigc/video-generation/video-synthesis', { headers, body, label: 'Wan 提交' });
+        if (!r1.ok) throw new Error('Wan 提交 HTTP ' + r1.status + '：' + r1.text.slice(0, 300));
+        let j1 = null; try { j1 = JSON.parse(r1.text); } catch { throw new Error('Wan 响应非 JSON：' + r1.text.slice(0, 200)); }
+        const tid = j1 && j1.output && j1.output.task_id;
+        if (!tid) throw new Error('Wan 响应中没有 task_id：' + r1.text.slice(0, 200));
+        const url = await vendorPoll('Wan', 8000, async () => {
+          const r = await fetchViaProxy(base + '/api/v1/tasks/' + tid, { method: 'GET', headers: { Authorization: 'Bearer ' + (s.apiKey || '') }, timeoutMs: 60000, label: 'Wan 查询' });
+          if (!r || !r.ok) return { state: 'wait' };
+          let j = null; try { j = JSON.parse(r.text); } catch { return { state: 'wait' }; }
+          const st = j && j.output && j.output.task_status;
+          if (st === 'SUCCEEDED') return j.output.video_url ? { state: 'done', url: j.output.video_url } : { state: 'fail', error: '成功但无视频地址' };
+          if (st === 'FAILED' || st === 'CANCELED') return { state: 'fail', error: (j.output && j.output.message) || st };
+          return { state: 'wait' };
+        });
+        return await downloadVideo(url, {});
+      },
+      // —— MiniMax 海螺：异步 task_id + query 接口 ——
+      async minimax(prompt, frameBlob, s, o) {
+        const base = String(s.url || VIDEO_VENDORS.minimax.base).replace(/\/+$/, '');
+        const headers = { 'Content-Type': 'application/json', Authorization: 'Bearer ' + (s.apiKey || '') };
+        const body = {
+          model: s.model || 'MiniMax-Hailuo-02', prompt, prompt_optimizer: true,
+          duration: String(Math.max(6, Math.min(10, Number(o.duration) || 6)) <= 6 ? 6 : 10),
+          resolution: String(o.resolution || '').toLowerCase().includes('1080') ? '1080P' : '768P',
+        };
+        if (frameBlob) body.first_frame_image = await blobToDataUrlScaled(frameBlob);
+        const r1 = await fetchViaProxy(base + '/v1/video_generation', { headers, body, label: 'MiniMax 提交' });
+        if (!r1.ok) throw new Error('MiniMax 提交 HTTP ' + r1.status + '：' + r1.text.slice(0, 300));
+        let j1 = null; try { j1 = JSON.parse(r1.text); } catch { throw new Error('MiniMax 响应非 JSON'); }
+        const tid = j1 && (j1.task_id || (j1.data && j1.data.task_id));
+        if (!tid) throw new Error('MiniMax 响应中没有 task_id：' + r1.text.slice(0, 200));
+        const url = await vendorPoll('MiniMax', 8000, async () => {
+          const r = await fetchViaProxy(base + '/v1/query/video_generation?task_id=' + encodeURIComponent(tid), { method: 'GET', headers, timeoutMs: 60000, label: 'MiniMax 查询' });
+          if (!r || !r.ok) return { state: 'wait' };
+          let j = null; try { j = JSON.parse(r.text); } catch { return { state: 'wait' }; }
+          const st = String(j.status || '').toLowerCase();
+          if (st === 'success' || st === 'file_downloaded') {
+            const u = j.file && (j.file.download_url || j.file.url);
+            return u ? { state: 'done', url: u } : { state: 'fail', error: '成功但无视频地址' };
+          }
+          if (st === 'fail') return { state: 'fail', error: (j.base_resp && j.base_resp.status_msg) || '失败' };
+          return { state: 'wait' };
+        });
+        return await downloadVideo(url, {});
+      },
+      // —— 生数 Vidu：img2video/text2video，图片 base64 直传 ——
+      async vidu(prompt, frameBlob, s, o) {
+        const base = String(s.url || VIDEO_VENDORS.vidu.base).replace(/\/+$/, '');
+        const headers = { 'Content-Type': 'application/json', Authorization: 'Token ' + (s.apiKey || '') };
+        const path = frameBlob ? 'img2video' : 'text2video';
+        const body = {
+          model: s.model || 'vidu2.0', prompt,
+          duration: Math.max(4, Math.min(8, Number(o.duration) || 4)) <= 4 ? 4 : 8,
+          resolution: String(o.resolution || '').toLowerCase().includes('1080') ? '1080p' : '720p',
+        };
+        if (frameBlob) body.images = [await blobToDataUrlScaled(frameBlob)];
+        const r1 = await fetchViaProxy(base + '/ent/v2/' + path, { headers, body, label: 'Vidu 提交' });
+        if (!r1.ok) throw new Error('Vidu 提交 HTTP ' + r1.status + '：' + r1.text.slice(0, 300));
+        let j1 = null; try { j1 = JSON.parse(r1.text); } catch { throw new Error('Vidu 响应非 JSON'); }
+        const tid = j1 && (j1.task_id || j1.id);
+        if (!tid) throw new Error('Vidu 响应中没有 task_id：' + r1.text.slice(0, 200));
+        const url = await vendorPoll('Vidu', 8000, async () => {
+          const r = await fetchViaProxy(base + '/ent/v2/tasks/' + tid, { method: 'GET', headers, timeoutMs: 60000, label: 'Vidu 查询' });
+          if (!r || !r.ok) return { state: 'wait' };
+          let j = null; try { j = JSON.parse(r.text); } catch { return { state: 'wait' }; }
+          const st = String(j.state || '').toLowerCase();
+          if (st === 'success') {
+            const vids = (j.resp && (j.resp.videos || j.resp.creations)) || j.videos || [];
+            const v = vids[0] || {};
+            const u = v.url || v.video_url;
+            return u ? { state: 'done', url: u } : { state: 'fail', error: '成功但无视频地址' };
+          }
+          if (st === 'failed') return { state: 'fail', error: j.err_msg || '失败' };
+          return { state: 'wait' };
+        });
+        return await downloadVideo(url, {});
+      },
+      // —— Runway Gen-4：X-Runway-Version 头，tasks 轮询 ——
+      async runway(prompt, frameBlob, s, o) {
+        const base = String(s.url || VIDEO_VENDORS.runway.base).replace(/\/+$/, '');
+        const headers = { 'Content-Type': 'application/json', Authorization: 'Bearer ' + (s.apiKey || ''), 'X-Runway-Version': '2024-11-06' };
+        const ratio = (o.ratio || '16:9') === '9:16' ? '720:1280' : '1280:720';
+        const dur = Math.max(5, Math.min(10, Number(o.duration) || 5)) <= 5 ? 5 : 10;
+        let ep = '/v1/text_to_video', body = { model: 'gen4_turbo', promptText: prompt, ratio, duration: dur };
+        if (frameBlob) { ep = '/v1/image_to_video'; body = { model: 'gen4_turbo', promptImage: await blobToDataUrlScaled(frameBlob), promptText: prompt, ratio, duration: dur }; }
+        const r1 = await fetchViaProxy(base + ep, { headers, body, label: 'Runway 提交' });
+        if (!r1.ok) throw new Error('Runway 提交 HTTP ' + r1.status + '：' + r1.text.slice(0, 300));
+        let j1 = null; try { j1 = JSON.parse(r1.text); } catch { throw new Error('Runway 响应非 JSON'); }
+        const tid = j1 && j1.id;
+        if (!tid) throw new Error('Runway 响应中没有任务 id：' + r1.text.slice(0, 200));
+        const url = await vendorPoll('Runway', 8000, async () => {
+          const r = await fetchViaProxy(base + '/v1/tasks/' + tid, { method: 'GET', headers, timeoutMs: 60000, label: 'Runway 查询' });
+          if (!r || !r.ok) return { state: 'wait' };
+          let j = null; try { j = JSON.parse(r.text); } catch { return { state: 'wait' }; }
+          if (j.status === 'SUCCEEDED') return (j.output && j.output[0]) ? { state: 'done', url: j.output[0] } : { state: 'fail', error: '成功但无视频地址' };
+          if (j.status === 'FAILED') return { state: 'fail', error: j.failure || j.status };
+          return { state: 'wait' };
+        });
+        return await downloadVideo(url, {});
+      },
+      // —— Google Veo（Gemini API）：predictLongRunning + operation 轮询 ——
+      async veo(prompt, frameBlob, s, o) {
+        const base = String(s.url || VIDEO_VENDORS.veo.base).replace(/\/+$/, '');
+        const model = s.model || 'veo-3.0-fast-generate-preview';
+        const ep = base + '/v1beta/models/' + encodeURIComponent(model) + ':predictLongRunning?key=' + encodeURIComponent(s.apiKey || '');
+        const inst = { prompt };
+        if (frameBlob) inst.image = { bytesBase64Encoded: await b64Pure(await blobToDataUrlScaled(frameBlob)), mimeType: 'image/png' };
+        const body = { instances: [inst], parameters: { aspectRatio: (o.ratio || '16:9') === '9:16' ? '9:16' : '16:9' } };
+        const r1 = await fetchViaProxy(ep, { headers: { 'Content-Type': 'application/json' }, body, label: 'Veo 提交' });
+        if (!r1.ok) throw new Error('Veo 提交 HTTP ' + r1.status + '：' + r1.text.slice(0, 300));
+        let j1 = null; try { j1 = JSON.parse(r1.text); } catch { throw new Error('Veo 响应非 JSON'); }
+        const op = j1 && j1.name;
+        if (!op) throw new Error('Veo 响应中没有 operation name：' + r1.text.slice(0, 200));
+        const url = await vendorPoll('Veo', 10000, async () => {
+          const r = await fetchViaProxy(base + '/v1beta/' + op + '?key=' + encodeURIComponent(s.apiKey || ''), { method: 'GET', timeoutMs: 60000, label: 'Veo 查询' });
+          if (!r || !r.ok) return { state: 'wait' };
+          let j = null; try { j = JSON.parse(r.text); } catch { return { state: 'wait' }; }
+          if (!j.done) return { state: 'wait' };
+          if (j.error) return { state: 'fail', error: j.error.message || '失败' };
+          const g = j.response && (j.response.generateVideoResponse || j.response);
+          const sample = g && ((g.generatedSamples && g.generatedSamples[0]) || (g.videos && g.videos[0]));
+          const u = sample && (sample.video ? sample.video.uri : sample.uri);
+          return u ? { state: 'done', url: u + (u.includes('?') ? '&' : '?') + 'key=' + encodeURIComponent(s.apiKey || '') } : { state: 'fail', error: '成功但无视频地址' };
+        });
+        return await downloadVideo(url, {});
+      },
+      // —— Luma Dream Machine：图片需公网 URL，本地图片仅文生视频 ——
+      async luma(prompt, frameBlob, s, o) {
+        const base = String(s.url || VIDEO_VENDORS.luma.base).replace(/\/+$/, '');
+        const headers = { 'Content-Type': 'application/json', Authorization: 'Bearer ' + (s.apiKey || '') };
+        const body = { prompt, model: 'ray-2', resolution: String(o.resolution || '').toLowerCase().includes('1080') ? '1080p' : '720p', duration: (Math.max(5, Math.min(9, Number(o.duration) || 5)) <= 5 ? '5s' : '9s') };
+        if (frameBlob) throw new Error('Luma 图生视频需要公网图片 URL——本地图片请改用文生视频，或换其他厂商');
+        const r1 = await fetchViaProxy(base + '/generations', { headers, body, label: 'Luma 提交' });
+        if (!r1.ok) throw new Error('Luma 提交 HTTP ' + r1.status + '：' + r1.text.slice(0, 300));
+        let j1 = null; try { j1 = JSON.parse(r1.text); } catch { throw new Error('Luma 响应非 JSON'); }
+        const tid = j1 && j1.id;
+        if (!tid) throw new Error('Luma 响应中没有任务 id：' + r1.text.slice(0, 200));
+        const url = await vendorPoll('Luma', 8000, async () => {
+          const r = await fetchViaProxy(base + '/generations/' + tid, { method: 'GET', headers, timeoutMs: 60000, label: 'Luma 查询' });
+          if (!r || !r.ok) return { state: 'wait' };
+          let j = null; try { j = JSON.parse(r.text); } catch { return { state: 'wait' }; }
+          if (j.state === 'completed') return (j.assets && j.assets.video) ? { state: 'done', url: j.assets.video } : { state: 'fail', error: '成功但无视频地址' };
+          if (j.state === 'failed') return { state: 'fail', error: j.failure_reason || '失败' };
+          return { state: 'wait' };
+        });
+        return await downloadVideo(url, {});
+      },
+      // —— PixVerse：API-KEY 头 + Ai-trace-id，base64 图片 ——
+      async pixverse(prompt, frameBlob, s, o) {
+        const base = String(s.url || VIDEO_VENDORS.pixverse.base).replace(/\/+$/, '');
+        const headers = { 'Content-Type': 'application/json', 'API-KEY': s.apiKey || '', 'Ai-trace-id': 'dshic-' + Date.now().toString(36) };
+        const path = frameBlob ? 'img2video' : 'text2video';
+        const body = {
+          model: 'v4.5', prompt,
+          duration: Math.max(5, Math.min(8, Number(o.duration) || 5)) <= 5 ? 5 : 8,
+          quality: String(o.resolution || '').toLowerCase().includes('1080') ? '1080p' : '720p',
+          aspect_ratio: (o.ratio || '16:9') === '9:16' ? '9:16' : '16:9',
+        };
+        if (frameBlob) body.image = await b64Pure(await blobToDataUrlScaled(frameBlob));
+        const r1 = await fetchViaProxy(base + '/video/' + path, { headers, body, label: 'PixVerse 提交' });
+        if (!r1.ok) throw new Error('PixVerse 提交 HTTP ' + r1.status + '：' + r1.text.slice(0, 300));
+        let j1 = null; try { j1 = JSON.parse(r1.text); } catch { throw new Error('PixVerse 响应非 JSON'); }
+        const vid = j1 && j1.Resp && j1.Resp.video_id;
+        if (!vid) throw new Error('PixVerse 响应中没有 video_id：' + r1.text.slice(0, 200));
+        const url = await vendorPoll('PixVerse', 8000, async () => {
+          const r = await fetchViaProxy(base + '/video/result/' + vid, { method: 'GET', headers, timeoutMs: 60000, label: 'PixVerse 查询' });
+          if (!r || !r.ok) return { state: 'wait' };
+          let j = null; try { j = JSON.parse(r.text); } catch { return { state: 'wait' }; }
+          const resp = j && j.Resp;
+          if (!resp) return { state: 'wait' };
+          if (resp.code === 0 && resp.url) return { state: 'done', url: resp.url };
+          if (resp.code !== 0 && resp.code !== 6 && resp.code !== 7 && resp.code !== 8) return { state: 'fail', error: resp.msg || ('code ' + resp.code) };
+          return { state: 'wait' }; // 6/7/8 = 生成中/排队中/处理中
+        });
+        return await downloadVideo(url, {});
+      },
+      // —— Stability AI：SVD 纯图生视频（multipart，无提示词），结果为 base64 JSON ——
+      async stability(prompt, frameBlob, s, o) {
+        const base = String(s.url || VIDEO_VENDORS.stability.base).replace(/\/+$/, '');
+        if (!frameBlob) throw new Error('Stability 图生视频必须有首帧图（该服务不支持纯文生视频、无提示词输入）');
+        const fd = new FormData();
+        fd.append('image', frameBlob, 'frame.png');
+        fd.append('cfg_scale', '1.8');
+        fd.append('motion_bucket_id', '127');
+        const serialized = new Response(fd);
+        const bodyRaw = arrayBufferToBase64(await serialized.arrayBuffer());
+        const r1 = await fetchViaProxy(base + '/v2beta/image-to-video', { method: 'POST', headers: { Authorization: 'Bearer ' + (s.apiKey || '') }, bodyRaw, bodyContentType: serialized.headers.get('content-type'), label: 'Stability 提交' });
+        if (!r1.ok) throw new Error('Stability 提交 HTTP ' + r1.status + '：' + r1.text.slice(0, 300));
+        let j1 = null; try { j1 = JSON.parse(r1.text); } catch { throw new Error('Stability 响应非 JSON'); }
+        const tid = j1 && j1.id;
+        if (!tid) throw new Error('Stability 响应中没有任务 id：' + r1.text.slice(0, 200));
+        const url = await vendorPoll('Stability', 10000, async () => {
+          const r = await fetchViaProxy(base + '/v2beta/image-to-video/result/' + tid, { method: 'GET', headers: { Authorization: 'Bearer ' + (s.apiKey || ''), Accept: 'video/*' }, timeoutMs: 120000, label: 'Stability 查询' });
+          if (!r) return { state: 'wait' };
+          if (r.status === 202) return { state: 'wait' };
+          if (r.status === 200) {
+            let j = null; try { j = JSON.parse(r.text); } catch { return { state: 'fail', error: '结果非 JSON' }; }
+            if (j.video) {
+              const u8 = Uint8Array.from(atob(j.video), (c) => c.charCodeAt(0));
+              const rec = await saveAssetRecord(S.activeId, 'video', new Blob([u8], { type: 'video/mp4' }), { name: 'stability-' + tid.slice(-6), source: 'api', category: 'finalcut' });
+              return { state: 'done', url: fileUrlFor(rec.rel) };
+            }
+          }
+          return { state: 'fail', error: 'HTTP ' + r.status + '：' + r.text.slice(0, 200) };
+        });
+        return await downloadVideo(url, {});
+      },
+    };
     async function apiVideo(prompt, frameBlob, s, opts) {
       const o = opts || {};
       // 衔接模式：auto=尾帧降级为参考图（保留实体参考图）；hard=硬首帧（放弃参考图，画面绝对承接）；
       // off=忽略首帧。网关禁止 first_frame 与 reference_image 混用，故 hard 模式必须放弃参考图。
       if (o.frameMode === 'off') frameBlob = null;
       if (o.frameMode === 'hard' && frameBlob) o.hardFrame = true;
+      // 厂商预设层：显式选择了厂商格式（或旧配置自动识别）→ 走该厂商的官方协议适配器
+      const vendor = detectVideoVendor(s);
+      if (vendor !== 'openai' && vendor !== 'seedance') {
+        const run = VIDEO_VENDOR_RUNNERS[vendor];
+        if (!run) throw new Error('暂未适配的视频厂商格式：' + vendor);
+        return await run(prompt, frameBlob, s, o);
+      }
       // OpenAI 风格视频接口（JUAI 等：/v1/video/generations）优先识别——
       // 即使误把协议设成 seedance 也不走火山官方协议（两者状态/结果字段不同）
-      if ((s.protocol === 'seedance' || (s.url || '').includes('contents/generations/tasks')) && !(s.url || '').includes('/video/generations')) {
+      if (vendor === 'seedance' && ((s.protocol === 'seedance' || (s.url || '').includes('contents/generations/tasks')) && !(s.url || '').includes('/video/generations'))) {
         return await seedanceVideo(prompt, frameBlob, o.hardFrame ? [] : (o.refs || []), s, o);
       }
       if (!s.url) throw new Error('未配置视频 API');
@@ -7298,8 +7609,18 @@ window.__ModuleLoader__.load({
               h('button', { type: 'button', className: 'dshic-iconbtn', title: T('doDelete'), onPointerDown: (e) => e.stopPropagation(), onClick: () => removeProvider(p.id) }, '×'),
             ),
             open ? [
-              h(Field, { key: 'u', label: T('baseUrl'), value: p[urlKey] || '', onChange: (v) => patchProvider(p.id, urlKey, v), placeholder: urlPh }),
-              h(Field, { key: 'k', label: T('apiKey'), value: p.apiKey || '', onChange: (v) => patchProvider(p.id, 'apiKey', v), placeholder: 'sk-…', password: true }),
+              kind === 'video' ? h('div', { key: 'vendor', className: 'dshic-field' },
+                h('span', { className: 'dshic-field-label' }, T('vendorLabel')),
+                h('select', {
+                  className: 'dshic-select', value: detectVideoVendor(p),
+                  onPointerDown: (e) => e.stopPropagation(),
+                  onChange: (e) => { const v = e.target.value; const vd = VIDEO_VENDORS[v]; patchProvider(p.id, 'vendor', v); if (vd && vd.base && !p[urlKey]) patchProvider(p.id, urlKey, vd.base); },
+                },
+                  Object.entries(VIDEO_VENDORS).map(([id, vd]) => h('option', { key: id, value: id }, vd.label))),
+                h('div', { className: 'dshic-hint' }, (VIDEO_VENDORS[detectVideoVendor(p)] || {}).note || ''),
+              ) : null,
+              h(Field, { key: 'u', label: T('baseUrl'), value: p[urlKey] || '', onChange: (v) => patchProvider(p.id, urlKey, v), placeholder: kind === 'video' ? ((VIDEO_VENDORS[detectVideoVendor(p)] || {}).base || urlPh) : urlPh }),
+              h(Field, { key: 'k', label: T('apiKey'), value: p.apiKey || '', onChange: (v) => patchProvider(p.id, 'apiKey', v), placeholder: kind === 'video' ? ((VIDEO_VENDORS[detectVideoVendor(p)] || {}).keyPh || 'sk-…') : 'sk-…', password: true }),
               kind === 'image' ? [
                 h(Field, { key: 'size', label: T('imgSizeOverride'), value: p.size || '', onChange: (v) => patchProvider(p.id, 'size', v), placeholder: T('imgSizePlaceholder') }),
                 h(Field, { key: 'rf', label: T('imgResponseFormat'), value: p.responseFormat || '', onChange: (v) => patchProvider(p.id, 'responseFormat', v), placeholder: 'b64_json / url（留空=API 默认）' }),
@@ -7309,13 +7630,15 @@ window.__ModuleLoader__.load({
                     h('option', { value: 'generations' }, T('modeGenerations')),
                     h('option', { value: 'edits' }, T('modeEdits')))),
               ] : [
-                h(Field, { key: 'of', label: T('vidOutFormat'), value: p.outputFormat || '', onChange: (v) => patchProvider(p.id, 'outputFormat', v), placeholder: 'mp4（留空不发送）' }),
-                h('label', { key: 'ga', className: 'dshic-row', style: { gap: 6, fontSize: 11 } },
+                (detectVideoVendor(p) === 'openai' || detectVideoVendor(p) === 'seedance') ? h(Field, { key: 'of', label: T('vidOutFormat'), value: p.outputFormat || '', onChange: (v) => patchProvider(p.id, 'outputFormat', v), placeholder: 'mp4（留空不发送）' }) : null,
+                (detectVideoVendor(p) === 'openai' || detectVideoVendor(p) === 'seedance') ? h('label', { key: 'ga', className: 'dshic-row', style: { gap: 6, fontSize: 11 } },
                   h('input', { type: 'checkbox', checked: p.generateAudio === true, onChange: (e) => patchProvider(p.id, 'generateAudio', e.target.checked), onPointerDown: (e) => e.stopPropagation() }),
-                  h('span', {}, T('vidAudioOpt'))),
+                  h('span', {}, T('vidAudioOpt'))) : null,
               ],
-              h(Field, { key: 'extra', label: T('cfgExtra'), value: p.extra || '', onChange: (v) => patchProvider(p.id, 'extra', v), placeholder: '{"watermark":false,"prompt_extend":false}' }),
-              h('div', { className: 'dshic-hint' }, T('cfgExtraHint')),
+              (kind === 'image' || detectVideoVendor(p) === 'openai' || detectVideoVendor(p) === 'seedance') ? [
+                h(Field, { key: 'extra', label: T('cfgExtra'), value: p.extra || '', onChange: (v) => patchProvider(p.id, 'extra', v), placeholder: '{"watermark":false,"prompt_extend":false}' }),
+                h('div', { className: 'dshic-hint' }, T('cfgExtraHint')),
+              ] : null,
               h('div', { className: 'dshic-row', style: { marginTop: 4 } },
                 h('span', { className: 'dshic-field-label', style: { flex: 1, minWidth: 0 } }, T('modelsLabel')),
                 h('button', { type: 'button', className: 'dshic-mini', onPointerDown: (e) => e.stopPropagation(), onClick: () => addModel(p.id) }, Ic('plus', 11), T('addModel')),
