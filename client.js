@@ -4473,7 +4473,7 @@ window.__ModuleLoader__.load({
             });
             update((s) => {
               const nd = s.graph.nodes[n.id];
-              if (nd) nd.data.lastAssetId = fRec.id;
+              if (nd) { nd.data.lastAssetId = fRec.id; nd.data.lastAssetVideo = rec.id; }
               s.assetsTick++;
             });
           } catch { /* 尾帧提取失败不影响主流程 */ }
@@ -5474,6 +5474,30 @@ window.__ModuleLoader__.load({
       const [showCraft, setShowCraft] = useState(false);
       const [voiceDlg, setVoiceDlg] = useState(false);
       useEffect(() => { probeCraft(); }, []);
+      // 视频产物自动提取尾帧（含外部注入/导入的视频）：last 口与跨镜衔接不依赖"必须由本节点生成"
+      useEffect(() => {
+        if (kind !== 'video' || !n.data.assetId) return;
+        if (n.data.lastAssetId && n.data.lastAssetVideo === n.data.assetId) return;
+        let cancelled = false;
+        (async () => {
+          try {
+            const blob = await assetBlob(n.data.assetId);
+            if (!blob || cancelled) return;
+            const fBlob = await extractLastFrame(blob);
+            if (!fBlob || cancelled) return;
+            const rec = await saveAssetRecord(S.activeId, 'image', fBlob, {
+              name: T('lastFrame') + '-' + (n.data.label || n.id.slice(-4)),
+              prompt: 'last frame of ' + String(n.data.label || ''), source: 'api', category: 'image',
+            });
+            update((s) => {
+              const nd = s.graph.nodes[n.id];
+              if (nd && nd.data.assetId === n.data.assetId) { nd.data.lastAssetId = rec.id; nd.data.lastAssetVideo = n.data.assetId; }
+              s.assetsTick++;
+            });
+          } catch { /* 提取失败静默：不影响视频预览与 out 口 */ }
+        })();
+        return () => { cancelled = true; };
+      }, [kind, n.data.assetId, n.data.label]);
       const promptEdge = S.graph.edges.find((x) => x.toNode === n.id && x.toPort === 'prompt');
       const promptSrc = promptEdge && S.graph.nodes[promptEdge.fromNode];
       const fromStoryboard = !!(promptSrc && promptSrc.type === 'storyboard');
