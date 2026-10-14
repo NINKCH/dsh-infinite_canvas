@@ -2,7 +2,7 @@
 
 **A node-based short-drama studio inside DeepSeek Harness.** Start from a one-line idea, walk out with a storyboarded, voiced, subtitled video cut — right on an infinite canvas.
 
-English | [简体中文](./README.zh-CN.md)
+English | [简体中文](./README.zh-CN.md) | [操作手册 / User Guide (中文)](./docs/guide.zh-CN.md)
 
 <!-- Badges: add CI / npm / license badges here after publishing -->
 
@@ -12,23 +12,53 @@ Infinite Canvas is a [DeepSeek Harness](https://github.com/deepseek-ai) plugin t
 
 Everything runs locally in your Harness. Bring your own generation APIs, or use the built-in demo mode to learn the whole flow with zero configuration.
 
+## Drive it from the chat
+
+The canvas and the agent share one brain. Every node is an AI workbench, and the **chat side is the director**: ask in plain language and the agent operates the canvas tools for you — batch work especially.
+
+> *"Create a project called Time-Postman, write the world view and series bible first."*
+> *"Write episode 1 based on the bible."* → the script node generates one episode (60–120s), every scene marked with a `【场N】` header.
+> *"Expand episode 1 into scenes."* → per-scene text nodes + storyboard nodes appear, wired automatically.
+> *"Generate reference images for every character, scene and prop."* → ten image nodes created and generated in one go.
+> *"Generate scene 1's video."* → storyboard shots + reference images compose one multi-shot video call.
+> *"Send episode 1 to FilmCraft for an MP4 render."* → FCP7 XML + SRT land in your data root for the Craft suite.
+
+The heavy lifting — bibles, episode scripts, storyboard breakdowns, batches of reference images — is exactly what the agent is fast at. You then fine-tune the 20% you care about directly on the nodes: tweak a prompt, reorder references, re-roll one shot, pull an older result from history.
+
+## Case study: Time-Postman (时空邮递员)
+
+A full episode produced end to end with the flow above. The canvas after the asset pass — ten reference-image nodes (character / scene / prop multi-view sheets) plus the six per-scene text nodes of episode 1:
+
+![Canvas — asset nodes and scene text nodes](./docs/images/case-canvas-assets.png)
+
+Script node wired to its storyboard node (the script carries `【场N】` scene headers; the storyboard breaks one scene into shots with per-shot `dialogue` annotations):
+
+![Script → storyboard](./docs/images/case-script-storyboard.png)
+
+A scene video node: model picked from the provider's model list, duration/ratio/resolution on the node, four reference images bound in order:
+
+![Video node with references](./docs/images/case-video-node-refs.png)
+
+Providers are configured once (URL + key + vendor-specific extra params) and can hold many models — one is starred as the default route:
+
+![Provider detail](./docs/images/model-provider-detail.png)
+
 ## How it works
 
 ```mermaid
 flowchart LR
-    A[Script node<br>AI screenplay] --> B[Storyboard node<br>AI shot list]
-    B --> C[Expand to canvas]
-    C --> D[Multi-shot video gen<br>all shots in ONE prompt]
-    D --> E[Final cut<br>transitions · subtitles · voices]
-    E --> F[Export<br>WebM preview / FilmCraft MP4]
-    A --> G[Reference image gen<br>characters · scenes · props]
-    G --> D
+    A[Script node<br>ONE episode · scene headers] --> B[Expand to scenes<br>text + storyboard per scene]
+    B --> C[Multi-shot video per scene<br>shots + refs in ONE call]
+    C --> D[Tail-frame chaining<br>scene N last frame → N+1 first frame]
+    A --> E[Reference image gen<br>characters · scenes · props]
+    E --> C
+    D --> F[Final cut / FilmCraft<br>transitions · subtitles · voices]
 ```
 
 ## Highlights
 
 ### Consistent characters, scene after scene
-A per-project **series bible** (style baseline + character/scene/prop cards) is injected into every AI call, so wardrobes, locations and props stay coherent across shots and episodes. After each storyboard run, a local consistency check flags any name that isn't registered yet.
+A per-project **series bible** (style baseline + character/scene/prop cards) is injected into every AI call, so wardrobes, locations and props stay coherent across shots and episodes. Entities referenced with `@name` in a prompt automatically carry their bible description and reference assets. After each storyboard run, a consistency check flags any name that isn't registered yet, and the agent fills the gaps.
 
 ### References that actually bind
 Reference images connect as an ordered, visible list — `[图1] 角色：Lin Ning`, `[图2] 场景：The Old House` — and that exact order is what reaches the model. Multi-character frames stay unambiguous, and Volcano Engine **Seedance**'s native `[图N]` convention is supported end to end (first frame, up to 4 reference images, official task API).
@@ -40,28 +70,32 @@ Reference images connect as an ordered, visible list — `[图1] 角色：Lin Ni
 Pan, zoom, marquee select, alignment guides, groups that fold, a minimap, 60-step undo/redo, per-node media history (last 8 results), mask-based inpainting, and middle-click everything — the canvas part should feel like an editor, not a chat sidebar.
 
 ### Bring your own models
-Text models come from Harness itself (no extra keys, no per-plugin parameters). Image, video and TTS backends are **multi-config** — define as many endpoints as you want, mark a default, and pick per node. Every gateway call is relayed through the local Harness host process, so **any vendor works** (no CORS headaches). No backend configured? Demo mode synthesizes placeholder images and animated videos locally so the entire pipeline is testable offline.
+Text models come from Harness itself (no extra keys, no per-plugin parameters). Image and video backends use a **provider + model** structure: configure a provider once (URL, key, optional vendor-specific **extra params** as JSON) and list as many model IDs under it as you like; star one as the **default route** for nodes that don't pick one. Video endpoints are auto-adapted — OpenAI-style task APIs, Seedance-native `content[]` gateways and Sora-style `/v1/videos` are covered by an automatic fallback chain, resolutions/ratios/first-frames/references are mapped to each vendor's conventions, and oversized references are downscaled before sending. Every gateway call is relayed through the local Harness host process, so **any vendor works** (no CORS headaches). No backend configured? Demo mode synthesizes placeholder images and animated videos locally so the entire pipeline is testable offline.
 
 ### A portable data root
-Set a **data root folder** once and everything lands there, organized by **project name**: nodes and the series bible in `project.json`, the asset index in `assets.json`, media under `image/ video/ audio/ text/`, and Craft post-production under `craft/`. Move to a new machine by copying the folder and clicking **Import from data root**.
+Set a **data root folder** once and everything lands there, organized by **project name**: nodes and the series bible in `project.json`, the asset index in `assets.json`, media under `image/ video/ audio/ text/`, and Craft post-production under `craft/`. **Moving to a new machine = copying the folder**: point the new install's data root at it and every project (assets, bible, media) is recognized — plus a one-click **Import from data root** for anything not yet on disk. Put the folder inside a cloud-sync directory and multiple machines stay in sync automatically.
 
 ## Quick start
 
 1. Install the plugin (bundle folder) and restart Harness once.
-2. Click the **Infinite Canvas** button in the left sidebar.
-3. Add a **Script** node, type a logline, hit *AI write script*.
-4. Connect it to a **Storyboard** node → *AI break into shots* → *Expand to canvas*.
-5. Drop character images onto the placeholder asset nodes, hit *Run workflow*, then open a **Final Cut** node and export.
+2. Click the **Infinite Canvas** button in the left sidebar, and set a **data root** in Settings.
+3. In the chat: *"Create a project called <your idea>, write the world view and series bible first."*
+4. *"Write episode 1."* → script node generates one episode with `【场N】` scene headers → click **Expand to scenes** (or ask the agent) to get text + storyboard nodes per scene.
+5. *"Generate reference images for all characters, scenes and props."* → named, bible-consistent asset images in one batch.
+6. *"Generate scene 1's video."* → storyboard shots + references compose one multi-shot video call; chain scenes via tail-frame → first-frame.
+7. Open a **Final Cut** node for the preview cut, or export to FilmCraft for a true MP4.
 
 > Without any generation API configured, every step runs in demo mode — the full pipeline works offline.
+
+The full walkthrough (with screenshots, model configuration and data-root migration) lives in the [Chinese user guide](./docs/guide.zh-CN.md).
 
 ## Generation backends
 
 | Kind | Protocol | Notes |
 |---|---|---|
-| Text | Harness LLM service | Script & storyboard writers; pick any configured model, or override per node |
-| Image | OpenAI-compatible `/images/generations`, multi-reference via `/images/edits` | Size (1K/2K/4K) × ratio; mask inpainting via `edits` + PNG mask |
-| Video | Generic submit+poll, or **Volcano Seedance official tasks** | duration up to 15 s, 480P/720P/1080P, ratio, first frame, up to 4 reference images |
+| Text | Harness LLM service | Episode scripts & storyboard writers; pick any configured model, or override per node |
+| Image | OpenAI-compatible `/images/generations`, multi-reference via `/images/edits` | Provider + model list with starred default; size (1K/2K/4K) × ratio; extra params as JSON; mask inpainting via `edits` + PNG mask |
+| Video | OpenAI-style task APIs, Seedance-native `content[]`, Sora-style `/v1/videos` — automatic fallback chain | Episodes per scene (≤15s), 480P/720P/1080P, ratio, first frame, multi-reference (auto-downscaled), voice references via `audios[]` |
 | TTS | OpenAI-compatible `/audio/speech` | Per-shot voices mixed into the final cut |
 
 All gateway calls are relayed by the local Harness host process (no browser CORS limits) — any vendor endpoint with an OpenAI-style shape works.
