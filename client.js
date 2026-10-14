@@ -2084,6 +2084,16 @@ window.__ModuleLoader__.load({
       if (!r.ok) throw new Error('下载视频失败 HTTP ' + r.status);
       return r.blob;
     }
+    /** 跨镜衔接标注（短剧分镜链式生成的行业标准做法）：图1=上一镜尾帧（仅用于衔接），
+     *  图2..N=实体参考图（名称与 o.refNames 对齐）。Seedance 的 first_frame 与 reference_image 互斥，
+     *  尾帧+参考图同连时尾帧降级为第一张衔接参考图，靠顺序+标注控制用途。 */
+    function videoRefNote(refNames) {
+      const names = (refNames || []).map((x) => String(x || '').trim()).filter(Boolean);
+      const parts = ['[图1] 为上一镜尾帧，仅用于镜头衔接：视频起始画面必须从该帧自然延续'];
+      names.forEach((nm, i) => { parts.push('[图' + (i + 2) + '] 为「' + nm + '」的参考图'); });
+      parts.push('除尾帧外请保持各实体外观与参考图一致');
+      return '（' + parts.join('；') + '）';
+    }
     /** 火山方舟 Seedance 官方协议：创建任务 → 轮询 → 下载（支持首帧 + 最多 4 张参考图）。 */
     async function seedanceVideo(prompt, frameBlob, refs, s, opts) {
       if (!s.url) throw new Error('未配置视频 API');
@@ -2091,15 +2101,19 @@ window.__ModuleLoader__.load({
       const base = s.url.replace(/\/+$/, '');
       const headers = { 'Content-Type': 'application/json', ...(s.apiKey ? { Authorization: 'Bearer ' + s.apiKey } : {}) };
       const o = opts || {};
-      // 首帧与参考图不能混用（Seedance 网关直接 400：first_frame/reference_image 互斥）
-      // → 首帧模式只认 first_frame（跨镜连贯优先），参考图仅在无首帧时生效
-      const refBlobs = frameBlob ? [] : (refs || []).slice(0, 4);
+      // first_frame 与 reference_image 互斥（网关 400）。跨镜衔接（尾帧+参考图同连）→
+      // 首帧降级为第一张衔接参考图：全部按 reference_image 传、提示词按序标注、比例不锁 adaptive
+      const rawRefs = (refs || []).slice(0, 8);
+      const downgrade = Boolean(frameBlob && rawRefs.length);
+      const refBlobs = downgrade ? [frameBlob].concat(rawRefs) : rawRefs;
       let text = prompt;
-      if (refBlobs.length && !/\[图\d\]/.test(prompt)) {
+      if (downgrade) {
+        text += '\n' + videoRefNote(o.refNames);
+      } else if (refBlobs.length && !/\[图\d\]/.test(prompt)) {
         text += '\n（' + [...Array(refBlobs.length)].map((_, i) => '[图' + (i + 1) + ']').join('') + ' 为参考图，请保持其人物/场景/道具特征一致）';
       }
       const content = [{ type: 'text', text }];
-      if (frameBlob) content.push({ type: 'image_url', image_url: { url: await blobToDataUrlScaled(frameBlob) }, role: 'first_frame' });
+      if (frameBlob && !downgrade) content.push({ type: 'image_url', image_url: { url: await blobToDataUrlScaled(frameBlob) }, role: 'first_frame' });
       for (const b of refBlobs) content.push({ type: 'image_url', image_url: { url: await blobToDataUrlScaled(b) }, role: 'reference_image' });
       const body = {
         model: s.model,
@@ -2111,7 +2125,7 @@ window.__ModuleLoader__.load({
         generate_audio: s.generateAudio === true,
       };
       try { const extra = parseExtraParams(s.extra); if (extra) Object.assign(body, extra); } catch (e) { throw new Error('视频 API 扩展参数配置有误：' + ((e && e.message) || e)); }
-      body.ratio = frameBlob ? 'adaptive' : (o.ratio || '16:9');
+      body.ratio = (frameBlob && !downgrade) ? 'adaptive' : (o.ratio || '16:9');
       const res = await fetchViaProxy(base, { headers, body, timeoutMs: Number(s.timeoutMs) > 0 ? Number(s.timeoutMs) : 120000, label: 'Seedance 视频 API' });
       if (!res.ok) throw new Error('Seedance HTTP ' + res.status + '：' + res.text.slice(0, 300));
       const j = JSON.parse(res.text || '{}');
@@ -2137,10 +2151,15 @@ window.__ModuleLoader__.load({
     /** Seedance 原生 content[] 格式兜底（RelayRouter 等：POST /v1/video/generations {model, content, metadata}，
      *  轮询 GET /v1/video/query?task_id=...）。首帧/参考图角色与 Seedance 原生协议一致（图压缩内联）。 */
     async function relayVideoContentFallback(base, prompt, frameBlob, o, s, headers) {
-      const content = [{ type: 'text', text: prompt }];
-      if (frameBlob) content.push({ type: 'image_url', image_url: { url: await blobToDataUrlScaled(frameBlob) }, role: 'first_frame' });
-      // 首帧与参考图不能混用 → 有首帧时不带参考图
-      else for (const b of (o.refs || [])) content.push({ type: 'image_url', image_url: { url: await blobToDataUrlScaled(b) }, role: 'reference_image' });
+      // 尾帧+参考图同连（跨镜衔接）→ 尾帧降级为第一张衔接参考图（first_frame/reference_image 互斥）
+      const rawRefs = (o.refs || []).slice(0, 8);
+      const downgrade = Boolean(frameBlob && rawRefs.length);
+      const refBlobs = downgrade ? [frameBlob].concat(rawRefs) : rawRefs;
+      // 注意：prompt 由调用方（apiVideo 通用路径）传入，downgrade 时的 videoRefNote 已在通用路径追加，这里不重复
+      const text = prompt;
+      const content = [{ type: 'text', text }];
+      if (frameBlob && !downgrade) content.push({ type: 'image_url', image_url: { url: await blobToDataUrlScaled(frameBlob) }, role: 'first_frame' });
+      for (const b of refBlobs) content.push({ type: 'image_url', image_url: { url: await blobToDataUrlScaled(b) }, role: 'reference_image' });
       const body = {
         model: s.model,
         content,
@@ -2224,6 +2243,10 @@ window.__ModuleLoader__.load({
       else if (/\/v1$/.test(base)) base = base + '/video/generations';
       const isOpenaiVideo = /\/video\/generations$/.test(base);
       const headers = { 'Content-Type': 'application/json', ...(s.apiKey ? { Authorization: 'Bearer ' + s.apiKey } : {}) };
+      // 尾帧+参考图同连（跨镜衔接）→ 尾帧降级为第一张衔接参考图（first_frame/reference_image 互斥），标注写在提示词里
+      const vRefs = (o.refs || []).slice(0, 8);
+      const downgrade = Boolean(frameBlob && vRefs.length);
+      if (downgrade) prompt += '\n' + videoRefNote(o.refNames);
       const body = {
         ...(s.model ? { model: s.model } : {}),
         prompt,
@@ -2232,15 +2255,15 @@ window.__ModuleLoader__.load({
         resolution: (o.resolution || '720p').toLowerCase(),
         ratio: o.ratio || '16:9',
       };
-      // 首帧图生视频：构图以首帧为准——Seedance 系要求首帧模式必须 ratio=adaptive
-      if (frameBlob) body.ratio = 'adaptive';
-      if (frameBlob) {
-        // 首帧与参考图不能混用（Seedance 系网关 400：first_frame/reference_image 互斥）→ 首帧模式只认 first_frame
+      // 首帧图生视频：构图以首帧为准——Seedance 系要求首帧模式必须 ratio=adaptive（仅纯首帧模式）
+      if (frameBlob && !downgrade) {
+        body.ratio = 'adaptive';
         try { body.image = await blobToDataUrlScaled(frameBlob); } catch { /* 忽略首帧编码失败 */ }
-      } else if (o.refs && o.refs.length) {
+      } else if (vRefs.length) {
+        const imgs = downgrade ? [frameBlob].concat(vRefs) : vRefs;
         body.images = isOpenaiVideo
-          ? await Promise.all(o.refs.map(async (b) => ({ url: await blobToDataUrlScaled(b), role: 'reference_image' })))
-          : await Promise.all(o.refs.map((b) => blobToDataUrlScaled(b)));
+          ? await Promise.all(imgs.map(async (b) => ({ url: await blobToDataUrlScaled(b), role: 'reference_image' })))
+          : await Promise.all(imgs.map((b) => blobToDataUrlScaled(b)));
       }
       // 可选参数：勾选才发送 generate_audio；output_format 留空不发送
       if (s.generateAudio === true) body.generate_audio = true;
@@ -4374,6 +4397,7 @@ window.__ModuleLoader__.load({
           const blob = await apiVideo(p, frameBlob, mcfg, {
             duration: n.data.duration, resolution: n.data.resolution, ratio: n.data.ratio,
             refs: refs.map((r) => r.blob),
+            refNames: refs.map((r) => r.entity || r.name || ''), // 跨镜衔接标注用（图2..N 的实体名）
             audioRefs: audioBlobs.map((a) => a.blob), // 角色声音参考（@引用实体名下的音频资产）
           });
           const rec = await saveAssetRecord(S.activeId, 'video', blob, {
