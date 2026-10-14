@@ -2091,7 +2091,9 @@ window.__ModuleLoader__.load({
       const base = s.url.replace(/\/+$/, '');
       const headers = { 'Content-Type': 'application/json', ...(s.apiKey ? { Authorization: 'Bearer ' + s.apiKey } : {}) };
       const o = opts || {};
-      const refBlobs = (refs || []).slice(0, 4);
+      // 首帧与参考图不能混用（Seedance 网关直接 400：first_frame/reference_image 互斥）
+      // → 首帧模式只认 first_frame（跨镜连贯优先），参考图仅在无首帧时生效
+      const refBlobs = frameBlob ? [] : (refs || []).slice(0, 4);
       let text = prompt;
       if (refBlobs.length && !/\[图\d\]/.test(prompt)) {
         text += '\n（' + [...Array(refBlobs.length)].map((_, i) => '[图' + (i + 1) + ']').join('') + ' 为参考图，请保持其人物/场景/道具特征一致）';
@@ -2137,7 +2139,8 @@ window.__ModuleLoader__.load({
     async function relayVideoContentFallback(base, prompt, frameBlob, o, s, headers) {
       const content = [{ type: 'text', text: prompt }];
       if (frameBlob) content.push({ type: 'image_url', image_url: { url: await blobToDataUrlScaled(frameBlob) }, role: 'first_frame' });
-      for (const b of (o.refs || [])) content.push({ type: 'image_url', image_url: { url: await blobToDataUrlScaled(b) }, role: 'reference_image' });
+      // 首帧与参考图不能混用 → 有首帧时不带参考图
+      else for (const b of (o.refs || [])) content.push({ type: 'image_url', image_url: { url: await blobToDataUrlScaled(b) }, role: 'reference_image' });
       const body = {
         model: s.model,
         content,
@@ -2232,11 +2235,8 @@ window.__ModuleLoader__.load({
       // 首帧图生视频：构图以首帧为准——Seedance 系要求首帧模式必须 ratio=adaptive
       if (frameBlob) body.ratio = 'adaptive';
       if (frameBlob) {
+        // 首帧与参考图不能混用（Seedance 系网关 400：first_frame/reference_image 互斥）→ 首帧模式只认 first_frame
         try { body.image = await blobToDataUrlScaled(frameBlob); } catch { /* 忽略首帧编码失败 */ }
-        // OpenAI 风格接口禁止首帧与参考图混用（首帧模式只认 first_frame）→ 有首帧时不带参考图
-        if (!(isOpenaiVideo && o.refs && o.refs.length)) {
-          if (o.refs && o.refs.length) body.images = await Promise.all(o.refs.map((b) => blobToDataUrlScaled(b)));
-        }
       } else if (o.refs && o.refs.length) {
         body.images = isOpenaiVideo
           ? await Promise.all(o.refs.map(async (b) => ({ url: await blobToDataUrlScaled(b), role: 'reference_image' })))
