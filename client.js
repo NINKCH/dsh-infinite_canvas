@@ -265,6 +265,11 @@ window.__ModuleLoader__.load({
       'llmLabel': '文本模型（DeepSeek）',
       'llmHint': '剧本与分镜提示词使用 Harness 当前配置的模型生成，无需另配 Key。',
       'saveTextAsset': '存为资产',
+      'zoomView': '放大查看',
+      'copyAll': '复制全部',
+      'copiedOk': '已复制到剪贴板',
+      'copyFail': '复制失败：请手动选择文本复制',
+      'lbHint': '点击空白处或按 Esc 关闭',
       'textAssetHint': '文本资产点击可放入画布文本节点',
       'placeholderAsset': '待补充',
       'searchLabel': '搜索名称 / 提示词 / 内容 / 项目',
@@ -639,6 +644,11 @@ window.__ModuleLoader__.load({
       'llmLabel': 'Text model (DeepSeek)',
       'llmHint': 'Scripts and storyboard prompts use the model configured in Harness — no extra key needed.',
       'saveTextAsset': 'Save as asset',
+      'zoomView': 'View large',
+      'copyAll': 'Copy all',
+      'copiedOk': 'Copied to clipboard',
+      'copyFail': 'Copy failed — select the text manually',
+      'lbHint': 'Click outside or press Esc to close',
       'textAssetHint': 'Click a text asset to place it as a canvas text node',
       'placeholderAsset': 'missing',
       'searchLabel': 'Search name / prompt / content / project',
@@ -1090,8 +1100,11 @@ window.__ModuleLoader__.load({
   color:var(--dsw-alias-label-secondary);font:inherit;font-size:11px;padding:0 3px;outline:none;cursor:pointer;flex:none;}
 .dshic-shot-list{display:flex;flex-direction:column;gap:4px;max-height:180px;overflow-y:auto;}
 .dshic-shot-item{border:1px solid var(--dsw-alias-border-l1);border-radius:7px;padding:5px 7px;font-size:11px;line-height:15px;
-  color:var(--dsw-alias-label-secondary);background:var(--dsw-alias-bg-layer-2);}
+  color:var(--dsw-alias-label-secondary);background:var(--dsw-alias-bg-layer-2);user-select:text;-webkit-user-select:text;cursor:text;}
 .dshic-shot-item strong{color:var(--dsw-alias-label-primary);font-size:11px;}
+.dshic-lightbox{position:fixed;inset:0;z-index:90;background:rgba(0,0,0,.82);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;padding:24px;}
+.dshic-lightbox img,.dshic-lightbox video{max-width:92vw;max-height:80vh;border-radius:8px;background:#000;box-shadow:0 12px 48px rgba(0,0,0,.5);}
+.dshic-lightbox-cap{font-size:12px;color:#eee;user-select:text;-webkit-user-select:text;max-width:80vw;word-break:break-all;text-align:center;}
 .dshic-textcard{width:100%;height:86px;box-sizing:border-box;border:none;background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-secondary);
   font:inherit;font-size:12px;line-height:18px;padding:7px 9px;overflow:hidden;text-align:left;display:block;white-space:pre-wrap;}
 /* 文本（剧本等）资产卡：只展示标题与项目标签，不展开正文 */
@@ -5477,13 +5490,18 @@ window.__ModuleLoader__.load({
         h(MentionInfo, { key: 'mn', n }),
         n.data.error ? h('div', { key: 'err', className: 'dshic-err' }, n.data.error) : null,
         assetUrlV && kind === 'image'
-          ? h('img', { key: 'img', className: 'dshic-preview', src: assetUrlV, draggable: false, 'data-no-drag': '1' })
+          ? h('img', { key: 'img', className: 'dshic-preview', src: assetUrlV, draggable: false, 'data-no-drag': '1', style: { cursor: 'zoom-in' }, onPointerDown: (e) => e.stopPropagation(), onClick: (e) => { e.stopPropagation(); openLightbox('image', assetUrlV, n.data.label); } })
           : null,
         assetUrlV && kind === 'video'
           ? h('video', { key: 'vid', className: 'dshic-video', src: assetUrlV, controls: true, preload: 'metadata', 'data-no-drag': '1', onPointerDown: (e) => e.stopPropagation() })
           : null,
         assetUrlV
           ? h('div', { key: 'acts', className: 'dshic-node-row' },
+              h('button', {
+                type: 'button', className: 'dshic-mini is-ghost',
+                onPointerDown: (e) => e.stopPropagation(),
+                onClick: () => openLightbox(kind, assetUrlV, n.data.label),
+              }, Ic('expandAll', 11), T('zoomView')),
               h('button', {
                 type: 'button', className: 'dshic-mini is-ghost',
                 onPointerDown: (e) => e.stopPropagation(),
@@ -5685,6 +5703,11 @@ window.__ModuleLoader__.load({
       };
       return [
         h('div', { key: 'row', className: 'dshic-node-row' },
+          assetUrlV ? h('button', {
+            type: 'button', className: 'dshic-mini is-ghost',
+            onPointerDown: (e) => e.stopPropagation(),
+            onClick: () => openLightbox(kind, assetUrlV, n.data.label || n.data.placeholderName),
+          }, Ic('expandAll', 11), T('zoomView')) : null,
           h('button', {
             type: 'button', className: 'dshic-mini is-ghost',
             onPointerDown: (e) => e.stopPropagation(),
@@ -5700,7 +5723,7 @@ window.__ModuleLoader__.load({
         ),
         h('input', { key: 'file', ref: fileRef, type: 'file', accept: kind === 'image' ? 'image/*' : 'video/*', style: { display: 'none' }, onChange: onFiles }),
         assetUrlV && kind === 'image'
-          ? h('img', { key: 'img', className: 'dshic-preview', src: assetUrlV, draggable: false, 'data-no-drag': '1' })
+          ? h('img', { key: 'img', className: 'dshic-preview', src: assetUrlV, draggable: false, 'data-no-drag': '1', style: { cursor: 'zoom-in' }, onPointerDown: (e) => e.stopPropagation(), onClick: (e) => { e.stopPropagation(); openLightbox('image', assetUrlV, n.data.label || n.data.placeholderName); } })
           : null,
         assetUrlV && kind === 'video'
           ? h('video', { key: 'vid', className: 'dshic-video', src: assetUrlV, controls: true, preload: 'metadata', 'data-no-drag': '1', onPointerDown: (e) => e.stopPropagation() })
@@ -5893,6 +5916,7 @@ window.__ModuleLoader__.load({
 
     function StoryboardNodeBody({ n }) {
       const running = n.data.aiStatus === 'running';
+      const [zoomDlg, setZoomDlg] = useState(false);
       const scriptEdge = S.graph.edges.some((x) => x.toNode === n.id && x.toPort === 'script');
       const scriptText = () => {
         if (scriptEdge) {
@@ -5951,7 +5975,7 @@ window.__ModuleLoader__.load({
           : null,
         shots.length
           ? h('div', { key: 'list', className: 'dshic-shot-list' },
-              shots.map((sh, i) => h('div', { key: i, className: 'dshic-shot-item' },
+              shots.map((sh, i) => h('div', { key: i, className: 'dshic-shot-item', onPointerDown: (e) => e.stopPropagation() },
                 h('strong', {}, `${sh.title} · ${sh.duration}s `), sh.visual,
                 (sh.dialogue || []).length
                   ? h('div', { className: 'dshic-shot-label', style: { marginTop: 3 } }, '台词 ' + sh.dialogue.map((d) => `${d.role}：${d.line}`).join('；'))
@@ -5964,6 +5988,11 @@ window.__ModuleLoader__.load({
           : null,
         shots.length
           ? h('div', { key: 'acts', className: 'dshic-node-row', style: { alignSelf: 'flex-start' } },
+              h('button', {
+                key: 'zoom', type: 'button', className: 'dshic-mini', title: T('zoomView'),
+                onPointerDown: (e) => e.stopPropagation(),
+                onClick: () => setZoomDlg(true),
+              }, Ic('expandAll', 11), T('zoomView')),
               // 手动"存为资产"：AI 生成已自动入库（category=storyboard），这里用于留存当前分镜的一版快照
               h('button', {
                 key: 'save', type: 'button', className: 'dshic-mini is-ghost', title: T('saveTextAsset'),
@@ -5982,6 +6011,36 @@ window.__ModuleLoader__.load({
               }, Ic('download', 11), T('saveTextAsset')),
               h('button', { key: 'expand', type: 'button', className: 'dshic-mini', onClick: () => expandStoryboard(n), onPointerDown: (e) => e.stopPropagation() },
                 Ic('expandAll', 11), T('expand') + ` (${shots.length})`),
+            )
+          : null,
+        zoomDlg && shots.length
+          ? h('div', { key: 'zoomdlg', className: 'dshic-modal-overlay', onPointerDown: (e) => { if (e.target === e.currentTarget) setZoomDlg(false); } },
+              h('div', { className: 'dshic-modal', style: { width: 640, maxWidth: 'calc(100vw - 48px)' } },
+                h('div', { className: 'dshic-modal-title' }, (n.data.label || T('storyboardAssetPrefix')) + ' · ' + shots.length + ' 镜 / ' + shots.reduce((a, x) => a + (Number(x.duration) || 0), 0) + 's'),
+                h('div', { style: { maxHeight: '62vh', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 6, marginTop: 8 } },
+                  shots.map((sh, i) => h('div', { key: i, className: 'dshic-shot-item' },
+                    h('strong', {}, `${i + 1}. ${sh.title} · ${sh.duration}s `), sh.visual,
+                    String(sh.motion || '').trim()
+                      ? h('div', { className: 'dshic-shot-label', style: { marginTop: 3 } }, '动作 ' + sh.motion)
+                      : null,
+                    (sh.dialogue || []).length
+                      ? h('div', { className: 'dshic-shot-label', style: { marginTop: 3 } }, '台词 ' + sh.dialogue.map((d) => `${d.role}：${d.line}`).join('；'))
+                      : null,
+                    String(sh.sfx || '').trim()
+                      ? h('div', { className: 'dshic-shot-label', style: { marginTop: 3, opacity: 0.85 } }, '音效 ' + String(sh.sfx).trim())
+                      : null,
+                  ))),
+                h('div', { className: 'dshic-modal-actions' },
+                  h('button', {
+                    type: 'button', className: 'dshic-mini',
+                    onClick: async () => {
+                      try { await navigator.clipboard.writeText(storyboardAssetText(shots)); toast(T('copiedOk')); }
+                      catch { toast(T('copyFail')); }
+                    },
+                  }, T('copyAll')),
+                  h('button', { type: 'button', className: 'dshic-mini', onClick: () => setZoomDlg(false) }, '✕'),
+                ),
+              ),
             )
           : null,
       ];
@@ -6867,6 +6926,13 @@ window.__ModuleLoader__.load({
             )
           : null,
         h('div', { className: 'dshic-asset-actions' },
+          (a.kind === 'image' || a.kind === 'video')
+            ? h('button', {
+                type: 'button', className: 'dshic-iconbtn', title: T('zoomView'),
+                onClick: (e) => { e.stopPropagation(); openLightbox(a.kind, url, a.name); },
+                onPointerDown: (e) => e.stopPropagation(),
+              }, Ic('expandAll', 11))
+            : null,
           a.kind === 'image'
             ? h('button', {
                 type: 'button', className: 'dshic-iconbtn', title: T('photoCraft'),
@@ -8070,6 +8136,7 @@ window.__ModuleLoader__.load({
           S.rightOpen ? h(Rightbar) : null,
         ),
         S.menu ? h(ContextMenu, { menu: S.menu }) : null,
+        S.lightbox ? h(Lightbox) : null,
         S._toast ? h('div', {
           style: {
             position: 'fixed', bottom: 22, left: '50%', transform: 'translateX(-50%)', zIndex: 70,
@@ -8078,6 +8145,32 @@ window.__ModuleLoader__.load({
             maxWidth: 420,
           },
         }, S._toast) : null,
+      );
+    }
+
+    // ============================================================
+    // 灯箱：图片/视频放大查看（节点预览与资产面板共用）
+    // ============================================================
+    function openLightbox(kind, url, name) {
+      if (!url) return;
+      update((s) => { s.lightbox = { kind, url, name: String(name || '') }; });
+    }
+    function closeLightbox() {
+      update((s) => { s.lightbox = null; });
+    }
+    function Lightbox() {
+      const lb = S.lightbox;
+      useEffect(() => {
+        const onKey = (e) => { if (e.key === 'Escape') closeLightbox(); };
+        window.addEventListener('keydown', onKey);
+        return () => window.removeEventListener('keydown', onKey);
+      }, []);
+      return h('div', { className: 'dshic-lightbox', onPointerDown: (e) => { if (e.target === e.currentTarget) closeLightbox(); } },
+        h('div', { className: 'dshic-lightbox-cap' }, (lb.name ? lb.name + ' · ' : '') + T('lbHint')),
+        lb.kind === 'video'
+          ? h('video', { src: lb.url, controls: true, preload: 'metadata', style: { maxWidth: '92vw', maxHeight: '80vh' } })
+          : h('img', { src: lb.url, draggable: false, style: { maxWidth: '92vw', maxHeight: '80vh', objectFit: 'contain' } }),
+        h('button', { type: 'button', className: 'dshic-mini is-ghost', style: { color: '#eee', borderColor: 'rgba(255,255,255,.35)' }, onClick: closeLightbox }, '✕'),
       );
     }
 
