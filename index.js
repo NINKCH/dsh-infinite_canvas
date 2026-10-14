@@ -1276,7 +1276,7 @@ const PORT_TABLE = {
   'text': { inputs: [], outputs: [{ id: 'out', kind: 'text' }] },
   'shot': { inputs: [{ id: 'char', kind: 'image' }, { id: 'scene', kind: 'image' }, { id: 'prop', kind: 'image' }], outputs: [{ id: 'visual', kind: 'text' }, { id: 'motion', kind: 'text' }] },
   'script': { inputs: [], outputs: [{ id: 'out', kind: 'text' }] },
-  'storyboard': { inputs: [{ id: 'script', kind: 'text' }], outputs: [{ id: 'out', kind: 'text' }] },
+  'storyboard': { inputs: [{ id: 'prev', kind: 'text' }, { id: 'script', kind: 'text' }], outputs: [{ id: 'out', kind: 'text' }, { id: 'tail', kind: 'text' }] },
   'image-gen': { inputs: [{ id: 'prompt', kind: 'text' }, { id: 'ref', kind: 'image' }], outputs: [{ id: 'out', kind: 'image' }] },
   'video-gen': { inputs: [{ id: 'prompt', kind: 'text' }, { id: 'frame', kind: 'image' }, { id: 'ref', kind: 'image' }], outputs: [{ id: 'out', kind: 'video' }, { id: 'last', kind: 'image' }] },
   'image-asset': { inputs: [{ id: 'in', kind: 'image' }], outputs: [{ id: 'out', kind: 'image' }] },

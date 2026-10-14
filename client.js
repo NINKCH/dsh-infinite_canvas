@@ -34,7 +34,11 @@ window.__ModuleLoader__.load({
         outputs: [{ id: 'visual', kind: 'text' }, { id: 'motion', kind: 'text' }],
       },
       'script': { inputs: [], outputs: [{ id: 'out', kind: 'text' }] },
-      'storyboard': { inputs: [{ id: 'script', kind: 'text' }], outputs: [{ id: 'out', kind: 'text' }] },
+      'storyboard': {
+        // 承接端口（按数组顺序自上而下排布）：顶部「衔接上一镜」← 上一个分镜表的「尾镜」输出
+        inputs: [{ id: 'prev', kind: 'text' }, { id: 'script', kind: 'text' }],
+        outputs: [{ id: 'out', kind: 'text' }, { id: 'tail', kind: 'text' }],
+      },
       'image-gen': {
         inputs: [{ id: 'prompt', kind: 'text' }, { id: 'ref', kind: 'image' }],
         outputs: [{ id: 'out', kind: 'image' }],
@@ -248,6 +252,8 @@ window.__ModuleLoader__.load({
       'nStoryboard': '分镜表',
       'nScript': '剧本',
       'portScript': '剧本',
+      'portPrev': '衔接上一镜（尾镜）',
+      'portTail': '尾镜（供下一分镜衔接）',
       'aiScript': 'AI 生成剧本',
       'aiStoryboard': 'AI 生成分镜',
       'expand': '铺开到画布',
@@ -635,6 +641,8 @@ window.__ModuleLoader__.load({
       'nStoryboard': 'Storyboard',
       'nScript': 'Script',
       'portScript': 'script',
+      'portPrev': 'Continue prev tail',
+      'portTail': 'Tail shot (for next)',
       'aiScript': 'AI write script',
       'aiStoryboard': 'AI break into shots',
       'expand': 'Expand to canvas',
@@ -3552,6 +3560,7 @@ window.__ModuleLoader__.load({
             '- motion 是本镜动作与运镜（主体动作节拍、机位运动方向与速度、情绪节奏，50 字内）；与 visual 不重复；',
             '- characters/scene/props 使用剧本与设定集中的名称（不带 @），便于匹配资产；无道具给空数组；',
             '- **dialogue 是本镜的角色台词**：把剧本中落在这一镜的对白逐行搬进来（{"role":"角色名","line":"台词原文"}），台词必须**逐字来自剧本**、不新写不改写；本镜无台词给空数组；一镜尽量只放一个角色的台词（单说话人镜头利于声音参考提取）；',
+            '- **【音话同步·硬性】有台词的镜头必须让说话角色在画面内开口说话**：景别用近景/中近景，脸部朝向可见（正面或 3/4 侧脸），禁止背对镜头、脸部被遮挡、人物出画；visual 或 motion 里必须写明「开口说话、口型清晰可见」；台词**绝不能**处理成画外音/旁白（否则成片里人嘴是闭的、声音飘在背景里）；若某句台词在剧本里说话人无法入画，就把这句台词安排到能看见他说话的那一镜；',
             '- **sfx 是本镜的音效/环境音**：剧本里括号标注的「（音效：…）（环境音：…）」按内容对齐到最贴近的镜头**逐字搬入**（多个用顿号连接）；无音效的镜头给空字符串——音效是成片声音设计的一部分，绝不丢弃；',
             '- **【完整覆盖】分镜必须覆盖所给剧本的全部内容**：每一个动作、每一句对白都要落在某个镜头里——不概述、不省略、不跳过、不"挑选重点"；镜头数量与总时长由剧本体量自然决定，宁多勿漏（容量超限由上层拆分剧本处理，不由分镜偷工减料）；',
             '- **镜头按实际内容切分**：一个连续动作段落 = 一镜，数量由内容自然决定（3-10 镜都正常）——绝不凑数、绝不使用固定数量；',
@@ -3568,6 +3577,7 @@ window.__ModuleLoader__.load({
             '- motion = action & camera for the shot (action beats, camera move, emotional rhythm, <=50 words); do not repeat visual;',
             '- characters/scene/props arrays must use plain names from the script and series bible (no @) so assets match; empty props array if none;',
             '- **dialogue = the character lines that fall in this shot**, moved verbatim from the script ({"role":"Name","line":"exact line"}); never rewrite lines; empty array if none; keep one speaker per shot when possible (helps voice-reference extraction);',
+            '- **[LIP-SYNC - HARD] any shot carrying dialogue must show the speaker TALKING ON SCREEN**: use a close-up / medium close-up with the face visible (frontal or 3/4), never back-to-camera, never obscured, never off-frame; state "speaks on screen, mouth clearly visible" in visual or motion; dialogue must NEVER become voice-over/narration (otherwise the final cut has a closed mouth with the voice floating in the background); if a line cannot be on camera in the script, move that line to the shot where the speaker is visible;',
             '- **sfx = sound cues / ambience for this shot**: bracketed notes like (SFX: ...) (Ambience: ...) from the script are moved verbatim into the closest matching shot (join multiples with commas); empty string if none — sound design is part of the film, never drop it;',
             '- **[FULL COVERAGE] the shots must cover EVERYTHING in the given script**: every action and every line must land in some shot — no summarizing, no omitting, no cherry-picking; shot count and total duration follow naturally from the script size (more is better than missing); capacity overflow is handled upstream by splitting the script, never by thinning the shots;',
             '- **Never use straight double quotes " inside JSON string values** — quoted text (signs/subtitles/lines) uses 「」 instead;',
@@ -3587,22 +3597,44 @@ window.__ModuleLoader__.load({
       const countLine = (Number(count) > 0)
         ? `${zh ? '参考镜头数量' : 'Reference shot count'}：约 ${count} 镜（**仅作参考**——必须按实际动作节拍切分，内容需要更多就更多，绝不凑数）`
         : `${zh ? '镜头数量' : 'Shot count'}：**不固定**——按实际动作节拍切分，由内容自然决定`;
-      // 承接约束：把上一场（场 N-1）分镜表的**最后一镜**作为硬性承接条件注入——
-      // 分镜自身就先连贯，视频端的尾帧衔接才有落点（否则两场各拍各的，剪在一起必然跳）
-      const prevLine = (prevTail && prevTail.shot)
-        ? (zh
-          ? `【承接约束·硬性】本分镜承接上一场「${prevTail.label}」的最后一镜（该镜内容如下）：\n`
-            + `  画面：${String(prevTail.shot.visual || '').trim()}\n`
-            + `  动作：${String(prevTail.shot.motion || '').trim()}\n`
-            + ((prevTail.shot.dialogue || []).length ? `  台词：${(prevTail.shot.dialogue || []).map((d) => d.role + '：' + d.line).join('；')}\n` : '')
-            + `本分镜的**第 1 镜必须从该镜结束时的画面与人物状态自然继续**（同一空间、同一人物位置与情绪状态），`
-            + `不得重新建立场景、不得跳回远景做交代、不得切换地点；第 1 镜的画面描述里要明确写出这种承接关系。`
-          : `[CONTINUITY CONSTRAINT - HARD] This storyboard continues the last shot of the previous scene "${prevTail.label}":\n`
-            + `  Frame: ${String(prevTail.shot.visual || '').trim()}\n`
-            + `  Action: ${String(prevTail.shot.motion || '').trim()}\n`
-            + ((prevTail.shot.dialogue || []).length ? `  Dialogue: ${(prevTail.shot.dialogue || []).map((d) => d.role + ': ' + d.line).join('; ')}\n` : '')
-            + `Shot 1 of this storyboard MUST continue naturally from the frame and character state where that shot ended (same space, same position and emotion) - no re-establishing the scene, no wide reset, no location change; state this continuity explicitly in shot 1's frame description.`)
-        : '';
+      // 承接约束：由连线指定（分镜表「衔接上一镜」输入口 ← 上游分镜表「尾镜」输出口）。
+      // 只承接尾镜的**结尾瞬间**（≤0.2s 重叠），不重演上一镜——视频模型按秒计费，重演等于白花钱。
+      const cont = (() => {
+        if (!prevTail) return null;
+        const label = prevTail.label || (zh ? '上一分镜' : 'previous storyboard');
+        if (prevTail.text) {
+          return zh
+            ? `【承接约束·硬性】本分镜承接上游提供的衔接说明：\n${prevTail.text}\n`
+              + `要求：第 1 镜从该衔接点**继续**（不重演），与上一镜画面重叠不超过 0.2 秒，人物位置/朝向/情绪/光线连续，背景环境声连续。`
+            : `[CONTINUITY CONSTRAINT - HARD] Continue from the upstream hand-off note:\n${prevTail.text}\n`
+              + `Shot 1 must continue from that point (no replay); overlap with the previous shot <= 0.2s; keep character position/facing/emotion/light and the ambient background sound continuous.`;
+        }
+        const sh = prevTail.shot;
+        if (!sh) return null;
+        const dl = (sh.dialogue || []).map((d) => d.role + (zh ? '：' : ': ') + d.line).join(zh ? '；' : '; ');
+        return zh
+          ? `【承接约束·硬性】本分镜承接「${label}」的最后一镜——**只承接它的结尾瞬间，不要重演它**：\n`
+            + `  尾镜画面：${String(sh.visual || '').trim()}\n`
+            + `  尾镜最后动作：${String(sh.motion || '').trim()}\n`
+            + (dl ? `  尾镜台词：${dl}\n` : '')
+            + (String(sh.sfx || '').trim() ? `  尾镜音效/环境声：${String(sh.sfx).trim()}\n` : '')
+            + `要求：\n`
+            + `  1) 第 1 镜从上一镜的**最后一个动作**继续（人物位置、朝向、情绪、光线保持一致），不得重新建立场景、不得跳回远景交代、不得切换地点；\n`
+            + `  2) 与上一镜的画面重叠**不超过 0.2 秒**（不要重演上一镜的内容）；\n`
+            + `  3) **背景声连续**：环境音/音效自然延续（风声、电流声、街道底噪等），不得突然静音或更换环境声；\n`
+            + `  4) 第 1 镜的画面描述里明确写出承接关系（如「承接上一镜，<角色>保持<姿态>，继续…」）。`
+          : `[CONTINUITY CONSTRAINT - HARD] This storyboard continues the LAST SHOT of "${label}" - continue only its final instant, do NOT replay it:\n`
+            + `  Tail frame: ${String(sh.visual || '').trim()}\n`
+            + `  Tail last action: ${String(sh.motion || '').trim()}\n`
+            + (dl ? `  Tail dialogue: ${dl}\n` : '')
+            + (String(sh.sfx || '').trim() ? `  Tail SFX/ambience: ${String(sh.sfx).trim()}\n` : '')
+            + `Requirements:\n`
+            + `  1) Shot 1 continues from the LAST ACTION of the previous shot (same position, facing, emotion, light) - no re-establishing, no wide reset, no location change;\n`
+            + `  2) overlap with the previous shot must be <= 0.2s (do not replay the previous shot);\n`
+            + `  3) ambient background sound continues naturally (wind, electrical hum, street noise) - never cut to silence or swap ambience;\n`
+            + `  4) state the continuity explicitly in shot 1's frame description.`;
+      })();
+      const prevLine = cont || '';
       const user = [
         `${zh ? '剧本' : 'Script'}：\n${String(scriptText ?? '').trim()}`,
         `${zh ? '额外要求' : 'Extra requirements'}：${String(requirement ?? '').trim() || (zh ? '无' : 'none')}`,
@@ -4178,8 +4210,8 @@ window.__ModuleLoader__.load({
       ];
       if (hasDialogue) {
         lines.push(zh
-          ? '标注「台词」的角色对白必须由角色当场说出（口型同步、语气贴合情绪）；同步音频开启时按台词生成人声。'
-          : 'Dialogue lines must be spoken on screen by the character (lip-synced, matching the emotion); generate speech when synced audio is on.');
+          ? '标注「台词」的对白必须由**画面内可见的角色当场开口说出**（口型与台词同步、语气贴合情绪、面部朝镜头可见）；严禁处理成画外音/旁白；同步音频开启时按台词生成人声。'
+          : 'Dialogue must be SPOKEN ON SCREEN by the visible character (lip-synced to the line, matching emotion, face toward camera); never render it as voice-over/narration; generate speech when synced audio is on.');
       }
       shots.forEach((s, i) => {
         const dur = Math.max(1, Number(s.duration) || 3);
@@ -4187,7 +4219,11 @@ window.__ModuleLoader__.load({
         if (String(s.visual || '').trim()) parts.push(String(s.visual).trim());
         if (String(s.motion || '').trim()) parts.push((zh ? '运镜/动作：' : 'Camera/Action: ') + String(s.motion).trim());
         const dls = (s.dialogue || []).map((d) => String(d && d.role || '').trim() + '：' + String(d && d.line || '').trim()).filter((x) => x.replace('：', '').trim());
-        if (dls.length) parts.push((zh ? '台词：' : 'Dialogue: ') + dls.join(zh ? '；' : '; '));
+        if (dls.length) {
+          parts.push(zh
+            ? '台词（由' + (s.dialogue || []).map((d) => String(d && d.role || '').trim()).filter(Boolean).join('、') + '在画面内开口说出，口型与台词同步）：' + dls.join('；')
+            : 'Dialogue (spoken on screen by ' + (s.dialogue || []).map((d) => String(d && d.role || '').trim()).filter(Boolean).join(', ') + ', lip-synced): ' + dls.join('; '));
+        }
         if (String(s.sfx || '').trim()) parts.push((zh ? '音效：' : 'SFX: ') + String(s.sfx).trim());
         lines.push((zh ? `镜头${i + 1}（${dur}s）：` : `Shot ${i + 1} (${dur}s): `) + parts.join(zh ? '；' : '; '));
       });
@@ -4250,24 +4286,23 @@ window.__ModuleLoader__.load({
       return metas;
     }
 
-    /** 上一场分镜表的尾镜（衔接约束用）：按剧本文本里的【场N】序号找场 N-1 的分镜表，
-     *  取其最后一镜作为本场第 1 镜的承接依据；首场或找不到序号时返回 null（不加约束）。 */
+    /** 承接来源（**只认连线，不靠名字**）：本分镜「衔接上一镜」输入口(prev) 连到的上游分镜表，
+     *  取它的**最后一镜**作为本场第 1 镜的承接依据；未连线返回 null（不加约束）。
+     *  也允许连文本节点：直接把文本作为承接描述使用。 */
     function prevSceneTail(n) {
-      const noOf = (txt) => {
-        const m = /【\s*场\s*(\d+)\s*】/.exec(String(txt || ''));
-        return m ? Number(m[1]) : null;
-      };
-      let mine = null;
-      try { mine = noOf(storyboardScriptText(n)); } catch { mine = null; }
-      if (!mine || mine <= 1) return null;
-      for (const other of Object.values(S.graph.nodes || {})) {
-        if (!other || other.type !== 'storyboard' || other.id === n.id) continue;
-        const shots = (other.data && other.data.shots) || [];
-        if (!shots.length) continue;
-        let oNo = null;
-        try { oNo = noOf(storyboardScriptText(other)); } catch { oNo = null; }
-        if (oNo !== mine - 1) continue;
-        return { label: String((other.data && other.data.label) || ('场' + oNo)), sceneNo: oNo, shot: shots[shots.length - 1] };
+      const e = S.graph.edges.find((x) => x.toNode === n.id && x.toPort === 'prev');
+      if (!e) return null;
+      const src = S.graph.nodes[e.fromNode];
+      if (!src || !src.data) return null;
+      if (src.type === 'storyboard') {
+        const shots = src.data.shots || [];
+        if (!shots.length) return { label: String(src.data.label || ''), shot: null };
+        return { label: String(src.data.label || ''), shot: shots[shots.length - 1] };
+      }
+      if (src.type === 'text' || src.type === 'script') {
+        const txt = String(src.data.text || src.data.output || '').trim();
+        if (!txt) return null;
+        return { label: String(src.data.label || ''), shot: null, text: txt };
       }
       return null;
     }
@@ -5202,6 +5237,7 @@ window.__ModuleLoader__.load({
         in: T('portIn'), out: T('portOut'), last: T('lastFrame'),
         char: T('portChar'), scene: T('portScene'), prop: T('portProp'),
         visual: T('portVisual'), motion: T('portMotion'), script: T('portScript'),
+        prev: T('portPrev'), tail: T('portTail'),
       };
       return map[pid] || pid;
     }
