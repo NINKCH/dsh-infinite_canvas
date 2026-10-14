@@ -2150,6 +2150,7 @@ window.__ModuleLoader__.load({
       const j = JSON.parse(res.text || '{}');
       const taskId = j && j.id;
       if (!taskId) throw new Error('Seedance 响应中没有任务 id');
+      if (o.onTask) { try { o.onTask(taskId, base + '/' + taskId); } catch { /* 持久化失败不影响生成 */ } }
       const deadline = Date.now() + 15 * 60 * 1000;
       let pollFails = 0;
       while (Date.now() < deadline) {
@@ -2205,6 +2206,7 @@ window.__ModuleLoader__.load({
       if (!taskId) throw new Error('响应中没有任务 id：' + r1.text.slice(0, 200));
       let queryEp = '';
       try { queryEp = new URL(base).origin + '/v1/video/query'; } catch { throw new Error('无法构造轮询地址'); }
+      if (o.onTask) { try { o.onTask(taskId, queryEp + '?task_id=' + encodeURIComponent(taskId)); } catch { /* 持久化失败不影响生成 */ } }
       const dlHeaders = (u) => { try { return new URL(u).origin === new URL(base).origin ? headers : {}; } catch { return {}; } };
       const deadline = Date.now() + 15 * 60 * 1000;
       let pollFails = 0;
@@ -2247,6 +2249,7 @@ window.__ModuleLoader__.load({
       try { j1 = JSON.parse(r1.text); } catch { /* 非 JSON */ }
       const taskId = j1 && (j1.id || j1.task_id || (j1.data && j1.data[0] && j1.data[0].id));
       if (!taskId) throw new Error('/v1/videos 响应中没有任务 id：' + r1.text.slice(0, 200));
+      if (o.onTask) { try { o.onTask(taskId, ep + '/' + taskId); } catch { /* 持久化失败不影响生成 */ } }
       const deadline = Date.now() + 15 * 60 * 1000;
       let pollFails = 0;
       while (Date.now() < deadline) {
@@ -2347,6 +2350,7 @@ window.__ModuleLoader__.load({
       if (direct) return await downloadVideo(direct, dlHeaders(direct), headers);
       const taskId = extractTaskId(j);
       if (!taskId) throw new Error('视频 API 响应中没有任务 id 或视频地址');
+      if (o.onTask) { try { o.onTask(taskId, base + '/' + taskId); } catch { /* 持久化失败不影响生成 */ } }
       const deadline = Date.now() + 15 * 60 * 1000;
       let pollFails = 0;
       while (Date.now() < deadline) {
@@ -4466,6 +4470,11 @@ window.__ModuleLoader__.load({
             duration: n.data.duration, resolution: n.data.resolution, ratio: n.data.ratio,
             refs: refs.map((r) => r.blob),
             refNames: refs.map((r) => r.entity || r.name || ''), // 跨镜衔接标注用（图2..N 的实体名）
+            // 任务提交成功即持久化 task id：轮询中断/页面关闭后仍可凭 id 回查结果（钱花了就必须能找回）
+            onTask: (tid, qurl) => {
+              update((s) => { const nd = s.graph.nodes[n.id]; if (nd) { nd.data.taskId = String(tid || ''); nd.data.taskQueryUrl = String(qurl || ''); } });
+              flushSave();
+            },
             audioRefs: audioBlobs.map((a) => a.blob), // 角色声音参考（@引用实体名下的音频资产）
           });
           const rec = await saveAssetRecord(S.activeId, 'video', blob, {
