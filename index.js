@@ -1232,6 +1232,9 @@ async function canvasNodeStatus(args) {
     output: String((n.data && n.data.output) || '').slice(0, 6000),
     idea: String((n.data && n.data.idea) || '').slice(0, 2000),
     assetId: (n.data && n.data.assetId) || null,
+    // 视频任务凭据：中断/超时后对话侧可凭 id 回查结果（钱花了就必须能找回）
+    taskId: (n.data && n.data.taskId) || null,
+    taskQueryUrl: (n.data && n.data.taskQueryUrl) || null,
     // 分镜表：一致性告警随状态返回——对话侧据此逐条补全设定集（缺失则要自动补充，绝不忽略）
     warnings: Array.isArray(n.data && n.data.warnings) ? n.data.warnings : [],
     shots,
@@ -1863,6 +1866,7 @@ export function apply(ctx) {
             const lines = ['节点[' + s.type + ']「' + (s.label || s.nodeId) + '」', '状态: ' + s.status + (s.aiStatus && s.aiStatus !== 'idle' ? ' / ' + s.aiStatus : '')];
             if (s.error) lines.push('错误: ' + s.error);
             if (s.assetId) lines.push('产物资产: ' + s.assetId);
+            if (s.taskId) lines.push('任务凭据: ' + s.taskId + (s.taskQueryUrl ? '（查询: ' + s.taskQueryUrl + '）' : ''));
             if (s.idea) lines.push('提示词: ' + s.idea.slice(0, 400));
             if (s.output) lines.push('成稿:\n' + s.output);
             // 镜头清单：结构化返回 + 渲染进文本——对话侧据此组织多镜头视频提示词（绝不自行编造镜头表）
