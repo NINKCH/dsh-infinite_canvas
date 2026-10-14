@@ -1157,7 +1157,7 @@ window.__ModuleLoader__.load({
 .dshic-hist{display:flex;gap:4px;overflow-x:auto;}
 .dshic-hist-thumb{width:44px;height:44px;border-radius:6px;border:2px solid var(--dsw-alias-border-l2);overflow:hidden;cursor:pointer;flex:none;
   background:var(--dsw-alias-bg-layer-2);display:flex;align-items:center;justify-content:center;color:var(--dsw-alias-label-secondary);}
-.dshic-hist-thumb img{width:100%;height:100%;object-fit:cover;display:block;}
+.dshic-hist-thumb img,.dshic-hist-thumb video{width:100%;height:100%;object-fit:cover;display:block;}
 .dshic-hist-thumb.is-active{border-color:var(--dsw-alias-brand-primary);}
 /* 分组框 */
 .dshic-group{position:absolute;box-sizing:border-box;border:1.5px dashed var(--dsw-alias-brand-primary);border-radius:14px;
@@ -5584,12 +5584,22 @@ window.__ModuleLoader__.load({
 
     function HistThumb({ assetId, active, onClick }) {
       const url = useAssetUrl(assetId);
+      const [kind, setKind] = useState('');
+      useEffect(() => {
+        let ok = true;
+        idbGet(assetId).then((r) => { if (ok) setKind((r && r.kind) || ''); }).catch(() => { /* 忽略 */ });
+        return () => { ok = false; };
+      }, [assetId]);
       return h('div', {
         className: cls('dshic-hist-thumb', active && 'is-active'),
         title: T('history'),
         onClick: (e) => { e.stopPropagation(); onClick(); },
         onPointerDown: (e) => e.stopPropagation(),
-      }, url ? h('img', { src: url, draggable: false }) : h('span', {}, '…'));
+      }, url
+        ? (kind === 'video'
+          ? h('video', { src: url + '#t=0.1', muted: true, preload: 'metadata', draggable: false })
+          : h('img', { src: url, draggable: false }))
+        : h('span', {}, '…'));
     }
 
     /** 参考图排序列表：[图N] 顺序即提示词绑定顺序，可上移/下移/解除。 */
