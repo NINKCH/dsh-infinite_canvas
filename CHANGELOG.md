@@ -4,6 +4,23 @@ All notable changes to `@ninkch/dsh-infinite-canvas` are documented here (newest
 GitHub Releases carry the same notes in English; maintainer-facing runbooks live in
 [`RELEASING.md`](RELEASING.md) and [`docs/release.md`](docs/release.md).
 
+## [0.17.12] — 2026-10-14
+
+### Added
+- **Storyboard continuity ports**: storyboard nodes now expose a `prev` input ("continue previous tail", top) and a `tail` output (bottom). Wire `prev storyboard.tail → next.prev` and generation injects the previous tail shot as a **hard continuity constraint** — shot 1 continues from the previous last action, overlap ≤ 0.2s, ambient background sound continuous, no re-establishing shots. Wiring is the only continuity source (never name/position matching).
+- **Per-node chaining mode** on video nodes with a first-frame input: **Fuse with refs** (default — tail frame becomes reference image #1), **Hard first frame** (true `first_frame` param, drops refs — the gateway forbids mixing), **Ignore frame**.
+- **Lip-sync hard rules**: storyboard shots carrying dialogue must show the speaker talking on screen (close/medium-close, face visible, never back-to-camera or off-frame); video prompts state "spoken on screen, lip-synced" per dialogue shot — no more voice-over with closed mouths.
+- **Video vendor preset layer**: pick a vendor format in settings, then only Base URL + model id — endpoints, auth, parameter shapes, polling and result download are handled per vendor. Adapters: **Kling** (AK:SK → auto-signed JWT), **Alibaba Wan/DashScope**, **MiniMax Hailuo**, **Vidu**, **Runway Gen-4**, **Google Veo (Gemini API)**, **Luma**, **PixVerse**, **Stability AI**, plus the existing **Volcengine Ark Seedance** and **OpenAI-compatible** formats. Legacy configs auto-detect.
+- **Video-asset nodes gain a `last` output** with automatic tail-frame extraction for imported/uploaded videos; every node holding a video (generated or imported) auto-extracts its tail frame.
+- Resilient video task polling: gateway blips (5xx/timeouts/network) never abort a task — only the task's own terminal state decides; 2h safety window; **task id + query URL persisted on the node** (and surfaced via `canvas_node_status`) so interrupted runs can be recovered.
+
+### Fixed
+- First frame and reference images are never mixed in one request (Seedance gateways reject the combination) — across all protocols.
+- Dialogue and SFX annotations now flow through shots into video prompts, the storyboard UI, saved assets and `canvas_node_status` (previously dropped on the way to the video prompt).
+- Asset index sync keeps file-backed records (manual data-root registrations survive); saving the same data-root no longer rebuilds the index; "Import from data root" is always clickable.
+- Agent-side storyboard writes keep the `sfx` field; continuity notes are no longer duplicated across fallback protocols.
+- UI: lightbox viewer for images/videos, selectable+copyable storyboard shots with a drag-resize shot list, video history thumbnails show real covers.
+
 ## [0.17.11] — 2026-10-14
 
 ### Script → Scene → Storyboard → Video pipeline (macro rework)
