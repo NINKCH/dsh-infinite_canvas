@@ -253,8 +253,8 @@ window.__ModuleLoader__.load({
       'nScript': '剧本',
       'vendorLabel': '厂商格式（选后只需填 Base URL + 模型 id）',
       'portScript': '剧本',
-      'portPrev': '衔接上一镜（尾镜）',
-      'portTail': '尾镜（供下一分镜衔接）',
+      'portPrev': '衔接上一镜',
+      'portTail': '尾镜输出',
       'aiScript': 'AI 生成剧本',
       'aiStoryboard': 'AI 生成分镜',
       'expand': '铺开到画布',
@@ -4457,9 +4457,13 @@ window.__ModuleLoader__.load({
     function portWorldPos(nodeId, portId, dir) {
       const n = S.graph.nodes[nodeId];
       if (!n) return { x: 0, y: 0 };
+      // 分镜承接端口专属位置（用户设计）：tail=节点底部右侧（输出）、prev=节点顶部右侧（输入）
+      if (n.type === 'storyboard' && portId === 'tail') return { x: n.x + n.w - 21, y: n.y + n.h };
+      if (n.type === 'storyboard' && portId === 'prev') return { x: n.x + n.w - 21, y: n.y };
       const list = dir === 'out' ? (PORTS[n.type].outputs || []) : (PORTS[n.type].inputs || []);
       const i = list.findIndex((p) => p.id === portId);
-      const y = n.y + 38 + Math.max(0, i) * 22;
+      const stack = (n.type === 'storyboard' && dir === 'in' && i > 0) ? i - 1 : i; // prev 是角点不占常规队列
+      const y = n.y + 38 + Math.max(0, stack) * 22;
       return { x: dir === 'out' ? n.x + n.w : n.x, y };
     }
     function edgeGeom(e) {
@@ -5499,14 +5503,19 @@ window.__ModuleLoader__.load({
         h('div', { className: 'dshic-rs dshic-rs-s', title: T('resizeHeightHint'), onPointerDown: (e) => startResize(e, 's'), onDoubleClick: resetHeight }),
         h('div', { className: 'dshic-rs dshic-rs-n', title: T('resizeHint'), onPointerDown: (e) => startResize(e, 'n') }),
         h('div', { className: 'dshic-rs dshic-rs-se', title: T('resizeHint'), onPointerDown: (e) => startResize(e, 'se') }),
-        ...(PORTS[n.type].inputs || []).map((p, i) =>
-          h('div', { key: 'in-' + p.id, style: { position: 'absolute', left: -5.5, top: 32.5 + i * 22 }, className: 'dshic-port-wrap' },
+        ...(PORTS[n.type].inputs || []).map((p, i) => {
+          const isCorner = n.type === 'storyboard' && p.id === 'prev'; // 分镜承接：顶部右侧角点
+          const stack = (n.type === 'storyboard' && i > 0) ? i - 1 : i;
+          return h('div', { key: 'in-' + p.id, style: { position: 'absolute', left: isCorner ? undefined : -5.5, right: isCorner ? 16 : undefined, top: isCorner ? -5.5 : 32.5 + stack * 22 }, className: 'dshic-port-wrap' },
             h(PortEl, { n, port: p, dir: 'in' }),
-            h('span', { className: 'dshic-port-label', style: { left: 14, top: 0 } }, portLabel(p.id)))),
-        ...(PORTS[n.type].outputs || []).map((p, i) =>
-          h('div', { key: 'out-' + p.id, style: { position: 'absolute', right: -5.5, top: 32.5 + i * 22 }, className: 'dshic-port-wrap' },
+            h('span', { className: 'dshic-port-label', style: isCorner ? { right: -6, top: -22 } : { left: 14, top: 0 } }, portLabel(p.id)));
+        }),
+        ...(PORTS[n.type].outputs || []).map((p, i) => {
+          const isCorner = n.type === 'storyboard' && p.id === 'tail'; // 分镜尾镜：底部右侧角点
+          return h('div', { key: 'out-' + p.id, style: { position: 'absolute', right: isCorner ? 16 : -5.5, bottom: isCorner ? -5.5 : undefined, top: isCorner ? undefined : 32.5 + i * 22 }, className: 'dshic-port-wrap' },
             h(PortEl, { n, port: p, dir: 'out' }),
-            h('span', { className: 'dshic-port-label', style: { right: 14, top: 0 } }, portLabel(p.id)))),
+            h('span', { className: 'dshic-port-label', style: isCorner ? { right: -6, top: 12 } : { right: 14, top: 0 } }, portLabel(p.id)));
+        }),
       );
     }
 
