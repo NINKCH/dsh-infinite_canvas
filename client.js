@@ -1432,8 +1432,9 @@ window.__ModuleLoader__.load({
     // @ 引用（mention）：提示词里写 @张山 → 自动带上该实体的设定集描述与其参考图资产
     // 以下为纯函数（无副作用），供 scripts/test-mentions.mjs 抽取单测
     // <<<MENTION_PURE_BEGIN>>>
-    /** @名称 的词法：到空白或常见标点为止（支持中英文名与 - _ ·） */
-    const MENTION_RE = /@([^\s@，。；：、,.;:!?！？()（）\[\]【】"'“”<>《》/\\|]{1,24})/g;
+    /** @资产名@ 的词法（双 @ 精确包裹）：终止符是闭合 @，绝不可能把后文吞进名称；
+     *  名称内禁止 @、空白与常见标点。前端渲染时隐藏两个 @，名称显示为蓝色加粗。 */
+    const MENTION_RE = /@([^@\s，。；：、,.;:!?！？()（）\[\]【】"'“”<>《》/\\|]{1,64}?)@/g;
     /** 解析提示词里的 @名称（含位置，按出现顺序）。 */
     function parseMentions(text) {
       const out = [];
@@ -1451,7 +1452,7 @@ window.__ModuleLoader__.load({
         .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
         .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
     }
-    /** 把提示词转成高亮 HTML：@名称 用 .dshic-mention（蓝色加粗）标记。 */
+    /** 把提示词转成高亮 HTML：@资产名@ 两个 @ 隐藏（占位但不可见），名称显示为蓝色加粗。 */
     function highlightMentions(text) {
       const src = String(text || '');
       let out = '';
@@ -1460,15 +1461,30 @@ window.__ModuleLoader__.load({
       let m;
       while ((m = re.exec(src)) !== null) {
         out += escapeHtml(src.slice(last, m.index));
-        out += '<span class="dshic-mention">' + escapeHtml(m[0]) + '</span>';
+        out += '<span style="visibility:hidden">@</span><span class="dshic-mention">' + escapeHtml(m[1]) + '</span><span style="visibility:hidden">@</span>';
         last = m.index + m[0].length;
       }
       out += escapeHtml(src.slice(last));
       return out === '' ? '' : out + '\n'; // 末尾补换行，保证背景层与 textarea 行高对齐
     }
-    /** 送给模型前去掉 @ 标记（保留名称本体）。 */
+    /** 送给模型前去掉 @ 包裹标记（保留名称本体）。 */
     function stripMentionMarks(text) {
       return String(text || '').replace(new RegExp(MENTION_RE.source, 'g'), '$1');
+    }
+    /** 展示用：把 @资产名@ 渲染为「蓝色加粗资产名」（隐藏两个 @，前后各留 2px 视觉空隙）。 */
+    function mentionNodes(text) {
+      const src = String(text || '');
+      const out = [];
+      const re = new RegExp(MENTION_RE.source, 'g');
+      let m;
+      let last = 0;
+      while ((m = re.exec(src)) !== null) {
+        if (m.index > last) out.push(src.slice(last, m.index));
+        out.push(h('span', { className: 'dshic-mention', style: { margin: '0 2px' } }, m[1]));
+        last = m.index + m[0].length;
+      }
+      if (last < src.length) out.push(src.slice(last));
+      return out.length ? out : [src];
     }
     function entityLabelOf(kind) {
       return kind === 'character' ? '角色' : kind === 'scene' ? '场景' : kind === 'prop' ? '道具' : '元素';
@@ -3867,7 +3883,7 @@ window.__ModuleLoader__.load({
             '只输出一个 JSON 对象：{"shots":[{"title":"…","visual":"…","motion":"…","characters":["…"],"scene":"…","props":["…"],"duration":3,"dialogue":[{"role":"陈拾","line":"收件时间，1999……"}],"sfx":"邮包搭扣声、撕纸声"}]}。',
             '规则：',
             '- visual 是本镜画面描述（景别、人物外观与站位、场景、光线、构图，60 字内）；',
-            '- **visual 与 motion 里的角色/场景/道具必须写成 @名称 引用形式**（如 `@张山`、`@褶皱巷`），插件会自动带上该实体的设定描述与其参考图资产，保证跨镜一致；',
+            '- **visual 与 motion 里的角色/场景/道具必须写成 @资产名@ 引用形式**（前后各一个 @ 精确包裹，如「@陈拾@ 在 @城市街头@ 的围挡旁拿起 @奇怪快递件@」）；名称必须与设定集/资产**逐字一致**，名称内不得含 @、空格或标点；@ 后绝不允许直接跟其他文字（必须以 @ 闭合）——系统会隐藏两个 @ 并把名称显示为蓝色加粗，未登记的 @名称@ 会被一致性检查提示补充；',
             '- motion 是本镜动作与运镜（主体动作节拍、机位运动方向与速度、情绪节奏，50 字内）；与 visual 不重复；',
             '- characters/scene/props 使用剧本与设定集中的名称（不带 @），便于匹配资产；无道具给空数组；',
             '- **dialogue 是本镜的角色台词**：把剧本中落在这一镜的对白逐行搬进来（{"role":"角色名","line":"台词原文"}），台词必须**逐字来自剧本**、不新写不改写；本镜无台词给空数组；一镜尽量只放一个角色的台词（单说话人镜头利于声音参考提取）；',
@@ -3884,7 +3900,7 @@ window.__ModuleLoader__.load({
             'Output only one JSON object: {"shots":[{"title":"…","visual":"…","motion":"…","characters":["…"],"scene":"…","props":["…"],"duration":3,"dialogue":[{"role":"Chen","line":"…"}],"sfx":"zipper snap, paper tear"}]}.',
             'Rules:',
             '- visual = the shot\'s frame description (shot size, wardrobe, staging, light, framing, <=60 words);',
-            '- **characters/scenes/props inside visual and motion must be written as @name references** (e.g. `@ZhangSan`); the plugin then attaches that entity\'s bible description and reference images automatically;',
+            '- **characters/scenes/props inside visual and motion must be written as @Name@ references** (an @ on each side, e.g. "@Chen@ picks up @Parcel@ by @Street@"); names must match the bible/assets VERBATIM, with no @, space or punctuation inside; an @ must never be followed directly by other text (always close with @) - the UI hides the @s and shows the name in blue bold; unregistered @Name@ is flagged by the consistency check;',
             '- motion = action & camera for the shot (action beats, camera move, emotional rhythm, <=50 words); do not repeat visual;',
             '- characters/scene/props arrays must use plain names from the script and series bible (no @) so assets match; empty props array if none;',
             '- **dialogue = the character lines that fall in this shot**, moved verbatim from the script ({"role":"Name","line":"exact line"}); never rewrite lines; empty array if none; keep one speaker per shot when possible (helps voice-reference extraction);',
@@ -4028,11 +4044,9 @@ window.__ModuleLoader__.load({
         for (const nm of (sh.characters || [])) check(title, T('catCharacter'), nm);
         check(title, T('catScene'), sh.scene);
         for (const nm of (sh.props || [])) check(title, T('catProp'), nm);
-        // visual/motion 文本里的 @提及 同样纳入检查（数组外的实体也要登记，杜绝检查漏）
+        // visual/motion 文本里的 @资产名@ 提及同样纳入检查（未登记的会提示补充资产——这是检查的价值所在）
         const text = String(sh.visual || '') + ' ' + String(sh.motion || '');
-        for (const m of (text.match(/@[^\s@，。；、！？:：（）"'）)]+/g) || [])) {
-          check(title, T('catMention'), m.slice(1).replace(/[）)]+$/, ''));
-        }
+        for (const mm of parseMentions(text)) check(title, T('catMention'), mm.name);
       }
       return warnings;
     }
@@ -6232,11 +6246,12 @@ window.__ModuleLoader__.load({
     }
 
     function TextNodeBody({ n }) {
-      return h('textarea', {
-        className: 'dshic-textarea', value: n.data.text || '',
+      // 文本节点同样走高亮输入层：输入 @资产名@ 自动显示为蓝色加粗（两个 @ 隐藏），与资产库强绑定
+      return h(PromptArea, {
+        value: n.data.text || '',
         placeholder: T('textPlaceholder'),
-        onChange: (e) => update((s) => { const nd = s.graph.nodes[n.id]; if (nd) nd.data.text = e.target.value; }),
-        onPointerDown: (e) => e.stopPropagation(),
+        minHeight: 96,
+        onChange: (v) => update((s) => { const nd = s.graph.nodes[n.id]; if (nd) nd.data.text = v; }),
       });
     }
 
@@ -6490,7 +6505,7 @@ window.__ModuleLoader__.load({
           ? h('div', { key: 'listwrap', style: { position: 'relative', alignSelf: 'stretch' } },
               h('div', { key: 'list', className: 'dshic-shot-list', style: { maxHeight: listH + 'px' } },
                 shots.map((sh, i) => h('div', { key: i, className: 'dshic-shot-item', onPointerDown: (e) => e.stopPropagation() },
-                  h('strong', {}, `${sh.title} · ${sh.duration}s `), sh.visual,
+                  h('strong', {}, `${sh.title} · ${sh.duration}s `), ...mentionNodes(sh.visual),
                   (sh.dialogue || []).length
                     ? h('div', { className: 'dshic-shot-label', style: { marginTop: 3 } }, '台词 ' + sh.dialogue.map((d) => `${d.role}：${d.line}`).join('；'))
                     : null,
