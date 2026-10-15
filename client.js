@@ -3832,6 +3832,7 @@ window.__ModuleLoader__.load({
         '- **每个场景必须以「【场N】场景名（地点·时间）」单独一行开头**（如【场1】城市街头（夜））——这是后续自动铺开到分镜的分场标记，格式不可省略或改写；',
         '- 每场容量 10-15 秒成片（约 60-150 字，含该场全部对白）；全部场景时长之和 ≈ 1-2 分钟；',
         '- 场景头之后：可视化动作描写 + 对白（角色：台词，单独成行）；需要的声音（环境音/旁白）标注在括号里；',
+        '- **【资产锚定·硬性】正文中所有角色/场景/道具名称一律写成 @名称@ 引用形式**（前后各一个 @ 精确包裹，名称与设定集逐字一致，如「@陈拾@ 在 @城市街头@ 的 @铁皮围挡@ 旁」）——下游分镜生成靠这些锚点识别资产并挂接参考图；叙述性文字正常书写，不要把动作描述包进 @…@；',
         '- 结尾单独一行「人物：」与「场景/道具：」清单，便于后续资产制作。',
       ].join('\n') : [
         `Idea / source:\n${String(idea ?? '').trim()}`,
@@ -3840,6 +3841,7 @@ window.__ModuleLoader__.load({
         '- **Every scene MUST start with its own line "【SCENE N】name (location · time)"** — this marker drives the automatic per-scene expansion and must not be omitted;',
         '- Each scene holds 10-15 seconds of screen time (≈60-150 words incl. dialogue); all scenes sum to ≈1-2 minutes;',
         '- After each scene header: visual action + dialogue ("Character: line" on its own lines); mark sounds in brackets;',
+        '- **[ASSET ANCHORING - HARD] wrap every character/scene/prop name as @Name@** (an @ on each side, names verbatim from the bible, e.g. "@Chen@ stands by @Wall@ at @Street@") - downstream storyboard generation relies on these anchors to attach references; keep narration text normal, never wrap action descriptions inside @...@;',
         '- End with "Characters:" and "Locations/Props:" lists for asset production.',
       ].join('\n');
       return await aiCompleteStream({
@@ -3883,7 +3885,7 @@ window.__ModuleLoader__.load({
             '只输出一个 JSON 对象：{"shots":[{"title":"…","visual":"…","motion":"…","characters":["…"],"scene":"…","props":["…"],"duration":3,"dialogue":[{"role":"陈拾","line":"收件时间，1999……"}],"sfx":"邮包搭扣声、撕纸声"}]}。',
             '规则：',
             '- visual 是本镜画面描述（景别、人物外观与站位、场景、光线、构图，60 字内）；',
-            '- **visual 与 motion 里的角色/场景/道具必须写成 @资产名@ 引用形式**（前后各一个 @ 精确包裹，如「@陈拾@ 在 @城市街头@ 的围挡旁拿起 @奇怪快递件@」）；名称必须与设定集/资产**逐字一致**，名称内不得含 @、空格或标点；@ 后绝不允许直接跟其他文字（必须以 @ 闭合）——系统会隐藏两个 @ 并把名称显示为蓝色加粗，未登记的 @名称@ 会被一致性检查提示补充；',
+            '- **visual 与 motion 里的角色/场景/道具必须写成 @资产名@ 引用形式**（前后各一个 @ 精确包裹，如「@陈拾@ 在 @城市街头@ 的围挡旁拿起 @奇怪快递件@」）；名称必须与设定集/资产**逐字一致**；剧本原文里已出现的 @资产名@ 锚点要在镜头中原样保留（名称逐字一致）；名称内不得含 @、空格或标点；@ 后绝不允许直接跟其他文字（必须以 @ 闭合）——系统会隐藏两个 @ 并把名称显示为蓝色加粗，未登记的 @名称@ 会被一致性检查提示补充；',
             '- motion 是本镜动作与运镜（主体动作节拍、机位运动方向与速度、情绪节奏，50 字内）；与 visual 不重复；',
             '- characters/scene/props 使用剧本与设定集中的名称（不带 @），便于匹配资产；无道具给空数组；',
             '- **dialogue 是本镜的角色台词**：把剧本中落在这一镜的对白逐行搬进来（{"role":"角色名","line":"台词原文"}），台词必须**逐字来自剧本**、不新写不改写；本镜无台词给空数组；一镜尽量只放一个角色的台词（单说话人镜头利于声音参考提取）；',
@@ -6433,10 +6435,12 @@ window.__ModuleLoader__.load({
       const listH = Math.max(80, Math.min(1200, Number(n.data.shotsListH) || 180));
       const startResize = (e) => {
         e.stopPropagation(); e.preventDefault();
-        const startY = e.clientY; const startH = listH;
+        const startY = e.clientY; const startH = listH; const startNodeH = Number(n.h) || 0;
         const onMove = (ev) => {
           const nh = Math.max(80, Math.min(1200, startH + (ev.clientY - startY)));
-          update((s) => { const nd = s.graph.nodes[n.id]; if (nd) nd.data.shotsListH = nh; });
+          const dh = nh - startH;
+          // 节点高度随列表一起向下生长（不是内部挤压上面内容）
+          update((s) => { const nd = s.graph.nodes[n.id]; if (nd) { nd.data.shotsListH = nh; if (startNodeH > 0) nd.h = Math.max(120, startNodeH + dh); } });
         };
         const onUp = () => { window.removeEventListener('pointermove', onMove); window.removeEventListener('pointerup', onUp); flushSave(); };
         window.addEventListener('pointermove', onMove);
