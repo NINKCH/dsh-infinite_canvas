@@ -4,6 +4,11 @@ All notable changes to `@ninkch/dsh-infinite-canvas` are documented here (newest
 GitHub Releases carry the same notes in English; maintainer-facing runbooks live in
 [`RELEASING.md`](RELEASING.md) and [`docs/release.md`](docs/release.md).
 
+## [0.17.13] — 2026-10-14
+
+### Fixed
+- package.json is published without a UTF-8 BOM (the BOM broke DSH plugin validation on install).
+
 ## [0.17.12] — 2026-10-14
 
 ### Added
