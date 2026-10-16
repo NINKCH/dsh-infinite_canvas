@@ -2596,7 +2596,7 @@ window.__ModuleLoader__.load({
         const path = frameBlob ? 'img2video' : 'text2video';
         const body = {
           model: s.model || 'vidu2.0', prompt,
-          duration: Math.max(4, Math.min(8, Number(o.duration) || 4)) <= 4 ? 4 : 8,
+          duration: Math.round(Number(o.duration)) || 4,
           resolution: String(o.resolution || '').toLowerCase().includes('1080') ? '1080p' : '720p',
         };
         if (frameBlob) body.images = [await blobToDataUrlScaled(frameBlob)];
@@ -2700,7 +2700,7 @@ window.__ModuleLoader__.load({
         const path = frameBlob ? 'img2video' : 'text2video';
         const body = {
           model: 'v4.5', prompt,
-          duration: Math.max(5, Math.min(8, Number(o.duration) || 5)) <= 5 ? 5 : 8,
+          duration: Math.round(Number(o.duration)) || 5,
           quality: String(o.resolution || '').toLowerCase().includes('1080') ? '1080p' : '720p',
           aspect_ratio: (o.ratio || '16:9') === '9:16' ? '9:16' : '16:9',
         };
@@ -5850,7 +5850,11 @@ window.__ModuleLoader__.load({
             : [
                 h(MiniSelect, {
                   key: 'dur', value: String(n.data.duration || 5), title: T('durationLabel'), width: 60,
-                  options: VIDEO_DURATIONS.map((x) => ({ value: String(x), label: x + 's' })),
+                  // 当前值不在预设列表里（如分镜总时长 32s）也要能显示与保留：动态并入选项
+                  options: (VIDEO_DURATIONS.includes(Number(n.data.duration))
+                    ? VIDEO_DURATIONS
+                    : [...VIDEO_DURATIONS, Math.round(Number(n.data.duration) || 5)].sort((a, b) => a - b))
+                    .map((x) => ({ value: String(x), label: x + 's' })),
                   onChange: (v) => update((s) => { const nd = s.graph.nodes[n.id]; if (nd) nd.data.duration = Number(v); }),
                 }),
                 h(MiniSelect, {
@@ -6802,7 +6806,7 @@ window.__ModuleLoader__.load({
         const baseY = n.y - 40;
         // 生成时长 = 各镜时长之和（多镜头一次性生成的总时长），由视频模型内部切镜
         const total = shots.reduce((a, sh) => a + Math.max(1, Number(sh.duration) || 3), 0);
-        const videoGen = mk('video-gen', baseX + 360, baseY + 20, { prompt: '', duration: Math.max(3, Math.min(20, total)) });
+        const videoGen = mk('video-gen', baseX + 360, baseY + 20, { prompt: '', duration: Math.max(1, Math.round(total)) });
         const videoAsset = mk('video-asset', baseX + 720, baseY + 20);
         entityNames.forEach((nm, i) => {
           let an = findAssetNode(nm);
