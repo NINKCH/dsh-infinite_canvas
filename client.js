@@ -3414,6 +3414,11 @@ window.__ModuleLoader__.load({
       const nodes = { ...((live && live.nodes) ? live.nodes : local.nodes) };
       for (const [nid, n] of Object.entries(full.nodes || {})) {
         if (deadNodes.has(nid)) continue;
+        const cur = nodes[nid];
+        // 生成产物保护：本地分镜已有 shots 而主机副本没有 → 主机副本是竞态过期数据，保留本地
+        // （否则刚生成完的分镜会被一次过期合并清空，客户端再推回去就永久丢失）
+        if (cur && cur.type === 'storyboard' && Array.isArray(cur.data && cur.data.shots) && cur.data.shots.length
+          && !(n && n.data && Array.isArray(n.data.shots) && n.data.shots.length)) continue;
         nodes[nid] = n; // Host 为准（Agent 写入是有意的）
       }
       const deadEdges = new Set([...(local.edgeTombstones || []), ...(full.edgeTombstones || []), ...((live && live.edgeTombstones) || [])]);

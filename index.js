@@ -597,6 +597,17 @@ async function projectsPut(args) {
     if (!dead.has(nid)) merged[nid] = n;
     else delete merged[nid];
   }
+  // 竞态防护：客户端推来的分镜表没有 shots，而 Host 上已有 shots → 保留 Host 的 shots
+  // （客户端旧快照推送会覆盖刚生成的分镜，导致"跑下一个时上一个被清空"）
+  for (const [nid, n] of Object.entries(merged)) {
+    if (!n || n.type !== 'storyboard') continue;
+    const hasNew = Array.isArray(n.data && n.data.shots) && n.data.shots.length;
+    if (hasNew) continue;
+    const prevN = (prev.nodes || {})[nid];
+    if (prevN && prevN.type === 'storyboard' && Array.isArray(prevN.data && prevN.data.shots) && prevN.data.shots.length) {
+      n.data = { ...(n.data || {}), shots: prevN.data.shots, warnings: prevN.data.warnings || [] };
+    }
+  }
   const edgeOk = (e) => e && !deadEdges.has(e.id) && merged[e.fromNode] && merged[e.toNode];
   const clientEdges = (doc.edges || []).filter(edgeOk);
   const prevEdges = (prev.edges || []).filter(edgeOk);
@@ -752,25 +763,33 @@ function agentNode(kind, text, x, y, label) {
 /** 新节点布局（用户设计）：
  *  1) 有 connectFrom 源 → 放在源节点右侧同一行（串联节点横向成对）；
  *  2) 无连线 → 同类型竖向成列（排在该类型最后一个节点下方，新起一行）；
- *  3) 与现有节点矩形相交时自动下移避让，绝不重叠。 */
+ *  3) 碰撞检测：候选位置与任何现有节点（含最小间距 28px）相交 → 自动下移到该节点下方，绝不重叠。 */
 function nextNodePos(doc, type, connectFromId) {
-  const GAP_X = 60, GAP_Y = 40;
+  const GAP_X = 60, GAP_Y = 40, MIN_GAP = 28;
   const H = (n) => Number(n && n.h) || 160;
   const W = (n) => Number(n && n.w) || 280;
   const nodes = Object.values(doc.nodes || {});
+  const EST_H = { storyboard: 420, 'video-gen': 320, 'image-gen': 260, script: 300, finalcut: 300, text: 200 };
+  const estH = EST_H[type] || 220;
+  let x = 80;
+  let y = 40;
   if (connectFromId && doc.nodes && doc.nodes[connectFromId]) {
     const src = doc.nodes[connectFromId];
-    return { x: (src.x || 0) + W(src) + GAP_X, y: src.y || 40 };
+    x = (src.x || 0) + W(src) + GAP_X;
+    y = src.y || 40;
+  } else {
+    const same = nodes.filter((n) => n.type === type);
+    if (same.length) {
+      x = Math.min(...same.map((n) => n.x || 0));
+      y = Math.max(...same.map((n) => (n.y || 0) + H(n))) + GAP_Y;
+    }
   }
-  const same = nodes.filter((n) => n.type === type);
-  if (!same.length) return { x: 80, y: 40 };
-  const colX = Math.min(...same.map((n) => n.x || 0));
-  let y = Math.max(...same.map((n) => (n.y || 0) + H(n))) + GAP_Y;
-  const NW = 280, NH = 220;
+  const hit = (yy) => nodes.find((n) => (n.x || 0) < x + estW + MIN_GAP && (n.x || 0) + W(n) + MIN_GAP > x
+    && (n.y || 0) < yy + estH + MIN_GAP && (n.y || 0) + H(n) + MIN_GAP > yy);
+  let blocker = hit(y);
   let guard = 0;
-  const hits = (yy) => nodes.some((n) => (n.x || 0) < colX + NW && (n.x || 0) + W(n) > colX && (n.y || 0) < yy + NH && (n.y || 0) + H(n) > yy);
-  while (guard++ < 60 && hits(y)) y += 60;
-  return { x: colX, y };
+  while (blocker && guard++ < 80) { y = (blocker.y || 0) + H(blocker) + MIN_GAP; blocker = hit(y); }
+  return { x, y };
 }
 // ---------- 内置技能（操作规程 + 创作方法论，约束并提升对话的画布创作）----------
 // canvas-studio＝操作硬约束；canvas-craft＝剧本/分镜/提示词创作方法论
