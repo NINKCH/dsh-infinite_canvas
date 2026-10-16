@@ -2397,6 +2397,23 @@ window.__ModuleLoader__.load({
         taskUrl: (tid) => apiRoot + '/api/v1/tasks/' + encodeURIComponent(tid),
       };
     }
+    /** 读取生成视频的真实尺寸与时长（用于「厂商是否忽略了参数」的可见校验）。 */
+    function probeVideoMeta(blob) {
+      return new Promise((resolve) => {
+        let url = '';
+        try {
+          url = URL.createObjectURL(blob);
+          const v = document.createElement('video');
+          v.preload = 'metadata';
+          v.muted = true;
+          const done = (r) => { try { URL.revokeObjectURL(url); } catch { /* 忽略 */ } resolve(r); };
+          v.onloadedmetadata = () => done({ w: v.videoWidth, h: v.videoHeight, d: v.duration });
+          v.onerror = () => done(null);
+          setTimeout(() => done(null), 10000);
+          v.src = url;
+        } catch { resolve(null); }
+      });
+    }
     function detectVideoVendor(s) {
       if (!s) return 'openai';
       if (s.vendor) return s.vendor;
@@ -2437,8 +2454,7 @@ window.__ModuleLoader__.load({
       const h = hi ? 1080 : lo ? 480 : 720;
       return (rw && rw < rh) ? (h + '*' + w) : (w + '*' + h);
     }
-    function b64Pure(blob) {
-      return new Promise((res, rej) => {
+    function b64Pure(blob) {      return new Promise((res, rej) => {
         const r = new FileReader();
         r.onload = () => res(String(r.result).split(',')[1] || '');
         r.onerror = () => rej(new Error('图片编码失败'));
@@ -2516,6 +2532,16 @@ window.__ModuleLoader__.load({
             watermark: false,
           },
         };
+        // 扩展参数：厂商/网关参数名不一致时的逃生舱（顶层字段直接覆盖，parameters 内做深合并）
+        // 例：{"parameters":{"size":"1920*1080"}} 或 {"parameters":{"ratio":"16:9"}}
+        try {
+          const ex = parseExtraParams(s.extra);
+          if (ex) {
+            const exParams = ex.parameters;
+            Object.assign(body, ex);
+            if (exParams && typeof exParams === 'object') body.parameters = { ...body.parameters, ...exParams };
+          }
+        } catch (e) { throw new Error('万相扩展参数配置有误：' + ((e && e.message) || e)); }
         const r1 = await fetchViaProxy(ep.submitUrl, { headers, body, label: 'Wan 提交' });
         if (!r1.ok) throw new Error('Wan 提交 HTTP ' + r1.status + ' @ ' + ep.submitUrl + '：' + r1.text.slice(0, 300));
         let j1 = null; try { j1 = JSON.parse(r1.text); } catch { throw new Error('Wan 响应非 JSON：' + r1.text.slice(0, 200)); }
@@ -5031,6 +5057,20 @@ window.__ModuleLoader__.load({
             category: 'finalcut', // 节点生成的视频 = 成片（实体归属由 entities 字段承担，不占用分类）
           });
           commitGenResult(n.id, rec.id, false, 'video');
+          // 实测结果与设置不一致时留可见提示（厂商忽略 size/duration 是常见情况，必须让人看见而不是静默）
+          try {
+            const meta = await probeVideoMeta(blob);
+            if (meta && meta.w && meta.h) {
+              const wantRatio = String((n.data && n.data.ratio) || '16:9');
+              const gotLandscape = meta.w > meta.h;
+              const notes = [];
+              if (wantRatio === '16:9' && !gotLandscape) notes.push('厂商返回 ' + meta.w + '×' + meta.h + '（竖屏），与设置的 16:9 不符：该厂商可能忽略 size 参数，可在供应商「扩展参数」里覆盖（如 {"parameters":{"size":"1920*1080"}}）');
+              else if (wantRatio === '9:16' && gotLandscape) notes.push('厂商返回 ' + meta.w + '×' + meta.h + '（横屏），与设置的 9:16 不符');
+              const wantDur = Number(n.data && n.data.duration) || 0;
+              if (wantDur && meta.d && Math.abs(meta.d - wantDur) > 1.5) notes.push('实际时长 ' + meta.d.toFixed(1) + 's ≠ 设置 ' + wantDur + 's（厂商单次上限或已钳制）');
+              if (notes.length) update((s) => { const nd = s.graph.nodes[n.id]; if (nd) nd.data.genWarn = notes.join('；'); });
+            }
+          } catch { /* 探测失败不影响生成 */ }
           // 尾帧提取（通用）：供 last 端口输出与链式下一镜使用
           try {
             const fBlob = await extractLastFrame(blob);
@@ -6133,6 +6173,7 @@ window.__ModuleLoader__.load({
           : null,
         h(RefRows, { key: 'refrows', n, portId: 'ref' }),
         h(MentionInfo, { key: 'mn', n }),
+        n.data.genWarn ? h('div', { key: 'gw', className: 'dshic-hint', style: { color: 'var(--dsw-alias-state-warning-primary, #d08700)' } }, '⚠ ' + n.data.genWarn) : null,
         n.data.error ? h('div', { key: 'err', className: 'dshic-err' }, n.data.error) : null,
         assetUrlV && kind === 'image'
           ? h('img', { key: 'img', className: 'dshic-preview', src: assetUrlV, draggable: false, 'data-no-drag': '1', style: { cursor: 'zoom-in' }, onPointerDown: (e) => e.stopPropagation(), onClick: (e) => { e.stopPropagation(); openLightbox('image', assetUrlV, n.data.label); } })
