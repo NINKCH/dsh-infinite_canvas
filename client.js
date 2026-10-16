@@ -4056,7 +4056,9 @@ window.__ModuleLoader__.load({
             '- **【完整覆盖】分镜必须覆盖所给剧本的全部内容**：每一个动作、每一句对白都要落在某个镜头里——不概述、不省略、不跳过、不"挑选重点"；镜头数量与总时长由剧本体量自然决定，宁多勿漏（容量超限由上层拆分剧本处理，不由分镜偷工减料）；',
             '- **镜头按实际内容切分**：一个连续动作段落 = 一镜，数量由内容自然决定（3-10 镜都正常）——绝不凑数、绝不使用固定数量；',
             '- **JSON 字符串值内部禁止出现半角双引号 "**——引用文字（牌匾/字幕/台词原文）一律用「」；',
-            '- duration 为该镜时长，2-6 的整数（一个镜头拍一个连续动作段落）；**总时长按这一场的内容需要写足，不设硬上限**（各视频厂商单次时长上限不同、且会变化：宁可按内容写足，也不要为凑某个上限砍戏——超限时视频生成会明确报错，据报错再决定拆分或调整）；镜头顺序即叙事顺序，末镜收束情绪；**若下方给了「承接约束」，第 1 镜必须承接上一场尾镜的画面与人物状态（不得重新建立场景/跳回远景），无承接约束时首镜才交代场景**；',
+            '- duration 为该镜时长，**支持一位小数**；**按节奏谱系分配、拒绝均匀分布**：普通叙事/对话/环境交代 2–4s，快速冲突/打斗/追逐 0.3–0.8s（快切），重要反转/冲击/卡点 1–2s，长镜头情绪沉淀 ≥5s——同一场里至少制造一次明显的节奏变化（例：3s 叙事 → 0.6s 快切×2 → 1.5s 反转 → 5s 情绪长镜），画面再精致、时长全一样就没有节奏感；总时长按内容需要写足（不设硬上限）；镜头顺序即叙事顺序，末镜收束情绪；**若下方给了「承接约束」，第 1 镜必须承接上一场尾镜的画面与人物状态（不得重新建立场景/跳回远景），无承接约束时首镜才交代场景**；',
+            '- **按情绪选景别**：孤独/绝望/宏大危机=远景；对峙/动作/关系建立=全景；对话/试探/信息交换=中景；震惊/怀疑/内心动摇=近景；崩溃/嘶吼/情绪爆发=特写；关键细节/道具揭示=大特写——冲突用全景、揭秘转近景、爆发给特写、反转可拉远，景别变化本身在讲情绪；',
+            '- **快切镜头（<1.5s）的 visual/motion 要极短**（一个动作、一句画内信息），信息量大的镜头才配长时长——时长与内容量必须匹配；',
             '- 只输出 JSON，不要输出任何其他内容。',
           ].join('\n')
         : [
@@ -4073,7 +4075,9 @@ window.__ModuleLoader__.load({
             '- **[FULL COVERAGE] the shots must cover EVERYTHING in the given script**: every action and every line must land in some shot — no summarizing, no omitting, no cherry-picking; shot count and total duration follow naturally from the script size (more is better than missing); capacity overflow is handled upstream by splitting the script, never by thinning the shots;',
             '- **Never use straight double quotes " inside JSON string values** — quoted text (signs/subtitles/lines) uses 「」 instead;',
             '- **Split shots by actual content**: one continuous action beat = one shot; the count is decided by the content (3-10 shots are all normal) — never pad, never use a fixed number;',
-            '- duration is the shot length in seconds, integer 2-6 (one continuous action beat per shot); **total duration follows what the scene needs - there is no hard cap** (per-request limits differ between vendors and change over time: write the scene fully rather than trimming it to fit a guessed limit; if the limit is exceeded the video call reports it explicitly, and you split or adjust from that error); shot order = narrative order; last shot lands the emotion; **if a CONTINUITY CONSTRAINT is given below, shot 1 must continue the previous scene\'s last frame and character state (no re-establishing, no wide reset); only without a constraint does shot 1 establish the scene**;',
+            '- duration is the shot length in seconds, **one decimal allowed**; **assign by pacing spectrum, never uniform**: normal narrative/dialogue 2-4s, fast conflict/fight/chase 0.3-0.8s (rapid cuts), key reversal/impact 1-2s, long emotional take >=5s — every scene must contain at least one obvious rhythm change (e.g. 3s narrative -> 0.6s cuts x2 -> 1.5s reversal -> 5s emotional take); identical durations kill the rhythm; total duration follows what the scene needs - no hard cap (vendor limits differ and change; if exceeded the video call reports it explicitly, then you split or adjust); shot order = narrative order; last shot lands the emotion; **if a CONTINUITY CONSTRAINT is given below, shot 1 must continue the previous scene\'s last frame and character state (no re-establishing, no wide reset); only without a constraint does shot 1 establish the scene**;',
+            '- **Pick the shot size by emotion**: loneliness/despair/grand crisis = wide; confrontation/action/relationship = full; dialogue/probing/info exchange = medium; shock/suspicion/inner shake = close-up; breakdown/screaming/emotional burst = extreme close-up; key detail/prop reveal = big close-up — conflicts play wide, reveals move close, bursts go extreme, reversals can pull wide; the changing distance itself tells the emotion;',
+            '- **Rapid cuts (<1.5s) get minimal visual/motion** (one action, one piece of in-frame information); long durations are earned by information density — duration must match content;',
             '- Output JSON only.',
           ].join('\n');
       const methodology = await loadSkillRules(settings.skillStoryboard, zh)
@@ -4160,7 +4164,7 @@ window.__ModuleLoader__.load({
         characters: Array.isArray(s.characters) ? s.characters.map(String).slice(0, 6) : [],
         scene: String(s.scene || ''),
         props: Array.isArray(s.props) ? s.props.map(String).slice(0, 6) : [],
-        duration: Number.isFinite(Number(s.duration)) ? Math.max(1, Math.round(Number(s.duration))) : 3,
+        duration: Number.isFinite(Number(s.duration)) ? Math.max(0.3, Math.round(Number(s.duration) * 10) / 10) : 3,
         dialogue: Array.isArray(s.dialogue)
           ? s.dialogue.slice(0, 6).map((d) => ({ role: String(d && d.role || '').trim().slice(0, 24), line: String(d && d.line || '').trim().slice(0, 200) })).filter((d) => d.role && d.line)
           : [],
