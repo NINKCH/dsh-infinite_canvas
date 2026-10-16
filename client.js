@@ -350,7 +350,7 @@ window.__ModuleLoader__.load({
       'shotsUnit': '镜',
       'savedOk': '已存为资产',
       'warnUnregistered': '未在设定集/资产中登记',
-      'warnScriptTooLong': '剧本较长（{n} 字）≈ 超过单分镜 10-15s 成片容量：请按场景拆分为多个场景剧本节点（每个分镜只连一个场景剧本，长剧本内容会被 24 镜上限截断）',
+      'warnScriptTooLong': '剧本较长（{n} 字）≈ 超过单个分镜的镜头容量（24 镜）：请按场景拆分为多个场景剧本节点（每个分镜只连一个场景剧本）',
       'warnEmptyDesc': '已登记但描述为空（待补全）',
       'catMention': '提及',
       'assetCategoriesFixed': '已按命名规范纠正 {n} 个资产的分类',
@@ -754,7 +754,7 @@ window.__ModuleLoader__.load({
       'shotsUnit': 'shots',
       'savedOk': 'Saved as asset',
       'warnUnregistered': 'not in bible/assets',
-      'warnScriptTooLong': 'Script is long ({n} chars) ≈ beyond one storyboard\'s 10-15s capacity: split the script into multiple scene script nodes (each storyboard eats ONE scene; long scripts get truncated at the 24-shot cap)',
+      'warnScriptTooLong': 'Script is long ({n} chars) ≈ beyond one storyboard\'s shot capacity (24 shots): split the script into multiple scene script nodes (each storyboard takes ONE scene)',
       'warnEmptyDesc': 'registered but description is empty (fill it in)',
       'catMention': 'Mention',
       'assetCategoriesFixed': 'Re-categorized {n} assets by naming convention',
@@ -3992,7 +3992,7 @@ window.__ModuleLoader__.load({
         '要求：',
         '- 本节点输出**一集**的剧本：成片时长 1-2 分钟（60-120 秒），共 4-10 个场景；',
         '- **每个场景必须以「【场N】场景名（地点·时间）」单独一行开头**（如【场1】城市街头（夜））——这是后续自动铺开到分镜的分场标记，格式不可省略或改写；',
-        '- 每场容量 10-15 秒成片（约 60-150 字，含该场全部对白）；全部场景时长之和 ≈ 1-2 分钟；',
+        '- 每场按内容写足（成片 10–30 秒量级，约 150–400 字含该场全部对白）；全部场景时长之和 ≈ 1-3 分钟；',
         '- 场景头之后：可视化动作描写 + 对白（角色：台词，单独成行）；需要的声音（环境音/旁白）标注在括号里；',
         '- **【资产锚定·硬性】正文中所有角色/场景/道具名称一律写成 @名称@ 引用形式**（前后各一个 @ 精确包裹，名称与设定集逐字一致，如「@陈拾@ 在 @城市街头@ 的 @铁皮围挡@ 旁」）——下游分镜生成靠这些锚点识别资产并挂接参考图；叙述性文字正常书写，不要把动作描述包进 @…@；',
         '- 结尾单独一行「人物：」与「场景/道具：」清单，便于后续资产制作。',
@@ -4001,7 +4001,7 @@ window.__ModuleLoader__.load({
         'Requirements:',
         '- This node outputs ONE episode: 1-2 minutes of screen time (60-120s), 4-10 scenes;',
         '- **Every scene MUST start with its own line "【SCENE N】name (location · time)"** — this marker drives the automatic per-scene expansion and must not be omitted;',
-        '- Each scene holds 10-15 seconds of screen time (≈60-150 words incl. dialogue); all scenes sum to ≈1-2 minutes;',
+        '- Each scene is written to what it needs (10-30 seconds of screen time, ≈150-400 words incl. dialogue); all scenes sum to ≈1-3 minutes;',
         '- After each scene header: visual action + dialogue ("Character: line" on its own lines); mark sounds in brackets;',
         '- **[ASSET ANCHORING - HARD] wrap every character/scene/prop name as @Name@** (an @ on each side, names verbatim from the bible, e.g. "@Chen@ stands by @Wall@ at @Street@") - downstream storyboard generation relies on these anchors to attach references; keep narration text normal, never wrap action descriptions inside @...@;',
         '- End with "Characters:" and "Locations/Props:" lists for asset production.',
@@ -4056,7 +4056,7 @@ window.__ModuleLoader__.load({
             '- **【完整覆盖】分镜必须覆盖所给剧本的全部内容**：每一个动作、每一句对白都要落在某个镜头里——不概述、不省略、不跳过、不"挑选重点"；镜头数量与总时长由剧本体量自然决定，宁多勿漏（容量超限由上层拆分剧本处理，不由分镜偷工减料）；',
             '- **镜头按实际内容切分**：一个连续动作段落 = 一镜，数量由内容自然决定（3-10 镜都正常）——绝不凑数、绝不使用固定数量；',
             '- **JSON 字符串值内部禁止出现半角双引号 "**——引用文字（牌匾/字幕/台词原文）一律用「」；',
-            '- duration 为该镜时长，2-5 的整数（一个镜头拍一个连续动作段落）；全部 duration 之和 **≤ 15 秒**（一个分镜表 = 一个 10-15s 的场景视频）——超了就合并精简镜头，而不是拉长单镜；镜头顺序即叙事顺序，末镜收束情绪；**若下方给了「承接约束」，第 1 镜必须承接上一场尾镜的画面与人物状态（不得重新建立场景/跳回远景），无承接约束时首镜才交代场景**；',
+            '- duration 为该镜时长，2-6 的整数（一个镜头拍一个连续动作段落）；**总时长按这一场的内容需要写足，不设硬上限**（各视频厂商单次时长上限不同、且会变化：宁可按内容写足，也不要为凑某个上限砍戏——超限时视频生成会明确报错，据报错再决定拆分或调整）；镜头顺序即叙事顺序，末镜收束情绪；**若下方给了「承接约束」，第 1 镜必须承接上一场尾镜的画面与人物状态（不得重新建立场景/跳回远景），无承接约束时首镜才交代场景**；',
             '- 只输出 JSON，不要输出任何其他内容。',
           ].join('\n')
         : [
@@ -4073,7 +4073,7 @@ window.__ModuleLoader__.load({
             '- **[FULL COVERAGE] the shots must cover EVERYTHING in the given script**: every action and every line must land in some shot — no summarizing, no omitting, no cherry-picking; shot count and total duration follow naturally from the script size (more is better than missing); capacity overflow is handled upstream by splitting the script, never by thinning the shots;',
             '- **Never use straight double quotes " inside JSON string values** — quoted text (signs/subtitles/lines) uses 「」 instead;',
             '- **Split shots by actual content**: one continuous action beat = one shot; the count is decided by the content (3-10 shots are all normal) — never pad, never use a fixed number;',
-            '- duration is the shot length in seconds, integer 2-5 (one continuous action beat per shot); the sum of durations must be **≤ 15 seconds** (one storyboard = one 10-15s scene video) — if over, merge and tighten shots instead of stretching; shot order = narrative order; last shot lands the emotion; **if a CONTINUITY CONSTRAINT is given below, shot 1 must continue the previous scene\'s last frame and character state (no re-establishing, no wide reset); only without a constraint does shot 1 establish the scene**;',
+            '- duration is the shot length in seconds, integer 2-6 (one continuous action beat per shot); **total duration follows what the scene needs - there is no hard cap** (per-request limits differ between vendors and change over time: write the scene fully rather than trimming it to fit a guessed limit; if the limit is exceeded the video call reports it explicitly, and you split or adjust from that error); shot order = narrative order; last shot lands the emotion; **if a CONTINUITY CONSTRAINT is given below, shot 1 must continue the previous scene\'s last frame and character state (no re-establishing, no wide reset); only without a constraint does shot 1 establish the scene**;',
             '- Output JSON only.',
           ].join('\n');
       const methodology = await loadSkillRules(settings.skillStoryboard, zh)
@@ -4151,24 +4151,16 @@ window.__ModuleLoader__.load({
         const tail = raw.slice(-160);
         throw new Error(T('errParseStoryboard') + '（正文 ' + raw.length + ' 字；开头: ' + head + '；结尾: ' + tail + '）');
       }
-      // 硬性容量保证：一个分镜表 ≤ 15s（视频模型单次上限）——超限从最长镜头开始逐秒压缩（每镜最低 1s）
-      const capped = shots.map((s) => ({ ...s }));
-      for (let guard = 0; guard < 300; guard++) {
-        const sum = capped.reduce((a, s) => a + (Number(s.duration) || 0), 0);
-        if (sum <= 15) break;
-        let maxI = -1, maxV = 1;
-        capped.forEach((s, i) => { const d = Number(s.duration) || 0; if (d > maxV) { maxV = d; maxI = i; } });
-        if (maxI < 0) break;
-        capped[maxI].duration = maxV - 1;
-      }
-      return capped.slice(0, 24).map((s, i) => ({
+      // 不做时长压缩：镜头时长由内容决定（各视频厂商单次上限不同，超限时由视频接口明确报错，
+      // 比系统静默砍戏更好——用户要求「不要强行截断」）。仅做数据合法性兜底（≥1 的整数）。
+      return shots.slice(0, 24).map((s, i) => ({
         title: String(s.title || (T('shotPrefix') + (i + 1))).slice(0, 24),
         visual: String(s.visual || ''),
         motion: String(s.motion || ''),
         characters: Array.isArray(s.characters) ? s.characters.map(String).slice(0, 6) : [],
         scene: String(s.scene || ''),
         props: Array.isArray(s.props) ? s.props.map(String).slice(0, 6) : [],
-        duration: Number.isFinite(Number(s.duration)) ? clamp(Math.round(Number(s.duration)), 1, 15) : 3,
+        duration: Number.isFinite(Number(s.duration)) ? Math.max(1, Math.round(Number(s.duration))) : 3,
         dialogue: Array.isArray(s.dialogue)
           ? s.dialogue.slice(0, 6).map((d) => ({ role: String(d && d.role || '').trim().slice(0, 24), line: String(d && d.line || '').trim().slice(0, 200) })).filter((d) => d.role && d.line)
           : [],
@@ -4905,10 +4897,10 @@ window.__ModuleLoader__.load({
         // 先自动补录缺失条目（空描述），再算一致性告警：否则告警标志的条目其实马上就被自动补录了，"未登记"语义会误导用户与对话侧
         try { await autoRegisterBibleEntries(shots); } catch { /* 补录失败不影响分镜 */ }
         const warnings = await checkShotConsistency(shots);
-        // 容量告警：一个分镜 = 一个 10-15s 的完整场景。剧本过长说明应该按场景拆分成多个场景剧本节点，
-        // 而不是让一个分镜表硬吃全集（shots 上限 24 会悄悄截断覆盖面）
+        // 容量告警：镜头数上限 24（UI/数据上限）。剧本过长说明应该按场景拆分成多个场景剧本节点，
+        // 而不是让一个分镜表硬吃全集（shots 上限 24 会截断覆盖面）。时长本身不设上限，不做压缩。
         const stLen = st.length;
-        if (stLen > 400) {
+        if (stLen > 600) {
           warnings.push(T('warnScriptTooLong').replace('{n}', String(stLen)));
         }
         update((s) => {
