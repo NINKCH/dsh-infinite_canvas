@@ -2360,9 +2360,44 @@ window.__ModuleLoader__.load({
       stability: { label: 'Stability AI 图生视频', base: 'https://api.stability.ai', note: 'SVD 纯图生视频（无提示词/无音频）；必须有首帧图' },
     };
     function detectVideoVendor(s) {
-      if (s && s.vendor) return s.vendor;
-      if (s && (s.protocol === 'seedance' || String(s.url || '').includes('contents/generations/tasks'))) return 'seedance';
+      if (!s) return 'openai';
+      if (s.vendor) return s.vendor;
+      const url = String(s.url || '').toLowerCase();
+      const model = String(s.model || '').toLowerCase();
+      // 模型名优先：第三方网关（relayrouter 等）的 URL 看不出真实厂商，只有模型名能说明
+      if (/wanx|万相|(^|[^a-z])wan(\d|[-_]\d|x)/.test(model)) return 'wan';
+      if (/(^|[^a-z])kling/.test(model)) return 'kling';
+      if (/minimax|hailuo/.test(model)) return 'minimax';
+      if (/vidu/.test(model)) return 'vidu';
+      if (/runway/.test(model)) return 'runway';
+      if (/(^|[^a-z])veo/.test(model)) return 'veo';
+      if (/luma|ray[-_]?[12]/.test(model)) return 'luma';
+      if (/pixverse/.test(model)) return 'pixverse';
+      if (/stable-?video|(^|[^a-z])svd/.test(model)) return 'stability';
+      if (/seedance/.test(model)) return 'seedance';
+      // URL 兜底识别
+      if (url.includes('dashscope')) return 'wan';
+      if (url.includes('klingai')) return 'kling';
+      if (url.includes('minimax')) return 'minimax';
+      if (url.includes('vidu')) return 'vidu';
+      if (url.includes('runway')) return 'runway';
+      if (url.includes('generativelanguage')) return 'veo';
+      if (url.includes('lumalabs')) return 'luma';
+      if (url.includes('pixverse')) return 'pixverse';
+      if (url.includes('stability')) return 'stability';
+      if (s.protocol === 'seedance' || url.includes('contents/generations/tasks')) return 'seedance';
       return 'openai';
+    }
+    /** 万相（DashScope/百炼）尺寸参数：size 形如 "1280*720"（宽*高）。 */
+    function wanSizeFor(resolution, ratio) {
+      const r = String(resolution || '720P').toUpperCase();
+      const hi = r.includes('1080');
+      const lo = r.includes('480');
+      const [rw, rh] = String(ratio || '16:9').split(':').map((x) => Number(x) || 0);
+      if (rw && rw === rh) return hi ? '1440*1440' : (lo ? '624*624' : '960*960');
+      const w = hi ? 1920 : lo ? 832 : 1280;
+      const h = hi ? 1080 : lo ? 480 : 720;
+      return (rw && rw < rh) ? (h + '*' + w) : (w + '*' + h);
     }
     function b64Pure(blob) {
       return new Promise((res, rej) => {
@@ -2429,20 +2464,35 @@ window.__ModuleLoader__.load({
       },
       // —— 阿里通义万相 Wan：DashScope 异步，X-DashScope-Async ——
       async wan(prompt, frameBlob, s, o) {
-        const base = String(s.url || VIDEO_VENDORS.wan.base).replace(/\/+$/, '');
+        const rawUrl = String(s.url || VIDEO_VENDORS.wan.base).trim();
+        // 端点归一化：允许填「裸域 / …/v1 / …/api/v1 / 完整 video-synthesis 端点」——
+        // 网关（如 api.relayrouter.ai/v1）此前会拼成 …/v1/api/v1/… 而 404
+        let submitUrl; let origin;
+        try {
+          const u = new URL(rawUrl);
+          origin = u.origin;
+          const p = u.pathname.replace(/\/+$/, '');
+          submitUrl = /\/video-synthesis$/.test(p) ? origin + p : origin + '/api/v1/services/aigc/video-generation/video-synthesis';
+        } catch { throw new Error('万相视频 API 地址无效：' + rawUrl); }
         const headers = { 'Content-Type': 'application/json', Authorization: 'Bearer ' + (s.apiKey || ''), 'X-DashScope-Async': 'enable' };
         const body = {
           model: s.model || 'wan2.2-t2v-plus',
           input: { prompt, ...(frameBlob ? { img_url: await blobToDataUrlScaled(frameBlob) } : {}) },
-          parameters: { prompt_extend: true },
+          parameters: {
+            prompt_extend: true,
+            size: wanSizeFor(o.resolution, o.ratio),
+            duration: Number(o.duration) >= 10 ? 10 : 5,
+            watermark: false,
+          },
         };
-        const r1 = await fetchViaProxy(base + '/api/v1/services/aigc/video-generation/video-synthesis', { headers, body, label: 'Wan 提交' });
-        if (!r1.ok) throw new Error('Wan 提交 HTTP ' + r1.status + '：' + r1.text.slice(0, 300));
+        const r1 = await fetchViaProxy(submitUrl, { headers, body, label: 'Wan 提交' });
+        if (!r1.ok) throw new Error('Wan 提交 HTTP ' + r1.status + ' @ ' + submitUrl + '：' + r1.text.slice(0, 300));
         let j1 = null; try { j1 = JSON.parse(r1.text); } catch { throw new Error('Wan 响应非 JSON：' + r1.text.slice(0, 200)); }
         const tid = j1 && j1.output && j1.output.task_id;
         if (!tid) throw new Error('Wan 响应中没有 task_id：' + r1.text.slice(0, 200));
+        if (o.onTask) { try { o.onTask(tid, origin + '/api/v1/tasks/' + tid); } catch { /* 持久化失败不影响生成 */ } }
         const url = await vendorPoll('Wan', 8000, async () => {
-          const r = await fetchViaProxy(base + '/api/v1/tasks/' + tid, { method: 'GET', headers: { Authorization: 'Bearer ' + (s.apiKey || '') }, timeoutMs: 60000, label: 'Wan 查询' });
+          const r = await fetchViaProxy(origin + '/api/v1/tasks/' + tid, { method: 'GET', headers: { Authorization: 'Bearer ' + (s.apiKey || '') }, timeoutMs: 60000, label: 'Wan 查询' });
           if (!r || !r.ok) return { state: 'wait' };
           let j = null; try { j = JSON.parse(r.text); } catch { return { state: 'wait' }; }
           const st = j && j.output && j.output.task_status;
