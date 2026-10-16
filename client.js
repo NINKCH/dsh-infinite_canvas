@@ -2444,13 +2444,15 @@ window.__ModuleLoader__.load({
       if (s.protocol === 'seedance' || url.includes('contents/generations/tasks')) return 'seedance';
       return 'openai';
     }
-    /** 万相（DashScope/百炼）尺寸参数：size 形如 "1920*1080"（宽*高）。
-     *  万相 3.0 实测只认 1080P 档尺寸（720P 级的 1280*720 会被静默忽略并回落竖屏默认 1080*1920），
-     *  所以统一按 1080P 档映射：16:9 → 1920*1080，9:16 → 1080*1920，1:1 → 1440*1440。 */
+    /** 万相尺寸参数：size 形如 "宽*高" —— **只做用户设置（清晰度 × 比例）的机械换算，不做任何升级/转换**。
+     *  厂商不支持该尺寸就让它报错；厂商自己能兼容转换是厂商的事（透传原则：用户设什么发什么）。 */
     function wanSizeFor(resolution, ratio) {
+      const r = String(resolution || '720P').toUpperCase();
       const [rw, rh] = String(ratio || '16:9').split(':').map((x) => Number(x) || 0);
-      if (rw && rw === rh) return '1440*1440';
-      return (rw && rw < rh) ? '1080*1920' : '1920*1080';
+      if (rw && rw === rh) return r.includes('1080') ? '1440*1440' : r.includes('480') ? '624*624' : '960*960';
+      const w = r.includes('1080') ? 1920 : r.includes('480') ? 832 : 1280;
+      const h = r.includes('1080') ? 1080 : r.includes('480') ? 480 : 720;
+      return (rw && rw < rh) ? (h + '*' + w) : (w + '*' + h);
     }
     function b64Pure(blob) {      return new Promise((res, rej) => {
         const r = new FileReader();
@@ -2523,11 +2525,11 @@ window.__ModuleLoader__.load({
         const body = {
           model: s.model || 'wan2.2-t2v-plus',
           input: { prompt, ...(frameBlob ? { img_url: await blobToDataUrlScaled(frameBlob) } : {}) },
+          // 只发用户设置推出来的参数（size/duration）；不替用户附加任何选项（watermark/prompt_extend 等
+          // 由厂商默认值决定，需要时用户在「扩展参数」里自己加——透传原则）
           parameters: {
-            prompt_extend: true,
             size: wanSizeFor(o.resolution, o.ratio),
             duration: Math.round(Number(o.duration)) || 5,
-            watermark: false,
           },
         };
         // 扩展参数：厂商/网关参数名不一致时的逃生舱（顶层字段直接覆盖，parameters 内做深合并）
@@ -2562,7 +2564,7 @@ window.__ModuleLoader__.load({
         const base = vendorBase(s.url, VIDEO_VENDORS.minimax.base);
         const headers = { 'Content-Type': 'application/json', Authorization: 'Bearer ' + (s.apiKey || '') };
         const body = {
-          model: s.model || 'MiniMax-Hailuo-02', prompt, prompt_optimizer: true,
+          model: s.model || 'MiniMax-Hailuo-02', prompt,
           duration: String(Math.round(Number(o.duration)) || 6),
           resolution: String(o.resolution || '').toLowerCase().includes('1080') ? '1080P' : '768P',
         };
