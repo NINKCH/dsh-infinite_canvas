@@ -252,6 +252,8 @@ window.__ModuleLoader__.load({
       'nStoryboard': '分镜表',
       'nScript': '剧本',
       'vendorLabel': '厂商格式（选后只需填 Base URL + 模型 id）',
+      'showKey': '显示明文',
+      'hideKey': '隐藏（脱敏显示）',
       'portScript': '剧本',
       'portPrev': '衔接上一镜',
       'portTail': '尾镜输出',
@@ -643,6 +645,8 @@ window.__ModuleLoader__.load({
       'nScript': 'Script',
       'portScript': 'script',
       'vendorLabel': 'Vendor format (then just Base URL + model id)',
+      'showKey': 'Show key',
+      'hideKey': 'Hide key (masked)',
       'portPrev': 'Continue prev tail',
       'portTail': 'Tail shot (for next)',
       'aiScript': 'AI write script',
@@ -5314,6 +5318,8 @@ window.__ModuleLoader__.load({
       script: 'M6 3h9l4 4v14H6zM15 3v4h4M9 12h7M9 16h7M9 8h3',
       board: 'M4 4h16v16H4zM4 9h16M9 4v5M15 4v5M9 13h6M9 17h6',
       expandAll: 'M4 12h6M4 12l3-3M4 12l3 3M20 12h-6M20 12l-3-3M20 12l-3 3M12 4v6M12 4l-3 3M12 4l3 3M12 20v-6M12 20l-3-3M12 20l3-3',
+      eye: 'M2.5 12S6 6.5 12 6.5 21.5 12 21.5 12 18 17.5 12 17.5 2.5 12 2.5 12zM12 15a3 3 0 100-6 3 3 0 000 6z',
+      eyeOff: 'M4 4l16 16M9.9 5.1A9.6 9.6 0 0112 5c6 0 9.5 7 9.5 7a17 17 0 01-3.3 4.2M6.2 7.4A17 17 0 002.5 12S6 19 12 19a9.4 9.4 0 003.9-.8M10 10a3 3 0 004 4',
     };
     function Ic(name, size) { return h(Icon, { d: ICONS[name], size: size || 14 }); }
 
@@ -7582,13 +7588,35 @@ window.__ModuleLoader__.load({
 
     /** 图片/视频模型多配置列表：名称 / 地址 / Key / 模型（/模式），可增删、设默认。 */
     function Field({ label, value, onChange, placeholder, password }) {
+      // 敏感字段（API Key）：默认脱敏，点击小眼睛切换明文显示
+      const [reveal, setReveal] = useState(false);
+      if (!password) {
+        return h('div', { className: 'dshic-field' },
+          h('span', { className: 'dshic-field-label' }, label),
+          h('input', {
+            className: 'dshic-input', type: 'text', value, placeholder: placeholder || '',
+            onChange: (e) => onChange(e.target.value),
+            onPointerDown: (e) => e.stopPropagation(),
+          }));
+      }
       return h('div', { className: 'dshic-field' },
         h('span', { className: 'dshic-field-label' }, label),
-        h('input', {
-          className: 'dshic-input', type: password ? 'password' : 'text', value, placeholder: placeholder || '',
-          onChange: (e) => onChange(e.target.value),
-          onPointerDown: (e) => e.stopPropagation(),
-        }));
+        h('div', { style: { position: 'relative', display: 'flex', alignItems: 'center' } },
+          h('input', {
+            className: 'dshic-input', type: reveal ? 'text' : 'password', value, placeholder: placeholder || '',
+            style: { paddingRight: 30 },
+            onChange: (e) => onChange(e.target.value),
+            onPointerDown: (e) => e.stopPropagation(),
+          }),
+          h('button', {
+            type: 'button', className: 'dshic-iconbtn',
+            title: reveal ? T('hideKey') : T('showKey'),
+            'aria-label': reveal ? T('hideKey') : T('showKey'),
+            style: { position: 'absolute', right: 3, top: '50%', transform: 'translateY(-50%)', width: 22, height: 22 },
+            onPointerDown: (e) => e.stopPropagation(),
+            onClick: () => setReveal((v) => !v),
+          }, reveal ? Ic('eyeOff', 12) : Ic('eye', 12)),
+        ));
     }
     /** ⓘ 悬停说明：界面简洁化——长解释一律收进悬停提示（原生 title），不再平铺文字。 */
     function InfoTip(text) {
