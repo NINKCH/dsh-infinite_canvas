@@ -4490,7 +4490,16 @@ window.__ModuleLoader__.load({
     function edgeGeom(e) {
       const a = portWorldPos(e.fromNode, e.fromPort, 'out');
       const b = portWorldPos(e.toNode, e.toPort, 'in');
-      const dx = Math.max(42, Math.abs(b.x - a.x) * 0.5);
+      const off = Math.abs(b.x - a.x);
+      // 端口横向对齐（同一列上下相接，如分镜承接链）：直接连直线，不再外扩控制点画弯线
+      if (off < 12 && Math.abs(b.y - a.y) > 24) {
+        return {
+          d: `M ${a.x} ${a.y} L ${b.x} ${b.y}`,
+          mx: (a.x + b.x) / 2,
+          my: (a.y + b.y) / 2,
+        };
+      }
+      const dx = Math.max(42, off * 0.5);
       const c1x = a.x + dx, c2x = b.x - dx;
       return {
         d: `M ${a.x} ${a.y} C ${c1x} ${a.y}, ${c2x} ${b.y}, ${b.x} ${b.y}`,
