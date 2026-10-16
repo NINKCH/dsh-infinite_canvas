@@ -62,6 +62,10 @@ npm 发布**完全由 GitHub Actions 自动完成**（npm 已绑定 GitHub，Tru
 
 ## 已知教训（不要再犯）
 
+- **提交前先确认分支**：发版后容易停在 main 上继续改（改动会误提交到 main）。已内置守卫：
+  把 `scripts/hooks/pre-commit` 装到 `.git/hooks/pre-commit`（`cp scripts/hooks/pre-commit .git/hooks/`），
+  在 main 上提交会被直接拒绝并提示切回 dev；确需在 main 提交时用 `release:` 开头的信息显式豁免。
+
 - **禁止本机 `npm publish`**：本机默认 registry 是淘宝镜像（`registry.npmmirror.com`），发布必 404；
   即使显式指定官方源，存储的 npmjs 令牌也早已无发布权限（新政策下经典令牌不能发布）。
   发布只走 GitHub Release → OIDC。

@@ -1,0 +1,20 @@
+#!/bin/sh
+# 分支守卫：禁止在 main 上提交（发版提交除外）——防止"改完忘了切回 dev，提交落到 main"。
+# 发版提交允许：message 以 release: 开头（发版流程需要先在 main 上提交？不需要——发版是把 dev 合并进 main，
+# 所以 main 上几乎不需要新提交；仅当确实要打补丁提交时用 release: 前缀显式豁免）。
+branch="$(git rev-parse --abbrev-ref HEAD 2>/dev/null)"
+if [ "$branch" = "main" ]; then
+  msgfile="$1"
+  msg=""
+  [ -n "$msgfile" ] && [ -f "$msgfile" ] && msg="$(head -n 1 "$msgfile")"
+  case "$msg" in
+    release:*) exit 0 ;;
+  esac
+  echo "" >&2
+  echo "✗ 拒绝在 main 分支提交：main 只接受从 dev 合并（发版流程）。" >&2
+  echo "  请先切换分支：git switch dev" >&2
+  echo "  确需在 main 上提交：提交信息以 release: 开头。" >&2
+  echo "" >&2
+  exit 1
+fi
+exit 0
