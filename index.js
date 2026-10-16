@@ -771,6 +771,7 @@ function nextNodePos(doc, type, connectFromId) {
   const nodes = Object.values(doc.nodes || {});
   const EST_H = { storyboard: 420, 'video-gen': 320, 'image-gen': 260, script: 300, finalcut: 300, text: 200 };
   const estH = EST_H[type] || 220;
+  const estW = type === 'finalcut' ? 300 : 280;
   let x = 80;
   let y = 40;
   if (connectFromId && doc.nodes && doc.nodes[connectFromId]) {
