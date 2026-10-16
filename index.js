@@ -784,8 +784,8 @@ function nextNodePos(doc, type, connectFromId) {
   const H = (n) => Number(n && n.h) || 160;
   const W = (n) => Number(n && n.w) || 280;
   const nodes = Object.values(doc.nodes || {});
-  const EST_H = { storyboard: 420, 'video-gen': 320, 'image-gen': 260, script: 300, finalcut: 300, text: 200 };
-  const estH = EST_H[type] || 220;
+  const EST_H = { storyboard: 560, 'video-gen': 620, 'image-gen': 560, script: 420, finalcut: 420, text: 220 };
+  const estH = EST_H[type] || 300;
   const estW = type === 'finalcut' ? 300 : 280;
   let x = 80;
   let y = 40;
@@ -796,8 +796,13 @@ function nextNodePos(doc, type, connectFromId) {
   } else {
     const same = nodes.filter((n) => n.type === type);
     if (same.length) {
+      // 同类型竖向成列：跟在同类型最后一个节点下方
       x = Math.min(...same.map((n) => n.x || 0));
       y = Math.max(...same.map((n) => (n.y || 0) + H(n))) + GAP_Y;
+    } else if (nodes.length) {
+      // 该类型还没有节点 → 在最右侧另起一列（绝不插进已有列里跟别的类型混排）
+      x = Math.max(...nodes.map((n) => (n.x || 0) + W(n))) + GAP_X;
+      y = Math.min(...nodes.map((n) => n.y || 0));
     }
   }
   const hit = (yy) => nodes.find((n) => (n.x || 0) < x + estW + MIN_GAP && (n.x || 0) + W(n) + MIN_GAP > x

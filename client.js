@@ -5057,6 +5057,13 @@ window.__ModuleLoader__.load({
       if (t.closest && t.closest('input,textarea,select,button,video,a,label,[data-no-drag]')) return;
       e.stopPropagation();
       closeMenu();
+      // 点击即置顶：被点的节点（含拖动中的整组）绘制在最上层，避免被其他节点盖住
+      update((s) => {
+        const z = (s.zTop || 100) + 1;
+        s.zTop = z;
+        const ids = s.sel.has(n.id) ? [...s.sel, n.id] : [n.id];
+        for (const id of ids) { const nd = s.graph.nodes[id]; if (nd) nd.z = z; }
+      });
       if (e.shiftKey) {
         const next = new Set(S.sel);
         if (next.has(n.id)) next.delete(n.id); else next.add(n.id);
@@ -5527,7 +5534,7 @@ window.__ModuleLoader__.load({
       return h('div', {
         'data-node-id': n.id,
         className: cls('dshic-node', 'type-' + n.type, 'st-' + st, selected && 'is-selected', n.hManual && 'h-manual'),
-        style: { left: n.x, top: n.y, width: n.w, ...(n.hManual ? { height: n.hManual } : {}) },
+        style: { left: n.x, top: n.y, width: n.w, zIndex: Number(n.z) || 1, ...(n.hManual ? { height: n.hManual } : {}) },
         ref: refCb,
         onPointerDown: (e) => onNodePointerDown(e, n),
       },
@@ -8722,11 +8729,11 @@ window.__ModuleLoader__.load({
               nodes.filter((nd) => nd.type === 'group').map((n) => h(NodeShell, { key: n.id, n })),
               nodes.filter((nd) => nd.type !== 'group').map((n) => h(NodeShell, { key: n.id, n })),
               h('div', {
-                className: 'dshic-marquee', style: { display: 'none' },
+                className: 'dshic-marquee', style: { display: 'none', zIndex: 9999 },
                 ref: (el) => { marqueeEl = el; },
               }),
-              h('div', { className: 'dshic-guide-v', style: { display: 'none' }, ref: (el) => { vGuidEl = el; } }),
-              h('div', { className: 'dshic-guide-h', style: { display: 'none' }, ref: (el) => { hGuidEl = el; } }),
+              h('div', { className: 'dshic-guide-v', style: { display: 'none', zIndex: 9999 }, ref: (el) => { vGuidEl = el; } }),
+              h('div', { className: 'dshic-guide-h', style: { display: 'none', zIndex: 9999 }, ref: (el) => { hGuidEl = el; } }),
             ),
             h(Minimap),
             nodes.length === 0 ? h('div', { className: 'dshic-empty' },              h('div', { className: 'dshic-empty-card' },
