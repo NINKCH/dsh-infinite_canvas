@@ -1218,10 +1218,14 @@ function storyboardConsistencyWarnings(bible, shots, extraNames) {
     for (const nm of (sh.characters || [])) check(title, '角色', nm);
     check(title, '场景', sh && sh.scene);
     for (const nm of (sh.props || [])) check(title, '道具', nm);
-    // visual/motion 文本里的 @提及 同样纳入检查（数组外的实体也要登记，杜绝检查漏）
+    // visual/motion 文本里的 @资产名@ 提及同样纳入检查（未登记的提示补充——与客户端 parseMentions 词法一致）
     const text = String((sh && sh.visual) || '') + ' ' + String((sh && sh.motion) || '');
-    for (const m of (text.match(/@[^\s@，。；、！？:：（）"'）)]+/g) || [])) {
-      check(title, '提及', m.slice(1).replace(/[）)]+$/, ''));
+    const seenMention = new Set();
+    for (const m of (text.match(/@([^@\s，。；：、,.;:!?！？()（）[\]【】"'“”<>《》/\\|]{1,64}?)@/g) || [])) {
+      const nm = m.replace(/^@/, '').replace(/@$/, '');
+      if (seenMention.has(nm)) continue;
+      seenMention.add(nm);
+      check(title, '提及', nm);
     }
   }
   return warnings;
