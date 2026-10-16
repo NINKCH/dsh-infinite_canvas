@@ -2187,9 +2187,26 @@ window.__ModuleLoader__.load({
     async function seedanceVideo(prompt, frameBlob, refs, s, opts) {
       if (!s.url) throw new Error('未配置视频 API');
       if (!s.model) throw new Error('请在设置里为该视频 API 填写模型名（Seedance 协议要求显式指定模型）');
-      const base = s.url.replace(/\/+$/, '');
       const headers = { 'Content-Type': 'application/json', ...(s.apiKey ? { Authorization: 'Bearer ' + s.apiKey } : {}) };
       const o = opts || {};
+      // 端点归一化：配置里常填「基础地址」（裸域或 …/v1），此前直接 POST 到基础地址 → 404 Invalid URL。
+      //  · 已带任务路径（contents/generations/tasks）→ 原样用（方舟官方）
+      //  · 方舟官方域名 → 补官方任务路径
+      //  · 其余（中转站/网关，如 api.relayrouter.ai/v1）→ 走 content[] 提交端点 /v1/video/generations + /v1/video/query 轮询
+      let base = String(s.url).replace(/\/+$/, '');
+      if (!/contents\/generations\/tasks$/.test(base)) {
+        const host = base.replace(/^https?:\/\//i, '').split('/')[0].toLowerCase();
+        const isArkHost = /(^|\.)volces\.com$/.test(host) || /(^|\.)volcengineapi\.com$/.test(host) || /^ark\./.test(host);
+        if (isArkHost) {
+          base = base + '/api/v3/contents/generations/tasks';
+        } else {
+          const gw = /\/v1$/.test(base) ? base : base + '/v1';
+          // 衔接说明前置（网关 content[] 路径不重复添加，由这里负责）
+          const gwRefs = o.hardFrame ? [] : (o.refs || []).slice(0, 8);
+          const gwText = (frameBlob && gwRefs.length) ? (videoRefNote(o.refNames) + '\n' + prompt) : prompt;
+          return await relayVideoContentFallback(gw + '/video/generations', gwText, frameBlob, o, s, headers);
+        }
+      }
       // first_frame 与 reference_image 互斥（网关 400）。跨镜衔接（尾帧+参考图同连）→
       // 首帧降级为第一张衔接参考图：全部按 reference_image 传、提示词按序标注、比例不锁 adaptive
       const rawRefs = o.hardFrame ? [] : (refs || []).slice(0, 8);
