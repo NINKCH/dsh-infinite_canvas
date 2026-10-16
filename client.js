@@ -2444,16 +2444,13 @@ window.__ModuleLoader__.load({
       if (s.protocol === 'seedance' || url.includes('contents/generations/tasks')) return 'seedance';
       return 'openai';
     }
-    /** 万相（DashScope/百炼）尺寸参数：size 形如 "1280*720"（宽*高）。 */
+    /** 万相（DashScope/百炼）尺寸参数：size 形如 "1920*1080"（宽*高）。
+     *  万相 3.0 实测只认 1080P 档尺寸（720P 级的 1280*720 会被静默忽略并回落竖屏默认 1080*1920），
+     *  所以统一按 1080P 档映射：16:9 → 1920*1080，9:16 → 1080*1920，1:1 → 1440*1440。 */
     function wanSizeFor(resolution, ratio) {
-      const r = String(resolution || '720P').toUpperCase();
-      const hi = r.includes('1080');
-      const lo = r.includes('480');
       const [rw, rh] = String(ratio || '16:9').split(':').map((x) => Number(x) || 0);
-      if (rw && rw === rh) return hi ? '1440*1440' : (lo ? '624*624' : '960*960');
-      const w = hi ? 1920 : lo ? 832 : 1280;
-      const h = hi ? 1080 : lo ? 480 : 720;
-      return (rw && rw < rh) ? (h + '*' + w) : (w + '*' + h);
+      if (rw && rw === rh) return '1440*1440';
+      return (rw && rw < rh) ? '1080*1920' : '1920*1080';
     }
     function b64Pure(blob) {      return new Promise((res, rej) => {
         const r = new FileReader();
