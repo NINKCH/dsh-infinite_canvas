@@ -259,12 +259,12 @@ window.__ModuleLoader__.load({
       'supportNote': '有问题或改进建议，提 Issue 或进群反馈。',
       'supportGithub': 'GitHub 仓库',
       'supportIssues': '提 Issue / 提建议',
-      'supportWechat': '微信交流群',
-      'supportWechatHint': '扫码进群交流',
+      'supportWechat': '加我微信（拉你进群）',
+      'supportWechatHint': '扫码加我微信，我手动拉你进交流群',
       'supportCopy': '复制地址',
       'supportCopied': '已复制到剪贴板',
       'supportOpen': '打开',
-      'supportQrMissing': '二维码待放置：assets/support/wechat-group.png',
+      'supportQrMissing': '二维码待放置：assets/support/wechat.jpg',
       'supportClose': '关闭',
       'portScript': '剧本',
       'portPrev': '衔接上一镜',
@@ -664,12 +664,12 @@ window.__ModuleLoader__.load({
       'supportNote': 'Found a bug or have an idea? File an issue or join the group.',
       'supportGithub': 'GitHub repository',
       'supportIssues': 'File an issue / idea',
-      'supportWechat': 'WeChat group',
-      'supportWechatHint': 'Scan to join the group',
+      'supportWechat': 'Add me on WeChat',
+      'supportWechatHint': 'Scan to add me — I will invite you into the group',
       'supportCopy': 'Copy URL',
       'supportCopied': 'Copied to clipboard',
       'supportOpen': 'Open',
-      'supportQrMissing': 'QR not added yet: assets/support/wechat-group.png',
+      'supportQrMissing': 'QR not added yet: assets/support/wechat.jpg',
       'supportClose': 'Close',
       'portPrev': 'Continue prev tail',
       'portTail': 'Tail shot (for next)',
@@ -8788,7 +8788,7 @@ window.__ModuleLoader__.load({
     // ============================================================
     const SUPPORT_GITHUB = 'https://github.com/NINKCH/dsh-infinite_canvas';
     const SUPPORT_ISSUES = 'https://github.com/NINKCH/dsh-infinite_canvas/issues/new';
-    const SUPPORT_QR_URL = '/' + NS + '/api/plugin-asset?rel=' + encodeURIComponent('assets/support/wechat-group.png');
+    const SUPPORT_QR_URL = '/' + NS + '/api/plugin-asset?rel=' + encodeURIComponent('assets/support/wechat.jpg');
     function copyText(text, okMsg) {
       try {
         if (navigator.clipboard && navigator.clipboard.writeText) { navigator.clipboard.writeText(text).then(() => toast(okMsg)).catch(() => toast(text)); return; }
