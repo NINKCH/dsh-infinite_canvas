@@ -749,11 +749,28 @@ function agentNode(kind, text, x, y, label) {
   if (label) data.label = String(label).slice(0, 40);
   return { id, type: isText ? 'text' : 'script', x, y, w: isText ? 260 : 320, h: 100, data };
 }
-function nextNodePos(doc) {
-  let maxX = 0;
-  let maxY = 40;
-  for (const n of Object.values(doc.nodes || {})) { if ((n.x || 0) + (n.w || 240) > maxX) { maxX = (n.x || 0) + (n.w || 240); maxY = n.y || 40; } }
-  return { x: maxX + 60, y: maxY };
+/** 新节点布局（用户设计）：
+ *  1) 有 connectFrom 源 → 放在源节点右侧同一行（串联节点横向成对）；
+ *  2) 无连线 → 同类型竖向成列（排在该类型最后一个节点下方，新起一行）；
+ *  3) 与现有节点矩形相交时自动下移避让，绝不重叠。 */
+function nextNodePos(doc, type, connectFromId) {
+  const GAP_X = 60, GAP_Y = 40;
+  const H = (n) => Number(n && n.h) || 160;
+  const W = (n) => Number(n && n.w) || 280;
+  const nodes = Object.values(doc.nodes || {});
+  if (connectFromId && doc.nodes && doc.nodes[connectFromId]) {
+    const src = doc.nodes[connectFromId];
+    return { x: (src.x || 0) + W(src) + GAP_X, y: src.y || 40 };
+  }
+  const same = nodes.filter((n) => n.type === type);
+  if (!same.length) return { x: 80, y: 40 };
+  const colX = Math.min(...same.map((n) => n.x || 0));
+  let y = Math.max(...same.map((n) => (n.y || 0) + H(n))) + GAP_Y;
+  const NW = 280, NH = 220;
+  let guard = 0;
+  const hits = (yy) => nodes.some((n) => (n.x || 0) < colX + NW && (n.x || 0) + W(n) > colX && (n.y || 0) < yy + NH && (n.y || 0) + H(n) > yy);
+  while (guard++ < 60 && hits(y)) y += 60;
+  return { x: colX, y };
 }
 // ---------- 内置技能（操作规程 + 创作方法论，约束并提升对话的画布创作）----------
 // canvas-studio＝操作硬约束；canvas-craft＝剧本/分镜/提示词创作方法论
@@ -1042,10 +1059,10 @@ function canvasCreateNode(args) {
   if (!['script', 'text', 'image-gen', 'video-gen', 'storyboard', 'finalcut'].includes(type)) throw new Error('不支持的节点类型: ' + type);
   const label = args && args.name ? String(args.name).slice(0, 40) : '';
   const prompt = String((args && args.prompt) || '');
-  const pos = nextNodePos(doc);
+  const connectFrom = String((args && args.connectFrom) || '');
+  const pos = nextNodePos(doc, type, connectFrom);
   let connected = null;
   let autoConnected = null;
-  const connectFrom = String((args && args.connectFrom) || '');
   let node;
   if (type === 'image-gen') {
     node = agentNode('text', '', pos.x, pos.y, label || '图片生成');
@@ -1099,11 +1116,14 @@ function canvasCreateNode(args) {
   const explicitConnect = Boolean(connectFrom);
   if (connectFrom) {
     if (!doc.nodes[connectFrom]) throw new Error('connectFrom 指向的节点不存在: ' + connectFrom);
-    const edge = connectEdge(doc, connectFrom, node.id, args && args.connectFromPort, args && args.connectToPort);
+    // 分镜表默认连「剧本来源」口（script），而不是输入队列里的第一个口（prev）——场景文本是剧本来源，不是承接来源
+    const srcType = doc.nodes[connectFrom] && doc.nodes[connectFrom].type;
+    const defaultToPort = (type === 'storyboard' && (srcType === 'text' || srcType === 'script')) ? 'script' : undefined;
+    const edge = connectEdge(doc, connectFrom, node.id, args && args.connectFromPort, (args && args.connectToPort) || defaultToPort);
     connected = edge.id;
   } else if (autoConnected && (type === 'storyboard' || type === 'video-gen')) {
     // 未指定连线但上游已存在（分镜表→剧本 / 视频生成→分镜表）→ 默认自动连线（工作流的默认形态，不依赖 Agent 记得）
-    const edge = connectEdge(doc, autoConnected.from, node.id);
+    const edge = connectEdge(doc, autoConnected.from, node.id, undefined, type === 'storyboard' ? 'script' : undefined);
     connected = edge.id;
   }
   doc.updatedAt = Date.now();
