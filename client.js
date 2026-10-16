@@ -2676,7 +2676,7 @@ window.__ModuleLoader__.load({
         let base = String(s.url || VIDEO_VENDORS.luma.base).trim().replace(/\/+$/, '');
         if (!/\/v1$/i.test(base)) base = base + '/v1';
         const headers = { 'Content-Type': 'application/json', Authorization: 'Bearer ' + (s.apiKey || '') };
-        const body = { prompt, model: 'ray-2', resolution: String(o.resolution || '').toLowerCase().includes('1080') ? '1080p' : '720p', duration: (Math.max(5, Math.min(9, Number(o.duration) || 5)) <= 5 ? '5s' : '9s') };
+        const body = { prompt, model: 'ray-2', resolution: String(o.resolution || '').toLowerCase().includes('1080') ? '1080p' : '720p', duration: (Math.round(Number(o.duration)) || 5) + 's' };
         if (frameBlob) throw new Error('Luma 图生视频需要公网图片 URL——本地图片请改用文生视频，或换其他厂商');
         const r1 = await fetchViaProxy(base + '/generations', { headers, body, label: 'Luma 提交' });
         if (!r1.ok) throw new Error('Luma 提交 HTTP ' + r1.status + '：' + r1.text.slice(0, 300));
