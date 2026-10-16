@@ -40,6 +40,7 @@
                   "cordis.patch.yml",
                   "locale/*.json",
                   "assets/*/SKILL.md",
+                  "assets/support/*",
                   "README.md",
                   "README.zh-CN.md",
                   "docs/*.md"
