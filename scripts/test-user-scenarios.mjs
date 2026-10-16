@@ -102,7 +102,7 @@ if ((d1.edgeTombstones || []).includes(undoEdge.id)) {
 
 // 一致性告警闭环：分镜引用未登记实体 → node_status 返回 warnings（对话侧据此补全）→
 // 设定集补全后告警自动重算消失；描述为空的条目给"待补全"级告警
-const shotsJson2 = JSON.stringify({ shots: [{ title: '镜1', visual: '中景，@陈拾 在 @城市街头 举起 @神秘包裹', motion: '缓推', characters: ['陈拾'], scene: '城市街头', props: ['神秘包裹'], duration: 3 }] });
+const shotsJson2 = JSON.stringify({ shots: [{ title: '镜1', visual: '中景，@陈拾@ 在 @城市街头@ 举起 @神秘包裹@', motion: '缓推', characters: ['陈拾'], scene: '城市街头', props: ['神秘包裹'], duration: 3 }] });
 const sb2 = await byName.get('canvas_create_node').execute({ projectId, type: 'storyboard', name: '一致性分镜表' }, {});
 await byName.get('canvas_write_node').execute({ projectId, nodeId: sb2.nodeId, target: 'output', text: shotsJson2, overwrite: true }, {});
 let st2 = await byName.get('canvas_node_status').execute({ projectId, nodeId: sb2.nodeId }, {});

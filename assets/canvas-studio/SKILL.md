@@ -136,7 +136,12 @@ description: 用无限画布（Infinite Canvas）做短剧/视频创作时使用
 5. **生成角色/场景/道具参考图**：为设定集里的每个条目
    `canvas_create_node({ projectId, type: 'image-gen', name: '角色-张山 多视图', prompt: '按设定集写外观关键词' })`
    → `canvas_run_node({ projectId, nodeId })` 触发（画布用它配置的图片接口）
-   - 需要补连任意两节点时用 `canvas_connect({ projectId, fromNode, toNode })`（端口类型必须匹配）
+   - 需要补连任意两节点时用 `canvas_connect({ projectId, fromNode, toNode })`（端口类型必须匹配；
+     连分镜表时系统按语义自动选口：剧本/文本 → `script`，分镜表 → `prev`，不用手写端口）
+   - **布局乱了/节点重叠**：`canvas_relayout({ projectId })` 一键重排——横向数据流决定列
+     （文本→分镜表→视频），竖向关系（承接 `prev` / 首帧 `frame`）留在同列，同行 = 一个横向连通组
+     （如「场N文本 ↔ 场N分镜表」对齐），行间保留间距、绝不重叠。新建节点已做碰撞检测；
+     存量节点乱了一律用这个工具重排，不要手工挪。
 6. `canvas_open({ projectId })` —— 让用户看到画布结果
 
 ## 三、@引用与资产命名（跨集一致性的核心手法）

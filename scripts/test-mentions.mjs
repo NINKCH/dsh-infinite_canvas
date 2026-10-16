@@ -28,18 +28,22 @@ const bible = {
   props: [{ name: '火漆信', desc: '火漆封蜡' }],
 };
 
-// 1) 解析：位置、多个、标点边界、邮箱不误伤
-const p = api.parseMentions('@张山 走进 @褶皱巷，手里拿着 @火漆信。');
-eq(p.map((x) => x.name), ['张山', '褶皱巷', '火漆信'], '@名称解析');
-eq(p[0].start, 0, '@名称起始位置');
-if (api.parseMentions('a@b.com 不是引用').length !== 1) errs.push('邮箱/普通文本中的 @ 会被误判为引用（应保留可识别但可容忍）');
+// 1) 解析：位置、多个、双 @ 精确边界、邮箱不误伤
+const p = api.parseMentions('@张山@ 走进 @褶皱巷@，手里拿着 @火漆信@。');
+eq(p.map((x) => x.name), ['张山', '褶皱巷', '火漆信'], '@名称@ 解析');
+eq(p[0].start, 0, '@名称@ 起始位置');
+// 双 @ 语法的核心优势：紧挨着写也不会串（闭合 @ 是硬边界），且不会把后文吞进名称
+eq(api.parseMentions('@张山@@褶皱巷@').map((x) => x.name), ['张山', '褶皱巷'], '紧邻双引用不串名');
+eq(api.parseMentions('@张山在@褶皱巷@旁').map((x) => x.name), ['张山在'], '未闭合的 @ 不会吞后文（只认完整包裹）');
+eq(api.parseMentions('a@b.com 不是引用').length, 0, '邮箱中的 @ 不再被误判为引用');
 
 // 2) 去标记
-eq(api.stripMentionMarks('@张山 走进 @褶皱巷'), '张山 走进 褶皱巷', 'stripMentionMarks');
+eq(api.stripMentionMarks('@张山@ 走进 @褶皱巷@'), '张山 走进 褶皱巷', 'stripMentionMarks');
 
-// 3) 高亮：蓝色加粗 span + HTML 转义
-const hl = api.highlightMentions('<script> @张山 & "引号"');
-if (!hl.includes('<span class="dshic-mention">@张山</span>')) errs.push('高亮未包裹 @名称');
+// 3) 高亮：@ 符号隐藏 + 名称蓝色加粗 + HTML 转义
+const hl = api.highlightMentions('<script> @张山@ & "引号"');
+if (!hl.includes('<span class="dshic-mention">张山</span>')) errs.push('高亮未把名称包成 dshic-mention（@ 应隐藏）');
+if (!hl.includes('visibility:hidden">@</span>')) errs.push('高亮未隐藏 @ 符号（应占位但不可见）');
 if (!hl.includes('&lt;script&gt;')) errs.push('高亮未转义 HTML（存在注入风险）');
 if (hl.includes('<script>')) errs.push('高亮输出含未转义的原始标签');
 
@@ -61,7 +65,7 @@ eq(api.assetBelongsToEntity({ name: '场景-褶皱巷' }, ent), false, '其他�
 
 // 6) 有效提示词：@标记去掉 + [图N] 绑定 + 设定描述
 const refs = [{ entity: '张山', name: '角色-张山 多视图' }, { name: '某图', category: 'general' }];
-const eff = api.buildEffectivePrompt('@张山 的中近景', refs, [{ kind: 'character', name: '张山', desc: '40 岁，短发' }], bible);
+const eff = api.buildEffectivePrompt('@张山@ 的中近景', refs, [{ kind: 'character', name: '张山', desc: '40 岁，短发' }], bible);
 if (eff.includes('@张山')) errs.push('有效提示词里仍残留 @ 标记');
 if (!eff.includes('[图1] 角色 张山（40 岁，短发，深灰风衣）')) errs.push('[图N] 绑定行缺少实体与设定描述');
 if (!eff.includes('[图2]')) errs.push('第二个参考图未编号');

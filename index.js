@@ -8,7 +8,7 @@
  */
 import { spawn } from 'node:child_process';
 import fs from 'node:fs/promises';
-import { createReadStream, createWriteStream, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
+import { createReadStream, createWriteStream, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, renameSync, rmdirSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -109,6 +109,23 @@ async function ensureBundleEntry(profileDir, pkg) {
 // ---------- 数据根目录（资产落盘）----------
 // 配置存在 ~/.dsh/infinite-canvas/config.json：跨重装/重启稳定，绝不放进包目录。
 const CONFIG_PATH = process.env.DSH_IC_CONFIG_PATH || path.join(os.homedir(), '.dsh', 'infinite-canvas', 'config.json');
+
+/** 安全递归删除目录。
+ *  **禁止用 fs.rmSync(recursive)**：本机 Node（24.x / Windows）在**中文路径**上会原生崩溃
+ *  （STATUS_STACK_BUFFER_OVERRUN，直接把宿主进程带走——删一个中文名项目就能打崩 DSH）。
+ *  这里逐层 readdir + unlink/rmdir，走的是不同的系统调用路径，实测稳定。 */
+function rmrf(target) {
+  let st;
+  try { st = lstatSync(target); } catch { return; } // 不存在 = 已删干净
+  if (!st.isDirectory()) {
+    try { unlinkSync(target); } catch { /* 被占用则残留，无碍 */ }
+    return;
+  }
+  let names = [];
+  try { names = readdirSync(target); } catch { return; }
+  for (const name of names) rmrf(path.join(target, name));
+  try { rmdirSync(target); } catch { /* 被占用则残留，无碍 */ }
+}
 
 function readIcConfig() {
   try { return JSON.parse(readFileSync(CONFIG_PATH, 'utf8')) || {}; } catch { return {}; }
@@ -284,9 +301,7 @@ function removeDataRootProject(pid) {
   const entry = meta.projects.find((p) => p.id === pid);
   meta.projects = meta.projects.filter((p) => p.id !== pid);
   writeDataRootMeta(meta);
-  if (entry) {
-    try { rmSync(path.join(root, 'projects', entry.folder), { recursive: true, force: true }); } catch { /* 占用时残留，无碍 */ }
-  }
+  if (entry) rmrf(path.join(root, 'projects', entry.folder));
 }
 /** 一次性迁移/对齐数据目录布局：旧 pid 文件夹 → 项目名文件夹，并镜像全部项目文档。 */
 function dataRootMigrate() {
@@ -321,7 +336,7 @@ function dataRootMigrate() {
             if (!existsSync(to)) { renameSync(from, to); filesMoved++; }
           }
         }
-        rmSync(oldDir, { recursive: true, force: true });
+        rmrf(oldDir);
       } catch { /* 目录被占用：保留旧目录，下轮再试 */ }
     }
     mirrorProjectToDataRoot(id, doc);
@@ -1402,8 +1417,15 @@ function connectEdge(doc, fromId, toId, fromPort, toPort) {
   if (fromId === toId) throw new Error('不能把节点连到自己');
   const outs = (PORT_TABLE[from.type] && PORT_TABLE[from.type].outputs) || [];
   const ins = (PORT_TABLE[to.type] && PORT_TABLE[to.type].inputs) || [];
-  const fp = String(fromPort || outs[0].id);
-  const tp = String(toPort || ins[0].id);
+  const fp = String(fromPort || (outs[0] && outs[0].id) || '');
+  // 目标端口缺省时按语义选择，而不是死板取第一个输入口：
+  // 剧本/文本 → 分镜表 = 剧本来源（script）；分镜表 → 分镜表 = 承接上一镜（prev）；其余取第一个输入口
+  let tp = String(toPort || '').trim();
+  if (!tp) {
+    if (to.type === 'storyboard' && (from.type === 'text' || from.type === 'script')) tp = 'script';
+    else if (to.type === 'storyboard' && from.type === 'storyboard') tp = 'prev';
+    else tp = String((ins[0] && ins[0].id) || '');
+  }
   const outDef = outs.find((p) => p.id === fp);
   const inDef = ins.find((p) => p.id === tp);
   if (!outDef) throw new Error('源节点没有输出端口 ' + fp);

@@ -4,6 +4,24 @@ All notable changes to `@ninkch/dsh-infinite-canvas` are documented here (newest
 GitHub Releases carry the same notes in English; maintainer-facing runbooks live in
 [`RELEASING.md`](RELEASING.md) and [`docs/release.md`](docs/release.md).
 
+## [0.17.14] — 2026-10-15
+
+### Added
+- **`@Name@` asset references (double-@ syntax)**: the closing `@` is an explicit terminator, so adjacent or glued references can never swallow the following text. The UI hides both `@`s and renders the name in **bold blue** in prompt fields, text nodes and storyboard shots (typing `@Name@` turns blue as you finish it). Unknown `@Name@` is still reported by the consistency check so the asset gets registered.
+- **Asset anchoring in scripts and scene texts**: generated episode scripts wrap every character/scene/prop name as `@Name@`, and the storyboard contract carries those anchors into shots — downstream generation always knows which words are assets.
+- **`canvas_relayout` tool**: one call re-arranges a canvas by rows — horizontal data flow decides columns (`text → storyboard → video`), vertical links (continuity `prev`, first-frame `frame`) stay in the same column, each row is one horizontal group (e.g. "scene N text ↔ scene N storyboard"), with collision avoidance and a minimum gap.
+- **Help & feedback entry**: a toolbar button plus a one-line settings entry open a compact dialog with the GitHub issue link and the WeChat group QR code (shipped inside the plugin and served through a whitelisted static-asset route).
+- **API key reveal toggle**: key fields are masked by default; an eye button shows the plaintext for verification.
+- Node auto-layout on the agent side: new nodes land in type-based rows with collision detection (28px minimum gap), so freshly created cards never overlap; the storyboard shot list is drag-resizable and the node grows downward with it.
+
+### Fixed
+- **Project deletion could crash the host on non-ASCII paths**: `fs.rmSync(recursive)` aborts the Node process (STATUS_STACK_BUFFER_OVERRUN) on Chinese-named directories — deleting a project could take DSH down with it. Replaced by a safe recursive delete (readdir + unlink/rmdir).
+- **Generated shots are no longer lost to stale sync**: both the client merge and the host merge keep an existing storyboard's shots when an incoming copy has none (previously generating the next scene could silently wipe the previous scene's shots).
+- **Storyboard wiring picks the right port**: `canvas_connect` without an explicit target port now chooses by semantics (script/text → `script`, storyboard → `prev`) instead of blindly using the first input port.
+- **Consistency warnings use the `@Name@` lexer on both sides**: the previous host-side scanner treated every closing `@` as the start of a new mention and reported prose between references as unregistered assets (and bible updates recomputed those bogus entries).
+- Continuity wires are drawn as straight lines when the two ports are vertically aligned, and the storyboard `tail` / `prev` dots are centred on their anchors so wires leave the dot centre.
+- Packaged files: `assets/support/*` now ships with the plugin, so the WeChat QR is visible for every install (not just the author's machine).
+
 ## [0.17.13] — 2026-10-14
 
 ### Fixed
