@@ -2525,11 +2525,14 @@ window.__ModuleLoader__.load({
         const body = {
           model: s.model || 'wan2.2-t2v-plus',
           input: { prompt, ...(frameBlob ? { img_url: await blobToDataUrlScaled(frameBlob) } : {}) },
-          // 只发用户设置推出来的参数（size/duration）；不替用户附加任何选项（watermark/prompt_extend 等
-          // 由厂商默认值决定，需要时用户在「扩展参数」里自己加——透传原则）
+          // 参数分两类：
+          //  · 稳定默认（总是发送，不随用户/模型变）：watermark:false 去水印优先、prompt_extend:true 提示词扩展
+          //  · 用户可变项（透传，不钳制不转换）：size（清晰度×比例机械换算）、duration（设置多少发多少）
           parameters: {
             size: wanSizeFor(o.resolution, o.ratio),
             duration: Math.round(Number(o.duration)) || 5,
+            watermark: false,
+            prompt_extend: true,
           },
         };
         // 扩展参数：厂商/网关参数名不一致时的逃生舱（顶层字段直接覆盖，parameters 内做深合并）
