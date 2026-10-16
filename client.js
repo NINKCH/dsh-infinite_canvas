@@ -2367,6 +2367,36 @@ window.__ModuleLoader__.load({
       b = b.replace(/\/(api\/)?v1$/i, '');
       return b;
     }
+    /** 已知网关的厂商路径前缀：网关把各厂商 API 挂在各自前缀下（如 RelayRouter 的百炼 = /alibailian）。
+     *  不在表里的网关，把前缀直接写进 Base URL 即可（如 https://gw.example.com/alibailian）。 */
+    const KNOWN_GATEWAY_PREFIX = [
+      { host: /(^|\.)relayrouter\.ai$/i, wan: '/alibailian' },
+    ];
+    function gatewayPrefixFor(hostname, vendor) {
+      const h = String(hostname || '').toLowerCase();
+      for (const g of KNOWN_GATEWAY_PREFIX) { if (g.host.test(h)) return g[vendor] || ''; }
+      return '';
+    }
+    /** 万相（DashScope/百炼）端点推导。兼容四种写法：
+     *  1) 官方域名 https://dashscope.aliyuncs.com            → /api/v1/services/...
+     *  2) 网关裸域 https://api.relayrouter.ai               → 自动补厂商前缀 /alibailian
+     *  3) 网关带前缀 https://api.relayrouter.ai/alibailian  → 前缀原样保留
+     *  4) 直接粘贴完整端点 …/…/video-synthesis              → 反推前缀
+     *  另外统一剥掉误写的拖尾 /v1、/api/v1。返回 { apiRoot, submitUrl, taskUrl }。 */
+    function wanEndpoints(rawUrl) {
+      const u = new URL(String(rawUrl).trim());
+      let path = u.pathname.replace(/\/+$/, '');
+      const full = /\/api\/v1\/services\/aigc\/video-generation\/video-synthesis$/.exec(path);
+      if (full) path = path.slice(0, full.index); // 完整端点 → 取其前缀部分
+      else path = path.replace(/\/(api\/)?v1$/i, ''); // 误带 /v1 或 /api/v1 → 剥掉
+      if (!path) path = gatewayPrefixFor(u.hostname, 'wan'); // 裸域：已知网关自动补厂商前缀
+      const apiRoot = u.origin + path;
+      return {
+        apiRoot,
+        submitUrl: apiRoot + '/api/v1/services/aigc/video-generation/video-synthesis',
+        taskUrl: (tid) => apiRoot + '/api/v1/tasks/' + encodeURIComponent(tid),
+      };
+    }
     function detectVideoVendor(s) {
       if (!s) return 'openai';
       if (s.vendor) return s.vendor;
@@ -2472,16 +2502,9 @@ window.__ModuleLoader__.load({
       },
       // —— 阿里通义万相 Wan：DashScope 异步，X-DashScope-Async ——
       async wan(prompt, frameBlob, s, o) {
-        const rawUrl = String(s.url || VIDEO_VENDORS.wan.base).trim();
-        // 端点归一化：允许填「裸域 / …/v1 / …/api/v1 / 完整 video-synthesis 端点」——
-        // 网关（如 api.relayrouter.ai/v1）此前会拼成 …/v1/api/v1/… 而 404
-        let submitUrl; let origin;
-        try {
-          const u = new URL(rawUrl);
-          origin = u.origin;
-          const p = u.pathname.replace(/\/+$/, '');
-          submitUrl = /\/video-synthesis$/.test(p) ? origin + p : origin + '/api/v1/services/aigc/video-generation/video-synthesis';
-        } catch { throw new Error('万相视频 API 地址无效：' + rawUrl); }
+        // 端点推导（官方域名 / 网关裸域 / 网关带厂商前缀 / 完整端点 四种写法都支持）
+        let ep;
+        try { ep = wanEndpoints(String(s.url || VIDEO_VENDORS.wan.base)); } catch { throw new Error('万相视频 API 地址无效：' + String(s.url || '')); }
         const headers = { 'Content-Type': 'application/json', Authorization: 'Bearer ' + (s.apiKey || ''), 'X-DashScope-Async': 'enable' };
         const body = {
           model: s.model || 'wan2.2-t2v-plus',
@@ -2493,14 +2516,14 @@ window.__ModuleLoader__.load({
             watermark: false,
           },
         };
-        const r1 = await fetchViaProxy(submitUrl, { headers, body, label: 'Wan 提交' });
-        if (!r1.ok) throw new Error('Wan 提交 HTTP ' + r1.status + ' @ ' + submitUrl + '：' + r1.text.slice(0, 300));
+        const r1 = await fetchViaProxy(ep.submitUrl, { headers, body, label: 'Wan 提交' });
+        if (!r1.ok) throw new Error('Wan 提交 HTTP ' + r1.status + ' @ ' + ep.submitUrl + '：' + r1.text.slice(0, 300));
         let j1 = null; try { j1 = JSON.parse(r1.text); } catch { throw new Error('Wan 响应非 JSON：' + r1.text.slice(0, 200)); }
         const tid = j1 && j1.output && j1.output.task_id;
         if (!tid) throw new Error('Wan 响应中没有 task_id：' + r1.text.slice(0, 200));
-        if (o.onTask) { try { o.onTask(tid, origin + '/api/v1/tasks/' + tid); } catch { /* 持久化失败不影响生成 */ } }
+        if (o.onTask) { try { o.onTask(tid, ep.taskUrl(tid)); } catch { /* 持久化失败不影响生成 */ } }
         const url = await vendorPoll('Wan', 8000, async () => {
-          const r = await fetchViaProxy(origin + '/api/v1/tasks/' + tid, { method: 'GET', headers: { Authorization: 'Bearer ' + (s.apiKey || '') }, timeoutMs: 60000, label: 'Wan 查询' });
+          const r = await fetchViaProxy(ep.taskUrl(tid), { method: 'GET', headers: { Authorization: 'Bearer ' + (s.apiKey || '') }, timeoutMs: 60000, label: 'Wan 查询' });
           if (!r || !r.ok) return { state: 'wait' };
           let j = null; try { j = JSON.parse(r.text); } catch { return { state: 'wait' }; }
           const st = j && j.output && j.output.task_status;
