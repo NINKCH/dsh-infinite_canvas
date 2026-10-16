@@ -1158,6 +1158,62 @@ function canvasCreateNode(args) {
   return { ok: true, projectId: id, nodeId: node.id, type: node.type, label: (node.data && node.data.label) || '', edgeId: connected || undefined, note: note || undefined };
 }
 
+/** 一键重排：按「行」布局——横向数据流决定列，竖向端口（prev/frame）不参与分列；
+ *  每行 = 一个横向连通分量（如「场N文本 ↔ 场N分镜表」），行内同 y 横向配对，
+ *  行高取行内最高节点、行间保留间距，绝不重叠。 */
+function canvasRelayout(args) {
+  const id = String((args && args.projectId) || '');
+  const doc = readDoc(id);
+  const nodes = Object.values(doc.nodes || {});
+  if (!nodes.length) return { ok: true, projectId: id, moved: 0, rows: 0 };
+  const VERT = new Set(['prev', 'frame']);
+  const byId = new Map(nodes.map((n) => [n.id, n]));
+  const depth = new Map(nodes.map((n) => [n.id, 0]));
+  for (let i = 0; i < 12; i++) {
+    for (const e of (doc.edges || [])) {
+      if (VERT.has(String(e.toPort))) continue;
+      if (!byId.has(e.fromNode) || !byId.has(e.toNode)) continue;
+      const d = (depth.get(e.fromNode) || 0) + 1;
+      if ((depth.get(e.toNode) || 0) < d) depth.set(e.toNode, d);
+    }
+  }
+  const parent = new Map(nodes.map((n) => [n.id, n.id]));
+  const find = (x) => { let y = x; while (parent.get(y) !== y) y = parent.get(y); return y; };
+  for (const e of (doc.edges || [])) {
+    if (VERT.has(String(e.toPort))) continue;
+    if (!byId.has(e.fromNode) || !byId.has(e.toNode)) continue;
+    const a = find(e.fromNode); const b = find(e.toNode);
+    if (a !== b) parent.set(b, a);
+  }
+  const rows = new Map();
+  for (const n of nodes) {
+    const r = find(n.id);
+    if (!rows.has(r)) rows.set(r, []);
+    rows.get(r).push(n);
+  }
+  const rowList = [...rows.values()]
+    .map((ids) => ({ ids, minY: Math.min(...ids.map((n) => Number(n.y) || 0)) }))
+    .sort((a, b) => a.minY - b.minY);
+  const colW = new Map();
+  for (const n of nodes) {
+    const d = depth.get(n.id) || 0;
+    colW.set(d, Math.max(colW.get(d) || 280, Number(n.w) || 280));
+  }
+  const colX = new Map();
+  let cx = 80;
+  for (const d of [...colW.keys()].sort((a, b) => a - b)) { colX.set(d, cx); cx += (colW.get(d) || 280) + 60; }
+  let cy = 40;
+  let moved = 0;
+  for (const row of rowList) {
+    const rowH = Math.max(200, ...row.ids.map((n) => Number(n.h) || 200));
+    for (const n of row.ids) { n.x = colX.get(depth.get(n.id) || 0); n.y = cy; moved++; }
+    cy += rowH + 40;
+  }
+  doc.updatedAt = Date.now();
+  writeIcDoc(id, doc);
+  markDocChanged(id);
+  return { ok: true, projectId: id, moved, rows: rowList.length };
+}
 async function canvasDeleteProject(args) {
   const id = String((args && args.projectId) || '');
   const f = projectFile(id);
@@ -1965,6 +2021,22 @@ export function apply(ctx) {
           async execute(args) {
             const r = await canvasDeleteNode(args);
             return { ok: true, projectId: r.projectId, nodeId: r.nodeId, text: '🗑 已删除节点 ' + r.nodeId + '。' };
+          },
+        });
+        reg({
+          name: 'canvas_relayout',
+          description: '一键重排画布节点布局（消除重叠）：按「行」排列——横向数据流决定列（文本→分镜表→视频→资产），竖向关系（衔接 prev / 首帧 frame）不参与分列；每行 = 一个横向连通组（如「场N文本 ↔ 场N分镜表」同行对齐），行高取行内最高节点、行间保留间距。节点重叠、或批量建点后布局混乱时调用。',
+          parameters: {
+            type: 'object',
+            properties: { projectId: { type: 'string', description: '项目 id' } },
+            required: ['projectId'],
+            additionalProperties: false,
+          },
+          output: textOutput,
+          timeoutMs: 30000,
+          async execute(args) {
+            const r = canvasRelayout(args);
+            return { ok: true, projectId: r.projectId, text: '✅ 已重排 ' + r.moved + ' 个节点（' + r.rows + ' 行，无重叠）。' };
           },
         });
         reg({
