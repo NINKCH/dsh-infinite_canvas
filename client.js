@@ -59,7 +59,8 @@ window.__ModuleLoader__.load({
     const CATEGORIES = ['character', 'scene', 'prop', 'script', 'storyboard', 'audio', 'finalcut', 'image', 'general'];
     const RATIOS = ['16:9', '9:16', '1:1', '4:3', '3:4', '21:9'];
     const IMAGE_SIZES = ['1K', '2K', '4K'];
-    const VIDEO_DURATIONS = [4, 5, 6, 8, 10, 12, 15];
+    // 时长选项放宽到 30s（万相 3.0 等支持长视频）；各厂商上限不同——超限由接口报错，系统不做静默截断
+    const VIDEO_DURATIONS = [4, 5, 6, 8, 10, 12, 15, 20, 25, 30];
     const VIDEO_RESOLUTIONS = ['480P', '720P', '1080P'];
 
     // ============================================================
@@ -2274,7 +2275,7 @@ window.__ModuleLoader__.load({
         model: s.model,
         content,
         metadata: {
-          duration: Math.max(4, Math.min(15, Math.round(Number(o.duration) || 5))),
+          duration: Math.round(Number(o.duration)) || 5,
           ratio: o.ratio || '16:9',
           resolution: String(o.resolution || '720p').toLowerCase(),
         },
@@ -2313,7 +2314,7 @@ window.__ModuleLoader__.load({
     async function soraVideosFallback(base, prompt, o, s, headers) {
       const root = base.replace(/\/v1\/video\/generations$/i, '').replace(/\/+$/, '');
       const ep = root + '/v1/videos';
-      const secs = String(Math.max(4, Math.min(15, Math.round(Number(o.duration) || 5))));
+      const secs = String(Math.round(Number(o.duration)) || 5);
       const vertical = (o.ratio || '16:9') === '9:16';
       const hd = String(o.resolution || '720p').toLowerCase().includes('1080');
       const size = hd ? (vertical ? '1080x1920' : '1920x1080') : (vertical ? '720x1280' : '1280x720');
@@ -2494,7 +2495,7 @@ window.__ModuleLoader__.load({
           model_name: s.model || 'kling-v1', prompt,
           cfg_scale: 0.5, mode: 'std',
           aspect_ratio: (o.ratio || '16:9') === '9:16' ? '9:16' : (o.ratio || '16:9') === '1:1' ? '1:1' : '16:9',
-          duration: String(Math.max(5, Math.min(10, Number(o.duration) || 5)) <= 5 ? 5 : 10),
+          duration: String(Math.round(Number(o.duration)) || 5),
         };
         if (frameBlob) body.image = await blobToDataUrlScaled(frameBlob);
         const r1 = await fetchViaProxy(base + '/v1/video/' + path, { headers, body, label: 'Kling 提交' });
@@ -2528,7 +2529,7 @@ window.__ModuleLoader__.load({
           parameters: {
             prompt_extend: true,
             size: wanSizeFor(o.resolution, o.ratio),
-            duration: Number(o.duration) >= 10 ? 10 : 5,
+            duration: Math.round(Number(o.duration)) || 5,
             watermark: false,
           },
         };
@@ -2565,7 +2566,7 @@ window.__ModuleLoader__.load({
         const headers = { 'Content-Type': 'application/json', Authorization: 'Bearer ' + (s.apiKey || '') };
         const body = {
           model: s.model || 'MiniMax-Hailuo-02', prompt, prompt_optimizer: true,
-          duration: String(Math.max(6, Math.min(10, Number(o.duration) || 6)) <= 6 ? 6 : 10),
+          duration: String(Math.round(Number(o.duration)) || 6),
           resolution: String(o.resolution || '').toLowerCase().includes('1080') ? '1080P' : '768P',
         };
         if (frameBlob) body.first_frame_image = await blobToDataUrlScaled(frameBlob);
@@ -2625,7 +2626,7 @@ window.__ModuleLoader__.load({
         const base = vendorBase(s.url, VIDEO_VENDORS.runway.base);
         const headers = { 'Content-Type': 'application/json', Authorization: 'Bearer ' + (s.apiKey || ''), 'X-Runway-Version': '2024-11-06' };
         const ratio = (o.ratio || '16:9') === '9:16' ? '720:1280' : '1280:720';
-        const dur = Math.max(5, Math.min(10, Number(o.duration) || 5)) <= 5 ? 5 : 10;
+        const dur = Math.round(Number(o.duration)) || 5;
         let ep = '/v1/text_to_video', body = { model: 'gen4_turbo', promptText: prompt, ratio, duration: dur };
         if (frameBlob) { ep = '/v1/image_to_video'; body = { model: 'gen4_turbo', promptImage: await blobToDataUrlScaled(frameBlob), promptText: prompt, ratio, duration: dur }; }
         const r1 = await fetchViaProxy(base + ep, { headers, body, label: 'Runway 提交' });
