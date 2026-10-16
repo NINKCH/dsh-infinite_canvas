@@ -254,6 +254,18 @@ window.__ModuleLoader__.load({
       'vendorLabel': '厂商格式（选后只需填 Base URL + 模型 id）',
       'showKey': '显示明文',
       'hideKey': '隐藏（脱敏显示）',
+      'supportBtn': '帮助与反馈',
+      'supportTitle': '帮助与反馈',
+      'supportNote': '用起来遇到 bug、或者有改进建议，欢迎提 Issue 或进群直接说 —— 你的反馈会直接进开发计划。',
+      'supportGithub': 'GitHub 仓库',
+      'supportIssues': '提 Issue / 提建议',
+      'supportWechat': '微信交流群',
+      'supportWechatHint': '扫码进群：问题排查、功能许愿、版本更新通知',
+      'supportCopy': '复制地址',
+      'supportCopied': '已复制到剪贴板',
+      'supportOpen': '打开',
+      'supportQrMissing': '二维码待放置：把图片保存为 assets/support/wechat-group.png',
+      'supportClose': '关闭',
       'portScript': '剧本',
       'portPrev': '衔接上一镜',
       'portTail': '尾镜输出',
@@ -647,6 +659,18 @@ window.__ModuleLoader__.load({
       'vendorLabel': 'Vendor format (then just Base URL + model id)',
       'showKey': 'Show key',
       'hideKey': 'Hide key (masked)',
+      'supportBtn': 'Help & feedback',
+      'supportTitle': 'Help & feedback',
+      'supportNote': 'Hit a bug or have an idea? File an issue or join the WeChat group — feedback goes straight into the roadmap.',
+      'supportGithub': 'GitHub repository',
+      'supportIssues': 'File an issue / idea',
+      'supportWechat': 'WeChat group',
+      'supportWechatHint': 'Scan to join: troubleshooting, feature requests, release notes',
+      'supportCopy': 'Copy URL',
+      'supportCopied': 'Copied to clipboard',
+      'supportOpen': 'Open',
+      'supportQrMissing': 'QR not added yet: save the image as assets/support/wechat-group.png',
+      'supportClose': 'Close',
       'portPrev': 'Continue prev tail',
       'portTail': 'Tail shot (for next)',
       'aiScript': 'AI write script',
@@ -5320,6 +5344,8 @@ window.__ModuleLoader__.load({
       expandAll: 'M4 12h6M4 12l3-3M4 12l3 3M20 12h-6M20 12l-3-3M20 12l-3 3M12 4v6M12 4l-3 3M12 4l3 3M12 20v-6M12 20l-3-3M12 20l3-3',
       eye: 'M2.5 12S6 6.5 12 6.5 21.5 12 21.5 12 18 17.5 12 17.5 2.5 12 2.5 12zM12 15a3 3 0 100-6 3 3 0 000 6z',
       eyeOff: 'M4 4l16 16M9.9 5.1A9.6 9.6 0 0112 5c6 0 9.5 7 9.5 7a17 17 0 01-3.3 4.2M6.2 7.4A17 17 0 002.5 12S6 19 12 19a9.4 9.4 0 003.9-.8M10 10a3 3 0 004 4',
+      help: 'M12 21a9 9 0 100-18 9 9 0 000 18zM9.4 9.4a2.6 2.6 0 114.2 2.1c-.9.7-1.6 1.2-1.6 2.3M12 17h.01',
+      link: 'M10 13a5 5 0 007.1 0l2.4-2.4a5 5 0 00-7.1-7.1L11 4.9M14 11a5 5 0 00-7.1 0L4.5 13.4a5 5 0 007.1 7.1L13 19.1',
     };
     function Ic(name, size) { return h(Icon, { d: ICONS[name], size: size || 14 }); }
 
@@ -7002,6 +7028,8 @@ window.__ModuleLoader__.load({
           : h('button', { type: 'button', className: 'dshic-btn', style: { fontWeight: 600, maxWidth: 180, overflow: 'hidden' }, onDoubleClick: () => setNaming(true), title: T('renameHint') },
               h('span', { style: { overflow: 'hidden', textOverflow: 'ellipsis' } }, proj ? proj.name : '')),
         h('div', { className: 'dshic-toolbar-sep' }),
+        h(Btn, { onClick: () => update((s) => { s.supportOpen = true; }), title: T('supportBtn') }, Ic('help', 13), T('supportBtn')),
+        h('div', { className: 'dshic-toolbar-sep' }),
         h('button', {
           type: 'button', className: cls('dshic-btn'), style: { fontSize: 12, color: 'var(--dsw-alias-label-secondary)', gap: 4 },
           title: T('updateBtn') + ((S.updateInfo && S.updateInfo.runningVersion) ? '（当前 v' + S.updateInfo.runningVersion + '）' : ''), disabled: S.updateChecking,
@@ -8208,6 +8236,24 @@ window.__ModuleLoader__.load({
         h(ModelProviderEditor, { key: 'imglist', kind: 'image' }),
         h(ModelProviderEditor, { key: 'vidlist', kind: 'video' }),
         h(ApiListEditor, { key: 'ttslist', kind: 'tts' }),
+        // 帮助与反馈：工单/建议入口 + 微信交流群（二维码在插件 assets/support/wechat-group.png）
+        h('div', { key: 'support', className: 'dshic-card' },
+          h('div', { className: 'dshic-row' },
+            Ic('help', 12),
+            h('strong', { style: { fontSize: 12, flex: 1, minWidth: 0 } }, T('supportBtn')),
+            h('button', {
+              type: 'button', className: 'dshic-mini',
+              onPointerDown: (e) => e.stopPropagation(),
+              onClick: () => update((s) => { s.supportOpen = true; }),
+            }, T('supportTitle')),
+          ),
+          h('div', { className: 'dshic-hint' }, T('supportNote')),
+          h('div', { className: 'dshic-row', style: { gap: 6 } },
+            h('span', { style: { fontSize: 11, color: 'var(--dsw-alias-label-secondary)', flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }, title: SUPPORT_GITHUB }, SUPPORT_GITHUB),
+            h('button', { type: 'button', className: 'dshic-mini is-ghost', onPointerDown: (e) => e.stopPropagation(), onClick: () => copyText(SUPPORT_GITHUB, T('supportCopied')) }, T('supportCopy')),
+            h('button', { type: 'button', className: 'dshic-mini', onPointerDown: (e) => e.stopPropagation(), onClick: () => { try { window.open(SUPPORT_ISSUES, '_blank'); } catch { copyText(SUPPORT_ISSUES, T('supportCopied')); } } }, T('supportIssues')),
+          ),
+        ),
         h('div', { key: 'note', className: 'dshic-hint' }, 'DeepSeek Harness · dsh-infinite-canvas' + ((S.updateInfo && S.updateInfo.runningVersion) ? ' v' + S.updateInfo.runningVersion : '')),
       ];
     }
@@ -8706,6 +8752,7 @@ window.__ModuleLoader__.load({
         ),
         S.menu ? h(ContextMenu, { menu: S.menu }) : null,
         S.lightbox ? h(Lightbox) : null,
+        S.supportOpen ? h(SupportDialog) : null,
         S._toast ? h('div', {
           style: {
             position: 'fixed', bottom: 22, left: '50%', transform: 'translateX(-50%)', zIndex: 70,
@@ -8741,6 +8788,57 @@ window.__ModuleLoader__.load({
           : h('img', { src: lb.url, draggable: false, style: { maxWidth: '92vw', maxHeight: '80vh', objectFit: 'contain' } }),
         h('button', { type: 'button', className: 'dshic-mini is-ghost', style: { color: '#eee', borderColor: 'rgba(255,255,255,.35)' }, onClick: closeLightbox }, '✕'),
       );
+    }
+
+    // ============================================================
+    // 帮助与反馈：GitHub 仓库/Issue + 微信交流群二维码（插件静态资源）
+    // ============================================================
+    const SUPPORT_GITHUB = 'https://github.com/NINKCH/dsh-infinite_canvas';
+    const SUPPORT_ISSUES = 'https://github.com/NINKCH/dsh-infinite_canvas/issues/new';
+    const SUPPORT_QR_URL = '/' + NS + '/api/plugin-asset?rel=' + encodeURIComponent('assets/support/wechat-group.png');
+    function copyText(text, okMsg) {
+      try {
+        if (navigator.clipboard && navigator.clipboard.writeText) { navigator.clipboard.writeText(text).then(() => toast(okMsg)).catch(() => toast(text)); return; }
+      } catch { /* 降级 */ }
+      toast(text);
+    }
+    function SupportDialog() {
+      const [qrFailed, setQrFailed] = useState(false);
+      useEffect(() => {
+        const onKey = (e) => { if (e.key === 'Escape') update((s) => { s.supportOpen = false; }); };
+        window.addEventListener('keydown', onKey);
+        return () => window.removeEventListener('keydown', onKey);
+      }, []);
+      const row = (label, url, icon) => h('div', { className: 'dshic-node-row', style: { gap: 6, alignItems: 'center' } },
+        Ic(icon, 12),
+        h('span', { className: 'dshic-field-label', style: { flex: 'none', width: 92 } }, label),
+        h('span', { style: { flex: 1, minWidth: 0, fontSize: 11, color: 'var(--dsw-alias-label-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }, title: url }, url),
+        h('button', { type: 'button', className: 'dshic-mini is-ghost', onPointerDown: (e) => e.stopPropagation(), onClick: () => copyText(url, T('supportCopied')) }, T('supportCopy')),
+        h('button', { type: 'button', className: 'dshic-mini', onPointerDown: (e) => e.stopPropagation(), onClick: () => { try { window.open(url, '_blank'); } catch { copyText(url, T('supportCopied')); } } }, T('supportOpen')),
+      );
+      return h('div', { className: 'dshic-modal-overlay', onPointerDown: (e) => { if (e.target === e.currentTarget) update((s) => { s.supportOpen = false; }); } },
+        h('div', { className: 'dshic-modal', style: { width: 460 } },
+          h('div', { className: 'dshic-modal-title' }, T('supportTitle')),
+          h('div', { className: 'dshic-modal-warn', style: { marginTop: 4 } }, T('supportNote')),
+          h('div', { style: { marginTop: 8, display: 'flex', flexDirection: 'column', gap: 6 } },
+            row(T('supportGithub'), SUPPORT_GITHUB, 'link'),
+            row(T('supportIssues'), SUPPORT_ISSUES, 'help'),
+          ),
+          h('div', { style: { marginTop: 12, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6 } },
+            h('div', { className: 'dshic-field-label' }, T('supportWechat')),
+            qrFailed
+              ? h('div', { className: 'dshic-hint', style: { textAlign: 'center' } }, T('supportQrMissing'))
+              : h('img', {
+                  src: SUPPORT_QR_URL, alt: 'WeChat group QR', draggable: false,
+                  style: { width: 200, height: 200, objectFit: 'contain', borderRadius: 8, background: '#fff', padding: 6 },
+                  onError: () => setQrFailed(true),
+                }),
+            h('div', { className: 'dshic-hint', style: { textAlign: 'center' } }, T('supportWechatHint')),
+          ),
+          h('div', { className: 'dshic-modal-actions' },
+            h('button', { type: 'button', className: 'dshic-mini', onPointerDown: (e) => e.stopPropagation(), onClick: () => update((s) => { s.supportOpen = false; }) }, T('supportClose')),
+          ),
+        ));
     }
 
     // ============================================================

@@ -2365,6 +2365,32 @@ export function apply(ctx) {
           }
         },
       }),
+      // 插件自带静态资源（帮助与反馈用的微信群二维码等）：白名单 assets/ 目录，拒绝路径穿越
+      ctx.webServer.register({
+        kind: 'exact',
+        path: `/${NAME}/api/plugin-asset`,
+        async handler(req, res) {
+          try {
+            if (req.method !== 'GET') { res.statusCode = 405; res.end('仅接受 GET'); return; }
+            const u = new URL(req.url, 'http://localhost');
+            const rel = String(u.searchParams.get('rel') || '').replace(/\\/g, '/').replace(/^\/+/, '');
+            if (rel.includes('..') || !/^assets\/[\w.\u4e00-\u9fa5/-]+$/.test(rel)) { res.statusCode = 400; res.end('非法路径'); return; }
+            const assetsDir = path.join(HERE, 'assets');
+            const abs = path.resolve(path.join(HERE, rel));
+            if (!abs.startsWith(assetsDir)) { res.statusCode = 400; res.end('非法路径'); return; }
+            let st;
+            try { st = statSync(abs); } catch { res.statusCode = 404; res.end('not found'); return; }
+            if (!st.isFile()) { res.statusCode = 404; res.end('not found'); return; }
+            res.setHeader('content-type', mimeOf(abs));
+            res.setHeader('cache-control', 'no-cache');
+            res.setHeader('content-length', String(st.size));
+            pipeFile(abs, {}, res);
+          } catch (e) {
+            res.statusCode = 500;
+            res.end(String((e && e.message) || e));
+          }
+        },
+      }),
     ];
     return () => {
       for (const off of registrations) { try { if (off) off(); } catch { /* 忽略 */ } }
