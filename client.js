@@ -1039,6 +1039,8 @@ window.__ModuleLoader__.load({
 .dshic-port:hover,.dshic-port.is-active{background:var(--dsw-alias-brand-primary);border-color:var(--dsw-alias-brand-primary);
   box-shadow:0 0 0 3px color-mix(in srgb,var(--dsw-alias-brand-primary) 25%,transparent);}
 .dshic-port-wrap{position:absolute;width:0;height:0;}
+/* 角点端口（分镜尾镜输出/衔接输入）：显式以锚点为中心，保证连线正好从点位中心垂直穿出 */
+.dshic-port.is-corner{left:-5.5px;top:-5.5px;}
 .dshic-port-label{position:absolute;font-size:9px;color:var(--dsw-alias-label-secondary);white-space:nowrap;pointer-events:none;opacity:0;transition:opacity .12s;}
 .dshic-node:hover .dshic-port-label{opacity:1;}
 .dshic-marquee{position:absolute;border:1px solid var(--dsw-alias-brand-primary);
@@ -5356,7 +5358,7 @@ window.__ModuleLoader__.load({
       return () => ro.disconnect();
     }
 
-    function PortEl({ n, port, dir }) {
+    function PortEl({ n, port, dir, corner }) {
       const isActive = drag.mode === 'link' && drag.linkFrom && drag.linkFrom.node.id === n.id && drag.linkFrom.port === port.id;
       let compat = false;
       const link = drag.mode === 'link' ? drag.linkFrom : null;
@@ -5366,7 +5368,7 @@ window.__ModuleLoader__.load({
       }
       return h('button', {
         type: 'button',
-        className: cls('dshic-port', 'k-' + port.kind, isActive && 'is-active', compat && 'is-compat'),
+        className: cls('dshic-port', 'k-' + port.kind, corner && 'is-corner', isActive && 'is-active', compat && 'is-compat'),
         'data-node-id': n.id,
         ...(dir === 'out' ? { 'data-port-out': port.id } : { 'data-port-in': port.id }),
         'data-kind': port.kind,
@@ -5536,14 +5538,14 @@ window.__ModuleLoader__.load({
         ...(PORTS[n.type].inputs || []).map((p, i) => {
           const isCorner = n.type === 'storyboard' && p.id === 'prev'; // 分镜承接：顶部右侧角点
           const stack = (n.type === 'storyboard' && i > 0) ? i - 1 : i;
-          return h('div', { key: 'in-' + p.id, style: { position: 'absolute', left: isCorner ? undefined : -5.5, right: isCorner ? 48 : undefined, top: isCorner ? -5.5 : 32.5 + stack * 22 }, className: 'dshic-port-wrap' },
-            h(PortEl, { n, port: p, dir: 'in' }),
+          return h('div', { key: 'in-' + p.id, style: { position: 'absolute', left: isCorner ? undefined : -5.5, right: isCorner ? 48 : undefined, top: isCorner ? 0 : 32.5 + stack * 22 }, className: 'dshic-port-wrap' },
+            h(PortEl, { n, port: p, dir: 'in', corner: isCorner }),
             h('span', { className: 'dshic-port-label', style: isCorner ? { right: -6, top: -22 } : { left: 14, top: 0 } }, portLabel(p.id)));
         }),
         ...(PORTS[n.type].outputs || []).map((p, i) => {
           const isCorner = n.type === 'storyboard' && p.id === 'tail'; // 分镜尾镜：底部右侧角点
-          return h('div', { key: 'out-' + p.id, style: { position: 'absolute', right: isCorner ? 48 : -5.5, bottom: isCorner ? -5.5 : undefined, top: isCorner ? undefined : 32.5 + i * 22 }, className: 'dshic-port-wrap' },
-            h(PortEl, { n, port: p, dir: 'out' }),
+          return h('div', { key: 'out-' + p.id, style: { position: 'absolute', right: isCorner ? 48 : -5.5, bottom: isCorner ? 0 : undefined, top: isCorner ? undefined : 32.5 + i * 22 }, className: 'dshic-port-wrap' },
+            h(PortEl, { n, port: p, dir: 'out', corner: isCorner }),
             h('span', { className: 'dshic-port-label', style: isCorner ? { right: -6, top: 12 } : { right: 14, top: 0 } }, portLabel(p.id)));
         }),
       );
