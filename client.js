@@ -1360,7 +1360,8 @@ window.__ModuleLoader__.load({
       for (const p of settings.videoProviders || []) {
         for (const m of (p.models || [])) {
           if (!m || !m.id || !String(m.model || '').trim()) continue;
-          out.push({ ref: p.id + '|' + m.id, providerId: p.id, providerName: p.name || p.id, modelId: m.id, model: String(m.model).trim(), url: p.url || '', apiKey: p.apiKey || '', extra: p.extra || '', outputFormat: p.outputFormat || '', generateAudio: p.generateAudio, protocol: p.protocol || 'generic', watermark: p.watermark });
+          // vendor 必须带出去：否则「显式选了厂商」在请求侧丢失，只能靠模型名/URL 猜协议（曾把万相误判成 Seedance）
+          out.push({ ref: p.id + '|' + m.id, providerId: p.id, providerName: p.name || p.id, modelId: m.id, model: String(m.model).trim(), url: p.url || '', apiKey: p.apiKey || '', extra: p.extra || '', outputFormat: p.outputFormat || '', generateAudio: p.generateAudio, protocol: p.protocol || 'generic', watermark: p.watermark, vendor: p.vendor || '' });
         }
       }
       return out;
@@ -2359,6 +2360,13 @@ window.__ModuleLoader__.load({
       pixverse:  { label: 'PixVerse', base: 'https://app-api.pixverse.ai/openapi/v2', keyPh: 'API-KEY', note: '图片支持 base64；时长 5/8s；清晰度映射 540p/720p/1080p' },
       stability: { label: 'Stability AI 图生视频', base: 'https://api.stability.ai', note: 'SVD 纯图生视频（无提示词/无音频）；必须有首帧图' },
     };
+    /** 厂商 base URL 归一化：网关常把地址写成 …/v1 或 …/api/v1，直接拼接会变成 …/v1/v1/… 而 404。
+     *  各厂商预设 base 本身都不以 /v1 结尾，所以安全地剥掉拖尾的 /v1、/api/v1。 */
+    function vendorBase(raw, fallback) {
+      let b = String(raw || fallback || '').trim().replace(/\/+$/, '');
+      b = b.replace(/\/(api\/)?v1$/i, '');
+      return b;
+    }
     function detectVideoVendor(s) {
       if (!s) return 'openai';
       if (s.vendor) return s.vendor;
@@ -2434,7 +2442,7 @@ window.__ModuleLoader__.load({
         const sg = b64u(new Uint8Array(await crypto.subtle.sign('HMAC', key, enc.encode(hj + '.' + pj))));
         const jwt = hj + '.' + pj + '.' + sg;
         const headers = { 'Content-Type': 'application/json', Authorization: 'Bearer ' + jwt };
-        const base = String(s.url || VIDEO_VENDORS.kling.base).replace(/\/+$/, '');
+        const base = vendorBase(s.url, VIDEO_VENDORS.kling.base);
         const path = frameBlob ? 'image2video' : 'text2video';
         const body = {
           model_name: s.model || 'kling-v1', prompt,
@@ -2504,7 +2512,7 @@ window.__ModuleLoader__.load({
       },
       // —— MiniMax 海螺：异步 task_id + query 接口 ——
       async minimax(prompt, frameBlob, s, o) {
-        const base = String(s.url || VIDEO_VENDORS.minimax.base).replace(/\/+$/, '');
+        const base = vendorBase(s.url, VIDEO_VENDORS.minimax.base);
         const headers = { 'Content-Type': 'application/json', Authorization: 'Bearer ' + (s.apiKey || '') };
         const body = {
           model: s.model || 'MiniMax-Hailuo-02', prompt, prompt_optimizer: true,
@@ -2533,7 +2541,7 @@ window.__ModuleLoader__.load({
       },
       // —— 生数 Vidu：img2video/text2video，图片 base64 直传 ——
       async vidu(prompt, frameBlob, s, o) {
-        const base = String(s.url || VIDEO_VENDORS.vidu.base).replace(/\/+$/, '');
+        const base = vendorBase(s.url, VIDEO_VENDORS.vidu.base);
         const headers = { 'Content-Type': 'application/json', Authorization: 'Token ' + (s.apiKey || '') };
         const path = frameBlob ? 'img2video' : 'text2video';
         const body = {
@@ -2565,7 +2573,7 @@ window.__ModuleLoader__.load({
       },
       // —— Runway Gen-4：X-Runway-Version 头，tasks 轮询 ——
       async runway(prompt, frameBlob, s, o) {
-        const base = String(s.url || VIDEO_VENDORS.runway.base).replace(/\/+$/, '');
+        const base = vendorBase(s.url, VIDEO_VENDORS.runway.base);
         const headers = { 'Content-Type': 'application/json', Authorization: 'Bearer ' + (s.apiKey || ''), 'X-Runway-Version': '2024-11-06' };
         const ratio = (o.ratio || '16:9') === '9:16' ? '720:1280' : '1280:720';
         const dur = Math.max(5, Math.min(10, Number(o.duration) || 5)) <= 5 ? 5 : 10;
@@ -2588,7 +2596,7 @@ window.__ModuleLoader__.load({
       },
       // —— Google Veo（Gemini API）：predictLongRunning + operation 轮询 ——
       async veo(prompt, frameBlob, s, o) {
-        const base = String(s.url || VIDEO_VENDORS.veo.base).replace(/\/+$/, '');
+        const base = vendorBase(s.url, VIDEO_VENDORS.veo.base);
         const model = s.model || 'veo-3.0-fast-generate-preview';
         const ep = base + '/v1beta/models/' + encodeURIComponent(model) + ':predictLongRunning?key=' + encodeURIComponent(s.apiKey || '');
         const inst = { prompt };
@@ -2614,7 +2622,9 @@ window.__ModuleLoader__.load({
       },
       // —— Luma Dream Machine：图片需公网 URL，本地图片仅文生视频 ——
       async luma(prompt, frameBlob, s, o) {
-        const base = String(s.url || VIDEO_VENDORS.luma.base).replace(/\/+$/, '');
+        // Luma 的 base 本身以 /v1 结尾（路径只拼 /generations），不能用 vendorBase 剥掉 → 这里改为「保证以 /v1 结尾」
+        let base = String(s.url || VIDEO_VENDORS.luma.base).trim().replace(/\/+$/, '');
+        if (!/\/v1$/i.test(base)) base = base + '/v1';
         const headers = { 'Content-Type': 'application/json', Authorization: 'Bearer ' + (s.apiKey || '') };
         const body = { prompt, model: 'ray-2', resolution: String(o.resolution || '').toLowerCase().includes('1080') ? '1080p' : '720p', duration: (Math.max(5, Math.min(9, Number(o.duration) || 5)) <= 5 ? '5s' : '9s') };
         if (frameBlob) throw new Error('Luma 图生视频需要公网图片 URL——本地图片请改用文生视频，或换其他厂商');
@@ -2635,7 +2645,7 @@ window.__ModuleLoader__.load({
       },
       // —— PixVerse：API-KEY 头 + Ai-trace-id，base64 图片 ——
       async pixverse(prompt, frameBlob, s, o) {
-        const base = String(s.url || VIDEO_VENDORS.pixverse.base).replace(/\/+$/, '');
+        const base = vendorBase(s.url, VIDEO_VENDORS.pixverse.base);
         const headers = { 'Content-Type': 'application/json', 'API-KEY': s.apiKey || '', 'Ai-trace-id': 'dshic-' + Date.now().toString(36) };
         const path = frameBlob ? 'img2video' : 'text2video';
         const body = {
@@ -2664,7 +2674,7 @@ window.__ModuleLoader__.load({
       },
       // —— Stability AI：SVD 纯图生视频（multipart，无提示词），结果为 base64 JSON ——
       async stability(prompt, frameBlob, s, o) {
-        const base = String(s.url || VIDEO_VENDORS.stability.base).replace(/\/+$/, '');
+        const base = vendorBase(s.url, VIDEO_VENDORS.stability.base);
         if (!frameBlob) throw new Error('Stability 图生视频必须有首帧图（该服务不支持纯文生视频、无提示词输入）');
         const fd = new FormData();
         fd.append('image', frameBlob, 'frame.png');
