@@ -504,6 +504,9 @@ window.__ModuleLoader__.load({
       'bitrate': '码率',
       'bitrateAuto': '自动（浏览器默认）',
       'runRequestFailed': '对话触发的生成未能执行',
+      'stoppedNote': '已手动停止',
+      'stoppedTaskKept': '视频任务 id 已保留，可凭 id 回查结果',
+      'stoppedToast': '已手动停止生成',
       'apiTimeout': '请求超时（毫秒）',
       'uploadFailed': '导入失败',
       'syncFailed': '与 Host 同步失败',
@@ -908,6 +911,9 @@ window.__ModuleLoader__.load({
       'bitrate': 'Bitrate',
       'bitrateAuto': 'Auto (browser default)',
       'runRequestFailed': 'Chat-triggered generation failed',
+      'stoppedNote': 'Manually stopped',
+      'stoppedTaskKept': 'video task id kept for lookup',
+      'stoppedToast': 'Generation stopped',
       'apiTimeout': 'Request timeout (ms)',
       'uploadFailed': 'Import failed',
       'syncFailed': 'Failed to sync with Host',
@@ -2254,6 +2260,7 @@ window.__ModuleLoader__.load({
       const deadline = Date.now() + 120 * 60 * 1000; // 2 小时：视频任务含排队可能很久，查询层绝不先放弃
       while (Date.now() < deadline) {
         await sleep(10000);
+        if (genAborted()) throw new Error(T('stoppedNote'));
         let r2 = null;
         try { r2 = await fetchViaProxy(base + '/' + taskId, { method: 'GET', headers, timeoutMs: 60000, label: '查询 Seedance 任务' }); } catch { /* 网络抖动重试 */ }
         if (!r2 || !r2.ok) continue; // 查询层任何失败（网关 5xx/429/断连）都不算任务失败——只等生成任务自身的终态
@@ -2304,6 +2311,7 @@ window.__ModuleLoader__.load({
       const deadline = Date.now() + 120 * 60 * 1000; // 2 小时：查询层绝不先放弃
       while (Date.now() < deadline) {
         await sleep(6000);
+        if (genAborted()) throw new Error(T('stoppedNote'));
         let r2 = null;
         try { r2 = await fetchViaProxy(queryEp + '?task_id=' + encodeURIComponent(taskId), { method: 'GET', headers, timeoutMs: 60000, label: '查询视频任务' }); } catch { /* 网络抖动重试 */ }
         if (!r2 || !r2.ok) continue; // 查询层失败 ≠ 任务失败，只等生成任务自身的终态
@@ -2340,6 +2348,7 @@ window.__ModuleLoader__.load({
       const deadline = Date.now() + 120 * 60 * 1000; // 2 小时：查询层绝不先放弃
       while (Date.now() < deadline) {
         await sleep(6000);
+        if (genAborted()) throw new Error(T('stoppedNote'));
         let r2 = null;
         try { r2 = await fetchViaProxy(ep + '/' + taskId, { method: 'GET', headers, timeoutMs: 60000, label: '查询视频任务' }); } catch { /* 网络抖动重试 */ }
         if (!r2 || !r2.ok) continue; // 查询层失败 ≠ 任务失败，只等生成任务自身的终态
@@ -2480,6 +2489,7 @@ window.__ModuleLoader__.load({
       const deadline = Date.now() + 120 * 60 * 1000;
       while (Date.now() < deadline) {
         await sleep(step);
+        if (genAborted()) throw new Error(T('stoppedNote'));
         let r = null;
         try { r = await query(); } catch { continue; }
         if (!r) continue;
@@ -2913,6 +2923,7 @@ window.__ModuleLoader__.load({
       const deadline = Date.now() + 120 * 60 * 1000; // 2 小时：查询层绝不先放弃
       while (Date.now() < deadline) {
         await sleep(3000);
+        if (genAborted()) throw new Error(T('stoppedNote'));
         let r2 = null;
         try { r2 = await fetchViaProxy(base + '/' + taskId, { method: 'GET', headers, timeoutMs: 60000, label: '查询视频任务' }); } catch { /* 网络抖动重试 */ }
         if (!r2 || !r2.ok) continue; // 查询层失败 ≠ 任务失败，只等生成任务自身的终态
@@ -3970,8 +3981,10 @@ window.__ModuleLoader__.load({
           method: 'POST',
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify(args),
+          signal: genAbort.ctl ? genAbort.ctl.signal : undefined, // 停止按钮：立即中断流式读取
         });
       } catch (e) {
+        if (genAborted()) throw e; // 手动打断：保持 abort 语义供上层识别
         throw new Error(T('connectFailed') + '：' + String((e && e.message) || e));
       }
       if (res.status === 404 || !res.body) return await aiComplete({ system, user, model }); // 旧 Host 回退
@@ -3999,6 +4012,7 @@ window.__ModuleLoader__.load({
           else if (msg.t === 'fail') throw new Error(String(msg.d || T('rpcFail')));
         }
       }
+      if (genAborted()) throw new Error(T('stoppedNote')); // 流结束后仍被打断 → 走打断路径
       if (!final) throw new Error(T('rpcFail'));
       return final.text || '';
     }
@@ -4209,6 +4223,7 @@ window.__ModuleLoader__.load({
         onReasoning: (d) => onDelta && onDelta('reasoning', d),
         onText: (d) => onDelta && onDelta('text', d),
       });
+      if (genAborted()) throw new Error(T('stoppedNote'));
       // 解析 + 修复重试：模型常把剧本里的引用文字（如 喷漆"拆"字）原样写进 JSON 字符串值，
       // 半角引号未转义 → JSON 非法。修复策略：把"闭合引号后不跟 JSON 结构符"的引号对换成「」。
       let parsed = parseJsonBalanced(text);
@@ -4877,6 +4892,13 @@ window.__ModuleLoader__.load({
     // 工作流执行
     // ============================================================
     const cancelRef = { cancelled: false };
+    const genAbort = { ctl: null }; // 当前生成的 AbortController（停止按钮真正中断底层流/轮询）
+    let genActive = 0; // 活跃生成计数（工作流与单节点触发统一计数）
+    function genAborted() { return !!(genAbort.ctl && genAbort.ctl.signal && genAbort.ctl.signal.aborted); }
+    function stopActiveGen() {
+      cancelRef.cancelled = true;
+      if (genAbort.ctl) { try { genAbort.ctl.abort(); } catch { /* 忽略 */ } }
+    }
 
     /** 分镜节点的剧本来源：**连线上游与手动粘贴二选一**——
      *  连了线就只用连线（上游没生成完会明确报错，绝不偷用粘贴的文本混着来）。 */
@@ -5062,9 +5084,13 @@ window.__ModuleLoader__.load({
     async function runGenNode(n) {
       const type = n.type;
       const settings = loadSettings(); // 模型解析（供应商+模型）用
+      const ctl = new AbortController();
+      genAbort.ctl = ctl;
+      genActive++;
       update((s) => {
         const nd = s.graph.nodes[n.id];
-        if (nd) { nd.data.status = 'running'; nd.data.error = null; }
+        if (nd) { nd.data.status = 'running'; nd.data.error = null; nd.data.stopNote = null; }
+        s.running = true; // 单节点触发（对话/节点按钮）也显示停止按钮
       });
       flushSave(); // 立刻落盘 + 推送 Host：切走画面/对话查询都能看到"运行中"
       try {
@@ -5152,12 +5178,28 @@ window.__ModuleLoader__.load({
         }
         return true;
       } catch (err) {
+        const stopped = !!(ctl.signal && ctl.signal.aborted);
         update((s) => {
           const nd = s.graph.nodes[n.id];
-          if (nd) { nd.data.status = 'error'; nd.data.error = String((err && err.message) || err); }
+          if (!nd) return;
+          if (stopped) {
+            // 手动打断：回到待命而不是报错；视频任务 id 已持久化，可凭 id 回查结果
+            nd.data.status = 'idle';
+            nd.data.error = null;
+            if (nd.type === 'script' || nd.type === 'storyboard') nd.data.aiStatus = 'idle';
+            nd.data.stopNote = T('stoppedNote') + (nd.data.taskId ? '；' + T('stoppedTaskKept') : '');
+          } else {
+            nd.data.status = 'error';
+            nd.data.error = String((err && err.message) || err);
+          }
         });
         flushSave(); // 让对话侧的 canvas_node_status 也能读到失败原因
+        if (stopped) toast(T('stoppedToast'));
         return false;
+      } finally {
+        genActive = Math.max(0, genActive - 1);
+        if (genActive === 0) update((s) => { s.running = false; });
+        if (genAbort.ctl === ctl) genAbort.ctl = null;
       }
     }
     function commitGenResult(nodeId, assetId, demo, kind) {
@@ -5209,7 +5251,10 @@ window.__ModuleLoader__.load({
         flushSave();
       }
     }
-    function stopRun() { cancelRef.cancelled = true; }
+    function stopRun() {
+      stopActiveGen();
+      toast(T('stoppedToast'));
+    }
 
     // ============================================================
     // 轻量提示
@@ -6211,10 +6256,10 @@ window.__ModuleLoader__.load({
             }),
         h(GenSettingsRow, { key: 'set', n, kind }),
         h('button', {
-          key: 'gen', type: 'button', className: 'dshic-gen', disabled: S.running || n.data.status === 'running',
+          key: 'gen', type: 'button', className: 'dshic-gen',
           onPointerDown: (e) => e.stopPropagation(),
-          onClick: () => { runGenNode(n); },
-        }, n.data.status === 'running' ? h('span', { className: 'dshic-spin' }) : Ic('play', 12), n.data.status === 'running' ? T('aiRunning') : T('generate')),
+          onClick: () => { if (n.data.status === 'running') { stopActiveGen(); toast(T('stoppedToast')); } else { runGenNode(n); } },
+        }, n.data.status === 'running' ? [Ic('stop', 12), T('stop')] : [Ic('play', 12), T('generate')]),
         h('div', { key: 'r', className: 'dshic-node-row' },
           h('div', { className: 'dshic-flex' }),
           n.data.demo && n.data.assetId ? h('span', { className: 'dshic-tag demo' }, T('demoTag')) : null,
@@ -6243,6 +6288,7 @@ window.__ModuleLoader__.load({
         h(RefRows, { key: 'refrows', n, portId: 'ref' }),
         h(MentionInfo, { key: 'mn', n }),
         n.data.genWarn ? h('div', { key: 'gw', className: 'dshic-hint', style: { color: 'var(--dsw-alias-state-warning-primary, #d08700)' } }, '⚠ ' + n.data.genWarn) : null,
+        n.data.stopNote ? h('div', { key: 'sn', className: 'dshic-hint' }, '⏹ ' + n.data.stopNote) : null,
         n.data.error ? h('div', { key: 'err', className: 'dshic-err' }, n.data.error) : null,
         assetUrlV && kind === 'image'
           ? h('img', { key: 'img', className: 'dshic-preview', src: assetUrlV, draggable: false, 'data-no-drag': '1', style: { cursor: 'zoom-in' }, onPointerDown: (e) => e.stopPropagation(), onClick: (e) => { e.stopPropagation(); openLightbox('image', assetUrlV, n.data.label); } })
