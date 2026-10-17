@@ -1187,9 +1187,12 @@ window.__ModuleLoader__.load({
   border:1px solid transparent;border-radius:6px;}
 .dshic-prompt-ph{color:var(--dsw-alias-label-tertiary);}
 .dshic-prompt-input{position:relative;background:transparent;color:transparent;caret-color:var(--dsw-alias-label-primary);
-  resize:vertical;}
+  resize:vertical;overflow-y:auto;scrollbar-width:none;}
+/* 隐藏输入框滚动条：滚动条占位会让透明输入框与背层的换行点不一致（错位的另一来源）；滚轮滚动不受影响 */
+.dshic-prompt-input::-webkit-scrollbar{width:0;height:0;}
 .dshic-prompt-input::placeholder{color:transparent;}
-.dshic-mention{color:#2f7cf6;font-weight:700;}
+.dshic-mention{color:#2f7cf6;}
+/* 注意：@名称 高亮不能加粗——加粗字形更宽，背层与透明输入框宽度不一致会导致逐字错位 */
 /* 生成中的一行思考内容：单行、省略号，让用户看到"在动"而不是卡住 */
 .dshic-stream{display:flex;align-items:center;gap:5px;font-size:10px;line-height:14px;color:var(--dsw-alias-label-secondary);
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding:0 2px;font-variant-numeric:tabular-nums;}
@@ -5771,6 +5774,7 @@ window.__ModuleLoader__.load({
         const up = () => {
           window.removeEventListener('pointermove', move);
           window.removeEventListener('pointerup', up);
+          flushSave(); // 拖拽结束立即落盘：否则防抖期间切换页面会丢失 w/h/hManual
           pushHistory();
         };
         window.addEventListener('pointermove', move);
