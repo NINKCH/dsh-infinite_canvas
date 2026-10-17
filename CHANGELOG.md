@@ -4,6 +4,15 @@ All notable changes to `@ninkch/dsh-infinite-canvas` are documented here (newest
 GitHub Releases carry the same notes in English; maintainer-facing runbooks live in
 [`RELEASING.md`](RELEASING.md) and [`docs/release.md`](docs/release.md).
 
+## [0.17.17] — 2026-10-17
+
+### Added
+- **Professional asset-sheet layouts** replace the simple three-view prompts (methodology added to the built-in creation skills, served live):
+  - **Character sheet** (16:9): info panel (name/gender/age/identity/personality/palette) + dominant full-body illustration + facial features (front & profile close-ups with annotations) + costume notes + a 2×3 detail-crop grid (each captioned) + a 2×5 expression grid (per-cell labels); the character must look identical across every panel.
+  - **Prop sheet (orientation free)**: title + category subtitle, hero shot at 45° with atmosphere, material/part detail crops, side view, and 3–5 named color swatches — horizontal or vertical chosen by the prop's traits (long items favor vertical; composite/scene-like props favor horizontal); the layout logic stays the same either way.
+  - **Scene sheet (main view + surrounding panels)**: one dominant establishing view of the scene, surrounded by 3–6 supporting panels — other angles, other times of day/weather, and detail crops (landmark/entry/texture/prop placement), each captioned. Replaces the old equal-sized triptych, which lost the scene's overall sense; the arrangement is a loose reference, not a strict grid, and light/weather must stay consistent with the main view.
+- Simple three-view prompts are explicitly disallowed for asset images — they don't carry enough information to sustain character consistency in downstream video generation.
+
 ## [0.17.16] — 2026-10-17
 
 ### Added
