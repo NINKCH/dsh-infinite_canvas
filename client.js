@@ -6248,10 +6248,10 @@ window.__ModuleLoader__.load({
       const assetUrlV = useAssetUrl(n.data.assetId);
       return [
         promptEdge
-          ? h('textarea', {
-              key: 'p', className: 'dshic-textarea', value: n.data.prompt || '',
-              placeholder: fromStoryboard ? T('multiShotHint') : T('connected'), disabled: true,
-              onPointerDown: (e) => e.stopPropagation(),
+          ? h(PromptArea, {
+              key: 'p', value: n.data.prompt || '', minHeight: 72, readOnly: true,
+              placeholder: fromStoryboard ? T('multiShotHint') : T('connected'),
+              onChange: () => { /* 只读展示：内容由上游连线组合 */ },
             })
           : h(PromptArea, {
               key: 'p', value: n.data.prompt || '', minHeight: 72,
@@ -6615,7 +6615,7 @@ window.__ModuleLoader__.load({
      * 与主流工具同一做法——透明文字的 textarea 叠在同步滚动的背景层上，
      * 背景层渲染同一段文本并给 @名称 上色，光标/选区/中文输入法都不受影响。
      */
-    function PromptArea({ value, onChange, placeholder, minHeight, style }) {
+    function PromptArea({ value, onChange, placeholder, minHeight, style, readOnly }) {
       const taRef = useRef(null);
       const backRef = useRef(null);
       const sync = () => {
@@ -6634,6 +6634,7 @@ window.__ModuleLoader__.load({
         h('textarea', {
           ref: taRef, className: 'dshic-textarea dshic-prompt-input', value: value || '',
           placeholder: html ? undefined : placeholder,
+          readOnly: readOnly === true,
           style: { minHeight: minHeight || 72, ...(style || {}) },
           onChange: (e) => onChange(e.target.value),
           onScroll: sync,
@@ -6735,11 +6736,10 @@ window.__ModuleLoader__.load({
         ),
         n.data.aiError ? h('div', { key: 'err', className: 'dshic-err' }, n.data.aiError) : null,
         h('span', { key: 'l2', className: 'dshic-shot-label' }, T('scriptOutputLabel')),
-        h('textarea', {
-          key: 'out', className: 'dshic-textarea', style: { minHeight: 180 }, value: n.data.output || '',
+        h(PromptArea, {
+          key: 'out', value: n.data.output || '', minHeight: 180,
           placeholder: running ? T('aiRunning') : '',
-          onChange: (e) => update((s) => { const nd = s.graph.nodes[n.id]; if (nd) nd.data.output = e.target.value; }),
-          onPointerDown: (e) => e.stopPropagation(),
+          onChange: (v) => update((s) => { const nd = s.graph.nodes[n.id]; if (nd) nd.data.output = v; }),
         }),
       ];
     }
