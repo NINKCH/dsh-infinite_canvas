@@ -2444,16 +2444,6 @@ window.__ModuleLoader__.load({
       if (s.protocol === 'seedance' || url.includes('contents/generations/tasks')) return 'seedance';
       return 'openai';
     }
-    /** 万相尺寸参数：size 形如 "宽*高" —— **只做用户设置（清晰度 × 比例）的机械换算，不做任何升级/转换**。
-     *  厂商不支持该尺寸就让它报错；厂商自己能兼容转换是厂商的事（透传原则：用户设什么发什么）。 */
-    function wanSizeFor(resolution, ratio) {
-      const r = String(resolution || '720P').toUpperCase();
-      const [rw, rh] = String(ratio || '16:9').split(':').map((x) => Number(x) || 0);
-      if (rw && rw === rh) return r.includes('1080') ? '1440*1440' : r.includes('480') ? '624*624' : '960*960';
-      const w = r.includes('1080') ? 1920 : r.includes('480') ? 832 : 1280;
-      const h = r.includes('1080') ? 1080 : r.includes('480') ? 480 : 720;
-      return (rw && rw < rh) ? (h + '*' + w) : (w + '*' + h);
-    }
     function b64Pure(blob) {      return new Promise((res, rej) => {
         const r = new FileReader();
         r.onload = () => res(String(r.result).split(',')[1] || '');
@@ -2522,21 +2512,31 @@ window.__ModuleLoader__.load({
         let ep;
         try { ep = wanEndpoints(String(s.url || VIDEO_VENDORS.wan.base)); } catch { throw new Error('万相视频 API 地址无效：' + String(s.url || '')); }
         const headers = { 'Content-Type': 'application/json', Authorization: 'Bearer ' + (s.apiKey || ''), 'X-DashScope-Async': 'enable' };
+        // 万相 3.0 官方参数（百炼文档）：parameters = { resolution: 1080P/720P/480P, ratio: adaptive/21:9/16:9/4:3/1:1/3:4/9:16,
+        //   duration: [2,30], audio, seed, prompt_extend, watermark } —— **没有 size 参数**（那是 2.x 旧版的）。
+        //  · 用户可变项（透传，不转换）：resolution / ratio / duration —— 节点上设什么发什么
+        //  · 稳定默认（总是发送）：watermark:false 去水印优先、prompt_extend:true 提示词扩展
+        //  · 媒体走 input.media[]：first_frame（≤1）/ reference_image（≤10），支持 Base64；首帧与参考图同传时
+        //    首帧降级为首张参考图（与网关组合限制对齐，衔接说明前置）
+        const rawRefs = o.hardFrame ? [] : (o.refs || []).slice(0, 10);
+        let text = prompt;
+        if (frameBlob && rawRefs.length) text = videoRefNote(o.refNames) + '\n' + prompt;
+        const media = [];
+        if (frameBlob) media.push({ type: rawRefs.length ? 'reference_image' : 'first_frame', url: await blobToDataUrlScaled(frameBlob) });
+        for (const b of rawRefs) media.push({ type: 'reference_image', url: await blobToDataUrlScaled(b) });
         const body = {
-          model: s.model || 'wan2.2-t2v-plus',
-          input: { prompt, ...(frameBlob ? { img_url: await blobToDataUrlScaled(frameBlob) } : {}) },
-          // 参数分两类：
-          //  · 稳定默认（总是发送，不随用户/模型变）：watermark:false 去水印优先、prompt_extend:true 提示词扩展
-          //  · 用户可变项（透传，不钳制不转换）：size（清晰度×比例机械换算）、duration（设置多少发多少）
+          model: s.model || 'wan3.0-video',
+          input: { prompt: text, ...(media.length ? { media } : {}) },
           parameters: {
-            size: wanSizeFor(o.resolution, o.ratio),
+            resolution: String(o.resolution || '1080P'),
+            ratio: o.ratio || '16:9',
             duration: Math.round(Number(o.duration)) || 5,
             watermark: false,
             prompt_extend: true,
           },
         };
         // 扩展参数：厂商/网关参数名不一致时的逃生舱（顶层字段直接覆盖，parameters 内做深合并）
-        // 例：{"parameters":{"size":"1920*1080"}} 或 {"parameters":{"ratio":"16:9"}}
+        // 例：{"parameters":{"audio":false}} 或 {"parameters":{"seed":42}}
         try {
           const ex = parseExtraParams(s.extra);
           if (ex) {
