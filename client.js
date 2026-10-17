@@ -1180,11 +1180,13 @@ window.__ModuleLoader__.load({
   display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;}
 .dshic-textcard-sub{font-size:10px;line-height:14px;color:var(--dsw-alias-label-secondary);}
 /* @引用高亮输入框：字号/行高/内距与 .dshic-textarea 完全一致（背景层与透明输入框必须逐像素对齐） */
-.dshic-prompt{position:relative;display:block;width:100%;}
+/* overflow+圆角：背层是绝对定位，父级高度由 textarea 撑开时 bottom/inset 不一定能把背层锁死，
+   多出来的行会画出边框。裁切必须做在由输入框撑高的这一层上，框内保留、框外遮住（含圆角）。 */
+.dshic-prompt{position:relative;display:block;width:100%;overflow:hidden;border-radius:8px;}
 .dshic-prompt-back,.dshic-prompt-input{font:inherit;font-size:12px;line-height:18px;padding:7px 9px;box-sizing:border-box;
   white-space:pre-wrap;word-break:break-word;overflow-wrap:anywhere;}
-.dshic-prompt-back{position:absolute;inset:0;overflow:hidden;pointer-events:none;color:var(--dsw-alias-label-primary);
-  border:1px solid transparent;border-radius:6px;}
+.dshic-prompt-back{position:absolute;top:0;left:0;right:0;height:100%;overflow:hidden;pointer-events:none;color:var(--dsw-alias-label-primary);
+  border:1px solid transparent;border-radius:8px;}
 .dshic-prompt-ph{color:var(--dsw-alias-label-tertiary);}
 .dshic-prompt-input{position:relative;background:transparent;color:transparent;caret-color:var(--dsw-alias-label-primary);
   resize:vertical;overflow-y:auto;scrollbar-width:none;}
@@ -1276,8 +1278,11 @@ window.__ModuleLoader__.load({
 .dshic-node-body{padding:10px;display:flex;flex-direction:column;gap:8px;}
 .dshic-gen{height:32px;font-weight:600;letter-spacing:.3px;box-shadow:0 1px 3px rgba(0,0,0,.18);}
 .dshic-gen:hover:not(:disabled){box-shadow:0 2px 6px rgba(0,0,0,.22);}
-.dshic-textarea:focus,.dshic-input:focus,.dshic-prompt-input:focus-within{border-color:var(--dsw-alias-brand-primary);
+.dshic-textarea:focus,.dshic-input:focus,.dshic-prompt-input:focus{border-color:var(--dsw-alias-brand-primary);
   box-shadow:0 0 0 3px color-mix(in srgb,var(--dsw-alias-brand-primary) 18%,transparent);}
+/* 高亮框自己 overflow:hidden，子元素的光圈会被裁掉；光圈画在外层，外层自己的阴影不受自身 overflow 影响 */
+.dshic-prompt:focus-within{box-shadow:0 0 0 3px color-mix(in srgb,var(--dsw-alias-brand-primary) 18%,transparent);}
+.dshic-prompt:focus-within .dshic-prompt-input{box-shadow:none;}
 .dshic-shot-label{font-size:10px;letter-spacing:.4px;color:var(--dsw-alias-label-secondary);}
 .dshic-hint{line-height:15px;}
 .dshic-card{border-radius:12px;box-shadow:0 1px 2px rgba(0,0,0,.06);}
@@ -5480,40 +5485,7 @@ window.__ModuleLoader__.load({
         }
         // —— 实时碰撞推挤（物理感）：拖动节点碰到谁，谁沿远离方向实时让位；被推者再推别人（级联）。
         //    上下左右同理：下节点上移碰到上节点 → 上节点实时上移；全程无弹跳，松手即定格。
-        (() => {
-          const PUSH_GAP = 8; // 拖动中的触距（小于静止间距，贴近"贴上就推"的手感）
-          const movers = new Set(movedIds);
-          let frontier = [...movers];
-          for (let pass = 0; pass < 4 && frontier.length; pass++) {
-            const next = [];
-            for (const fid of frontier) {
-              const a = S.graph.nodes[fid];
-              if (!a) continue;
-              const al = a.x, ar = a.x + (a.w || 240), at = a.y, ab = a.y + (a.h || 96);
-              for (const other of Object.values(S.graph.nodes)) {
-                if (!other || movers.has(other.id) || other.type === 'group') continue;
-                const bl = other.x, br = other.x + (other.w || 240), bt = other.y, bb = other.y + (other.h || 96);
-                if (al >= br + PUSH_GAP || ar + PUSH_GAP <= bl || at >= bb + PUSH_GAP || ab + PUSH_GAP <= bt) continue; // 未相交
-                // 沿重叠较小的轴推开，方向 = 远离主动节点
-                const penX = Math.min(ar, br) - Math.max(al, bl);
-                const penY = Math.min(ab, bb) - Math.max(at, bt);
-                const acx = (al + ar) / 2, acy = (at + ab) / 2;
-                const bcx = (bl + br) / 2, bcy = (bt + bb) / 2;
-                if (penX <= penY) {
-                  other.x = Math.round(bcx >= acx ? ar + PUSH_GAP : al - (br - bl) - PUSH_GAP);
-                } else {
-                  other.y = Math.round(bcy >= acy ? ab + PUSH_GAP : at - (bb - bt) - PUSH_GAP);
-                }
-                const oel = nodeEls.get(other.id);
-                if (oel) { oel.style.left = other.x + 'px'; oel.style.top = other.y + 'px'; }
-                movers.add(other.id);
-                next.push(other.id);
-              }
-            }
-            frontier = next;
-          }
-          for (const id of movers) if (!movedIds.has(id)) movedIds.add(id);
-        })();
+        resolvePushNow(movedIds);
         if (movedIds.size) {
           for (const e2 of S.graph.edges) {
             if (!movedIds.has(e2.fromNode) && !movedIds.has(e2.toNode)) continue;
@@ -5727,73 +5699,89 @@ window.__ModuleLoader__.load({
     const TYPE_KIND = { 'text': 'text', 'shot': 'shot', 'script': 'script', 'storyboard': 'shot', 'image-gen': 'image', 'video-gen': 'video', 'image-asset': 'image', 'video-asset': 'video', 'finalcut': 'video', 'group': 'text' };
 
     /** 节点框相交判定（含最小间距，默认 24px）。 */
-    function nodesOverlapGap(a, b, gap) {
-      const g = (gap == null ? 24 : gap);
-      const ax = a.x || 0; const ay = a.y || 0; const aw = a.w || 240; const ah = a.h || 160;
-      const bx = b.x || 0; const by = b.y || 0; const bw = b.w || 240; const bh = b.h || 160;
-      return ax < bx + bw + g && ax + aw + g > bx && ay < by + bh + g && ay + ah + g > by;
-    }
-    /** 自动挤开（像物体相撞）：与锚点节点相交的节点被推到其下方，被推的节点再成为锚点级联下推。
-     *  只改 y（保持「一类型一列」的列结构），单次 update 批量应用，最多 8 轮防死循环。 */
-    function declutterAround(anchorId) {
-      const GAP = 24;
-      const nodes = Object.values(S.graph.nodes).filter((x) => x && x.type !== 'group');
-      if (!nodes.some((x) => x.id === anchorId)) return false;
-      const pos = new Map(nodes.map((x) => [x.id, { x: x.x || 0, y: x.y || 0, w: x.w || 240, h: x.h || 160 }]));
-      const anchors = [anchorId];
-      const moves = new Map();
-      for (let pass = 0; pass < 8; pass++) {
-        let any = false;
-        for (const x of nodes) {
-          if (anchors.includes(x.id)) continue;
-          const p = pos.get(x.id);
-          for (const aId of anchors) {
-            const a = pos.get(aId);
-            if (!a) continue;
-            const clash = a.x < p.x + p.w + GAP && a.x + a.w + GAP > p.x && a.y < p.y + p.h + GAP && a.y + a.h + GAP > p.y;
-            if (!clash) continue;
-            const ny = Math.round(a.y + a.h + GAP);
-            if (ny > p.y) { p.y = ny; moves.set(x.id, ny); anchors.push(x.id); any = true; }
-            break;
+    /** 实时碰撞推挤共享核心（拖动 / 节点尺寸变化共用）：与 movers 里节点相交的其他节点，
+     *  沿远离主动节点的方向让位（重叠较少的轴先动，上下左右机会均等），被推者再推别人，级联最多 4 轮。
+     *  高频路径：直接写模型坐标并同步被推节点的 DOM（不触发 React 重渲染），由调用方在静止时收尾落盘。 */
+    function resolvePushNow(movers) {
+      const PUSH_GAP = 8; // 触距：小于静止间距，贴近"贴上就推"的手感
+      let frontier = [...movers];
+      for (let pass = 0; pass < 4 && frontier.length; pass++) {
+        const next = [];
+        for (const fid of frontier) {
+          const a = S.graph.nodes[fid];
+          if (!a) continue;
+          const al = a.x, ar = a.x + (a.w || 240), at = a.y, ab = a.y + (a.h || 96);
+          for (const other of Object.values(S.graph.nodes)) {
+            if (!other || movers.has(other.id) || other.type === 'group' || (other.data && other.data.hidden)) continue;
+            const bl = other.x, br = other.x + (other.w || 240), bt = other.y, bb = other.y + (other.h || 96);
+            if (al >= br + PUSH_GAP || ar + PUSH_GAP <= bl || at >= bb + PUSH_GAP || ab + PUSH_GAP <= bt) continue; // 未相交
+            // 沿重叠较小的轴推开，方向 = 远离主动节点
+            const penX = Math.min(ar, br) - Math.max(al, bl);
+            const penY = Math.min(ab, bb) - Math.max(at, bt);
+            const acx = (al + ar) / 2, acy = (at + ab) / 2;
+            const bcx = (bl + br) / 2, bcy = (bt + bb) / 2;
+            if (penX <= penY) {
+              other.x = Math.round(bcx >= acx ? ar + PUSH_GAP : al - (br - bl) - PUSH_GAP);
+            } else {
+              other.y = Math.round(bcy >= acy ? ab + PUSH_GAP : at - (bb - bt) - PUSH_GAP);
+            }
+            const oel = nodeEls.get(other.id);
+            if (oel) { oel.style.left = other.x + 'px'; oel.style.top = other.y + 'px'; }
+            movers.add(other.id);
+            next.push(other.id);
           }
         }
-        if (!any) break;
+        frontier = next;
       }
-      if (!moves.size) return false;
-      update((s2) => { for (const [id, y] of moves) { const nd = s2.graph.nodes[id]; if (nd) nd.y = y; } });
-      flushSave();
-      return true;
-    }
-    const declutterTimers = new Map();
-    /** 内容增长时防抖挤开（流式输出期间高度连续变化，260ms 合并一次）。 */
-    function scheduleDeclutter(id) {
-      if (declutterTimers.has(id)) clearTimeout(declutterTimers.get(id));
-      declutterTimers.set(id, setTimeout(() => {
-        declutterTimers.delete(id);
-        try { declutterAround(id); } catch { /* 布局自愈失败不影响内容 */ }
-      }, 260));
+      return movers;
     }
 
-    /** 节点尺寸自适应：RO 上报高度，供连线端口定位（分组框高度由创建/折叠样式决定，不采集） */
+    /** 节点尺寸自适应：RO 上报最新尺寸（拖节点边、拉长内容输入框、流式长高、宽度变化都算），
+     *  尺寸一变就实时推开相交的邻居（resolvePushNow，与拖动碰撞同一套物理推挤，所有节点类型统一走这里）；
+     *  静止约 260ms 后收尾：通知 React + 记撤销快照 + 落盘。
+     *  分组框高度由创建/折叠样式决定，不采集；首次测量只登记尺寸，避免载入时画面自行跳动。 */
     function observeNodeHeight(id, el) {
       if (!el) return;
+      let raf = 0;
+      let settleTimer = null;
+      let touched = false;
+      const scheduleSettle = () => {
+        if (settleTimer) clearTimeout(settleTimer);
+        settleTimer = setTimeout(() => {
+          settleTimer = null;
+          if (!touched) return;
+          touched = false;
+          notify();
+          pushHistory();
+          flushSave();
+        }, 260);
+      };
       const ro = new ResizeObserver(() => {
         const nd = S.graph.nodes[id];
         if (!nd || nd.type === 'group') return;
-        if (el.offsetHeight && Math.abs((nd.h || 0) - el.offsetHeight) > 1) {
-          const grew = el.offsetHeight > (nd.h || 0) + 4;
-          nd.h = el.offsetHeight;
-          if (grew) scheduleDeclutter(id); // 变高 → 下方节点自动被挤开
-          for (const e of S.graph.edges) {
-            if (e.fromNode === id || e.toNode === id) {
-              const p = edgePathEls.get(e.id);
-              if (p) p.setAttribute('d', edgePath(e));
-            }
+        const w = el.offsetWidth, h = el.offsetHeight;
+        if (!w || !h) return;
+        if (Math.abs((nd.h || 0) - h) <= 1 && Math.abs((nd.w || 0) - w) <= 1) return;
+        const first = !(nd.h || 0) && !(nd.w || 0);
+        nd.w = w; nd.h = h;
+        for (const e of S.graph.edges) {
+          if (e.fromNode === id || e.toNode === id) {
+            const p = edgePathEls.get(e.id);
+            if (p) p.setAttribute('d', edgePath(e));
           }
+        }
+        if (!first && !raf) {
+          raf = requestAnimationFrame(() => {
+            raf = 0;
+            try {
+              const pushed = resolvePushNow(new Set([id]));
+              if (pushed.size > 1) { touched = true; scheduleSettle(); }
+            } catch { /* 布局自愈失败不影响内容 */ }
+          });
         }
       });
       ro.observe(el);
-      return () => ro.disconnect();
+      return () => { ro.disconnect(); if (raf) cancelAnimationFrame(raf); if (settleTimer) clearTimeout(settleTimer); };
     }
 
     function PortEl({ n, port, dir, corner }) {
@@ -5921,7 +5909,7 @@ window.__ModuleLoader__.load({
           window.removeEventListener('pointermove', move);
           window.removeEventListener('pointerup', up);
           flushSave(); // 拖拽结束立即落盘：否则防抖期间切换页面会丢失 w/h/hManual
-          try { declutterAround(n.id); } catch { /* 布局自愈失败不影响尺寸 */ }
+          try { if (resolvePushNow(new Set([n.id])).size > 1) notify(); } catch { /* 布局自愈失败不影响尺寸 */ }
           pushHistory();
         };
         window.addEventListener('pointermove', move);
@@ -6397,11 +6385,13 @@ window.__ModuleLoader__.load({
         promptEdge
           ? h(PromptArea, {
               key: 'p', value: n.data.prompt || '', minHeight: 72, readOnly: true,
+              ...phBind(n, 'p'),
               placeholder: fromStoryboard ? T('multiShotHint') : T('connected'),
               onChange: () => { /* 只读展示：内容由上游连线组合 */ },
             })
           : h(PromptArea, {
               key: 'p', value: n.data.prompt || '', minHeight: 72,
+              ...phBind(n, 'p'),
               placeholder: T('promptPlaceholder'),
               onChange: (v) => update((s) => { const nd = s.graph.nodes[n.id]; if (nd) nd.data.prompt = v; }),
             }),
@@ -6715,6 +6705,7 @@ window.__ModuleLoader__.load({
         value: n.data.text || '',
         placeholder: T('textPlaceholder'),
         minHeight: 96,
+        ...phBind(n, 'text'),
         onChange: (v) => update((s) => { const nd = s.graph.nodes[n.id]; if (nd) nd.data.text = v; }),
       });
     }
@@ -6743,12 +6734,14 @@ window.__ModuleLoader__.load({
         h('span', { className: 'dshic-shot-label' }, T('visualLabel')),
         h(PromptArea, {
           value: n.data.visual || '', minHeight: 52,
+          ...phBind(n, 'visual'),
           placeholder: T('shotVisualPlaceholder'),
           onChange: (v) => update((s) => { const nd = s.graph.nodes[n.id]; if (nd) nd.data.visual = v; }),
         }),
         h('span', { className: 'dshic-shot-label' }, T('motionLabel')),
         h(PromptArea, {
           value: n.data.motion || '', minHeight: 44,
+          ...phBind(n, 'motion'),
           placeholder: T('shotMotionPlaceholder'),
           onChange: (v) => update((s) => { const nd = s.graph.nodes[n.id]; if (nd) nd.data.motion = v; }),
         }),
@@ -6760,15 +6753,57 @@ window.__ModuleLoader__.load({
      * 与主流工具同一做法——透明文字的 textarea 叠在同步滚动的背景层上，
      * 背景层渲染同一段文本并给 @名称 上色，光标/选区/中文输入法都不受影响。
      */
-    function PromptArea({ value, onChange, placeholder, minHeight, style, readOnly }) {
+    /** 文本框独立拉高的记忆：PromptArea 的原生 grip 拖高写进节点 data.ph[key]，
+     *  换页/刷新重挂载后原样恢复（不再退回 minHeight）。key 在同一节点内需唯一。 */
+    function phBind(n, key) {
+      return {
+        phH: (n.data.ph && n.data.ph[key]) || null,
+        onPh: (px) => update((s) => {
+          const nd = s.graph.nodes[n.id];
+          if (!nd) return;
+          nd.data.ph = { ...(nd.data.ph || {}), [key]: px };
+        }),
+      };
+    }
+
+    function PromptArea({ value, onChange, placeholder, minHeight, style, readOnly, phH, onPh }) {
       const taRef = useRef(null);
       const backRef = useRef(null);
+      // 记忆高度的基准：React 上一次写进 textarea 的 height（null=未设置）。
+      // 原生 grip 拉高会直接改 inline style，与基准不同即视为用户改动 → 回调存进节点数据。
+      const hBaseRef = useRef(null);
+      useEffect(() => { hBaseRef.current = phH || null; }, [phH]);
       const sync = () => {
-        if (backRef.current && taRef.current) {
-          backRef.current.scrollTop = taRef.current.scrollTop;
-          backRef.current.scrollLeft = taRef.current.scrollLeft;
-        }
+        const ta = taRef.current;
+        const back = backRef.current;
+        if (!ta || !back) return;
+        // 父级高度不定时绝对定位的 bottom 会失效，背层随文字撑高并画出边框。
+        // 用输入框的实际高度锁死背层，滚动才对齐；外层 overflow:hidden 再兜底裁切。
+        const h = ta.offsetHeight;
+        if (h > 0 && back.style.height !== h + 'px') back.style.height = h + 'px';
+        back.scrollTop = ta.scrollTop;
+        back.scrollLeft = ta.scrollLeft;
       };
+      useEffect(() => {
+        sync();
+        const ta = taRef.current;
+        if (!ta || typeof ResizeObserver === 'undefined') return undefined;
+        let hRaf = 0;
+        const ro = new ResizeObserver(() => {
+          sync();
+          if (!onPh) return;
+          const px = parseInt(ta.style.height, 10) || 0;
+          if (px > 0 && px !== (hBaseRef.current || 0) && !hRaf) {
+            hRaf = requestAnimationFrame(() => {
+              hRaf = 0;
+              const cur = parseInt(ta.style.height, 10) || 0;
+              if (cur > 0 && cur !== (hBaseRef.current || 0)) onPh(cur);
+            });
+          }
+        });
+        ro.observe(ta);
+        return () => { ro.disconnect(); if (hRaf) cancelAnimationFrame(hRaf); };
+      }, []);
       // 值变化后补一次滚动同步：在末尾输入时 textarea 会自动滚动到光标，但背层不一定收到 scroll 事件
       useEffect(() => { sync(); }, [value]);
       // 结尾换行补偿：<textarea> 的结尾 \n 会多出一条空行，而 pre-wrap 的 <div> 不生成该行盒
@@ -6784,7 +6819,7 @@ window.__ModuleLoader__.load({
           ref: taRef, className: 'dshic-textarea dshic-prompt-input', value: value || '',
           placeholder: html ? undefined : placeholder,
           readOnly: readOnly === true,
-          style: { minHeight: minHeight || 72, ...(style || {}) },
+          style: { minHeight: minHeight || 72, height: phH || undefined, ...(style || {}) },
           onChange: (e) => onChange(e.target.value),
           onScroll: sync,
           onPointerDown: (e) => e.stopPropagation(),
@@ -6856,6 +6891,7 @@ window.__ModuleLoader__.load({
         h('span', { key: 'l1', className: 'dshic-shot-label' }, T('ideaLabel')),
         h(PromptArea, {
           key: 'idea', value: n.data.idea || '', minHeight: 72,
+          ...phBind(n, 'idea'),
           placeholder: T('ideaPlaceholder'),
           onChange: (v) => update((s) => { const nd = s.graph.nodes[n.id]; if (nd) nd.data.idea = v; }),
         }),
@@ -6886,6 +6922,7 @@ window.__ModuleLoader__.load({
         h('span', { key: 'l2', className: 'dshic-shot-label' }, T('scriptOutputLabel')),
         h(PromptArea, {
           key: 'out', value: n.data.output || '', minHeight: 180,
+          ...phBind(n, 'out'),
           placeholder: running ? T('aiRunning') : '',
           onChange: (v) => update((s) => { const nd = s.graph.nodes[n.id]; if (nd) nd.data.output = v; }),
         }),
@@ -6933,11 +6970,13 @@ window.__ModuleLoader__.load({
         h('span', { key: 'l1', className: 'dshic-shot-label' }, T('storyboardScriptLabel') + (scriptEdge ? ' · ' + T('connected') : '')),
         h(PromptArea, {
           key: 'script', value: n.data.script || '', minHeight: 56, readOnly: !!scriptEdge,
+          ...phBind(n, 'script'),
           placeholder: scriptEdge ? T('connected') : T('storyboardScriptLabel'),
           onChange: (v) => update((s) => { const nd = s.graph.nodes[n.id]; if (nd) nd.data.script = v; }),
         }),
         h(PromptArea, {
           key: 'req', value: n.data.requirement || '', minHeight: 40,
+          ...phBind(n, 'req'),
           placeholder: T('storyboardReqLabel'),
           onChange: (v) => update((s) => { const nd = s.graph.nodes[n.id]; if (nd) nd.data.requirement = v; }),
         }),
