@@ -1285,7 +1285,7 @@ window.__ModuleLoader__.load({
 .dshic-toolbar{backdrop-filter:blur(6px);}
 .dshic-node .dshic-textarea,.dshic-node .dshic-input{border-radius:8px;}
 .dshic-preview{border-radius:10px;}
-`.;
+`;
 
     // ============================================================
     // 本地持久化：项目 / 画布文档 / 设置
