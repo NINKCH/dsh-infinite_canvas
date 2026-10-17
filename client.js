@@ -2086,6 +2086,7 @@ window.__ModuleLoader__.load({
         fd.append('prompt', prompt);
         fd.append('n', '1');
         if (s.size) fd.append('size', s.size);
+        fd.append('watermark', 'false'); // 稳定默认：去水印优先（与 generations 路径一致）
         refs.forEach((b, i) => fd.append('image[]', b, 'ref-' + i + '.png'));
         // FormData 经 Response 序列化为 multipart 字节（含 boundary）→ base64 经代理原样转发
         const serialized = new Response(fd);
@@ -2107,6 +2108,8 @@ window.__ModuleLoader__.load({
       const body = {
         ...(s.model ? { model: s.model } : {}),
         prompt, n: 1,
+        // 稳定默认（总是发送）：去水印优先——多数图片厂商该参数默认 true 会加水印；扩展参数可覆盖
+        watermark: false,
       };
       // 响应格式：留空 = 用 API 默认（响应解析同时支持 b64_json 与 url）
       if (String(s.responseFormat || '').trim()) body.response_format = String(s.responseFormat).trim();
