@@ -1265,7 +1265,27 @@ window.__ModuleLoader__.load({
 .dshic-zoom-val{min-width:52px;text-align:center;font-size:12px;color:var(--dsw-alias-label-secondary);
   font-variant-numeric:tabular-nums;cursor:pointer;background:transparent;border:none;height:26px;font:inherit;font-size:12px;}
 .dshic-zoom-val:hover{background:color-mix(in srgb,var(--dsw-alias-label-primary) 8%,transparent);color:var(--dsw-alias-label-primary);}
-`;
+
+/* ── 视觉精修层（统一质感；追加在基础规则之后生效）──────────────── */
+.dshic-node{border-radius:14px;box-shadow:0 1px 2px rgba(0,0,0,.10),0 6px 18px rgba(0,0,0,.10);}
+.dshic-node:hover{box-shadow:0 2px 4px rgba(0,0,0,.10),0 10px 26px rgba(0,0,0,.14);}
+.dshic-node.is-selected{box-shadow:0 0 0 2px color-mix(in srgb,var(--dsw-alias-brand-primary) 38%,transparent),0 10px 26px rgba(0,0,0,.14);}
+.dshic-node.st-running{box-shadow:0 0 0 2px color-mix(in srgb,var(--dsw-alias-brand-primary) 45%,transparent),0 8px 22px rgba(0,0,0,.12);}
+.dshic-node-head{height:32px;padding:0 10px;}
+.dshic-node-head .dshic-node-label,.dshic-node-head strong{font-weight:600;letter-spacing:.2px;}
+.dshic-node-body{padding:10px;display:flex;flex-direction:column;gap:8px;}
+.dshic-gen{height:32px;font-weight:600;letter-spacing:.3px;box-shadow:0 1px 3px rgba(0,0,0,.18);}
+.dshic-gen:hover:not(:disabled){box-shadow:0 2px 6px rgba(0,0,0,.22);}
+.dshic-textarea:focus,.dshic-input:focus,.dshic-prompt-input:focus-within{border-color:var(--dsw-alias-brand-primary);
+  box-shadow:0 0 0 3px color-mix(in srgb,var(--dsw-alias-brand-primary) 18%,transparent);}
+.dshic-shot-label{font-size:10px;letter-spacing:.4px;color:var(--dsw-alias-label-secondary);}
+.dshic-hint{line-height:15px;}
+.dshic-card{border-radius:12px;box-shadow:0 1px 2px rgba(0,0,0,.06);}
+.dshic-mini{border-radius:7px;}
+.dshic-toolbar{backdrop-filter:blur(6px);}
+.dshic-node .dshic-textarea,.dshic-node .dshic-input{border-radius:8px;}
+.dshic-preview{border-radius:10px;}
+`.;
 
     // ============================================================
     // 本地持久化：项目 / 画布文档 / 设置
