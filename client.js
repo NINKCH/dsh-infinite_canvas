@@ -2659,7 +2659,7 @@ window.__ModuleLoader__.load({
         const headers = { 'Content-Type': 'application/json', Authorization: 'Bearer ' + (s.apiKey || ''), 'X-Runway-Version': '2024-11-06' };
         const ratio = (o.ratio || '16:9') === '9:16' ? '720:1280' : '1280:720';
         const dur = Math.round(Number(o.duration)) || 5;
-        let ep = '/v1/text_to_video', body = { model: s.model || 'gen4_turbo', promptText: prompt, ratio, duration: dur };
+        let ep = '/v1/text_to_video', body = { model: s.model || 'gen4.5', promptText: prompt, ratio, duration: dur };
         if (frameBlob) { ep = '/v1/image_to_video'; body = { model: s.model || 'gen4_turbo', promptImage: await blobToDataUrlScaled(frameBlob), promptText: prompt, ratio, duration: dur }; }
         mergeExtra(body, s);
         const r1 = await fetchViaProxy(base + ep, { headers, body, label: 'Runway 提交' });
@@ -2680,11 +2680,16 @@ window.__ModuleLoader__.load({
       // —— Google Veo（Gemini API）：predictLongRunning + operation 轮询 ——
       async veo(prompt, frameBlob, s, o) {
         const base = vendorBase(s.url, VIDEO_VENDORS.veo.base);
-        const model = s.model || 'veo-3.0-fast-generate-preview';
+        const model = s.model || 'veo-3.1-generate-preview';
         const ep = base + '/v1beta/models/' + encodeURIComponent(model) + ':predictLongRunning?key=' + encodeURIComponent(s.apiKey || '');
         const inst = { prompt };
         if (frameBlob) inst.image = { bytesBase64Encoded: await b64Pure(await blobToDataUrlScaled(frameBlob)), mimeType: 'image/png' };
-        const body = { instances: [inst], parameters: { aspectRatio: (o.ratio || '16:9') === '9:16' ? '9:16' : '16:9' } };
+        // 官方字段（Gemini API SDK）：parameters.{aspectRatio(16:9|9:16), durationSeconds(int), resolution(720p|1080p)}
+        const body = { instances: [inst], parameters: {
+          aspectRatio: (o.ratio || '16:9') === '9:16' ? '9:16' : '16:9',
+          durationSeconds: Math.round(Number(o.duration)) || 5,
+          ...(o.resolution ? { resolution: String(o.resolution).toLowerCase() } : {}),
+        } };
         mergeExtra(body, s);
         const r1 = await fetchViaProxy(ep, { headers: { 'Content-Type': 'application/json' }, body, label: 'Veo 提交' });
         if (!r1.ok) throw new Error('Veo 提交 HTTP ' + r1.status + '：' + r1.text.slice(0, 300));
@@ -2710,7 +2715,10 @@ window.__ModuleLoader__.load({
         let base = String(s.url || VIDEO_VENDORS.luma.base).trim().replace(/\/+$/, '');
         if (!/\/v1$/i.test(base)) base = base + '/v1';
         const headers = { 'Content-Type': 'application/json', Authorization: 'Bearer ' + (s.apiKey || '') };
-        const body = { prompt, model: s.model || 'ray-2', resolution: String(o.resolution || '').toLowerCase().includes('1080') ? '1080p' : '720p', duration: (Math.round(Number(o.duration)) || 5) + 's' };
+        const body = { prompt, model: s.model || 'ray-2',
+          resolution: String(o.resolution || '720p').toLowerCase(), // 官方枚举 540p/720p/1080p/4k
+          duration: (Math.round(Number(o.duration)) || 5) + 's', // 官方为字符串 "5s"/"9s"
+          aspect_ratio: o.ratio || '16:9' }; // 官方枚举 1:1/16:9/9:16/4:3/3:4/21:9/9:21
         if (frameBlob) throw new Error('Luma 图生视频需要公网图片 URL——本地图片请改用文生视频，或换其他厂商');
         mergeExtra(body, s);
         const r1 = await fetchViaProxy(base + '/generations', { headers, body, label: 'Luma 提交' });
