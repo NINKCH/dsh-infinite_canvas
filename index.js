@@ -787,23 +787,23 @@ function nextNodePos(doc, type, connectFromId) {
   const EST_H = { storyboard: 560, 'video-gen': 620, 'image-gen': 560, script: 420, finalcut: 420, text: 220 };
   const estH = EST_H[type] || 300;
   const estW = type === 'finalcut' ? 300 : 280;
+  const same = nodes.filter((n) => n.type === type);
   let x = 80;
   let y = 40;
-  if (connectFromId && doc.nodes && doc.nodes[connectFromId]) {
+  if (same.length) {
+    // 一类型一列（布局铁律）：该类型已有节点 → 永远追加到同类型列尾；
+    // 连线只表达数据流，不改变列归属（否则类型会交叉、画布无法辨认）
+    x = Math.min(...same.map((n) => n.x || 0));
+    y = Math.max(...same.map((n) => (n.y || 0) + H(n))) + GAP_Y;
+  } else if (connectFromId && doc.nodes && doc.nodes[connectFromId]) {
+    // 该类型的第一个节点：放在上游右侧一行（自然形成新的一列）
     const src = doc.nodes[connectFromId];
     x = (src.x || 0) + W(src) + GAP_X;
     y = src.y || 40;
-  } else {
-    const same = nodes.filter((n) => n.type === type);
-    if (same.length) {
-      // 同类型竖向成列：跟在同类型最后一个节点下方
-      x = Math.min(...same.map((n) => n.x || 0));
-      y = Math.max(...same.map((n) => (n.y || 0) + H(n))) + GAP_Y;
-    } else if (nodes.length) {
-      // 该类型还没有节点 → 在最右侧另起一列（绝不插进已有列里跟别的类型混排）
-      x = Math.max(...nodes.map((n) => (n.x || 0) + W(n))) + GAP_X;
-      y = Math.min(...nodes.map((n) => n.y || 0));
-    }
+  } else if (nodes.length) {
+    // 该类型还没有节点且无上游 → 在最右侧另起一列（绝不插进已有列里跟别的类型混排）
+    x = Math.max(...nodes.map((n) => (n.x || 0) + W(n))) + GAP_X;
+    y = Math.min(...nodes.map((n) => n.y || 40));
   }
   const hit = (yy) => nodes.find((n) => (n.x || 0) < x + estW + MIN_GAP && (n.x || 0) + W(n) + MIN_GAP > x
     && (n.y || 0) < yy + estH + MIN_GAP && (n.y || 0) + H(n) + MIN_GAP > yy);
@@ -813,8 +813,8 @@ function nextNodePos(doc, type, connectFromId) {
   return { x, y };
 }
 // ---------- 内置技能（操作规程 + 创作方法论，约束并提升对话的画布创作）----------
-// canvas-studio＝操作硬约束；canvas-craft＝剧本/分镜/提示词创作方法论
-const SKILL_NAMES = ['canvas-studio', 'canvas-craft'];
+// canvas-studio＝操作硬约束；canvas-craft＝剧本/分镜/提示词创作方法论；canvas-layout＝节点布局纪律
+const SKILL_NAMES = ['canvas-studio', 'canvas-craft', 'canvas-layout'];
 // = @deepseek-ai/dsh-skill 的 BUNDLED_SKILL_RANK（避免 import DSH 包；registry 要求 rank 必须是有限数字）
 const SKILL_RANK = 600;
 /** 解析 SKILL.md 的 YAML frontmatter（仅需 description 与正文）。 */

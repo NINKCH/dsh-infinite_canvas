@@ -5478,6 +5478,42 @@ window.__ModuleLoader__.load({
           el.style.top = ny + 'px';
           movedIds.add(st.id);
         }
+        // —— 实时碰撞推挤（物理感）：拖动节点碰到谁，谁沿远离方向实时让位；被推者再推别人（级联）。
+        //    上下左右同理：下节点上移碰到上节点 → 上节点实时上移；全程无弹跳，松手即定格。
+        (() => {
+          const PUSH_GAP = 8; // 拖动中的触距（小于静止间距，贴近"贴上就推"的手感）
+          const movers = new Set(movedIds);
+          let frontier = [...movers];
+          for (let pass = 0; pass < 4 && frontier.length; pass++) {
+            const next = [];
+            for (const fid of frontier) {
+              const a = S.graph.nodes[fid];
+              if (!a) continue;
+              const al = a.x, ar = a.x + (a.w || 240), at = a.y, ab = a.y + (a.h || 96);
+              for (const other of Object.values(S.graph.nodes)) {
+                if (!other || movers.has(other.id) || other.type === 'group') continue;
+                const bl = other.x, br = other.x + (other.w || 240), bt = other.y, bb = other.y + (other.h || 96);
+                if (al >= br + PUSH_GAP || ar + PUSH_GAP <= bl || at >= bb + PUSH_GAP || ab + PUSH_GAP <= bt) continue; // 未相交
+                // 沿重叠较小的轴推开，方向 = 远离主动节点
+                const penX = Math.min(ar, br) - Math.max(al, bl);
+                const penY = Math.min(ab, bb) - Math.max(at, bt);
+                const acx = (al + ar) / 2, acy = (at + ab) / 2;
+                const bcx = (bl + br) / 2, bcy = (bt + bb) / 2;
+                if (penX <= penY) {
+                  other.x = Math.round(bcx >= acx ? ar + PUSH_GAP : al - (br - bl) - PUSH_GAP);
+                } else {
+                  other.y = Math.round(bcy >= acy ? ab + PUSH_GAP : at - (bb - bt) - PUSH_GAP);
+                }
+                const oel = nodeEls.get(other.id);
+                if (oel) { oel.style.left = other.x + 'px'; oel.style.top = other.y + 'px'; }
+                movers.add(other.id);
+                next.push(other.id);
+              }
+            }
+            frontier = next;
+          }
+          for (const id of movers) if (!movedIds.has(id)) movedIds.add(id);
+        })();
         if (movedIds.size) {
           for (const e2 of S.graph.edges) {
             if (!movedIds.has(e2.fromNode) && !movedIds.has(e2.toNode)) continue;
@@ -5690,6 +5726,54 @@ window.__ModuleLoader__.load({
     });
     const TYPE_KIND = { 'text': 'text', 'shot': 'shot', 'script': 'script', 'storyboard': 'shot', 'image-gen': 'image', 'video-gen': 'video', 'image-asset': 'image', 'video-asset': 'video', 'finalcut': 'video', 'group': 'text' };
 
+    /** 节点框相交判定（含最小间距，默认 24px）。 */
+    function nodesOverlapGap(a, b, gap) {
+      const g = (gap == null ? 24 : gap);
+      const ax = a.x || 0; const ay = a.y || 0; const aw = a.w || 240; const ah = a.h || 160;
+      const bx = b.x || 0; const by = b.y || 0; const bw = b.w || 240; const bh = b.h || 160;
+      return ax < bx + bw + g && ax + aw + g > bx && ay < by + bh + g && ay + ah + g > by;
+    }
+    /** 自动挤开（像物体相撞）：与锚点节点相交的节点被推到其下方，被推的节点再成为锚点级联下推。
+     *  只改 y（保持「一类型一列」的列结构），单次 update 批量应用，最多 8 轮防死循环。 */
+    function declutterAround(anchorId) {
+      const GAP = 24;
+      const nodes = Object.values(S.graph.nodes).filter((x) => x && x.type !== 'group');
+      if (!nodes.some((x) => x.id === anchorId)) return false;
+      const pos = new Map(nodes.map((x) => [x.id, { x: x.x || 0, y: x.y || 0, w: x.w || 240, h: x.h || 160 }]));
+      const anchors = [anchorId];
+      const moves = new Map();
+      for (let pass = 0; pass < 8; pass++) {
+        let any = false;
+        for (const x of nodes) {
+          if (anchors.includes(x.id)) continue;
+          const p = pos.get(x.id);
+          for (const aId of anchors) {
+            const a = pos.get(aId);
+            if (!a) continue;
+            const clash = a.x < p.x + p.w + GAP && a.x + a.w + GAP > p.x && a.y < p.y + p.h + GAP && a.y + a.h + GAP > p.y;
+            if (!clash) continue;
+            const ny = Math.round(a.y + a.h + GAP);
+            if (ny > p.y) { p.y = ny; moves.set(x.id, ny); anchors.push(x.id); any = true; }
+            break;
+          }
+        }
+        if (!any) break;
+      }
+      if (!moves.size) return false;
+      update((s2) => { for (const [id, y] of moves) { const nd = s2.graph.nodes[id]; if (nd) nd.y = y; } });
+      flushSave();
+      return true;
+    }
+    const declutterTimers = new Map();
+    /** 内容增长时防抖挤开（流式输出期间高度连续变化，260ms 合并一次）。 */
+    function scheduleDeclutter(id) {
+      if (declutterTimers.has(id)) clearTimeout(declutterTimers.get(id));
+      declutterTimers.set(id, setTimeout(() => {
+        declutterTimers.delete(id);
+        try { declutterAround(id); } catch { /* 布局自愈失败不影响内容 */ }
+      }, 260));
+    }
+
     /** 节点尺寸自适应：RO 上报高度，供连线端口定位（分组框高度由创建/折叠样式决定，不采集） */
     function observeNodeHeight(id, el) {
       if (!el) return;
@@ -5697,7 +5781,9 @@ window.__ModuleLoader__.load({
         const nd = S.graph.nodes[id];
         if (!nd || nd.type === 'group') return;
         if (el.offsetHeight && Math.abs((nd.h || 0) - el.offsetHeight) > 1) {
+          const grew = el.offsetHeight > (nd.h || 0) + 4;
           nd.h = el.offsetHeight;
+          if (grew) scheduleDeclutter(id); // 变高 → 下方节点自动被挤开
           for (const e of S.graph.edges) {
             if (e.fromNode === id || e.toNode === id) {
               const p = edgePathEls.get(e.id);
@@ -5835,6 +5921,7 @@ window.__ModuleLoader__.load({
           window.removeEventListener('pointermove', move);
           window.removeEventListener('pointerup', up);
           flushSave(); // 拖拽结束立即落盘：否则防抖期间切换页面会丢失 w/h/hManual
+          try { declutterAround(n.id); } catch { /* 布局自愈失败不影响尺寸 */ }
           pushHistory();
         };
         window.addEventListener('pointermove', move);
