@@ -4,6 +4,21 @@ All notable changes to `@ninkch/dsh-infinite-canvas` are documented here (newest
 GitHub Releases carry the same notes in English; maintainer-facing runbooks live in
 [`RELEASING.md`](RELEASING.md) and [`docs/release.md`](docs/release.md).
 
+## [0.17.18] — 2026-10-18
+
+### Added
+- **Real-time collision physics for the canvas** — dragging a node now pushes overlapping neighbors away live (all directions get equal treatment, overlapping axis resolved first, cascading up to 4 passes) with no post-release jumping; released positions stick exactly where the collision stopped. Extended to **every size change**: node edge handles (width/height), heightening a text dialog, list resizing and streaming growth — measured on the node root, so every node type is covered (a 260 ms "push everything below" fallback is replaced by the same physical pass).
+- **Dialog height memory** — heightening a text dialog with its own bottom-right grip is stored in node data and restored across page switches, project switches and reloads (all prompt fields: generation prompt, scene text, script idea/output, storyboard script/requirements, shot visuals/motion).
+- **`canvas-layout` skill** (third built-in skill, agent-facing): canvas layout discipline — one node type per column, strict column order, never overlap, creation rhythm, and `canvas_relayout` for cleanup. Node creation on the host now always appends to the same-type column tail, regardless of which node the edge comes from.
+
+### Fixed
+- **A stray dot after the CSS template's closing backtick broke the whole plugin load** (blank unstyled page); fixed, and the render smoke test covers the component tree to catch this class of error.
+- **Prompt boxes paint one line past the border**: the highlight overlay behind transparent textareas was not height-locked when the box height was content-driven — the overflowing line stayed fully visible outside the frame. The overlay is now clipped at the rounded box edge and its height is locked to the real textarea height (scroll stays aligned); the focus ring moved to the wrapper so it is not clipped.
+- **Storyboard list grip squeezing prompts above**: heightening the shot list on a manually-resized node squeezed the prompt fields above it. Node height now grows together with the list; releasing the grip heals any historical squeeze to the natural content height. The prompt grip previously did nothing inside manually-resized nodes — its drag delta now converts into node height growth. Prompt fields are exempt from flex shrinking in manual-height mode (they keep a readable height; short overflow just clips below).
+- **Half-clipped last line at the bottom of prompt boxes** (trailing-newline line-box compensation for the highlight overlay) plus scroll sync after value changes; the remaining plain textareas moved onto the highlight layer so every text surface behaves identically.
+- **Mention glyphs misaligned with the caret**: bold mention highlight changed font metrics between the overlay and the transparent textarea — dropped bold (color only); hidden the overlay scrollbar gutter width mismatch.
+- **Unclosed `@Name` mentions auto-repaired** against names known from the project at generation time (models often drop the closing `@` at sentence end), producing stray delimiters in prompts and asset matching; the studio skill's mention section rewritten to the `@Name@` double-at syntax. `@Name@` highlighting is now uniform on every text surface.
+
 ## [0.17.17] — 2026-10-17
 
 ### Added
