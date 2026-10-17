@@ -1602,7 +1602,36 @@ window.__ModuleLoader__.load({
       if (entities && entities.length) return entityLabelOf(entities[0].kind) + '-' + entities[0].name + ' ' + nowStamp();
       return (fallbackKind === 'video' ? '视频' : '图片') + '-' + nowStamp();
     }
-    // <<<MENTION_PURE_END>>>
+        /** 修复未闭合的 @引用：模型在句尾常丢闭合 @（写作 @糯糯。 而非 @糯糯@。）——
+     *  未闭合引用不会被词法识别，参考图会静默丢失。这里按已知资产名自动补全并归一为完整名；
+     *  无法对上已知名的裸 @ 原样保留（不误伤普通文本）。 */
+    function repairUnclosedMentions(text, knownNames) {
+      const t = String(text || '');
+      const names = (knownNames || []).filter((x) => x && String(x).trim()).map((x) => String(x).trim());
+      if (!t || !names.length) return t;
+      const stop = /[\s@，。；：、！？…（）【】\[\]"'“”<>《》/\\|]/;
+      let out = '';
+      let i = 0;
+      while (i < t.length) {
+        if (t[i] !== '@') { out += t[i]; i++; continue; }
+        let j = i + 1;
+        while (j < t.length && !stop.test(t[j])) j++;
+        const name = t.slice(i + 1, j);
+        if (!name) { out += t[i]; i++; continue; }
+        if (t[j] === '@') { out += t.slice(i, j + 1); i = j + 1; continue; } // 已闭合：原样
+        const hit = names.find((k) => k === name || name.startsWith(k) || k.startsWith(name));
+        if (hit) { out += '@' + hit + '@'; i = j; continue; } // 补闭合 + 归一为完整名
+        out += t.slice(i, j + 1); i = j + 1; // 未命中：原样保留（含终止符）
+      }
+      return out;
+    }
+    /** 设定集里的全部资产名（角色/场景/道具），供未闭合引用修复与一致性检查使用。 */
+    function bibleNames(bible) {
+      const b = bible || {};
+      return [].concat(b.characters || [], b.scenes || [], b.props || [])
+        .map((x) => (x && x.name ? String(x.name).trim() : '')).filter(Boolean);
+    }
+// <<<MENTION_PURE_END>>>
 
       /** 解析提示词里的 @引用：返回命中实体 + 其名下的参考图资产与**声音参考资产**（按实体出现顺序、各实体内按生成时间）。
        *  实体的参考资产来源：① 设定条目里**链接的资产**（assetIds，绑定关系优先）
@@ -4947,10 +4976,11 @@ window.__ModuleLoader__.load({
       try {
         const text = await aiScriptNodes(n.data.idea, n.data.model, (kind, d) => aiStreamAppend(n.id, kind, d));
         if (!String(text || '').trim()) throw new Error(T('aiEmptyResult'));
-        update((s) => { const nd = s.graph.nodes[n.id]; if (nd) { nd.data.output = text; nd.data.prevOutput = null; nd.data.aiStatus = 'idle'; nd.data.status = 'done'; nd.data.error = null; } s.assetsTick++; });
+        const fixedText = repairUnclosedMentions(text, bibleNames(loadBible(S.activeId)));
+        update((s) => { const nd = s.graph.nodes[n.id]; if (nd) { nd.data.output = fixedText; nd.data.prevOutput = null; nd.data.aiStatus = 'idle'; nd.data.status = 'done'; nd.data.error = null; } s.assetsTick++; });
         await saveTextAssetRecord(S.activeId, {
           name: (String(n.data.label || '').trim() || T('scriptAssetPrefix')) + ' ' + nowStamp(),
-          text, category: 'script', prompt: n.data.idea,
+          text: fixedText, category: 'script', prompt: n.data.idea,
         });
         update((s) => { s.assetsTick++; });
         flushSave();
@@ -4991,6 +5021,13 @@ window.__ModuleLoader__.load({
       try {
         const prev = prevSceneTail(n); // 场 N-1 的尾镜 → 作为本场第 1 镜的硬性承接约束
         const shots = await aiStoryboardShots(st, n.data.requirement, n.data.count || 6, n.data.model, (kind, d) => aiStreamAppend(n.id, kind, d), prev);
+        // 未闭合引用自愈：句尾丢闭合 @ 的引用按设定集名补全（否则参考图静默丢失）
+        const _known = bibleNames(loadBible(S.activeId));
+        for (const sh of shots) {
+          sh.visual = repairUnclosedMentions(sh.visual, _known);
+          sh.motion = repairUnclosedMentions(sh.motion, _known);
+          sh.sfx = repairUnclosedMentions(sh.sfx, _known);
+        }
         // 先自动补录缺失条目（空描述），再算一致性告警：否则告警标志的条目其实马上就被自动补录了，"未登记"语义会误导用户与对话侧
         try { await autoRegisterBibleEntries(shots); } catch { /* 补录失败不影响分镜 */ }
         const warnings = await checkShotConsistency(shots);
@@ -5101,8 +5138,11 @@ window.__ModuleLoader__.load({
         if (type === 'storyboard') { await genStoryboardNode(n); return true; }
         if (type === 'finalcut') { await genFinalCutNode(n); return true; }
         if (type !== 'image-gen' && type !== 'video-gen') throw new Error(T('nodeNotRunnable'));
-        const prompt = resolvePrompt(n);
+        let prompt = resolvePrompt(n);
         const bible = loadBible(S.activeId);
+        // 未闭合引用自愈：@糯糯。 → @糯糯@（按设定集名归一），修复结果回写节点让用户可见
+        const _fixed = repairUnclosedMentions(prompt, bibleNames(bible));
+        if (_fixed !== prompt) { prompt = _fixed; update((s) => { const nd = s.graph.nodes[n.id]; if (nd) nd.data.prompt = _fixed; }); }
         if (type === 'image-gen') {
           // 参考图 = 连线（用户顺序）+ @引用命中的设定集资产（按出现顺序）
           const { refs, entities } = await collectRefs(n, prompt, bible);

@@ -14,7 +14,7 @@ const body = m[1];
 const catLabel = (c) => ({ character: '角色', scene: '场景', prop: '道具', general: '通用' }[c] || '通用');
 const effLang = () => 'zh';
 const factory = new Function('catLabel', 'effLang', body + `
-  return { parseMentions, highlightMentions, stripMentionMarks, matchBibleEntity, assetBelongsToEntity, entityLabelOf, entityCategoryOf, buildEffectivePrompt, assetNameFor, nowStamp };
+  return { parseMentions, highlightMentions, stripMentionMarks, matchBibleEntity, assetBelongsToEntity, entityLabelOf, entityCategoryOf, buildEffectivePrompt, assetNameFor, nowStamp, repairUnclosedMentions, bibleNames };
 `);
 const api = factory(catLabel, effLang);
 
@@ -76,6 +76,16 @@ eq(api.assetNameFor({ data: { label: '角色-张山 多视图' } }, [], 'image')
 eq(api.assetNameFor({ data: {} }, [{ kind: 'scene', name: '褶皱巷' }], 'image'), '场景-褶皱巷 ' + api.nowStamp(), '实体命名+时间');
 if (!api.assetNameFor({ data: {} }, [], 'video').startsWith('视频-')) errs.push('兜底命名不正确');
 eq(api.entityCategoryOf('character'), 'character', '实体→资产品类');
+
+// 8) 未闭合引用自愈：句尾丢闭合 @ 按已知资产名补全并归一
+const fix = (t, names) => api.repairUnclosedMentions(t, names);
+eq(fix('@糯糯。', ['糯糯']), '@糯糯@。', '句尾未闭合补全');
+eq(fix('@糯糯@', ['糯糯']), '@糯糯@', '已闭合原样保留');
+eq(fix('@糯', ['糯糯']), '@糯糯@', '前缀名归一为完整名');
+eq(fix('@路人甲。', ['糯糯']), '@路人甲。', '未命中已知名不误伤');
+eq(fix('@@', ['糯糯']), '@@', '空名不误伤');
+eq(fix('邮箱 a@b.com 保留', ['糯糯']), '邮箱 a@b.com 保留', '邮箱不误伤');
+eq(api.bibleNames({ characters: [{ name: '林晚' }], scenes: [{ name: '楼道' }], props: [{ name: '字条' }] }), ['林晚', '楼道', '字条'], 'bibleNames 收集');
 
 if (errs.length) {
   console.error('✗ @引用解析测试未通过（' + errs.length + ' 项）：');
