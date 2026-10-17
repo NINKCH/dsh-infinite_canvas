@@ -2229,8 +2229,9 @@ window.__ModuleLoader__.load({
         duration: Number(o.duration) || 5,
         resolution: (o.resolution || '720P').toLowerCase(),
         watermark: s.watermark === true,
-        // 勾选才发送/置 true：与通用路径的显式语义一致（默认不发送，用网关默认值）
-        generate_audio: s.generateAudio === true,
+        // generate_audio 官方默认 true（2.5/2.0 系列）——仅在用户勾选时显式发送 true；不发送时用厂商默认，
+        // 避免"未勾选就被静默静音"（透传原则：厂商默认优先）
+        ...(s.generateAudio === true ? { generate_audio: true } : {}),
       };
       try { const extra = parseExtraParams(s.extra); if (extra) Object.assign(body, extra); } catch (e) { throw new Error('视频 API 扩展参数配置有误：' + ((e && e.message) || e)); }
       body.ratio = (frameBlob && !downgrade) ? 'adaptive' : (o.ratio || '16:9');
@@ -2359,7 +2360,7 @@ window.__ModuleLoader__.load({
       veo:       { label: 'Google Veo（Gemini API）', base: 'https://generativelanguage.googleapis.com', keyPh: 'API Key', note: '模型 id 如 veo-3.0-fast-generate-preview；图生视频走 inlineData base64' },
       luma:      { label: 'Luma Dream Machine', base: 'https://api.lumalabs.ai/dream-machine/v1', note: '图生视频需要公网图片 URL（本地图片仅支持文生视频）' },
       pixverse:  { label: 'PixVerse', base: 'https://app-api.pixverse.ai/openapi/v2', keyPh: 'API-KEY', note: '图片支持 base64；时长 5/8s；清晰度映射 540p/720p/1080p' },
-      stability: { label: 'Stability AI 图生视频', base: 'https://api.stability.ai', note: 'SVD 纯图生视频（无提示词/无音频）；必须有首帧图' },
+      stability: { label: 'Stability AI 图生视频（已下线）', base: 'https://api.stability.ai', note: '⚠ 官方 API 已不再提供视频端点（2026 审计：现行 spec 0 条 video 路径）——保留适配器仅为历史配置，调用会报 404' },
     };
     /** 厂商 base URL 归一化：网关常把地址写成 …/v1 或 …/api/v1，直接拼接会变成 …/v1/v1/… 而 404。
      *  各厂商预设 base 本身都不以 /v1 结尾，所以安全地剥掉拖尾的 /v1、/api/v1。 */
@@ -2414,6 +2415,19 @@ window.__ModuleLoader__.load({
           v.src = url;
         } catch { resolve(null); }
       });
+    }
+    /** 扩展参数透传（所有厂商 runner 通用）：顶层字段直接覆盖 body；
+     *  若 body.parameters 存在则深合并；不存在时若扩展参数里带了 parameters 则整体挂上。
+     *  这是厂商/网关参数名不一致时的统一逃生舱。 */
+    function mergeExtra(body, s) {
+      try {
+        const ex = parseExtraParams(s && s.extra);
+        if (!ex) return body;
+        const exParams = ex.parameters;
+        Object.assign(body, ex);
+        if (exParams && typeof exParams === 'object') body.parameters = { ...(body.parameters || {}), ...exParams };
+      } catch (e) { throw new Error('扩展参数配置有误：' + ((e && e.message) || e)); }
+      return body;
     }
     function detectVideoVendor(s) {
       if (!s) return 'openai';
@@ -2481,24 +2495,30 @@ window.__ModuleLoader__.load({
         const base = vendorBase(s.url, VIDEO_VENDORS.kling.base);
         const path = frameBlob ? 'image2video' : 'text2video';
         const body = {
-          model_name: s.model || 'kling-v1', prompt,
-          cfg_scale: 0.5, mode: 'std',
-          aspect_ratio: (o.ratio || '16:9') === '9:16' ? '9:16' : (o.ratio || '16:9') === '1:1' ? '1:1' : '16:9',
+          model_name: s.model || 'kling-v2-6', prompt,
+          mode: 'std', // cfg_scale 仅 v1.x 支持（官方 SDK 注明 v2.x 不支持）→ 不默认发送，需要时走扩展参数
+          ...(frameBlob ? {} : { aspect_ratio: (o.ratio || '16:9') === '9:16' ? '9:16' : (o.ratio || '16:9') === '1:1' ? '1:1' : '16:9' }),
           duration: String(Math.round(Number(o.duration)) || 5),
         };
         if (frameBlob) body.image = await blobToDataUrlScaled(frameBlob);
-        const r1 = await fetchViaProxy(base + '/v1/video/' + path, { headers, body, label: 'Kling 提交' });
+        mergeExtra(body, s);
+        // 端点单复数兼容：2026 起新版官方 provider 用 /v1/videos/*，旧文档为单数 /v1/video/* —— 404 自动回退
+        let r1 = await fetchViaProxy(base + '/v1/videos/' + path, { headers, body, label: 'Kling 提交' });
+        if (r1.status === 404) r1 = await fetchViaProxy(base + '/v1/video/' + path, { headers, body, label: 'Kling 提交(旧端点)' });
         if (!r1.ok) throw new Error('Kling 提交 HTTP ' + r1.status + '：' + r1.text.slice(0, 300));
         const j1 = JSON.parse(r1.text || '{}');
         const tid = j1 && j1.data && j1.data.task_id;
         if (!tid) throw new Error('Kling 响应中没有 task_id：' + r1.text.slice(0, 200));
         const url = await vendorPoll('Kling', 8000, async () => {
-          const r = await fetchViaProxy(base + '/v1/video/' + path + '/' + tid, { method: 'GET', headers, timeoutMs: 60000, label: 'Kling 查询' });
+          let r = await fetchViaProxy(base + '/v1/videos/' + path + '/' + tid, { method: 'GET', headers, timeoutMs: 60000, label: 'Kling 查询' });
+          if (r && r.status === 404) r = await fetchViaProxy(base + '/v1/video/' + path + '/' + tid, { method: 'GET', headers, timeoutMs: 60000, label: 'Kling 查询(旧端点)' });
           if (!r || !r.ok) return { state: 'wait' };
           let j = null; try { j = JSON.parse(r.text); } catch { return { state: 'wait' }; }
           const st = j && j.data && j.data.task_status;
           if (st === 'succeed') {
-            const v = j.data.result && j.data.result.videos && j.data.result.videos[0];
+            // 官方结果字段：data.task_result.videos[]（含 url/watermark_url/duration）；旧网关可能是 data.result.videos
+            const v = (j.data.task_result && j.data.task_result.videos && j.data.task_result.videos[0])
+              || (j.data.result && j.data.result.videos && j.data.result.videos[0]);
             return v && v.url ? { state: 'done', url: v.url } : { state: 'fail', error: '成功但无视频地址' };
           }
           if (st === 'failed') return { state: 'fail', error: (j.data && j.data.task_status_msg) || st };
@@ -2568,10 +2588,11 @@ window.__ModuleLoader__.load({
         const headers = { 'Content-Type': 'application/json', Authorization: 'Bearer ' + (s.apiKey || '') };
         const body = {
           model: s.model || 'MiniMax-Hailuo-02', prompt,
-          duration: String(Math.round(Number(o.duration)) || 6),
-          resolution: String(o.resolution || '').toLowerCase().includes('1080') ? '1080P' : '768P',
+          duration: Math.round(Number(o.duration)) || 6, // 官方为整数（2.3/02 在 768P 下 6 或 10，1080P 仅 6）
+          resolution: String(o.resolution || '768P'), // 透传（官方枚举 512P/720P/768P/1080P，按模型×时长受限）
         };
         if (frameBlob) body.first_frame_image = await blobToDataUrlScaled(frameBlob);
+        mergeExtra(body, s);
         const r1 = await fetchViaProxy(base + '/v1/video_generation', { headers, body, label: 'MiniMax 提交' });
         if (!r1.ok) throw new Error('MiniMax 提交 HTTP ' + r1.status + '：' + r1.text.slice(0, 300));
         let j1 = null; try { j1 = JSON.parse(r1.text); } catch { throw new Error('MiniMax 响应非 JSON'); }
@@ -2583,8 +2604,14 @@ window.__ModuleLoader__.load({
           let j = null; try { j = JSON.parse(r.text); } catch { return { state: 'wait' }; }
           const st = String(j.status || '').toLowerCase();
           if (st === 'success' || st === 'file_downloaded') {
-            const u = j.file && (j.file.download_url || j.file.url);
-            return u ? { state: 'done', url: u } : { state: 'fail', error: '成功但无视频地址' };
+            // 官方两步：任务成功先得 file_id，再经 /v1/files/retrieve 换 download_url（1 小时时效）
+            const fid = j.file_id || (j.file && j.file.file_id);
+            if (!fid) return { state: 'fail', error: '成功但响应中没有 file_id' };
+            const fr = await fetchViaProxy(base + '/v1/files/retrieve?file_id=' + encodeURIComponent(fid), { method: 'GET', headers, timeoutMs: 60000, label: 'MiniMax 取文件' });
+            if (!fr || !fr.ok) return { state: 'fail', error: '取文件信息 HTTP ' + (fr ? fr.status : '无响应') };
+            let fj = null; try { fj = JSON.parse(fr.text); } catch { return { state: 'fail', error: '文件信息非 JSON' }; }
+            const u = fj && fj.file && (fj.file.download_url || fj.file.url);
+            return u ? { state: 'done', url: u } : { state: 'fail', error: '成功但无视频下载地址' };
           }
           if (st === 'fail') return { state: 'fail', error: (j.base_resp && j.base_resp.status_msg) || '失败' };
           return { state: 'wait' };
@@ -2597,28 +2624,31 @@ window.__ModuleLoader__.load({
         const headers = { 'Content-Type': 'application/json', Authorization: 'Token ' + (s.apiKey || '') };
         const path = frameBlob ? 'img2video' : 'text2video';
         const body = {
-          model: s.model || 'vidu2.0', prompt,
-          duration: Math.round(Number(o.duration)) || 4,
-          resolution: String(o.resolution || '').toLowerCase().includes('1080') ? '1080p' : '720p',
+          model: s.model || 'viduq3-pro', prompt,
+          duration: Math.round(Number(o.duration)) || 5,
+          resolution: String(o.resolution || '720p').toLowerCase(), // 官方枚举 540p/720p/1080p（Q4 另有 2K/4K）
+          ...(frameBlob ? {} : { aspect_ratio: o.ratio || '16:9' }), // aspect_ratio 仅文生视频有（i2v 比例跟随首帧图）
         };
-        if (frameBlob) body.images = [await blobToDataUrlScaled(frameBlob)];
+        if (frameBlob) body.images = [await blobToDataUrlScaled(frameBlob)]; // images 数组：URL 或 data:base64（首尾帧时传 2 张）
+        mergeExtra(body, s);
         const r1 = await fetchViaProxy(base + '/ent/v2/' + path, { headers, body, label: 'Vidu 提交' });
         if (!r1.ok) throw new Error('Vidu 提交 HTTP ' + r1.status + '：' + r1.text.slice(0, 300));
         let j1 = null; try { j1 = JSON.parse(r1.text); } catch { throw new Error('Vidu 响应非 JSON'); }
         const tid = j1 && (j1.task_id || j1.id);
         if (!tid) throw new Error('Vidu 响应中没有 task_id：' + r1.text.slice(0, 200));
         const url = await vendorPoll('Vidu', 8000, async () => {
-          const r = await fetchViaProxy(base + '/ent/v2/tasks/' + tid, { method: 'GET', headers, timeoutMs: 60000, label: 'Vidu 查询' });
+          const r = await fetchViaProxy(base + '/ent/v2/tasks/' + tid + '/creations', { method: 'GET', headers, timeoutMs: 60000, label: 'Vidu 查询' });
           if (!r || !r.ok) return { state: 'wait' };
           let j = null; try { j = JSON.parse(r.text); } catch { return { state: 'wait' }; }
           const st = String(j.state || '').toLowerCase();
           if (st === 'success') {
-            const vids = (j.resp && (j.resp.videos || j.resp.creations)) || j.videos || [];
+            // 官方结果：creations[].url（24 小时时效，需转存）
+            const vids = (Array.isArray(j.creations) && j.creations) || (j.resp && (j.resp.videos || j.resp.creations)) || [];
             const v = vids[0] || {};
             const u = v.url || v.video_url;
             return u ? { state: 'done', url: u } : { state: 'fail', error: '成功但无视频地址' };
           }
-          if (st === 'failed') return { state: 'fail', error: j.err_msg || '失败' };
+          if (st === 'failed') return { state: 'fail', error: j.err_msg || ('err_code ' + j.err_code) || '失败' };
           return { state: 'wait' };
         });
         return await downloadVideo(url, {});
@@ -2629,8 +2659,9 @@ window.__ModuleLoader__.load({
         const headers = { 'Content-Type': 'application/json', Authorization: 'Bearer ' + (s.apiKey || ''), 'X-Runway-Version': '2024-11-06' };
         const ratio = (o.ratio || '16:9') === '9:16' ? '720:1280' : '1280:720';
         const dur = Math.round(Number(o.duration)) || 5;
-        let ep = '/v1/text_to_video', body = { model: 'gen4_turbo', promptText: prompt, ratio, duration: dur };
-        if (frameBlob) { ep = '/v1/image_to_video'; body = { model: 'gen4_turbo', promptImage: await blobToDataUrlScaled(frameBlob), promptText: prompt, ratio, duration: dur }; }
+        let ep = '/v1/text_to_video', body = { model: s.model || 'gen4_turbo', promptText: prompt, ratio, duration: dur };
+        if (frameBlob) { ep = '/v1/image_to_video'; body = { model: s.model || 'gen4_turbo', promptImage: await blobToDataUrlScaled(frameBlob), promptText: prompt, ratio, duration: dur }; }
+        mergeExtra(body, s);
         const r1 = await fetchViaProxy(base + ep, { headers, body, label: 'Runway 提交' });
         if (!r1.ok) throw new Error('Runway 提交 HTTP ' + r1.status + '：' + r1.text.slice(0, 300));
         let j1 = null; try { j1 = JSON.parse(r1.text); } catch { throw new Error('Runway 响应非 JSON'); }
@@ -2654,6 +2685,7 @@ window.__ModuleLoader__.load({
         const inst = { prompt };
         if (frameBlob) inst.image = { bytesBase64Encoded: await b64Pure(await blobToDataUrlScaled(frameBlob)), mimeType: 'image/png' };
         const body = { instances: [inst], parameters: { aspectRatio: (o.ratio || '16:9') === '9:16' ? '9:16' : '16:9' } };
+        mergeExtra(body, s);
         const r1 = await fetchViaProxy(ep, { headers: { 'Content-Type': 'application/json' }, body, label: 'Veo 提交' });
         if (!r1.ok) throw new Error('Veo 提交 HTTP ' + r1.status + '：' + r1.text.slice(0, 300));
         let j1 = null; try { j1 = JSON.parse(r1.text); } catch { throw new Error('Veo 响应非 JSON'); }
@@ -2678,8 +2710,9 @@ window.__ModuleLoader__.load({
         let base = String(s.url || VIDEO_VENDORS.luma.base).trim().replace(/\/+$/, '');
         if (!/\/v1$/i.test(base)) base = base + '/v1';
         const headers = { 'Content-Type': 'application/json', Authorization: 'Bearer ' + (s.apiKey || '') };
-        const body = { prompt, model: 'ray-2', resolution: String(o.resolution || '').toLowerCase().includes('1080') ? '1080p' : '720p', duration: (Math.round(Number(o.duration)) || 5) + 's' };
+        const body = { prompt, model: s.model || 'ray-2', resolution: String(o.resolution || '').toLowerCase().includes('1080') ? '1080p' : '720p', duration: (Math.round(Number(o.duration)) || 5) + 's' };
         if (frameBlob) throw new Error('Luma 图生视频需要公网图片 URL——本地图片请改用文生视频，或换其他厂商');
+        mergeExtra(body, s);
         const r1 = await fetchViaProxy(base + '/generations', { headers, body, label: 'Luma 提交' });
         if (!r1.ok) throw new Error('Luma 提交 HTTP ' + r1.status + '：' + r1.text.slice(0, 300));
         let j1 = null; try { j1 = JSON.parse(r1.text); } catch { throw new Error('Luma 响应非 JSON'); }
@@ -2699,15 +2732,29 @@ window.__ModuleLoader__.load({
       async pixverse(prompt, frameBlob, s, o) {
         const base = vendorBase(s.url, VIDEO_VENDORS.pixverse.base);
         const headers = { 'Content-Type': 'application/json', 'API-KEY': s.apiKey || '', 'Ai-trace-id': 'dshic-' + Date.now().toString(36) };
-        const path = frameBlob ? 'img2video' : 'text2video';
+        // 官方端点（Apidog 文档）：文生 /video/text/generate、图生 /video/img/generate（旧 /video/text2video 已弃用）
+        const path = frameBlob ? 'img/generate' : 'text/generate';
+        // 图生视频的图片必须是 img_id（整数）——先用 multipart 上传拿 id（官方不收 base64/URL 字段）
+        let imgId = null;
+        if (frameBlob) {
+          const fd = new FormData();
+          fd.append('image', frameBlob, 'frame.png');
+          const ser = new Response(fd);
+          const up = await fetchViaProxy(base + '/openapi/v2/image/upload', { headers: { 'API-KEY': headers['API-KEY'], 'Ai-trace-id': headers['Ai-trace-id'] }, bodyRaw: arrayBufferToBase64(await ser.arrayBuffer()), bodyContentType: ser.headers.get('content-type'), label: 'PixVerse 上传图片' });
+          if (!up || !up.ok) throw new Error('PixVerse 上传图片 HTTP ' + (up ? up.status : '无响应') + '：' + (up ? up.text.slice(0, 200) : ''));
+          let uj = null; try { uj = JSON.parse(up.text); } catch { throw new Error('PixVerse 上传响应非 JSON'); }
+          imgId = uj && uj.Resp && uj.Resp.img_id;
+          if (!imgId) throw new Error('PixVerse 上传响应中没有 img_id：' + up.text.slice(0, 200));
+        }
         const body = {
-          model: 'v4.5', prompt,
-          duration: Math.round(Number(o.duration)) || 5,
-          quality: String(o.resolution || '').toLowerCase().includes('1080') ? '1080p' : '720p',
-          aspect_ratio: (o.ratio || '16:9') === '9:16' ? '9:16' : '16:9',
+          model: s.model || 'v6', prompt,
+          duration: Math.round(Number(o.duration)) || 5, // C1/V6: 1-15 任意整数；v5.5/v5.6 仅 5/8/10
+          quality: String(o.resolution || '720p').toLowerCase(), // 官方枚举 360p/540p/720p/1080p
+          ...(frameBlob ? {} : { aspect_ratio: (o.ratio || '16:9') === '9:16' ? '9:16' : '16:9' }), // aspect_ratio 仅文生视频有（i2v 跟随输入图）
         };
-        if (frameBlob) body.image = await b64Pure(await blobToDataUrlScaled(frameBlob));
-        const r1 = await fetchViaProxy(base + '/video/' + path, { headers, body, label: 'PixVerse 提交' });
+        if (frameBlob) body.img_id = imgId;
+        mergeExtra(body, s);
+        const r1 = await fetchViaProxy(base + '/openapi/v2/video/' + path, { headers, body, label: 'PixVerse 提交' });
         if (!r1.ok) throw new Error('PixVerse 提交 HTTP ' + r1.status + '：' + r1.text.slice(0, 300));
         let j1 = null; try { j1 = JSON.parse(r1.text); } catch { throw new Error('PixVerse 响应非 JSON'); }
         const vid = j1 && j1.Resp && j1.Resp.video_id;
@@ -2718,9 +2765,10 @@ window.__ModuleLoader__.load({
           let j = null; try { j = JSON.parse(r.text); } catch { return { state: 'wait' }; }
           const resp = j && j.Resp;
           if (!resp) return { state: 'wait' };
-          if (resp.code === 0 && resp.url) return { state: 'done', url: resp.url };
-          if (resp.code !== 0 && resp.code !== 6 && resp.code !== 7 && resp.code !== 8) return { state: 'fail', error: resp.msg || ('code ' + resp.code) };
-          return { state: 'wait' }; // 6/7/8 = 生成中/排队中/处理中
+          // 官方状态语义（现行文档）：1=完成（Resp.url 可用）；5=生成中、9=排队、10=处理中；7=审核失败、8=失败（6=已删除）
+          if (resp.status === 1 && resp.url) return { state: 'done', url: resp.url };
+          if (resp.status === 7 || resp.status === 8) return { state: 'fail', error: resp.msg || ('status ' + resp.status) };
+          return { state: 'wait' }; // 5/9/10（历史 2/3）= 排队/处理中
         });
         return await downloadVideo(url, {});
       },
