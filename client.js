@@ -247,7 +247,7 @@ window.__ModuleLoader__.load({
       'delProjectWarn': '将删除该项目及其全部资产（共 {n} 个），且无法恢复。请输入项目名以确认：',
       'delProjectInput': '项目名',
       'imgMode': '参考图模式',
-      'modeGenerations': '文生图 /images/generations（忽略参考图）',
+      'modeGenerations': '生图 /images/generations（支持多参考图）',
       'modeEdits': '参考图编辑 /images/edits（多参考图上传）',
       'catMismatch': '提示：资产分类为「{a}」，端口期望「{b}」，已保留连接',
       'nStoryboard': '分镜表',
@@ -651,7 +651,7 @@ window.__ModuleLoader__.load({
       'delProjectWarn': 'This deletes the project and all its assets ({n}). Type the project name to confirm:',
       'delProjectInput': 'Project name',
       'imgMode': 'Reference mode',
-      'modeGenerations': 'text-to-image /images/generations (refs ignored)',
+      'modeGenerations': 'image /images/generations (with references)',
       'modeEdits': 'image edit /images/edits (multi-reference upload)',
       'catMismatch': 'Note: asset category is "{a}", port expects "{b}". Connected anyway.',
       'nStoryboard': 'Storyboard',
@@ -2087,7 +2087,7 @@ window.__ModuleLoader__.load({
         fd.append('n', '1');
         if (s.size) fd.append('size', s.size);
         fd.append('watermark', 'false'); // 稳定默认：去水印优先（与 generations 路径一致）
-        refs.forEach((b, i) => fd.append('image[]', b, 'ref-' + i + '.png'));
+        refs.forEach((b, i) => fd.append('image[]', b.blob || b, 'ref-' + i + '.png'));
         // FormData 经 Response 序列化为 multipart 字节（含 boundary）→ base64 经代理原样转发
         const serialized = new Response(fd);
         const bodyRaw = arrayBufferToBase64(await serialized.arrayBuffer());
@@ -2111,6 +2111,13 @@ window.__ModuleLoader__.load({
         // 稳定默认（总是发送）：去水印优先——多数图片厂商该参数默认 true 会加水印；扩展参数可覆盖
         watermark: false,
       };
+      // 多参考生图：generations 模式同样携带参考图（主流约定 image 数组 + data:URL，按 collectRefs 顺序对应提示词里的 [图N]）。
+      // 厂商不支持该字段时会明确报错——此时换 edits 模式或在扩展参数里调整字段名。
+      if (refs.length) {
+        const imgs = [];
+        for (const b of refs) imgs.push(await blobToDataUrlScaled(b.blob || b));
+        body.image = imgs;
+      }
       // 响应格式：留空 = 用 API 默认（响应解析同时支持 b64_json 与 url）
       if (String(s.responseFormat || '').trim()) body.response_format = String(s.responseFormat).trim();
       // 尺寸：留空 = 按节点上的「清晰度 × 比例」计算；填了就用你配置的值
