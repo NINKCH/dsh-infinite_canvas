@@ -6654,18 +6654,16 @@ window.__ModuleLoader__.load({
               refLines.map((x) => x.lb + '：' + x.names.join('、')).join(' ｜ '))
           : null,
         h('span', { className: 'dshic-shot-label' }, T('visualLabel')),
-        h('textarea', {
-          className: 'dshic-textarea', style: { minHeight: 52 }, value: n.data.visual || '',
+        h(PromptArea, {
+          value: n.data.visual || '', minHeight: 52,
           placeholder: T('shotVisualPlaceholder'),
-          onChange: (e) => update((s) => { const nd = s.graph.nodes[n.id]; if (nd) nd.data.visual = e.target.value; }),
-          onPointerDown: (e) => e.stopPropagation(),
+          onChange: (v) => update((s) => { const nd = s.graph.nodes[n.id]; if (nd) nd.data.visual = v; }),
         }),
         h('span', { className: 'dshic-shot-label' }, T('motionLabel')),
-        h('textarea', {
-          className: 'dshic-textarea', style: { minHeight: 44 }, value: n.data.motion || '',
+        h(PromptArea, {
+          value: n.data.motion || '', minHeight: 44,
           placeholder: T('shotMotionPlaceholder'),
-          onChange: (e) => update((s) => { const nd = s.graph.nodes[n.id]; if (nd) nd.data.motion = e.target.value; }),
-          onPointerDown: (e) => e.stopPropagation(),
+          onChange: (v) => update((s) => { const nd = s.graph.nodes[n.id]; if (nd) nd.data.motion = v; }),
         }),
       );
     }
@@ -6684,7 +6682,11 @@ window.__ModuleLoader__.load({
           backRef.current.scrollLeft = taRef.current.scrollLeft;
         }
       };
-      const html = highlightMentions(value || '');
+      // 值变化后补一次滚动同步：在末尾输入时 textarea 会自动滚动到光标，但背层不一定收到 scroll 事件
+      useEffect(() => { sync(); }, [value]);
+      // 结尾换行补偿：<textarea> 的结尾 \n 会多出一条空行，而 pre-wrap 的 <div> 不生成该行盒
+      // → 两层 scrollHeight 差一行，滚到底时背层露出半截错位文字。补零宽字符让行盒存在。
+      const html = highlightMentions(value || '').replace(/\n$/, '\n\u200b');
       const ph = placeholder ? '<span class="dshic-prompt-ph">' + escapeHtml(placeholder) + '</span>' : '';
       return h('div', { className: 'dshic-prompt' },
         h('div', {
@@ -6765,11 +6767,10 @@ window.__ModuleLoader__.load({
           h('div', { className: 'dshic-flex' }),
         ),
         h('span', { key: 'l1', className: 'dshic-shot-label' }, T('ideaLabel')),
-        h('textarea', {
-          key: 'idea', className: 'dshic-textarea', style: { minHeight: 72 }, value: n.data.idea || '',
+        h(PromptArea, {
+          key: 'idea', value: n.data.idea || '', minHeight: 72,
           placeholder: T('ideaPlaceholder'),
-          onChange: (e) => update((s) => { const nd = s.graph.nodes[n.id]; if (nd) nd.data.idea = e.target.value; }),
-          onPointerDown: (e) => e.stopPropagation(),
+          onChange: (v) => update((s) => { const nd = s.graph.nodes[n.id]; if (nd) nd.data.idea = v; }),
         }),
         h('button', { key: 'gen', type: 'button', className: 'dshic-gen', disabled: running, onClick: generate, onPointerDown: (e) => e.stopPropagation() },
           running ? h('span', { className: 'dshic-spin' }) : Ic('spark', 12), running ? T('aiRunning') : T('aiScript')),
@@ -6843,18 +6844,15 @@ window.__ModuleLoader__.load({
           h('div', { className: 'dshic-flex' }),
         ),
         h('span', { key: 'l1', className: 'dshic-shot-label' }, T('storyboardScriptLabel') + (scriptEdge ? ' · ' + T('connected') : '')),
-        h('textarea', {
-          key: 'script', className: 'dshic-textarea', style: { minHeight: 56 }, value: n.data.script || '',
+        h(PromptArea, {
+          key: 'script', value: n.data.script || '', minHeight: 56, readOnly: !!scriptEdge,
           placeholder: scriptEdge ? T('connected') : T('storyboardScriptLabel'),
-          disabled: !!scriptEdge,
-          onChange: (e) => update((s) => { const nd = s.graph.nodes[n.id]; if (nd) nd.data.script = e.target.value; }),
-          onPointerDown: (e) => e.stopPropagation(),
+          onChange: (v) => update((s) => { const nd = s.graph.nodes[n.id]; if (nd) nd.data.script = v; }),
         }),
-        h('textarea', {
-          key: 'req', className: 'dshic-textarea', style: { minHeight: 40 }, value: n.data.requirement || '',
+        h(PromptArea, {
+          key: 'req', value: n.data.requirement || '', minHeight: 40,
           placeholder: T('storyboardReqLabel'),
-          onChange: (e) => update((s) => { const nd = s.graph.nodes[n.id]; if (nd) nd.data.requirement = e.target.value; }),
-          onPointerDown: (e) => e.stopPropagation(),
+          onChange: (v) => update((s) => { const nd = s.graph.nodes[n.id]; if (nd) nd.data.requirement = v; }),
         }),
         h('div', { key: 'row', className: 'dshic-node-row' },
           h(MiniSelect, {
