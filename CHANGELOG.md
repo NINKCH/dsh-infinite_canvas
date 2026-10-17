@@ -4,6 +4,38 @@ All notable changes to `@ninkch/dsh-infinite-canvas` are documented here (newest
 GitHub Releases carry the same notes in English; maintainer-facing runbooks live in
 [`RELEASING.md`](RELEASING.md) and [`docs/release.md`](docs/release.md).
 
+## [0.17.15] — 2026-10-17
+
+### Added
+- **Per-vendor video API audit against official docs** (latest models per vendor): every adapter's parameters, endpoints, result fields and status semantics re-verified from vendor documentation/official SDKs, with fixes listed below.
+- **Video vendor routing fixed end-to-end**: the explicitly chosen vendor format now reaches the request layer (previously dropped during settings flattening, falling back to model-name/URL guessing); vendor auto-detection additionally matches by model id (e.g. `wan3.0-video`, `kling-v2.6`, `MiniMax-Hailuo-02`); shared `vendorBase()` normalization strips gateway-style `/v1` suffixes for all runners; every runner accepts **extra params** (top-level override + `parameters` deep-merge) as an escape hatch for gateway quirks.
+- **Duration is never silently truncated**: the requested duration is passed through to every vendor (Kling/MiniMax/Vidu/Runway/Luma/PixVerse/Seedance/Wan) — unsupported values surface as explicit API errors instead of hidden clamping; the duration selector extends to 30s (Wan 3.0) and keeps out-of-list values (e.g. a 32s storyboard total).
+- **Post-generation self-check**: the real output resolution/duration is probed after each video; mismatches with the node's ratio/duration settings show a visible warning on the node (e.g. "vendor returned 1080×1920 portrait, 16:9 requested").
+- **`canvas_relayout` tool**: one call re-arranges a canvas by rows — horizontal data flow decides columns, vertical links (continuity `prev`, first-frame `frame`) stay in the same column, each row is one horizontal group (e.g. "scene N text ↔ scene N storyboard"), with collision avoidance.
+- **Node layout on creation**: realistic per-type height estimates (image/video/storyboard cards), brand-new types start their own column, and a minimum-gap collision check prevents overlapping cards.
+- **Click-to-front**: clicking a node (or dragging a multi-selection) raises it above all others; the z-order persists.
+- **Help & feedback**: a toolbar button and a settings entry open a compact dialog with the GitHub issue link and a WeChat contact QR (shipped inside the plugin via a whitelisted static-asset route).
+- **API key reveal toggle**: key fields are masked by default with an eye button to show the plaintext.
+- **Short-drama methodology distilled** into the built-in creation skills (canvas-craft/studio): a shot-pacing spectrum (narrative 2–4s, rapid conflict 0.3–0.8s, reversal 1–2s, emotional long take ≥5s — durations may use one decimal and must never be uniform), an emotion→shot-size map, the four-beat scene arc, the six-component director brief and a pitfalls checklist.
+
+### Fixed
+- **Wan 3.0**: the adapter used 2.x-era parameters — `size` does not exist in the 3.0 API and `img_url` was ignored, so resolution/ratio were silently defaulted (portrait 1080p) and reference images never reached the model. Now uses the official `parameters.resolution/ratio/duration` (+ stable `watermark:false`, `prompt_extend:true`) and `input.media[]` (`first_frame` / up to 10 `reference_image`, Base64) with the correct gateway prefix handling.
+- **Kling**: default model id corrected to the current REST format (`kling-v2-6`; `kling-v2.5-turbo-t2v`-style ids were invalid); `cfg_scale` no longer sent unconditionally (unsupported by v2.x models); new plural `/v1/videos/*` endpoints with singular fallback; result read from `data.task_result.videos[]`; `aspect_ratio` only for text-to-video.
+- **MiniMax**: `duration` is an integer (a string was sent); result download is two-step (`file_id` → `/v1/files/retrieve` → `download_url`, 1h validity); `resolution` passes through (512P/720P/768P/1080P).
+- **Vidu**: default model `viduq3-pro`; polling hits `/ent/v2/tasks/{id}/creations` (the old path always 404'd); result read from `creations[].url`; `aspect_ratio` only for text-to-video; resolution passes through.
+- **PixVerse**: endpoints corrected to the current `/openapi/v2/video/{text,img}/generate`; image-to-video uploads the first frame (`img_id`, the API does not accept Base64); status semantics corrected (1=done, 5/9/10=processing, **7/8=failed** — previously treated as "still running", which could hang forever); default model v6.
+- **Runway**: text-to-video defaults to `gen4.5` (`gen4_turbo` is image-to-video only); model passes through (the API now hosts per-model schemas).
+- **Veo**: `durationSeconds` was never sent (the official field name; not `duration`); `resolution` passes through; default model `veo-3.1-generate-preview`.
+- **Luma**: `aspect_ratio` and resolution pass through (official enums).
+- **Seedance (Ark)**: `generate_audio` no longer forced to `false` when the checkbox is unchecked — the vendor default (`true`) applies unless explicitly enabled.
+- **Stability**: marked offline — the current official API no longer exposes any video endpoint; the adapter remains only for legacy configs and reports the 404 clearly.
+- **Storyboard duration**: the hard 15s cap and automatic longest-shot trimming are removed — shot durations follow the scene's content (pacing spectrum above), and unsupported durations surface as explicit video-API errors instead of silent re-timing.
+- **Host/client sync**: an incoming copy without shots no longer wipes an existing storyboard's generated shots (both merge sides protect them) — regenerating the next scene could previously erase the previous scene's results.
+- **Consistency warnings use the `@Name@` lexer on the host too**: the old scanner treated every closing `@` as the start of a new mention and reported prose between references as unregistered assets.
+- **`canvas_connect` picks the semantic default port** for storyboards (script/text → `script`, storyboard → `prev`) instead of the first input port.
+- **Project deletion could crash the host on non-ASCII paths**: `fs.rmSync(recursive)` aborts the Node process on Chinese-named directories — replaced by a safe recursive delete.
+- Wiring is drawn as straight lines when ports are vertically aligned; the storyboard `tail`/`prev` dots are centred on their anchors.
+
 ## [0.17.14] — 2026-10-15
 
 ### Added
