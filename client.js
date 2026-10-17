@@ -1033,10 +1033,11 @@ window.__ModuleLoader__.load({
 .dshic-rs-n{top:-3px;left:14px;right:14px;height:7px;cursor:ns-resize;}
 .dshic-rs-se{right:-4px;bottom:-4px;width:16px;height:16px;cursor:nwse-resize;}
 .dshic-node-body{padding:8px;display:flex;flex-direction:column;gap:6px;font-size:12px;flex:1;min-height:0;overflow:auto;}
-/* 手动拉过高高度的节点：主体内的文本框随节点一起拉伸（拖高=对话框变高，而不是只撑外框） */
+/* 手动拉过高高度的节点：主体内的文本框随节点一起拉伸（拖高=对话框变高，而不是只撑外框）；
+   文本框不允许被 flex 压扁（分镜列表/流式变高时宁可下方截断，输入框保持自身可读高度） */
 .dshic-node.h-manual .dshic-node-body{overflow:hidden;}
 .dshic-node.h-manual .dshic-node-body > .dshic-textarea{flex:1 1 auto;min-height:0;}
-.dshic-node.h-manual .dshic-node-body > .dshic-prompt{flex:1 1 auto;display:flex;flex-direction:column;}
+.dshic-node.h-manual .dshic-node-body > .dshic-prompt{flex:1 1 auto;display:flex;flex-direction:column;flex-shrink:0;}
 .dshic-node.h-manual .dshic-node-body > .dshic-prompt > .dshic-prompt-input{flex:1 1 auto;min-height:0;}
 .dshic-textarea{width:100%;box-sizing:border-box;min-height:56px;resize:vertical;border:1px solid var(--dsw-alias-border-l2);
   border-radius:8px;background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);font:inherit;
@@ -6748,11 +6749,6 @@ window.__ModuleLoader__.load({
       );
     }
 
-    /**
-     * 提示词输入框：@名称 蓝色加粗高亮。
-     * 与主流工具同一做法——透明文字的 textarea 叠在同步滚动的背景层上，
-     * 背景层渲染同一段文本并给 @名称 上色，光标/选区/中文输入法都不受影响。
-     */
     /** 文本框独立拉高的记忆：PromptArea 的原生 grip 拖高写进节点 data.ph[key]，
      *  换页/刷新重挂载后原样恢复（不再退回 minHeight）。key 在同一节点内需唯一。 */
     function phBind(n, key) {
@@ -6763,16 +6759,34 @@ window.__ModuleLoader__.load({
           if (!nd) return;
           nd.data.ph = { ...(nd.data.ph || {}), [key]: px };
         }),
+        // 手动高度节点里拖原生 grip 拉对话框：视觉高度被 flex 定死，但 inline height 的增量=拖动量，
+        // 换算成节点 hManual 的增量 → 对话框随节点一起变长；自适应节点不需要（高度本来就跟内容走）。
+        grow: (d) => update((s) => {
+          const nd = s.graph.nodes[n.id];
+          if (!nd || !d || !nd.hManual) return;
+          nd.hManual = Math.max(96, Math.round(nd.hManual + d));
+          nd.h = nd.hManual;
+        }),
       };
     }
 
-    function PromptArea({ value, onChange, placeholder, minHeight, style, readOnly, phH, onPh }) {
+    /**
+     * 提示词输入框：@名称 蓝色加粗高亮。
+     * 与主流工具同一做法——透明文字的 textarea 叠在同步滚动的背景层上，
+     * 背景层渲染同一段文本并给 @名称 上色，光标/选区/中文输入法都不受影响。
+     */
+    function PromptArea({ value, onChange, placeholder, minHeight, style, readOnly, phH, onPh, grow }) {
       const taRef = useRef(null);
       const backRef = useRef(null);
       // 记忆高度的基准：React 上一次写进 textarea 的 height（null=未设置）。
       // 原生 grip 拉高会直接改 inline style，与基准不同即视为用户改动 → 回调存进节点数据。
       const hBaseRef = useRef(null);
-      useEffect(() => { hBaseRef.current = phH || null; }, [phH]);
+      // grip 拖动轨迹：inline height 的上一次值（手动高度节点用它把拖动量换算成节点高度增量）
+      const lastInlineRef = useRef(null);
+      useEffect(() => {
+        hBaseRef.current = phH || null;
+        lastInlineRef.current = phH || null;
+      }, [phH]);
       const sync = () => {
         const ta = taRef.current;
         const back = backRef.current;
@@ -6797,7 +6811,11 @@ window.__ModuleLoader__.load({
             hRaf = requestAnimationFrame(() => {
               hRaf = 0;
               const cur = parseInt(ta.style.height, 10) || 0;
-              if (cur > 0 && cur !== (hBaseRef.current || 0)) onPh(cur);
+              if (cur > 0 && cur !== (hBaseRef.current || 0)) {
+                if (grow && lastInlineRef.current != null) grow(cur - lastInlineRef.current);
+                lastInlineRef.current = cur;
+                onPh(cur);
+              }
             });
           }
         });
@@ -6936,13 +6954,36 @@ window.__ModuleLoader__.load({
       const startResize = (e) => {
         e.stopPropagation(); e.preventDefault();
         const startY = e.clientY; const startH = listH; const startNodeH = Number(n.h) || 0;
+        const startHManual = n.hManual ? Number(n.hManual) : 0;
         const onMove = (ev) => {
           const nh = Math.max(80, Math.min(1200, startH + (ev.clientY - startY)));
           const dh = nh - startH;
-          // 节点高度随列表一起向下生长（不是内部挤压上面内容）
-          update((s) => { const nd = s.graph.nodes[n.id]; if (nd) { nd.data.shotsListH = nh; if (startNodeH > 0) nd.h = Math.max(120, startNodeH + dh); } });
+          update((s) => {
+            const nd = s.graph.nodes[n.id]; if (!nd) return;
+            nd.data.shotsListH = nh;
+            if (startHManual > 0) {
+              // 手动高度节点：列表加多高，节点就长多高（否则固定高度会把上方输入框挤扁）
+              nd.hManual = Math.max(120, startHManual + dh);
+              nd.h = nd.hManual;
+            } else if (startNodeH > 0) {
+              nd.h = Math.max(120, startNodeH + dh);
+            }
+          });
         };
-        const onUp = () => { window.removeEventListener('pointermove', onMove); window.removeEventListener('pointerup', onUp); flushSave(); };
+        const onUp = () => {
+          window.removeEventListener('pointermove', onMove);
+          window.removeEventListener('pointerup', onUp);
+          try {
+            // 收尾对齐：手动高度若还截着内容（此前被挤压过的存量节点），按内容自然高度补齐一次
+            const el = nodeEls.get(n.id);
+            const body = el && el.querySelector('.dshic-node-body');
+            if (body && body.scrollHeight > body.clientHeight + 1) {
+              const deficit = body.scrollHeight - body.clientHeight;
+              update((s) => { const nd = s.graph.nodes[n.id]; if (nd && nd.hManual) nd.hManual = Math.round(nd.hManual + deficit); });
+            }
+          } catch { /* 布局自愈失败不影响功能 */ }
+          flushSave();
+        };
         window.addEventListener('pointermove', onMove);
         window.addEventListener('pointerup', onUp);
       };
