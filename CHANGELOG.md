@@ -4,6 +4,16 @@ All notable changes to `@ninkch/dsh-infinite-canvas` are documented here (newest
 GitHub Releases carry the same notes in English; maintainer-facing runbooks live in
 [`RELEASING.md`](RELEASING.md) and [`docs/release.md`](docs/release.md).
 
+## [0.18.3] — 2026-10-18
+
+### Fixed
+- **Reference-image uploads on Compshare rejected mismatched encodings up front**: `Params [Width/Height] not available` came from the asset-registration step, where the platform parses the uploaded file to verify its pixel size. Files whose real encoding did not match their extension (AVIF/HEIC renamed to `.jpg`, common from chat apps and cloud drives) are now detected by **magic-byte sniffing** and rejected with an actionable message (convert to JPG/PNG) instead of a platform-side puzzle. Declared MIME now always matches the actual bytes.
+- **Task-API errors name the failing step**: every Compshare error now carries method + path (e.g. `优云图片 API POST /image/v1/tasks 失败：…`), so a failure points at the exact stage instead of a bare gateway message.
+- **Provider "Extended params (JSON)" field is visible for every video vendor**: the field was gated on an `openai`/`seedance` whitelist, so a MiniMax H3 (V2) provider showed no place to put `use_context_ir` / `mute_audio` / `skill_id`.
+
+### Changed
+- **Character-sheet prompt formalized as the proven six-block structure** (built-in creation skills): 【总起】layout/background/style + all-panels-identical → 【身份锚】reference photos are the only source of identity, ignore temporary accessories in them → 【主体】quantified build with explicit negative exclusions → 【三视图 /* must-have */】→ 【右侧窄栏】face close-up / accessory panel / 6 expressions in two rows, each block drawn exactly once in the whole sheet → 【文字规则 + 画面白名单】≤3-character labels only, plus an anti-hallucination whitelist ("only this character and the panels above; no people, no other animals, no instruments, no watermark"). The studio skill summary mirrors it.
+
 ## [0.18.2] — 2026-10-18
 
 ### Added
