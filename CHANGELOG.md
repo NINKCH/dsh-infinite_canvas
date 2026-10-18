@@ -4,6 +4,12 @@ All notable changes to `@ninkch/dsh-infinite-canvas` are documented here (newest
 GitHub Releases carry the same notes in English; maintainer-facing runbooks live in
 [`RELEASING.md`](RELEASING.md) and [`docs/release.md`](docs/release.md).
 
+## [0.18.1] — 2026-10-18
+
+### Fixed
+- **Image prompts no longer inject the series bible behind your back** — the effective prompt builder appended the matched entity's full bible description twice (once inside the `[图N]` reference binding, once as a `设定集：…` block) on top of the visible node prompt. Text-rendering image models (Qwen-Image) painted that injected text straight onto the picture (a garbled attribute panel in the corner), story vocabulary leaked in as phantom props (the un-removable violin), and the long text diluted the reference images' control over appearance. Image generation now uses a **light** effective prompt: style line + `[图N]` name bindings + your prompt, nothing else — the reference images are the source of appearance truth. Video generation keeps the full context (video models don't render text, and the bible context helps consistency).
+- **Asset-sheet templates go text-free** (built-in creation skills): the sheet layouts no longer ask the model to render attribute panels (name/gender/age lines, costume notes, inscriptions or poems) — long rendered text is guaranteed garbling. Panel text is now limited to ≤4-character labels (panel names / expression names / color names); with reference images connected, the reference appearance is the only source of truth, replicated strictly across every panel.
+
 ## [0.18.0] — 2026-10-18
 
 ### Added
