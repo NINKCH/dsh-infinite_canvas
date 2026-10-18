@@ -2243,8 +2243,38 @@ window.__ModuleLoader__.load({
     //  参考图走三步上传（upload_urls → PUT 签名直传 → assets 登记）换 asset_id；
     //  登记结果缓存在画布资产元数据（compAssetIdCache）：同一张 CAS 资产不重复上传。
     const compAssetIdCache = new Map(); // 画布资产 id → 优云 asset_id
+    /** 从文件头字节解析像素尺寸（PNG IHDR / JPEG SOF）——与平台服务端解析口径一致：
+     *  createImageBitmap 会按 EXIF 方向旋转并交换宽高，平台读原始文件，两者不一致时登记会被拒。 */
+    function rawImageDims(u8) {
+      try {
+        // PNG：签名 8 字节 + 长度 4 + 'IHDR' → 偏移 16 起是宽高（大端 32 位）
+        if (u8[0] === 0x89 && u8[1] === 0x50) {
+          return {
+            w: ((u8[16] << 24) | (u8[17] << 16) | (u8[18] << 8) | u8[19]) >>> 0,
+            h: ((u8[20] << 24) | (u8[21] << 16) | (u8[22] << 8) | u8[23]) >>> 0,
+          };
+        }
+        // JPEG：顺序扫描段，命中 SOF0..SOF15（排除 DHT/DAC/RSTn）后取段内高/宽
+        if (u8[0] === 0xff && u8[1] === 0xd8) {
+          let i = 2;
+          while (i + 9 < u8.length) {
+            if (u8[i] !== 0xff) { i++; continue; }
+            const marker = u8[i + 1];
+            if (marker === 0xd8 || marker === 0x01 || (marker >= 0xd0 && marker <= 0xd7)) { i += 2; continue; }
+            const len = (u8[i + 2] << 8) | u8[i + 3];
+            if (len < 2) break;
+            if (marker >= 0xc0 && marker <= 0xcf && marker !== 0xc4 && marker !== 0xc8 && marker !== 0xcc) {
+              return { w: (u8[i + 7] << 8) | u8[i + 8], h: (u8[i + 5] << 8) | u8[i + 6] };
+            }
+            i += 2 + len;
+          }
+        }
+      } catch { /* 解析失败返回 null */ }
+      return null;
+    }
     /** 参考图上传前置：魔数嗅探真实编码（平台仅收 JPG/PNG/WebP，且校验声明 MIME 与实际字节一致——
-     *  改后缀的 AVIF/HEIC 会在登记时报 "Params [Width/Height] not available"）+ 测真实像素尺寸。 */
+     *  改后缀的 AVIF/HEIC 会在登记时报 "Params [Width/Height] not available"）+ 测像素尺寸
+     *  （同时给出解码尺寸与文件原始尺寸，登记不一致时用原始尺寸重试）。 */
     async function imageBlobMeta(input) {
       const blob = input.blob || input;
       const head = new Uint8Array(await blob.slice(0, 16).arrayBuffer());
@@ -2257,6 +2287,8 @@ window.__ModuleLoader__.load({
       }
       const mime = isPng ? 'image/png' : isJpg ? 'image/jpeg' : 'image/webp';
       const ext = isPng ? 'png' : isJpg ? 'jpg' : 'webp';
+      let raw = null;
+      try { raw = rawImageDims(new Uint8Array(await blob.slice(0, 262144).arrayBuffer())); } catch { /* 忽略 */ }
       let width = 0;
       let height = 0;
       try {
@@ -2264,9 +2296,10 @@ window.__ModuleLoader__.load({
         width = bmp.width;
         height = bmp.height;
         try { bmp.close && bmp.close(); } catch { /* 忽略 */ }
-      } catch { /* 测量失败交由下方显式报错 */ }
+      } catch { /* 解码失败时退回文件头尺寸 */ }
+      if (!width || !height) { if (raw) { width = raw.w; height = raw.h; } }
       if (!width || !height) throw new Error('参考图尺寸测量失败');
-      return { blob, mime, ext, width, height };
+      return { blob, mime, ext, width, height, rawWidth: raw ? raw.w : width, rawHeight: raw ? raw.h : height };
     }
     async function compshareImageTask(prompt, refs, s, opts) {
       const o = opts || {};
@@ -2275,6 +2308,19 @@ window.__ModuleLoader__.load({
       if (!base) throw new Error('未配置图片 API 地址（优云智算：https://cp.compshare.cn）');
       const headers = { 'Content-Type': 'application/json', Accept: 'application/json', Authorization: 'Bearer ' + String(s.apiKey || '').trim() };
       const extra = parseExtraParams(s.extra); // 透传：optimize_prompt / use_context_ir 等任务级字段
+      // 报错附带实际发出的参数：登记/提交被拒时一眼看到缺什么、值是多少（不再靠猜）
+      const bodySummary = (b) => {
+        if (!b || typeof b !== 'object') return '';
+        const parts = [];
+        for (const [k, v] of Object.entries(b)) {
+          if (v === undefined) { parts.push(k + '=undefined'); continue; }
+          if (v === null) { parts.push(k + '=null'); continue; }
+          if (typeof v === 'object') { parts.push(k + '=[' + (Array.isArray(v) ? v.length + ' 项' : '对象') + ']'); continue; }
+          const t = String(v);
+          parts.push(k + '=' + (t.length > 40 ? t.slice(0, 40) + '…' : t));
+        }
+        return parts.join(' ');
+      };
       const api = async (method, path, body, idem) => {
         const h = { ...headers };
         if (idem) h['Idempotency-Key'] = idem;
@@ -2283,7 +2329,8 @@ window.__ModuleLoader__.load({
         let j = null; try { j = JSON.parse(r.text); } catch { throw new Error(`优云图片 API ${method} ${path} 响应非 JSON：` + r.text.slice(0, 200)); }
         // 网关业务错误可能 HTTP 200：RetCode≠0 或 {type:'error'} 都算失败
         if ((j.RetCode != null && Number(j.RetCode) !== 0) || j.type === 'error') {
-          throw new Error(`优云图片 API ${method} ${path} 失败：` + ((j.error && j.error.message) || j.Message || JSON.stringify(j).slice(0, 200)));
+          throw new Error(`优云图片 API ${method} ${path} 失败：` + ((j.error && j.error.message) || j.Message || JSON.stringify(j).slice(0, 200))
+            + (body ? '｜已发送参数：' + bodySummary(body) : ''));
         }
         return j;
       };
@@ -2304,7 +2351,23 @@ window.__ModuleLoader__.load({
           label: '参考图上传',
         });
         if (!put.ok) throw new Error('参考图上传失败 HTTP ' + put.status + '：' + put.text.slice(0, 200));
-        const reg = await api('POST', '/image/v1/assets', { object_key: up.object_key, file_name: fileName, content_type: meta.mime, file_size: meta.blob.size, width: meta.width, height: meta.height });
+        // 登记：宽高必须与平台解析出的文件尺寸一致。浏览器解码尺寸与文件原始尺寸在
+        // EXIF 旋转图上不同 → 先用解码尺寸，被拒（Params [Width/Height] not available）时用原始尺寸重试一次
+        const regPayload = (w, h) => ({ object_key: up.object_key, file_name: fileName, content_type: meta.mime, file_size: meta.blob.size, width: w, height: h });
+        let reg = null;
+        try {
+          reg = await api('POST', '/image/v1/assets', regPayload(meta.width, meta.height));
+        } catch (e) {
+          const msg = String((e && e.message) || e);
+          const alt = meta.rawWidth && meta.rawHeight && (meta.rawWidth !== meta.width || meta.rawHeight !== meta.height);
+          if (!/width\/?height/i.test(msg) || !alt) throw e;
+          try {
+            reg = await api('POST', '/image/v1/assets', regPayload(meta.rawWidth, meta.rawHeight));
+            console.info('[infinite-canvas] 参考图登记改用文件原始尺寸成功：' + meta.rawWidth + '×' + meta.rawHeight);
+          } catch (e2) {
+            throw new Error(msg + '；改用文件原始尺寸 ' + meta.rawWidth + '×' + meta.rawHeight + ' 重试仍失败：' + ((e2 && e2.message) || e2));
+          }
+        }
         const aid = reg && reg.reference && reg.reference.asset_id;
         if (!aid) throw new Error('参考图登记失败：响应中没有 reference.asset_id');
         if (ref.assetId) compAssetIdCache.set(ref.assetId, aid);
