@@ -1665,6 +1665,179 @@ window.__ModuleLoader__.load({
       return [].concat(b.characters || [], b.scenes || [], b.props || [])
         .map((x) => (x && x.name ? String(x.name).trim() : '')).filter(Boolean);
     }
+
+    // ---------- 视频「参考生成」结构化提示词（对齐 MiniMax H3 / 优云智算的优化后格式）----------
+    //  为什么需要它：机械拼装（风格 + [图N] 绑定 + 镜头列表 + 设定集全文）会让模型把台词/场景判错；
+    //  这个格式把「素材 → 主体 → 分镜 → 台词 → 声音」显式绑定，模型据此做音画同步与口型对齐。
+    /** 参考图 → 主体信息：实体名（@引用或资产名解析）、品类、设定集描述。 */
+    function subjectInfoFromRef(ref, bible) {
+      const raw = String((ref && ref.name) || '').trim();
+      let name = String((ref && ref.entity) || '').trim();
+      let kind = ref && ref.category === 'character' ? 'character' : ref && ref.category === 'scene' ? 'scene' : ref && ref.category === 'prop' ? 'prop' : '';
+      if (!name) {
+        const m = /^(角色|场景|道具)[-_／/]/.exec(raw);
+        if (m) kind = m[1] === '角色' ? 'character' : m[1] === '场景' ? 'scene' : 'prop';
+        name = raw
+          .replace(/^(角色|场景|道具)[-_／/]\s*/, '')
+          .replace(/\s*\d{1,2}-\d{1,2}\s+\d{1,2}:\d{2}[\s\S]*$/, '')
+          .replace(/\s*(设定图|参考图|多视图|三视图)[\s\S]*$/, '')
+          .trim();
+      }
+      const ent = bible && name ? matchBibleEntity(name, bible) : null;
+      return { name: ent ? ent.name : name, kind: (ent && ent.kind) || kind, desc: ent ? String(ent.desc || '') : '' };
+    }
+    /** 描述压缩成一句：优先「外观：…」片段，其次首句，最长 80 字。 */
+    function condenseDesc(desc) {
+      const s = String(desc || '').replace(/\s+/g, ' ').trim();
+      if (!s) return '';
+      const ap = /外观[：:]\s*([^。；]+)/.exec(s);
+      const seg = ap ? ap[1] : s.split(/[。；]/)[0];
+      const one = String(seg || '').replace(/^[，,、\s]+/, '').trim();
+      return one.length > 80 ? one.slice(0, 80) + '…' : one;
+    }
+    /** 设定集描述里的「声音：…」→ 说话人声音标注（台词的音色依据）。 */
+    function voiceFromDesc(desc) {
+      const m = /声音[：:]\s*([^。；]+)/.exec(String(desc || ''));
+      return m ? m[1].trim() : '';
+    }
+    /**
+     * 由分镜表 + 参考图生成「参考生成」结构化提示词。
+     * 段名保持英文（与厂商优化后的协议一致），正文用中文；没有参考图时返回 ''（调用方回退到普通提示词）。
+     * @param shots 分镜镜头（visual/motion/duration/dialogue/sfx/title/characters/scene/props）
+     * @param refs  collectRefs 结果（顺序即 <Picture N>）
+     * @param bible 设定集（desc 提供外观/声音信息）
+     * @param opts  { zh, prompt（节点上手写的补充说明）, music（非叙事音乐，来自扩展参数） }
+     */
+    function buildStructuredVideoPrompt(shots, refs, bible, opts) {
+      const o = opts || {};
+      const zh = o.zh !== false;
+      const list = (shots || []).filter((s) => s && (String(s.visual || '').trim() || String(s.motion || '').trim() || (s.dialogue || []).length));
+      if (!list.length) return '';
+      // 主体分配：一个实体一个 Subject，可对应多张 Picture；顺序 = 参考图中首次出现
+      const subjects = [];
+      const byKey = new Map();
+      (refs || []).forEach((r, i) => {
+        const info = subjectInfoFromRef(r, bible);
+        if (!info || !info.name) return;
+        const key = info.name.toLowerCase();
+        let sub = byKey.get(key);
+        if (!sub) {
+          sub = { name: info.name, kind: info.kind, desc: info.desc, voice: voiceFromDesc(info.desc), pics: [], voiced: false };
+          subjects.push(sub);
+          byKey.set(key, sub);
+        }
+        if (!sub.pics.includes(i + 1)) sub.pics.push(i + 1);
+      });
+      if (!subjects.length) return '';
+      const sid = (sub) => subjects.indexOf(sub) + 1;
+      const pic = (n2) => '<Picture ' + n2 + '>';
+      // 名称 → <Subject N>（长名优先，避免"瓦力"吃掉"瓦力的铃铛"）
+      const ordered = subjects.slice().sort((a, b) => b.name.length - a.name.length);
+      const rewrite = (text) => {
+        let out = String(text || '');
+        for (const sub of ordered) {
+          if (!sub.name) continue;
+          out = out.split(sub.name).join('<Subject ' + sid(sub) + '>');
+        }
+        return out;
+      };
+      // 说话人编号：跨镜台词按首次出现顺序 (S1)、(S2)…
+      const speakers = [];
+      const speakerId = (roleName) => {
+        const nm = String(roleName || '').trim();
+        if (!nm) return '';
+        let i = speakers.findIndex((x) => x.name === nm);
+        if (i < 0) { speakers.push({ name: nm, voiced: false }); i = speakers.length - 1; }
+        return 'S' + (i + 1);
+      };
+      // 绝对时间轴
+      let acc = 0;
+      const starts = list.map((s) => { const st = acc; acc += Math.max(0.1, Number(s.duration) || 3); return st; });
+      const total = acc;
+      const fmtT = (sec) => {
+        const ms = Math.max(0, Math.round(sec * 1000));
+        const m = Math.floor(ms / 60000);
+        const s2 = Math.floor((ms % 60000) / 1000);
+        return String(m).padStart(2, '0') + ':' + String(s2).padStart(2, '0') + '.' + String(ms % 1000).padStart(3, '0');
+      };
+      const appearsIn = (sub) => list.map((_, i) => i + 1).filter((idx) => {
+        const s = list[idx - 1];
+        const hay = [s.visual, s.motion, s.title, (s.characters || []).join(' '), s.scene, (s.props || []).join(' '), (s.dialogue || []).map((d) => d && d.role).join(' ')].join(' ');
+        return hay.includes(sub.name);
+      });
+      const outs = [];
+      // ① 主体定义（素材绑定）
+      outs.push('subject_definitions:');
+      subjects.forEach((sub, i) => {
+        const brief = condenseDesc(sub.desc);
+        outs.push('<Subject ' + (i + 1) + '> 是 ' + sub.pics.map(pic).join('、') + ' 中的 ' + sub.name
+          + (brief ? '：' + brief : (sub.kind ? '（' + entityLabelOf(sub.kind) + '）' : '')));
+      });
+      // ② 总述（只写事实，不臆造剧情）
+      const first = String(list[0].title || '').trim();
+      const last = String(list[list.length - 1].title || '').trim();
+      outs.push('summary:');
+      outs.push('[参考生成] 目标视频共 ' + list.length + ' 镜、总时长 ' + (Math.round(total * 10) / 10) + ' 秒'
+        + (first || last ? '：从「' + (first || '起始镜') + '」开始，到「' + (last || '收束镜') + '」结束' : '')
+        + '。主体：' + subjects.map((s) => '<Subject ' + sid(s) + '>').join('、') + '。'
+        + (o.prompt ? ' ' + String(o.prompt).trim() : ''));
+      // ③ 保真核对（每个主体出现在哪些镜）
+      outs.push('retention_analysis:');
+      subjects.forEach((sub) => {
+        const where = appearsIn(sub);
+        const brief = condenseDesc(sub.desc) || (sub.kind ? entityLabelOf(sub.kind) : sub.name);
+        outs.push('<Subject ' + sid(sub) + '>（出现于 ' + (where.length ? where.map((i) => '[Shot ' + i + ']').join('、') : '未明确出现') + '）：fully_preserved —— 保持' + brief + '。');
+      });
+      // ④ 逐镜描述（画面 + 运镜 + 台词 + 音效）
+      outs.push('detailed_description:');
+      const style = String((bible && bible.style) || '').trim();
+      if (style) outs.push((zh ? '风格：' : 'Style: ') + style);
+      const hasDialogue = list.some((s) => (s.dialogue || []).some((d) => String((d && d.line) || '').trim()));
+      if (hasDialogue) {
+        outs.push(zh
+          ? '台词必须由画面内对应的主体当场开口说出（口型与台词同步、语气贴合情绪）；严禁画外音/旁白。'
+          : 'Dialogue must be spoken on screen by the matching subject with lip-sync; never voice-over.');
+      }
+      list.forEach((s, i) => {
+        const parts = [];
+        const visual = rewrite(String(s.visual || '').trim());
+        if (visual) parts.push(visual);
+        const motion = rewrite(String(s.motion || '').trim());
+        if (motion) parts.push((zh ? '运镜/动作：' : 'Camera/Action: ') + motion);
+        const dls = (s.dialogue || [])
+          .map((d) => ({ role: String((d && d.role) || '').trim(), line: String((d && d.line) || '').trim() }))
+          .filter((d) => d.line);
+        if (dls.length) {
+          const txt = dls.map((d) => {
+            const sp = speakerId(d.role);
+            const sub = subjects.find((x) => x.name === d.role);
+            const spk = speakers.find((x) => x.name === d.role);
+            const useVoice = !!(sub && sub.voice && spk && !spk.voiced);
+            if (useVoice) spk.voiced = true;
+            const who = sub ? ('<Subject ' + sid(sub) + '>（' + sp + '）') : (d.role ? d.role + '（' + sp + '）' : sp);
+            const lang = /[\u4e00-\u9fa5]/.test(d.line) ? 'Chinese' : 'English';
+            return who + (useVoice ? ' 用' + sub.voice + '说' : ' 说') + '：<d>[' + lang + '] ' + d.line + '</d>';
+          }).join('；');
+          parts.push((zh ? '台词：' : 'Dialogue: ') + txt);
+        }
+        const sfx = rewrite(String(s.sfx || '').trim());
+        if (sfx) parts.push((zh ? '音效：' : 'SFX: ') + sfx);
+        const title = String(s.title || '').trim();
+        outs.push('[Shot ' + (i + 1) + '] ' + fmtT(starts[i]) + (zh ? ' 起' : '')
+          + (title ? '（' + title + '）' : '') + '：' + parts.join(zh ? '；' : '; '));
+      });
+      // ⑤ 声音景观（各镜音效合并）
+      const sfxAll = [...new Set(list.map((s) => String(s.sfx || '').trim()).filter(Boolean))];
+      outs.push('overall_soundscape:');
+      outs.push(sfxAll.length ? sfxAll.join('；') : (zh ? '仅保留场景环境声，不添加额外音效' : 'Ambient scene sound only'));
+      // ⑥ 非叙事音乐（仅在用户显式给出时输出，绝不臆造）
+      const music = String(o.music || '').trim();
+      if (music) {
+        outs.push('non_diegetic_music:');
+        outs.push(music);
+      }
+      return outs.join('\n');
+    }
 // <<<MENTION_PURE_END>>>
 
       /** 解析提示词里的 @引用：返回命中实体 + 其名下的参考图资产与**声音参考资产**（按实体出现顺序、各实体内按生成时间）。
@@ -5500,7 +5673,26 @@ window.__ModuleLoader__.load({
         } else {
           const frameBlob = await resolveAssetBlob(n.id, 'frame');
           const { refs, entities, audioBlobs } = await collectRefs(n, prompt, bible);
-          const p = buildEffectivePrompt(prompt, refs, entities, bible);
+          // 上游是分镜表 → 走厂商「参考生成」结构化提示词（主体/分镜/台词/声音显式绑定，音画同步；
+          // 机械拼装会让模型把台词与场景判错）；节点上已手写结构化提示词则原样尊重。
+          const sbUp = (() => {
+            const e2 = S.graph.edges.find((x) => x.toNode === n.id && x.toPort === 'prompt');
+            const src = e2 && S.graph.nodes[e2.fromNode];
+            return src && src.type === 'storyboard' ? src : null;
+          })();
+          const shotList = sbUp && Array.isArray(sbUp.data.shots) ? sbUp.data.shots : [];
+          const handWritten = String(n.data.prompt || '').trim();
+          let music = '';
+          try { const ex2 = parseExtraParams(n.data.vidExtra); if (ex2 && typeof ex2.music === 'string') music = ex2.music; } catch { /* 扩展参数非法时忽略音乐提示 */ }
+          let p;
+          if (handWritten.includes('subject_definitions')) {
+            p = handWritten; // 高级用法：手写结构化提示词，原样发送
+          } else if (shotList.length) {
+            p = buildStructuredVideoPrompt(shotList, refs, bible, { zh: effLang() !== 'en', prompt: handWritten, music });
+            if (!p) p = buildEffectivePrompt(prompt, refs, entities, bible); // 无参考图时回退
+          } else {
+            p = buildEffectivePrompt(prompt, refs, entities, bible);
+          }
           const mcfg = resolveVideoModelCfg(settings, nodeVideoModelRef(n));
           if (!mcfg) throw new Error(T('errNoVideoModel'));
           const blob = await apiVideo(p, frameBlob, mcfg, {
