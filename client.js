@@ -1769,13 +1769,27 @@ window.__ModuleLoader__.load({
         tx.onerror = () => reject(tx.error);
       });
     }
-    async function idbGet(id) {
+    const assetMem = new Map(); // id -> rec：服务端元数据缓存（0.18 起服务端是资产库唯一事实源）
+    async function idbGetRaw(id) {
       const db = await openDb();
       return new Promise((resolve, reject) => {
         const rq = db.transaction(DB_STORE, 'readonly').objectStore(DB_STORE).get(id);
         rq.onsuccess = () => resolve(rq.result || null);
         rq.onerror = () => reject(rq.error);
       });
+    }
+    /** 资产记录读取（0.18）：内存缓存 → 服务端 → 旧 IndexedDB 兜底（迁移期遗留 blob）。 */
+    async function idbGet(id) {
+      if (!id) return null;
+      if (assetMem.has(id)) return assetMem.get(id) || null;
+      const local = await idbGetRaw(id).catch(() => null);
+      if (local) return local;
+      try {
+        const r = await hostRpc('assetsGet', { ids: [id] });
+        const rec = (r && r.items && r.items[0]) || null;
+        if (rec) { assetMem.set(rec.id, rec); assetNameCache.set(rec.id, rec.name); }
+        return rec;
+      } catch { return null; }
     }
     async function idbDelete(id) {
       assetNameCache.delete(id);
@@ -1793,7 +1807,7 @@ window.__ModuleLoader__.load({
         tx.onerror = () => reject(tx.error);
       });
     }
-    async function idbByProject(pid) {
+    async function idbByProjectRaw(pid) {
       const db = await openDb();
       return new Promise((resolve, reject) => {
         const idx = db.transaction(DB_STORE, 'readonly').objectStore(DB_STORE).index('projectId');
@@ -1801,6 +1815,29 @@ window.__ModuleLoader__.load({
         rq.onsuccess = () => resolve((rq.result || []).sort((a, b) => b.createdAt - a.createdAt));
         rq.onerror = () => reject(rq.error);
       });
+    }
+    /** 项目资产清单（0.18）：服务端分页拉全 + 旧 IndexedDB 遗留合并（服务端不可用时本地兜底）。 */
+    async function idbByProject(pid) {
+      const out = [];
+      try {
+        let cursor = null;
+        for (;;) {
+          const r = await hostRpc('assetsList', { projectId: pid, limit: 200, cursor }).catch(() => null);
+          if (!r || !Array.isArray(r.items)) break;
+          for (const rec of r.items) {
+            out.push(rec);
+            if (rec) { assetMem.set(rec.id, rec); assetNameCache.set(rec.id, rec.name); }
+          }
+          if (!r.nextCursor) break;
+          cursor = r.nextCursor;
+        }
+      } catch { /* 服务端不可用 → 本地兜底 */ }
+      try {
+        const locals = await idbByProjectRaw(pid);
+        const have = new Set(out.map((x) => x.id));
+        for (const l of locals) if (l && !have.has(l.id)) out.push(l);
+      } catch { /* 忽略 */ }
+      return out.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
     }
     async function idbAll() {
       const db = await openDb();
@@ -1817,14 +1854,20 @@ window.__ModuleLoader__.load({
       const sub = String(mime || '').split(';')[0].split('/')[1] || 'bin';
       return /^[a-z0-9]{1,8}$/i.test(sub) ? sub : 'bin';
     }
+    /** 资产内容 URL：CAS 对象（sha）→ /api/object（immutable，远程可拉）；旧落盘（rel）→ /api/file；本地 blob → objectURL。 */
+    function contentUrlFor(rec) {
+      if (!rec) return null;
+      if (rec.sha) return '/' + NS + '/api/object?sha=' + encodeURIComponent(rec.sha) + (rec.mime ? '&mime=' + encodeURIComponent(rec.mime) : '');
+      if (rec.rel) return fileUrlFor(rec.rel);
+      return null;
+    }
     async function assetUrl(id) {
       if (!id) return null;
       if (assetUrlCache.has(id)) return assetUrlCache.get(id);
       const rec = await idbGet(id);
       if (!rec) return null;
-      let url = null;
-      if (rec.rel) url = fileUrlFor(rec.rel);              // 磁盘资产：Host 文件服务（支持 Range）
-      else if (rec.blob) {
+      let url = contentUrlFor(rec);
+      if (!url && rec.blob) {
         // IndexedDB 资产：objectURL 有内存成本 → 缓存总量设上限，超出时释放最早的一批
         if (assetUrlCache.size >= 60) {
           const first = assetUrlCache.keys().next();
@@ -1839,13 +1882,14 @@ window.__ModuleLoader__.load({
       if (url) assetUrlCache.set(id, url);
       return url;
     }
-    /** 取资产 Blob：磁盘资产经 Host 文件服务拉取，旧资产直接读 IndexedDB。 */
+    /** 取资产 Blob：CAS/磁盘资产经 Host 文件服务拉取（远程同样可用），旧资产直接读 IndexedDB。 */
     async function assetBlob(id) {
       const rec = await idbGet(id);
       if (!rec) return null;
       if (rec.blob) return rec.blob;
-      if (rec.rel) {
-        const r = await fetch(fileUrlFor(rec.rel));
+      const url = contentUrlFor(rec);
+      if (url) {
+        const r = await fetch(url);
         if (!r.ok) throw new Error('资产读取失败 HTTP ' + r.status);
         return await r.blob();
       }
@@ -1869,7 +1913,22 @@ window.__ModuleLoader__.load({
       if (meta && meta.nodeLabel) rec.nodeLabel = meta.nodeLabel;
       if (meta && meta.effectivePrompt) rec.effectivePrompt = meta.effectivePrompt;
       if (S.dataRoot) {
-        // 数据根目录已配置：落盘到 <root>/projects/<项目>/<类型>/<可读名>-<id尾号>.<ext>，IndexedDB 只存元数据
+        if (S.store === 'sqlite') {
+          // 0.18 主路径：上传 CAS 对象（内容寻址去重）→ 服务端建资产行（任意浏览器/远程立即可见）
+          const r = await fetch('/' + NS + '/api/object', { method: 'POST', body: blob });
+          if (!r.ok) throw new Error('资产上传失败: ' + (await r.text()));
+          const j = await r.json();
+          rec.sha = j.sha;
+          rec.size = j.size || blob.size;
+          rec.stored = 'cas';
+          const proj = S.projects.find((p) => p.id === projectId);
+          const saved = await hostRpc('assetCreate', { asset: assetIndexRecord(rec), projectName: (proj && proj.name) || '' });
+          const out = (saved && saved.asset) || rec;
+          assetMem.set(out.id, out);
+          assetNameCache.set(out.id, out.name);
+          return out;
+        }
+        // JSON 降级（Host 无 node:sqlite）：旧落盘路径 + 索引镜像
         const rel = `projects/${projectId}/${kind}/${assetFileBase(rec)}.${extFromMime(mime)}`;
         const r = await fetch('/' + NS + '/api/asset?rel=' + encodeURIComponent(rel), { method: 'POST', body: blob });
         if (!r.ok) throw new Error('资产落盘失败: ' + (await r.text()));
@@ -1882,7 +1941,7 @@ window.__ModuleLoader__.load({
       }
       await idbPut(rec);
       assetNameCache.set(rec.id, rec.name);
-      mirrorAssetIndex(rec); // 资产元数据镜像进数据目录 assets.json（迁移便利，失败静默）
+      if (S.dataRoot) mirrorAssetIndex(rec); // JSON 降级模式：元数据镜像进 assets.json
       return rec;
     }
     /** 资产元数据索引记录（去 blob；文本资产保留 text 以便导入端免读文件即可预览）。 */
@@ -1893,6 +1952,7 @@ window.__ModuleLoader__.load({
         source: rec.source || '', category: rec.category || 'general',
       };
       if (rec.rel) { out.rel = rec.rel; out.size = rec.size || 0; }
+      if (rec.sha) { out.sha = rec.sha; out.size = rec.size || 0; }
       if (rec.entity) out.entity = rec.entity;
       if (Array.isArray(rec.entities) && rec.entities.length) out.entities = rec.entities;
       if (rec.nodeLabel) out.nodeLabel = rec.nodeLabel;
@@ -1907,84 +1967,33 @@ window.__ModuleLoader__.load({
         projectId: rec.projectId, projectName: (proj && proj.name) || rec.projectId, asset: assetIndexRecord(rec),
       }).catch(() => { /* 索引失败不影响资产本身 */ });
     }
-    /** 启动/设置数据目录后：一次性把 IndexedDB 里的全部资产元数据同步进 assets.json（补齐历史资产索引）。
-     *  全量**替换**语义（含空项目占位）：IndexedDB 是资产库唯一事实源，借此自愈删除后残留的幽灵条目。 */
-    let assetIndexSynced = false;
-    async function syncAssetIndexToHost() {
-      if (assetIndexSynced || !S.dataRoot) return;
-      assetIndexSynced = true;
-      try {
-        const all = await idbAll();
-        const items = [];
-        const seen = new Set();
-        const projName = new Map(S.projects.map((p) => [p.id, p.name]));
-        for (const rec of all) {
-          if (!rec || !rec.id || !rec.projectId) continue;
-          seen.add(rec.projectId);
-          items.push({ projectId: rec.projectId, projectName: projName.get(rec.projectId) || rec.projectId, asset: assetIndexRecord(rec) });
-        }
-        // 本机已知但没有任何资产的项目也要发占位：assets.json 清空对齐（否则删除后会残留幽灵条目）
-        for (const p of S.projects) {
-          if (!seen.has(p.id)) items.push({ projectId: p.id, projectName: p.name, asset: null });
-        }
-        if (items.length) await hostRpc('assetIndexBulkPut', { items });
-      } catch { /* 索引同步失败不影响 */ }
-    }
-    /** 一次性把 IndexedDB 里的历史资产迁移到数据根目录（保留元数据，移除 blob）。 */
-    async function migrateAssetsToDisk(onProgress) {
-      if (!S.dataRoot) throw new Error('请先设置数据根目录');
-      const all = await idbAll();
-      // 二进制资产（有 blob）与文本资产（text，此前从不落盘）都要迁移
-      const targets = all.filter((r) => (r.blob && !r.rel) || (r.kind === 'text' && !r.rel && typeof r.text === 'string' && r.text.length));
-      let done = 0;
-      for (const rec of targets) {
-        const isText = rec.kind === 'text' && !rec.blob;
-        const rel = `projects/${rec.projectId}/${rec.kind}/${assetFileBase(rec)}.${isText ? 'md' : extFromMime(rec.mime)}`;
-        const blob = isText ? new Blob([rec.text || ''], { type: 'text/markdown' }) : rec.blob;
-        const r = await fetch('/' + NS + '/api/asset?rel=' + encodeURIComponent(rel), { method: 'POST', body: blob });
-        if (!r.ok) throw new Error('迁移失败: ' + rel + ' — ' + (await r.text()));
-        const next = { ...rec, rel, size: blob.size, stored: 'disk' };
-        if (isText) next.text = rec.text; // 文本保留在元数据里：预览/下载不必回读文件
-        else delete next.blob;
-        await idbPut(next);
-        mirrorAssetIndex(next); // 迁移后刷新数据目录 assets.json（补 rel/size）
-        assetUrlCache.delete(rec.id); // 旧 objectURL 失效，改走文件 URL
-        done++;
-        if (onProgress) onProgress(done, targets.length);
-      }
-      return { migrated: done, total: targets.length };
-    }
-    /** 启动自检：把分类为「通用」但命名符合规范前缀（角色-/场景-/道具-/剧本-/分镜-）的存量资产纠正分类。 */
-    async function fixGeneralCategories() {
-      try {
-        const all = await idbAll();
-        let fixed = 0;
-        for (const rec of all) {
-          if (!rec || !rec.id || (rec.kind !== 'image' && rec.kind !== 'video')) continue;
-          if ((rec.category || 'general') !== 'general') continue;
-          const c = categoryFromName(rec.name);
-          if (!c) continue;
-          const next = { ...rec, category: c };
-          await idbPut(next);
-          mirrorAssetIndex(next);
-          fixed++;
-        }
-        if (fixed) {
-          update((s) => { s.assetsTick++; });
-          toast(T('assetCategoriesFixed').replace('{n}', String(fixed)));
-        }
-      } catch { /* 静默：失败不影响主流程，下次启动再试 */ }
-    }
-    /** 数据根目录就绪后自动把浏览器 IndexedDB 里的存量资产搬到磁盘（替代原"迁移历史资产"按钮，全自动无需手动触发）。 */
+    /** 数据根目录就绪后：把浏览器 IndexedDB 里的存量 blob 资产搬进服务端（CAS + 资产行），搬完即从本地退役。
+     *  0.17 旧版本的"落盘到项目文件夹 + assets.json 索引"由 Host 侧 v1→v2 迁移负责，这里只处理从未落盘的遗留。 */
     async function autoMigrateAssetsToRoot() {
       if (!S.dataRoot) return;
       try {
         const all = await idbAll();
-        const pending = all.some((r) => r && r.blob && !r.rel);
-        if (!pending) return;
-        const r = await migrateAssetsToDisk();
-        if (r.migrated) {
-          toast(T('dataRootMigrated').replace('{n}', String(r.migrated)));
+        const pending = all.filter((r) => r && r.blob && !r.rel && !r.sha);
+        if (!pending.length) return;
+        let done = 0;
+        for (const rec of pending) {
+          try {
+            const r = await fetch('/' + NS + '/api/object', { method: 'POST', body: rec.blob });
+            if (!r.ok) continue;
+            const j = await r.json();
+            const meta = { ...rec, sha: j.sha, size: rec.size || rec.blob.size };
+            delete meta.blob;
+            meta.stored = 'cas';
+            const proj = S.projects.find((p) => p.id === rec.projectId);
+            const saved = await hostRpc('assetCreate', { asset: assetIndexRecord(meta), projectName: (proj && proj.name) || '' });
+            const out = (saved && saved.asset) || meta;
+            assetMem.set(out.id, out);
+            try { await idbDelete(rec.id); } catch { /* 本地清理失败不阻塞迁移 */ }
+            done++;
+          } catch { /* 单个失败继续下一个 */ }
+        }
+        if (done) {
+          toast(T('dataRootMigrated').replace('{n}', String(done)));
           update((s) => { s.assetsTick++; });
         }
       } catch { /* 静默：迁移失败不影响主流程，下次设置数据根目录时再试 */ }
@@ -3664,9 +3673,9 @@ window.__ModuleLoader__.load({
     async function refreshDataRoot() {
       try {
         const r = await hostRpc('dataRootGet');
-        update((s) => { s.dataRoot = r.dataRoot || null; s.dataRootExists = !!r.exists; s.dataRootSupported = true; });
+        update((s) => { s.dataRoot = r.dataRoot || null; s.dataRootExists = !!r.exists; s.dataRootSupported = true; s.store = r.store || (r.sql ? 'sqlite' : (r.dataRoot ? 'json' : null)); });
       } catch (e) {
-        update((s) => { s.dataRoot = null; s.dataRootSupported = !/未知操作/.test(String((e && e.message) || e)); });
+        update((s) => { s.dataRoot = null; s.store = null; s.dataRootSupported = !/未知操作/.test(String((e && e.message) || e)); });
       }
     }
     // ---------- 对话 ↔ 画布同步：轮询 Host 项目索引 + 跳转请求 ----------
@@ -4393,10 +4402,20 @@ window.__ModuleLoader__.load({
         source: (meta && meta.source) || 'ai',
         category: (meta && meta.category) || 'script',
       };
-      // 文本资产同样落盘到数据根目录（<root>/projects/<项目>/text/<名>.md），
-      // IndexedDB 保留元数据与 text 字段（文本很小，预览/下载不必回读文件）。
-      // 落盘失败降级为仅 IndexedDB（绝不阻塞生成主流程），控制台留痕。
-      if (S.dataRoot) {
+      // 文本资产：0.18 起正文随元数据进 canvas.db（预览/下载不必回读文件）；
+      // JSON 降级落盘 .md 文件；无数据目录降级为仅 IndexedDB。绝不阻塞生成主流程。
+      if (S.dataRoot && S.store === 'sqlite') {
+        try {
+          const proj = S.projects.find((p) => p.id === projectId);
+          const saved = await hostRpc('assetCreate', { asset: assetIndexRecord(rec), projectName: (proj && proj.name) || '' });
+          const out = (saved && saved.asset) || rec;
+          assetMem.set(out.id, out);
+          assetNameCache.set(out.id, out.name);
+          return out;
+        } catch (err) {
+          console.warn('[infinite-canvas] 文本资产入库失败（降级为浏览器存储）:', String((err && err.message) || err));
+        }
+      } else if (S.dataRoot) {
         try {
           const rel = `projects/${projectId}/text/${assetFileBase(rec)}.md`;
           const blob = new Blob([rec.text], { type: 'text/markdown' });
@@ -4411,7 +4430,7 @@ window.__ModuleLoader__.load({
       }
       await idbPut(rec);
       assetNameCache.set(rec.id, rec.name);
-      mirrorAssetIndex(rec); // 文本资产元数据同样镜像进 assets.json
+      if (S.dataRoot) mirrorAssetIndex(rec); // JSON 降级模式：镜像进 assets.json
       return rec;
     }
 
@@ -4433,6 +4452,7 @@ window.__ModuleLoader__.load({
       tick: 0,
       craftStatus: null, // {at, data} | {at, error}
       dataRoot: null,        // 数据根目录（Host 配置）；null = 未设置（资产走 IndexedDB）
+      store: null,           // 服务端存储模式：'sqlite'（0.18 主路径）| 'json'（降级）| null（未就绪/未设置）
       dataRootExists: false,
       dataRootSupported: true,
       updateInfo: null,      // Host updateCheck 结果
@@ -7607,15 +7627,17 @@ window.__ModuleLoader__.load({
         lsSet(LS_PROJECTS, S.projects);
         lsSet(LS_ACTIVE, S.activeId);
         try { hostRpc('projectsDelete', { id: pid }).catch(() => { /* 静默 */ }); } catch { /* 忽略 */ }
-        try {
-          const recs = await idbByProject(pid);
-          for (const r of recs) {
-            try {
-              if (r.rel) { try { await hostRpc('assetDelete', { rel: r.rel }); } catch { /* 磁盘清理失败不阻塞 */ } }
-              await idbDelete(r.id);
-            } catch { /* 逐个容错 */ }
-          }
-        } catch { /* 资产清理失败不影响项目删除 */ }
+        if (!S.store) {
+          // IndexedDB 模式（未设数据目录）：本地逐个清理
+          try {
+            const recs = await idbByProjectRaw(pid);
+            for (const r of recs) {
+              try { await idbDelete(r.id); } catch { /* 逐个容错 */ }
+            }
+          } catch { /* 资产清理失败不影响项目删除 */ }
+        } else {
+          assetMem.clear(); // 服务端随项目删除资产行；清本地元数据缓存
+        }
         setDelTarget(null);
       };
       return [
@@ -7728,23 +7750,53 @@ window.__ModuleLoader__.load({
         if (S.activeId && S.activeId !== prevActiveRef.current) { prevActiveRef.current = S.activeId; setScope(S.activeId); }
       }, [S.activeId]);
       const [search, setSearch] = useState('');
+      const [qDeb, setQDeb] = useState('');
+      const [total, setTotal] = useState(0);
+      const [cursor, setCursor] = useState(null);
       const [craftFor, setCraftFor] = useState(null);
       const [delTarget, setDelTarget] = useState(null); // 待确认删除的资产（确认框见 DeleteAssetModal）
       const [assetName, setAssetName] = useState(''); // 删除确认框的输入内容
       const fileRef = useRef(null);
+      // 搜索防抖：0.18 起检索在服务端（SQLite trigram 中文全文索引）
+      useEffect(() => {
+        const t = setTimeout(() => setQDeb(search), 300);
+        return () => clearTimeout(t);
+      }, [search]);
       useEffect(() => {
         probeCraft();
         let ok = true;
         (async () => {
           try {
-            let list;
-            if (scope === 'all') list = await idbAll();
-            else list = (await idbAll()).filter((a) => a.projectId === scope || a.projectId === GENERAL_PID);
-            if (ok) setAssets(list);
+            if (!S.store) {
+              // IndexedDB 模式（未设数据目录）：本地全量
+              let list;
+              if (scope === 'all') list = await idbAll();
+              else list = (await idbAll()).filter((a) => a.projectId === scope || a.projectId === GENERAL_PID);
+              if (ok) { setAssets(list); setTotal(list.length); setCursor(null); }
+              return;
+            }
+            // 服务端分页：首屏 50 条，滚动到底「加载更多」
+            const r = await hostRpc('assetsList', {
+              projectId: scope === 'all' ? '' : scope,
+              category: filter === 'all' ? '' : filter,
+              q: qDeb.trim(), limit: 50, cursor: null,
+            }).catch(() => null);
+            if (ok && r) { setAssets(r.items || []); setTotal(r.total || 0); setCursor(r.nextCursor || null); }
           } catch { if (ok) setAssets([]); }
         })();
         return () => { ok = false; };
-      }, [S.activeId, tick, S.assetsTick, scope]);
+      }, [S.activeId, tick, S.assetsTick, scope, filter, qDeb, S.store]);
+      const loadMore = async () => {
+        if (!cursor) return;
+        const r = await hostRpc('assetsList', {
+          projectId: scope === 'all' ? '' : scope,
+          category: filter === 'all' ? '' : filter,
+          q: qDeb.trim(), limit: 50, cursor,
+        }).catch(() => null);
+        if (!r) return;
+        setAssets((prev) => prev.concat(r.items || []));
+        setCursor(r.nextCursor || null);
+      };
       const projectName = (pid) => {
         if (pid === GENERAL_PID) return T('generalProject');
         const p = S.projects.find((x) => x.id === pid);
@@ -7753,10 +7805,17 @@ window.__ModuleLoader__.load({
       /** 资产改所属项目（通用/其它项目）：通用资产多项目共用。 */
       const moveAsset = async (a, targetPid) => {
         if (!targetPid || targetPid === (a.projectId || '')) return;
-        const rec = await idbGet(a.id);
-        if (!rec) return;
-        rec.projectId = targetPid;
-        await idbPut(rec);
+        if (S.store) {
+          try {
+            const r = await hostRpc('assetUpdate', { id: a.id, patch: { projectId: targetPid } });
+            if (r && r.asset) assetMem.set(r.asset.id, r.asset);
+          } catch { /* 服务端失败不动本地 */ }
+        } else {
+          const rec = await idbGet(a.id);
+          if (!rec) return;
+          rec.projectId = targetPid;
+          await idbPut(rec);
+        }
         update((s) => { s.assetsTick++; });
         setTick((x) => x + 1);
         toast(T('moved'));
@@ -7779,7 +7838,8 @@ window.__ModuleLoader__.load({
       };
       const changeCategory = (a, category) => {
         a.category = category;
-        idbPut(a).catch(() => {});
+        if (S.store) hostRpc('assetUpdate', { id: a.id, patch: { category } }).catch(() => {});
+        else idbPut(a).catch(() => {});
         update((s) => { s.assetsTick++; });
       };
       const onImport = async (e) => {
@@ -7797,12 +7857,13 @@ window.__ModuleLoader__.load({
         if (files.length) setTick((x) => x + 1);
       };
       const del = async (a) => {
-        // 数据目录同步：删文件（逻辑路径由 Host 映射到项目名文件夹）+ 清 assets.json 索引
+        // 服务端删除（SQL：行 + FTS + CAS 引用计数；JSON：文件 + assets.json），随后清本地缓存
         const proj = S.projects.find((p) => p.id === (a.projectId || S.activeId));
         try {
           await hostRpc('assetDelete', { projectId: a.projectId || S.activeId, projectName: (proj && proj.name) || '', id: a.id, rel: a.rel || '' });
         } catch { /* 磁盘/索引清理失败不阻塞 */ }
-        await idbDelete(a.id);
+        try { await idbDelete(a.id); } catch { /* 本地无记录则忽略 */ }
+        assetMem.delete(a.id);
         update((s) => {
           for (const nd of Object.values(s.graph.nodes)) {
             if (nd.data && nd.data.assetId === a.id) { nd.data.assetId = null; nd.data.status = 'idle'; }
@@ -7811,12 +7872,19 @@ window.__ModuleLoader__.load({
         });
         setTick((x) => x + 1);
       };
-      // 资产重命名：写回 IndexedDB 记录并刷新名称缓存（@引用与连线名称都吃这份缓存）
+      // 资产重命名：服务端写回（SQL/JSON 各自落库）+ 刷新名称缓存（@引用与连线名称都吃这份缓存）
       const rename = async (a, name) => {
-        const rec = await idbGet(a.id);
-        if (!rec) return;
-        rec.name = name;
-        await idbPut(rec);
+        if (S.store) {
+          try {
+            const r = await hostRpc('assetUpdate', { id: a.id, patch: { name } });
+            if (r && r.asset) assetMem.set(r.asset.id, r.asset);
+          } catch { /* 服务端失败时仍更新本地缓存保持 UI 一致 */ }
+        } else {
+          const rec = await idbGet(a.id);
+          if (!rec) return;
+          rec.name = name;
+          await idbPut(rec);
+        }
         assetNameCache.set(a.id, name);
         update((s) => { s.assetsTick++; });
         setTick((x) => x + 1);
@@ -7876,6 +7944,10 @@ window.__ModuleLoader__.load({
                 projectName: projectName(a.projectId),
               })),
             ),
+        cursor
+          ? h('button', { key: 'more', type: 'button', className: 'dshic-mini', style: { alignSelf: 'flex-start' }, onClick: loadMore, onPointerDown: (e) => e.stopPropagation() },
+              '加载更多 / Load more（' + assets.length + ' / ' + total + '）')
+          : null,
         delTarget ? h(DeleteAssetModal, {
           key: 'delasset', target: delTarget, name: assetName, setName: setAssetName,
           onCancel: () => { setDelTarget(null); setAssetName(''); },
@@ -8593,9 +8665,10 @@ window.__ModuleLoader__.load({
           await hostRpc('dataRootSet', { root: val.trim() });
           await refreshDataRoot();
           toast(T('dataRootSaved') + (S.dataRoot ? '：' + S.dataRoot : ''));
-          if (same) { setBusy(false); return; } // 同目录重复保存：不重建索引（避免误清数据目录里手工补充的资产记录）
-          assetIndexSynced = false; // 换了目录：索引要往新目录重建
-          autoMigrateAssetsToRoot().then(() => syncAssetIndexToHost()); // 先搬存量资产，再对齐索引
+          if (same) { setBusy(false); return; } // 同目录重复保存：不重复迁移
+          autoMigrateAssetsToRoot(); // 换了目录：把本地遗留 blob 搬进新目录（v1 旧布局由 Host 侧自动迁移）
+          assetMem.clear();
+          update((s) => { s.assetsTick++; });
         } catch (e) { toast('设置失败：' + ((e && e.message) || e)); }
         setBusy(false);
       };
@@ -8605,9 +8678,10 @@ window.__ModuleLoader__.load({
         await refreshDataRoot();
         setVal(S.dataRoot || root);
         toast(T('dataRootSaved') + '：' + S.dataRoot);
-        if (same) return; // 同目录：不重建索引
-        assetIndexSynced = false; // 换了目录：索引要往新目录重建
-        autoMigrateAssetsToRoot().then(() => syncAssetIndexToHost());
+        if (same) return; // 同目录：不重复迁移
+        autoMigrateAssetsToRoot(); // 换了目录：把本地遗留 blob 搬进新目录
+        assetMem.clear();
+        update((s) => { s.assetsTick++; });
       };
       const browse = async () => {
         if (busy || picking) return;
@@ -9361,8 +9435,8 @@ window.__ModuleLoader__.load({
           probeCraft();
           // 检查更新（Host RPC；Host 旧版未带此方法时静默）
           checkUpdate(true);
-          // 数据根目录（Host 旧版静默降级为 IndexedDB 模式）；就绪后自动搬存量资产到磁盘、纠正分类，再对齐索引
-          refreshDataRoot().then(() => autoMigrateAssetsToRoot()).then(() => fixGeneralCategories()).then(() => syncAssetIndexToHost()).catch(() => { /* 静默 */ });
+          // 数据根目录（Host 旧版静默降级为 IndexedDB 模式）；就绪后把本地遗留 blob 搬进服务端（v1 旧布局由 Host 侧自动迁移）
+          refreshDataRoot().then(() => autoMigrateAssetsToRoot()).catch(() => { /* 静默 */ });
           // 对话 ↔ 画布同步（启动一次 + 3s 轮询；旧 Host 自动停轮询）
           hostSyncTick().then(() => pushAllProjectsToHost());
           const hostSyncTimer = setInterval(() => hostSyncTick(), 3000);

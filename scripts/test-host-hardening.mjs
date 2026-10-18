@@ -183,7 +183,8 @@ const i = mod._internals;
   ok(ctor.status === 400 && /未知操作/.test(ctor.body), '原型链方法名（constructor）未被拒绝：' + ctor.status + ' ' + ctor.body);
 }
 
-fs.rmSync(SANDBOX, { recursive: true, force: true });
+try { I.closeDb(); } catch { /* 无 SQLite 时忽略 */ } // 关闭句柄：Windows 上句柄未释放时 rmSync 会 EPERM
+try { fs.rmSync(SANDBOX, { recursive: true, force: true, maxRetries: 3 }); } catch { /* 清理失败不影响结论 */ }
 
 if (errs.length) {
   console.error('✗ Host 加固回归测试未通过（' + errs.length + ' 项）：');

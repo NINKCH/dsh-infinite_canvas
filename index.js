@@ -494,6 +494,7 @@ function dbAssetUpdate(id, patch) {
   const merged = { ...cur };
   if (patch && patch.name !== undefined) merged.name = String(patch.name).slice(0, 80);
   if (patch && patch.category !== undefined) merged.category = String(patch.category || 'general');
+  if (patch && patch.projectId !== undefined) merged.projectId = String(patch.projectId || '');
   if (patch && patch.prompt !== undefined) merged.prompt = String(patch.prompt || '');
   if (patch && patch.entity !== undefined) merged.entity = patch.entity ? String(patch.entity) : undefined;
   if (patch && patch.entities !== undefined) merged.entities = Array.isArray(patch.entities) ? patch.entities : undefined;
