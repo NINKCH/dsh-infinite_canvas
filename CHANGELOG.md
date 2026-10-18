@@ -4,6 +4,23 @@ All notable changes to `@ninkch/dsh-infinite-canvas` are documented here (newest
 GitHub Releases carry the same notes in English; maintainer-facing runbooks live in
 [`RELEASING.md`](RELEASING.md) and [`docs/release.md`](docs/release.md).
 
+## [0.18.0] — 2026-10-18
+
+### Added
+- **Server-side asset library** (storage architecture change): asset metadata moves from per-browser IndexedDB to a SQLite database (`canvas.db`) inside the data directory — the single source of truth. Every browser, including remote machines reaching the host over a tunnel, now sees the same library. Project documents (nodes/edges/storyboards/setting bible) move into the same database; the old mirror files (`project.json`, `assets.json`, `canvas.meta.json`) are frozen in place as a migration snapshot and no longer written.
+- **Content-addressed object store (CAS)**: media files live under `dataRoot/objects/<sha2>/<sha256>` — identical images/videos are stored once (dedup), integrity is hash-verifiable, and content is served by the new `GET /api/object?sha=…` route with immutable caching and Range support (smooth remote video scrubbing). Uploads (`POST /api/object`) hash server-side and dedupe transparently; objects are reference-counted and reclaimed when the last referencing asset is deleted (`objectsGc` maintenance RPC included).
+- **Paged, searchable asset panel**: the panel lists assets from the server with keyset pagination (50 per page + load-more) and server-side search — Chinese substring search over names and prompts via an FTS5 trigram index (queries under 3 characters fall back to `LIKE`). Rename, category change and move-between-projects are written through to the server.
+- **One-shot v1→v2 migration**: first mount of a data directory auto-imports legacy `assets.json` indexes and project documents (newer-wins by `updatedAt`) into `canvas.db`; legacy media files stay untouched in their old layout with `rel` pointers preserved — zero-risk migration with no file moves. Legacy blobs that never left a browser upload automatically on that browser's next launch.
+- **JSON fallback**: hosts without `node:sqlite` (Node < 22.5) fall back to the legacy file storage with the same RPC surface (list emulated, no full-text search) — engine detection never hard-fails the plugin.
+- **Migration guide**: [`docs/migration-0.18.md`](docs/migration-0.18.md) covers upgrading the production machine and moving a data directory to a new machine.
+
+### Fixed
+- **Assets "disappeared" on other computers**: the library was sourced from per-browser IndexedDB, so any fresh browser showed an empty panel. With the server as the source of truth this class of confusion is gone; the old boot-time full-replace index sync (which could wipe the server index from an empty browser) is removed outright.
+
+### Notes
+- Requires the DSH host to run Node ≥ 22.5 (bundled Node 24 satisfies). `node:sqlite` is a core module — no packaging changes, no native dependencies.
+- The data directory now **is** the complete data package: copy it to a new machine, point the data root at it, open the canvas — no import step needed. See the migration guide for the exact steps and rollback story.
+
 ## [0.17.18] — 2026-10-18
 
 ### Added
