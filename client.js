@@ -2243,12 +2243,20 @@ window.__ModuleLoader__.load({
     //  参考图走三步上传（upload_urls → PUT 签名直传 → assets 登记）换 asset_id；
     //  登记结果缓存在画布资产元数据（compAssetIdCache）：同一张 CAS 资产不重复上传。
     const compAssetIdCache = new Map(); // 画布资产 id → 优云 asset_id
-    /** 参考图上传前置：统一 MIME/扩展名并测真实像素尺寸（平台校验上传宽高必须与图片一致）。 */
+    /** 参考图上传前置：魔数嗅探真实编码（平台仅收 JPG/PNG/WebP，且校验声明 MIME 与实际字节一致——
+     *  改后缀的 AVIF/HEIC 会在登记时报 "Params [Width/Height] not available"）+ 测真实像素尺寸。 */
     async function imageBlobMeta(input) {
       const blob = input.blob || input;
-      const type = (blob.type || 'image/png').toLowerCase();
-      const mime = /jpeg|jpg/.test(type) ? 'image/jpeg' : /webp/.test(type) ? 'image/webp' : 'image/png';
-      const ext = mime === 'image/jpeg' ? 'jpg' : mime === 'image/webp' ? 'webp' : 'png';
+      const head = new Uint8Array(await blob.slice(0, 16).arrayBuffer());
+      const isPng = head[0] === 0x89 && head[1] === 0x50 && head[2] === 0x4e && head[3] === 0x47;
+      const isJpg = head[0] === 0xff && head[1] === 0xd8 && head[2] === 0xff;
+      const isWebp = head[0] === 0x52 && head[1] === 0x49 && head[2] === 0x46 && head[3] === 0x46
+        && head[8] === 0x57 && head[9] === 0x45 && head[10] === 0x42 && head[11] === 0x50;
+      if (!isPng && !isJpg && !isWebp) {
+        throw new Error('参考图编码不受支持：平台仅接受 JPG/PNG/WebP 原生编码（当前文件的实际字节不是这三类，常见于改后缀的 AVIF/HEIC）——请转成 JPG/PNG 后重新挂参考图');
+      }
+      const mime = isPng ? 'image/png' : isJpg ? 'image/jpeg' : 'image/webp';
+      const ext = isPng ? 'png' : isJpg ? 'jpg' : 'webp';
       let width = 0;
       let height = 0;
       try {
@@ -2257,7 +2265,7 @@ window.__ModuleLoader__.load({
         height = bmp.height;
         try { bmp.close && bmp.close(); } catch { /* 忽略 */ }
       } catch { /* 测量失败交由下方显式报错 */ }
-      if (!width || !height) throw new Error('参考图尺寸测量失败（仅支持 PNG/JPG/WebP）');
+      if (!width || !height) throw new Error('参考图尺寸测量失败');
       return { blob, mime, ext, width, height };
     }
     async function compshareImageTask(prompt, refs, s, opts) {
@@ -2271,11 +2279,11 @@ window.__ModuleLoader__.load({
         const h = { ...headers };
         if (idem) h['Idempotency-Key'] = idem;
         const r = await fetchViaProxy(base + path, { method, headers: h, ...(body !== undefined ? { body } : {}), timeoutMs: 120000, label: '优云图片 ' + method });
-        if (!r.ok) throw new Error('优云图片 API HTTP ' + r.status + '：' + r.text.slice(0, 300));
-        let j = null; try { j = JSON.parse(r.text); } catch { throw new Error('优云图片 API 响应非 JSON：' + r.text.slice(0, 200)); }
+        if (!r.ok) throw new Error(`优云图片 API ${method} ${path} HTTP ${r.status}：` + r.text.slice(0, 300));
+        let j = null; try { j = JSON.parse(r.text); } catch { throw new Error(`优云图片 API ${method} ${path} 响应非 JSON：` + r.text.slice(0, 200)); }
         // 网关业务错误可能 HTTP 200：RetCode≠0 或 {type:'error'} 都算失败
         if ((j.RetCode != null && Number(j.RetCode) !== 0) || j.type === 'error') {
-          throw new Error('优云图片 API 失败：' + ((j.error && j.error.message) || j.Message || JSON.stringify(j).slice(0, 200)));
+          throw new Error(`优云图片 API ${method} ${path} 失败：` + ((j.error && j.error.message) || j.Message || JSON.stringify(j).slice(0, 200)));
         }
         return j;
       };
