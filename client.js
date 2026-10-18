@@ -1600,18 +1600,21 @@ window.__ModuleLoader__.load({
       const rest = nm.slice(pref.length);
       return rest === '' || !/[\p{L}\p{N}]/u.test(rest[0]);
     }
-    /** 生成用提示词：@标记去掉 + [图N] 绑定 + 命中实体的设定描述。 */
-    function buildEffectivePrompt(prompt, refs, entities, bible) {
+    /** 生成用提示词：@标记去掉 + [图N] 绑定 + 命中实体的设定描述。
+     *  light=true（图片生成专用）：只保留风格行与 [图N] 名称绑定——参考图本身就是外观事实源，
+     *  内联设定全文会稀释参考图约束，且文字渲染型模型（Qwen-Image）会把追加文本直接画进画面（用户实测：
+     *  设定集全文被渲染成画面右下角的乱码文字块、剧情词凭空生成道具）。视频路径不用 light（不渲染文字，上下文有益）。 */
+    function buildEffectivePrompt(prompt, refs, entities, bible, light) {
       const zh = effLang() !== 'en';
       const bind = refs.map((r, i) => {
         if (r.entity) {
           const ent = matchBibleEntity(r.entity, bible);
-          const desc = ent ? ent.desc : '';
-          return `[图${i + 1}] ${entityLabelOf(ent ? ent.kind : 'prop')} ${r.entity}${desc ? '（' + desc + '）' : ''}`;
+          const desc = light ? '' : ((ent && ent.desc) || '');
+          return `[图${i + 1}] ${entityLabelOf((ent || {}).kind || 'prop')} ${r.entity}${desc ? '（' + desc + '）' : ''}`;
         }
         return `[图${i + 1}] ${catLabel(r.category)}：${r.name}`;
       }).join('；');
-      const entLines = entities.map((e) => `${entityLabelOf(e.kind)} ${e.name}：${e.desc}`);
+      const entLines = light ? [] : entities.map((e) => `${entityLabelOf(e.kind)} ${e.name}：${e.desc}`);
       return [
         (bible.style || '').trim() ? (zh ? '风格：' : 'Style: ') + bible.style.trim() : '',
         bind ? (zh ? '参考图 → ' : 'Refs -> ') + bind : '',
@@ -5355,7 +5358,7 @@ window.__ModuleLoader__.load({
           // 参考图 = 连线（用户顺序）+ @引用命中的设定集资产（按出现顺序）
           const { refs, entities } = await collectRefs(n, prompt, bible);
           const metas = refs.map((r) => ({ blob: r.blob, name: r.name, category: r.category, assetId: r.assetId }));
-          const p = buildEffectivePrompt(prompt, refs, entities, bible);
+          const p = buildEffectivePrompt(prompt, refs, entities, bible, true); // light：图片不内联设定全文（防文字渲染污染 + 参考图约束稀释）
           // 模型解析：节点选择优先，未指定路由到星标默认模型；都没有 = 明确报错（不再静默走演示模式）
           const mcfg = resolveImageModelCfg(settings, nodeImageModelRef(n));
           if (!mcfg) throw new Error(T('errNoImageModel'));

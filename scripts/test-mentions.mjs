@@ -63,13 +63,21 @@ eq(api.assetBelongsToEntity({ name: '张山' }, ent), true, '同名资产');
 eq(api.assetBelongsToEntity({ name: '角色-张山峰' }, ent), false, '前缀相似但不同名不应命中');
 eq(api.assetBelongsToEntity({ name: '场景-褶皱巷' }, ent), false, '其他类型前缀不命中');
 
-// 6) 有效提示词：@标记去掉 + [图N] 绑定 + 设定描述
+// 6) 有效提示词：@标记去掉 + [图N] 绑定 + 设定描述（视频路径）；图片走 light 模式（剥离设定全文）
 const refs = [{ entity: '张山', name: '角色-张山 多视图' }, { name: '某图', category: 'general' }];
 const eff = api.buildEffectivePrompt('@张山@ 的中近景', refs, [{ kind: 'character', name: '张山', desc: '40 岁，短发' }], bible);
 if (eff.includes('@张山')) errs.push('有效提示词里仍残留 @ 标记');
 if (!eff.includes('[图1] 角色 张山（40 岁，短发，深灰风衣）')) errs.push('[图N] 绑定行缺少实体与设定描述');
 if (!eff.includes('[图2]')) errs.push('第二个参考图未编号');
 if (!eff.includes('设定集：角色 张山：40 岁，短发')) errs.push('未注入命中实体的设定描述');
+// light 模式（图片生成）：绑定行只留实体名，不内联设定描述，也不追加「设定集：」段落——
+// 参考图是外观事实源；文字渲染型模型会把内联的设定全文直接画进画面（用户实测乱码文字块）
+const effLight = api.buildEffectivePrompt('@张山@ 的中近景', refs, [{ kind: 'character', name: '张山', desc: '40 岁，短发' }], bible, true);
+if (effLight.includes('@张山')) errs.push('light 提示词里仍残留 @ 标记');
+if (!effLight.includes('[图1] 角色 张山')) errs.push('light 模式 [图N] 绑定行缺少实体名');
+if (effLight.includes('40 岁，短发')) errs.push('light 模式不应内联实体设定描述');
+if (effLight.includes('设定集：')) errs.push('light 模式不应追加「设定集：」段落');
+if (!effLight.includes('风格：')) errs.push('light 模式应保留风格行');
 
 // 7) 资产命名：节点名 + 时间（用户规则）→ 实体 + 时间 → 兜底 + 时间
 eq(api.assetNameFor({ data: { label: '角色-张山 多视图' } }, [], 'image'), '角色-张山 多视图 ' + api.nowStamp(), '节点名+时间');
