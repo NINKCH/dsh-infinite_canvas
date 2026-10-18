@@ -240,6 +240,27 @@ try {
   if (!created || created.type !== 'image-gen') errs.push('canvas_create_node 未创建 image-gen 节点');
   if (!created || !(created.data.prompt || '').includes('陈拾')) errs.push('canvas_create_node 未写入提示词');
   if (!created || created.data.label !== '角色-陈拾 参考图') errs.push('canvas_create_node 丢失了节点名（data.label 被覆盖）');
+
+  // 新增：读节点（含对话框提示词与参数）→ 改节点（不必删节点重建）→ 触发不等待
+  const st1 = await byName.get('canvas_node_status').execute({ projectId, nodeId: n.nodeId }, {});
+  if (!st1 || !(st1.prompt || '').includes('陈拾')) errs.push('canvas_node_status 未返回生成节点的对话框提示词（prompt）');
+  const up = await byName.get('canvas_update_node').execute({
+    projectId, nodeId: n.nodeId,
+    patch: { prompt: '特写，陈拾，雨夜，旧邮差制服', ratio: '9:16', size: '2K', duration: 5, resolution: '1080P', id: '不可改' },
+  }, {});
+  if (!up || !up.ok) errs.push('canvas_update_node 未返回 ok');
+  const doc2 = await mod._internals.projectsGet({ id: projectId });
+  const nd2 = doc2.nodes[n.nodeId];
+  if (!nd2 || nd2.data.prompt !== '特写，陈拾，雨夜，旧邮差制服') errs.push('canvas_update_node 未改到提示词');
+  if (!nd2 || nd2.data.ratio !== '9:16' || nd2.data.size !== '2K') errs.push('canvas_update_node 未改到生成参数');
+  if (!nd2 || nd2.data.duration !== 5 || nd2.data.resolution !== '1080P') errs.push('canvas_update_node 数值/分辨率字段未生效');
+  if (nd2 && nd2.id !== n.nodeId) errs.push('canvas_update_node 误改了结构字段 id');
+  try {
+    await byName.get('canvas_update_node').execute({ projectId, nodeId: n.nodeId, patch: { x: 999 } }, {});
+    errs.push('canvas_update_node 对不可改字段应报错而不是静默');
+  } catch { /* 预期：无可用字段时报错 */ }
+  const gen = await byName.get('canvas_generate_node').execute({ projectId, nodeId: n.nodeId, waitSeconds: 0 }, {});
+  if (!gen || !gen.ok) errs.push('canvas_generate_node 触发未返回 ok');
 } catch (e) {
   errs.push('设定集/建节点校验失败 → ' + ((e && e.message) || e));
 }

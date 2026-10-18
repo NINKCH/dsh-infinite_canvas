@@ -1836,21 +1836,116 @@ async function canvasNodeStatus(args) {
       sfx: String((s && s.sfx) || '').slice(0, 120),
     }))
     : undefined;
+  const d = n.data || {};
   return {
-    projectId: pid, nodeId, type: n.type, label: (n.data && n.data.label) || '',
-    status: (n.data && n.data.status) || 'idle',
-    aiStatus: (n.data && n.data.aiStatus) || 'idle',
-    error: (n.data && (n.data.error || n.data.aiError)) || null,
-    output: String((n.data && n.data.output) || '').slice(0, 6000),
-    idea: String((n.data && n.data.idea) || '').slice(0, 2000),
-    assetId: (n.data && n.data.assetId) || null,
+    projectId: pid, nodeId, type: n.type, label: d.label || '',
+    status: d.status || 'idle',
+    aiStatus: d.aiStatus || 'idle',
+    error: d.error || d.aiError || null,
+    output: String(d.output || '').slice(0, 6000),
+    idea: String(d.idea || '').slice(0, 2000),
+    // 生成节点的对话框提示词与生成参数：对话侧读取后可精准改写（配合 canvas_update_node），不必删节点重建
+    prompt: String(d.prompt || '').slice(0, 4000),
+    text: String(d.text || '').slice(0, 4000),
+    script: String(d.script || '').slice(0, 2000),
+    requirement: String(d.requirement || '').slice(0, 1000),
+    ratio: d.ratio || null,
+    size: d.size || null,
+    duration: d.duration == null ? null : Number(d.duration),
+    resolution: d.resolution || null,
+    frameMode: d.frameMode || null,
+    count: d.count == null ? null : Number(d.count),
+    imageModel: d.imageModel || null,
+    videoModel: d.videoModel || null,
+    model: d.model || null,
+    stopNote: d.stopNote || null,
+    genWarn: d.genWarn || null,
+    lastAssetId: d.lastAssetId || null,
+    historyAssetIds: Array.isArray(d.history) ? d.history.map((x) => x && x.assetId).filter(Boolean).slice(-20) : [],
+    assetId: d.assetId || null,
     // 视频任务凭据：中断/超时后对话侧可凭 id 回查结果（钱花了就必须能找回）
-    taskId: (n.data && n.data.taskId) || null,
-    taskQueryUrl: (n.data && n.data.taskQueryUrl) || null,
+    taskId: d.taskId || null,
+    taskQueryUrl: d.taskQueryUrl || null,
     // 分镜表：一致性告警随状态返回——对话侧据此逐条补全设定集（缺失则要自动补充，绝不忽略）
-    warnings: Array.isArray(n.data && n.data.warnings) ? n.data.warnings : [],
+    warnings: Array.isArray(d.warnings) ? d.warnings : [],
     shots,
   };
+}
+/** 可被 canvas_update_node 修改的节点字段白名单（结构字段 id/type/x/y/w/h/data 一律不可写）。 */
+const NODE_PATCH_FIELDS = ['prompt', 'idea', 'output', 'text', 'script', 'requirement', 'label', 'ratio', 'size', 'duration', 'resolution', 'frameMode', 'count', 'imageModel', 'videoModel', 'model'];
+/** 更新已有节点的字段：对话侧"改提示词 / 改参数"的唯一入口（此前只能删节点重建）。 */
+function canvasUpdateNode(args) {
+  const pid = String((args && args.projectId) || '');
+  const nodeId = String((args && args.nodeId) || '');
+  const doc = readDoc(pid);
+  const n = doc.nodes[nodeId];
+  if (!n) throw new Error('节点不存在: ' + nodeId + '（先用 canvas_list_projects 查看节点 id）');
+  const patch = (args && args.patch) || {};
+  const keys = Object.keys(patch);
+  if (!keys.length && patch.shots === undefined) throw new Error('patch 为空：请给出要修改的字段，如 { "prompt": "……" }');
+  const applied = [];
+  const skipped = [];
+  for (const k of keys) {
+    if (k === 'shots') continue; // 单独处理
+    if (!NODE_PATCH_FIELDS.includes(k)) { skipped.push(k); continue; }
+    let v = patch[k];
+    if (k === 'duration' || k === 'count') {
+      const num = Number(v);
+      if (!Number.isFinite(num) || num <= 0) throw new Error(k + ' 需要正数，收到：' + JSON.stringify(v));
+      v = k === 'count' ? Math.round(num) : num;
+    } else if (k === 'label') {
+      v = String(v == null ? '' : v).slice(0, 40);
+    } else {
+      v = String(v == null ? '' : v);
+    }
+    n.data[k] = v;
+    applied.push(k);
+  }
+  if (patch.shots !== undefined) {
+    let arr = patch.shots;
+    if (typeof arr === 'string') {
+      try { arr = JSON.parse(arr); } catch { throw new Error('shots 需要 JSON 数组或 JSON 字符串'); }
+    }
+    if (!Array.isArray(arr)) throw new Error('shots 需要 JSON 数组');
+    n.data.shots = arr;
+    applied.push('shots');
+  }
+  if (!applied.length) {
+    throw new Error('没有可应用的字段（允许：' + NODE_PATCH_FIELDS.join(' / ') + ' / shots）；收到：' + keys.join(' / '));
+  }
+  doc.updatedAt = Date.now();
+  writeIcDoc(pid, doc);
+  markDocChanged(pid);
+  return { projectId: pid, nodeId, type: n.type, label: n.data.label || '', applied, skipped, prompt: String(n.data.prompt || '').slice(0, 400) };
+}
+/** 触发节点执行并（可选）等待到终态：对话侧"改完提示词 → 点生成 → 拿结果"的一站式入口。
+ *  执行发生在画布侧（需要浏览器开着画布页面消费运行请求），等待超时不代表失败。 */
+async function canvasGenerateNode(args) {
+  const pid = String((args && args.projectId) || '');
+  const nodeId = String((args && args.nodeId) || '');
+  const waitSec = Math.max(0, Math.min(600, Number((args && args.waitSeconds) || 0)));
+  const run = await canvasRunNode({ projectId: pid, nodeId });
+  if (!waitSec) {
+    return { ok: true, triggered: true, finished: false, projectId: pid, nodeId, type: run.type, label: run.label, status: 'running', note: '已触发执行；画布需处于打开状态才会真正执行，可用 canvas_node_status 查询进度' };
+  }
+  const deadline = Date.now() + waitSec * 1000;
+  let last = null;
+  while (Date.now() < deadline) {
+    await new Promise((r) => setTimeout(r, 2500));
+    try { last = await canvasNodeStatus({ projectId: pid, nodeId }); } catch { continue; }
+    const st = String(last.status || '');
+    const ai = String(last.aiStatus || '');
+    const isAiNode = last.type === 'script' || last.type === 'storyboard';
+    if (isAiNode) {
+      if (ai === 'error') return { ok: false, triggered: true, finished: true, projectId: pid, nodeId, type: last.type, label: last.label, status: 'error', error: last.error || 'AI 生成失败' };
+      if (ai !== 'running' && (String(last.output || '').trim() || (Array.isArray(last.shots) && last.shots.length))) {
+        return { ok: true, triggered: true, finished: true, projectId: pid, nodeId, type: last.type, label: last.label, status: 'done' };
+      }
+    } else if (st === 'done' || st === 'error') {
+      return { ok: st === 'done', triggered: true, finished: true, projectId: pid, nodeId, type: last.type, label: last.label, status: st, assetId: last.assetId || null, error: last.error || null };
+    }
+  }
+  return { ok: true, triggered: true, finished: false, projectId: pid, nodeId, type: last ? last.type : run.type, label: last ? last.label : run.label, status: last ? last.status : 'running', note: '等待超时，任务仍在进行；可继续用 canvas_node_status 查询' };
 }
 async function canvasOpen(args) {
   const pid = String((args && args.projectId) || '');
@@ -2061,7 +2156,7 @@ async function updateInstall() {
 export const inject = ['webServer', 'tools'];
 
 // 仅供诊断 / 自动化测试（不属于 RPC 面，运行时行为不受影响）
-export const _internals = { updateCheck, updateInstall, npmLatestVersion, cmpVer, findPnpm, getProfileDir: () => PROFILE_DIR, getVersion: () => VERSION, dataRoot, setDataRoot, dataRootMigrate, dataRootImport, ensureProjectFolder, physicalRel, mirrorProjectToDataRoot, writeAssetIndex, removeAssetIndexEntry, readDataRootMeta, removeDataRootProject, deletedProjectIds, addDeletedProjectId, clearDeletedProjectId, fetchProxyForward, storyboardConsistencyWarnings, readAssetIndexNames, safeJoin, mimeOf, pipeFile, getIcConfigPath: () => CONFIG_PATH, canvasCreateProject, canvasWriteNode, canvasConnect, canvasDeleteProject, canvasDeleteNode, canvasRunNode, canvasNodeStatus, canvasGetBible, canvasUpdateBible, canvasCreateNode, canvasOpen, projectsList, projectsPut, projectsGet, projectsDelete, projectsSync, sqliteAvailable: () => !!SQLITE, getDb, closeDb, dbAssetsList, dbAssetsGet, dbAssetNames, dbAssetCreate, dbAssetUpdate, dbAssetDelete, dbObjectsGc, objectAbsFor, readDocOrNull, docExists, sqlActive, rpcMethods: () => _rpcMethods };
+export const _internals = { updateCheck, updateInstall, npmLatestVersion, cmpVer, findPnpm, getProfileDir: () => PROFILE_DIR, getVersion: () => VERSION, dataRoot, setDataRoot, dataRootMigrate, dataRootImport, ensureProjectFolder, physicalRel, mirrorProjectToDataRoot, writeAssetIndex, removeAssetIndexEntry, readDataRootMeta, removeDataRootProject, deletedProjectIds, addDeletedProjectId, clearDeletedProjectId, fetchProxyForward, storyboardConsistencyWarnings, readAssetIndexNames, safeJoin, mimeOf, pipeFile, getIcConfigPath: () => CONFIG_PATH, canvasCreateProject, canvasWriteNode, canvasConnect, canvasDeleteProject, canvasDeleteNode, canvasRunNode, canvasNodeStatus, canvasGetBible, canvasUpdateBible, canvasCreateNode, canvasOpen, projectsList, projectsPut, projectsGet, projectsDelete, projectsSync, sqliteAvailable: () => !!SQLITE, getDb, closeDb, dbAssetsList, dbAssetsGet, dbAssetNames, dbAssetCreate, dbAssetUpdate, dbAssetDelete, dbObjectsGc, objectAbsFor, readDocOrNull, docExists, sqlActive, rpcMethods: () => _rpcMethods, canvasUpdateNode, canvasGenerateNode };
 
 function resolveModel(providers, want) {
   const byProvider = want && want.provider
@@ -2222,6 +2317,28 @@ export function apply(ctx) {
         let exists = false;
         if (root) { try { exists = statSync(root).isDirectory(); } catch { /* 不存在 */ } }
         return { dataRoot: root, exists, configPath: CONFIG_PATH, sql: !!SQLITE, store: sqlActive() ? 'sqlite' : 'json' };
+      },
+      // 存储实况：一眼看清"是否真在用 SQLite 库、库在哪、多少数据"（客户端设置页显示）
+      async dbStats() {
+        const root = dataRoot();
+        const dbPath = root ? path.join(root, 'canvas.db') : null;
+        const out = {
+          ok: true, sqlite: !!SQLITE, store: sqlActive() ? 'sqlite' : (root ? 'json' : 'none'),
+          dataRoot: root, dbPath, dbExists: false, dbBytes: 0, walBytes: 0, projects: 0, assets: 0, fts: null,
+        };
+        if (dbPath) {
+          try { const st = statSync(dbPath); out.dbExists = st.isFile(); out.dbBytes = st.size; } catch { /* 无库 */ }
+          try { const st2 = statSync(dbPath + '-wal'); out.walBytes = st2.size; } catch { /* 无 WAL */ }
+        }
+        if (sqlActive()) {
+          try {
+            const db = getDb();
+            out.projects = db.prepare('SELECT COUNT(*) AS n FROM projects').get().n;
+            out.assets = db.prepare('SELECT COUNT(*) AS n FROM assets').get().n;
+            out.fts = metaGet(db, 'fts_tokenizer');
+          } catch (e) { out.error = String((e && e.message) || e); }
+        }
+        return out;
       },
       async dataRootSet(args) {
         return setDataRoot((args && args.root) ?? '');
@@ -2542,7 +2659,7 @@ export function apply(ctx) {
             additionalProperties: false,
           },
           output: {
-            schema: { type: 'object', properties: { ok: { type: 'boolean' }, text: { type: 'string' }, status: { type: 'string' }, assetId: { type: 'string' }, warnings: { type: 'array', items: { type: 'string' } }, shots: { type: 'array', items: { type: 'object', properties: { index: { type: 'number' }, title: { type: 'string' }, duration: { type: 'number' }, visual: { type: 'string' }, motion: { type: 'string' }, characters: { type: 'array', items: { type: 'string' } }, scene: { type: 'string' }, props: { type: 'array', items: { type: 'string' } } } } } }, required: ['ok', 'text'] },
+            schema: { type: 'object', properties: { ok: { type: 'boolean' }, text: { type: 'string' }, status: { type: 'string' }, assetId: { type: 'string' }, prompt: { type: 'string' }, ratio: { type: 'string' }, size: { type: 'string' }, duration: { type: 'number' }, resolution: { type: 'string' }, frameMode: { type: 'string' }, imageModel: { type: 'string' }, videoModel: { type: 'string' }, genWarn: { type: 'string' }, historyAssetIds: { type: 'array', items: { type: 'string' } }, warnings: { type: 'array', items: { type: 'string' } }, shots: { type: 'array', items: { type: 'object', properties: { index: { type: 'number' }, title: { type: 'string' }, duration: { type: 'number' }, visual: { type: 'string' }, motion: { type: 'string' }, characters: { type: 'array', items: { type: 'string' } }, scene: { type: 'string' }, props: { type: 'array', items: { type: 'string' } } } } } }, required: ['ok', 'text'] },
             render: (args, value) => [{ type: 'text', text: String(value.text || '') }],
           },
           timeoutMs: 30000,
@@ -2572,7 +2689,98 @@ export function apply(ctx) {
               lines.push('一致性告警（' + warnings.length + ' 条，须逐条 canvas_update_bible 补全，名称逐字一致）:');
               warnings.forEach((w) => lines.push(' · ' + w));
             }
-            return { ok: true, status: s.status, assetId: s.assetId || undefined, warnings: warnings.length ? warnings : undefined, shots: shots.length ? shots : undefined, text: lines.join('\n') };
+            // 生成节点的对话框提示词与参数：对话侧据此精准改写（canvas_update_node），不必删节点重建
+            if (s.prompt) lines.push('对话框提示词:\n' + s.prompt);
+            const params = [];
+            if (s.ratio) params.push('比例 ' + s.ratio);
+            if (s.size) params.push('清晰度 ' + s.size);
+            if (s.duration != null) params.push('时长 ' + s.duration + 's');
+            if (s.resolution) params.push('分辨率 ' + s.resolution);
+            if (s.frameMode) params.push('衔接 ' + s.frameMode);
+            if (s.count != null && s.count > 0) params.push('镜头数 ' + s.count);
+            if (s.imageModel) params.push('图片模型 ' + s.imageModel);
+            if (s.videoModel) params.push('视频模型 ' + s.videoModel);
+            if (params.length) lines.push('生成参数: ' + params.join(' · '));
+            if (s.historyAssetIds.length) lines.push('历史产物（' + s.historyAssetIds.length + ' 条，最新在最后）: ' + s.historyAssetIds.join(', '));
+            if (s.genWarn) lines.push('生成告警: ' + s.genWarn);
+            return {
+              ok: true, status: s.status, assetId: s.assetId || undefined,
+              prompt: s.prompt || undefined, ratio: s.ratio || undefined, size: s.size || undefined,
+              duration: s.duration == null ? undefined : s.duration, resolution: s.resolution || undefined,
+              frameMode: s.frameMode || undefined, imageModel: s.imageModel || undefined, videoModel: s.videoModel || undefined,
+              genWarn: s.genWarn || undefined,
+              historyAssetIds: s.historyAssetIds.length ? s.historyAssetIds : undefined,
+              warnings: warnings.length ? warnings : undefined, shots: shots.length ? shots : undefined,
+              text: lines.join('\n'),
+            };
+          },
+        });
+        reg({
+          name: 'canvas_update_node',
+          description: '修改无限画布上**已有节点**的字段（改提示词、改比例/清晰度/时长/分辨率等参数）——"改节点"的唯一入口，改完不必删节点重建。可改字段：prompt（图片/视频节点的对话框提示词）、idea/output（剧本节点）、text（文本节点的正文）、script/requirement（分镜表的剧本来源与额外要求）、shots（分镜镜头清单，JSON 数组）、label（节点名）、ratio、size、duration、resolution、frameMode、count、imageModel、videoModel、model。结构字段（id/type/坐标/宽高）不可改。改完用 canvas_generate_node 触发生成。**前提**：先用 canvas_node_status 读到当前内容，再只传要改的字段。',
+          parameters: {
+            type: 'object',
+            properties: {
+              projectId: { type: 'string', description: '项目 id' },
+              nodeId: { type: 'string', description: '节点 id（来自 canvas_list_projects）' },
+              patch: {
+                type: 'object',
+                description: '要修改的字段（只传需要改的，其余保持不动）',
+                properties: {
+                  prompt: { type: 'string', description: '图片/视频生成节点的提示词（对话框内容）' },
+                  idea: { type: 'string', description: '剧本节点的创作意图' },
+                  output: { type: 'string', description: '剧本节点的成稿' },
+                  text: { type: 'string', description: '文本节点的正文' },
+                  script: { type: 'string', description: '分镜表的剧本来源' },
+                  requirement: { type: 'string', description: '分镜表的额外要求' },
+                  label: { type: 'string', description: '节点名（≤40 字）' },
+                  ratio: { type: 'string', description: '比例，如 16:9 / 9:16 / 1:1' },
+                  size: { type: 'string', description: '图片清晰度：1K / 2K / 4K' },
+                  duration: { type: 'number', description: '视频时长（秒，正数）' },
+                  resolution: { type: 'string', description: '视频分辨率，如 720P / 1080P / 2K' },
+                  frameMode: { type: 'string', description: '衔接模式：auto / hard / off' },
+                  count: { type: 'number', description: '分镜表镜头数（0=自动）' },
+                  imageModel: { type: 'string', description: '图片模型（供应商|模型引用）' },
+                  videoModel: { type: 'string', description: '视频模型（供应商|模型引用）' },
+                  model: { type: 'string', description: '文本模型（剧本/分镜节点）' },
+                  shots: { type: 'array', items: { type: 'object' }, description: '分镜镜头清单（整表替换）' },
+                },
+                additionalProperties: false,
+              },
+            },
+            required: ['projectId', 'nodeId', 'patch'],
+            additionalProperties: false,
+          },
+          output: textOutput,
+          timeoutMs: 30000,
+          async execute(args) {
+            const r = canvasUpdateNode(args);
+            const skipped = Array.isArray(r.skipped) && r.skipped.length ? '（已忽略不可改字段：' + r.skipped.join('、') + '）' : '';
+            return { ok: true, projectId: r.projectId, nodeId: r.nodeId, label: r.label || undefined, text: '✅ 已更新节点[' + r.type + ']「' + (r.label || r.nodeId) + '」字段：' + r.applied.join('、') + skipped + '。需要重新生成请调用 canvas_generate_node。' };
+          },
+        });
+        reg({
+          name: 'canvas_generate_node',
+          description: '触发节点执行并（可选）等到结束——"改完提示词 → 点生成 → 拿结果"的一站式入口（等价于点画布上的生成按钮）。执行由画布侧用节点上配置的模型真实运行，**画布页面必须处于打开状态**；等待超时不代表失败（任务仍在继续，可用 canvas_node_status 继续查）。waitSeconds=0 表示只触发不等待；图片通常 30–120s，视频数分钟。',
+          parameters: {
+            type: 'object',
+            properties: {
+              projectId: { type: 'string', description: '项目 id' },
+              nodeId: { type: 'string', description: '节点 id' },
+              waitSeconds: { type: 'number', description: '可选：等待秒数（0=只触发；上限 600）' },
+            },
+            required: ['projectId', 'nodeId'],
+            additionalProperties: false,
+          },
+          output: textOutput,
+          timeoutMs: 660000,
+          async execute(args) {
+            const r = await canvasGenerateNode(args);
+            const head = '🚀 已触发[' + r.type + ']「' + (r.label || r.nodeId) + '」';
+            const tail = r.finished
+              ? (r.ok ? '✅ 已完成（状态 ' + r.status + (r.assetId ? '，产物资产 ' + r.assetId : '') + '）' : '❌ 失败：' + (r.error || r.status))
+              : '⏳ ' + (r.note || '仍在进行');
+            return { ok: r.ok !== false, projectId: r.projectId, nodeId: r.nodeId, status: r.status || undefined, assetId: r.assetId || undefined, text: head + '。' + tail };
           },
         });
         reg({

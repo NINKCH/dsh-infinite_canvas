@@ -209,14 +209,23 @@ description: 用无限画布（Infinite Canvas）做短剧/视频创作时使用
 
 1. **文本类（剧本 / 分镜）**：可由你直接生成完整正文，用
    `canvas_write_node({ projectId, nodeId, text: 完整正文, target: 'output' })` 写入；
-   也可让画布用它自己配置的模型生成：`canvas_run_node({ projectId, nodeId })`。
+   也可让画布用它自己配置的模型生成：`canvas_generate_node({ projectId, nodeId, waitSeconds })`。
 2. **图片 / 视频**：只能由画布生成（使用用户在画布设置里配置的图片/视频接口）：
-   `canvas_run_node({ projectId, nodeId })` 触发 → `canvas_node_status` 轮询直到 `status` 变为
-   `done`（成功）或 `error`（失败，读 `error` 字段并向用户说明）。
-3. **模型为空/报错时**：`canvas_node_status` 会给出错误文本（例如"模型未返回文本"）——
-   如实转达，并建议用户在画布设置里更换文本模型；**不要谎报已生成**。
-4. **生成需要时间**：图片/视频可能几十秒到数分钟。触发后用 `canvas_node_status` 间隔轮询
-   （建议 ≥10 秒一次），不要反复触发同一个节点。
+   `canvas_generate_node({ projectId, nodeId, waitSeconds })` 触发并等待（等价于点节点上的生成按钮；
+   图片约 30–120s、视频数分钟），或只触发不等待：`waitSeconds: 0` → 再用 `canvas_node_status` 轮询。
+   **执行前提：画布页面处于打开状态**（运行请求由画布轮询消费）；等待超时≠失败，继续查状态即可。
+3. **改节点内容用 `canvas_update_node`，绝不删节点重建**：读现状用 `canvas_node_status`
+   （它会返回生成节点的对话框提示词 `prompt`、比例/清晰度/时长/分辨率、衔接模式、历史产物 id 等），
+   改内容用 `canvas_update_node({ projectId, nodeId, patch: { prompt: '……', ratio: '9:16', duration: 5 } })`——
+   可改字段：prompt / idea / output / text / script / requirement / shots / label / ratio / size /
+   duration / resolution / frameMode / count / imageModel / videoModel / model。
+   节点 id、类型、坐标、尺寸等结构字段不可改。**用户改提示词、换参数、重生成，全程不需要删节点。**
+4. **模型为空/报错时**：`canvas_node_status` 会给出错误文本（例如"模型未返回文本"）——
+   如实转达，并建议用户在画布设置里更换文本/图片/视频模型；**不要谎报已生成**。
+5. **生成需要时间**：图片/视频可能几十秒到数分钟。用 `canvas_generate_node` 的 `waitSeconds`
+   一次等到终态（推荐），或触发后间隔轮询 `canvas_node_status`（建议 ≥10 秒一次），不要反复触发同一节点。
+6. **节点上的 `genWarn` 字段必须转达**：参考素材超出厂商上限被截断、厂商忽略参数等事实都会写在这里——
+   如实告诉用户，绝不忽略（例如"参考图 12 张超过该厂商上限 9 张，本次只用了前 9 张"）。
 
 ## 五、生成参数来源（不要臆造参数）
 

@@ -2308,6 +2308,7 @@ window.__ModuleLoader__.load({
       if (!base) throw new Error('未配置图片 API 地址（优云智算：https://cp.compshare.cn）');
       const headers = { 'Content-Type': 'application/json', Accept: 'application/json', Authorization: 'Bearer ' + String(s.apiKey || '').trim() };
       const extra = parseExtraParams(s.extra); // 透传：optimize_prompt / use_context_ir 等任务级字段
+      if (o.warn && Array.isArray(refs) && refs.length > 10) o.warn('参考图 ' + refs.length + ' 张超过优云上限 10 张，本次只使用前 10 张');
       // 报错附带实际发出的参数：登记/提交被拒时一眼看到缺什么、值是多少（不再靠猜）
       const bodySummary = (b) => {
         if (!b || typeof b !== 'object') return '';
@@ -3149,6 +3150,16 @@ window.__ModuleLoader__.load({
         return await downloadVideo(url, {});
       },
     };
+    /** 各视频厂商的参考素材上限（与各 runner 内部的截断口径一致）：
+     *  超出上限会被截断——必须显式告警（o.warn → 节点 genWarn），绝不静默丢素材。 */
+    const VIDEO_REF_CAPS = {
+      wan: { img: 10 },
+      minimaxv2: { img: 9, audio: 3 },
+      openai: { img: 8 },
+      seedance: { img: 8 },
+      kling: { img: 1 }, vidu: { img: 1 }, runway: { img: 1 }, veo: { img: 1 },
+      luma: { img: 1 }, pixverse: { img: 1 }, minimax: { img: 1 }, stability: { img: 1 },
+    };
     async function apiVideo(prompt, frameBlob, s, opts) {
       const o = opts || {};
       // 节点级扩展参数（手动参数框）与供应商扩展参数合并（节点优先），各 runner 的 mergeExtra 自动生效
@@ -3165,6 +3176,14 @@ window.__ModuleLoader__.load({
       if (o.frameMode === 'hard' && frameBlob) o.hardFrame = true;
       // 厂商预设层：显式选择了厂商格式（或旧配置自动识别）→ 走该厂商的官方协议适配器
       const vendor = detectVideoVendor(s);
+      // 参考素材上限检查：超出即告警（截断发生在各 runner 内，这里先把事实说清楚）
+      if (o.warn) {
+        const caps = VIDEO_REF_CAPS[vendor] || { img: 1 };
+        const refCount = o.hardFrame ? 0 : (Array.isArray(o.refs) ? o.refs.length : 0);
+        if (refCount > (caps.img || 0)) o.warn('参考图 ' + refCount + ' 张超过该厂商上限 ' + caps.img + ' 张，本次只使用前 ' + caps.img + ' 张');
+        const audCount = Array.isArray(o.audioRefs) ? o.audioRefs.length : 0;
+        if (audCount > (caps.audio || 0)) o.warn('参考音频 ' + audCount + ' 条超过该厂商上限 ' + (caps.audio || 0) + ' 条，本次只使用前 ' + (caps.audio || 0) + ' 条');
+      }
       if (vendor !== 'openai' && vendor !== 'seedance') {
         const run = VIDEO_VENDOR_RUNNERS[vendor];
         if (!run) throw new Error('暂未适配的视频厂商格式：' + vendor);
@@ -5431,9 +5450,20 @@ window.__ModuleLoader__.load({
       const ctl = new AbortController();
       genAbort.ctl = ctl;
       genActive++;
+      // 生成告警收集器：参考素材截断、厂商参数落空等"需要用户知道"的事实，一律挂到节点上（绝不静默）
+      const addWarn = (msg) => {
+        if (!msg) return;
+        update((s) => {
+          const nd = s.graph.nodes[n.id];
+          if (!nd) return;
+          const prev = String(nd.data.genWarn || '').trim();
+          if (prev.includes(msg)) return;
+          nd.data.genWarn = prev ? (prev + '；' + msg) : String(msg);
+        });
+      };
       update((s) => {
         const nd = s.graph.nodes[n.id];
-        if (nd) { nd.data.status = 'running'; nd.data.error = null; nd.data.stopNote = null; }
+        if (nd) { nd.data.status = 'running'; nd.data.error = null; nd.data.stopNote = null; nd.data.genWarn = null; }
         s.running = true; // 单节点触发（对话/节点按钮）也显示停止按钮
       });
       flushSave(); // 立刻落盘 + 推送 Host：切走画面/对话查询都能看到"运行中"
@@ -5455,7 +5485,7 @@ window.__ModuleLoader__.load({
           // 模型解析：节点选择优先，未指定路由到星标默认模型；都没有 = 明确报错（不再静默走演示模式）
           const mcfg = resolveImageModelCfg(settings, nodeImageModelRef(n));
           if (!mcfg) throw new Error(T('errNoImageModel'));
-          const blob = await apiImage(p, metas, mcfg, { size: n.data.size, ratio: n.data.ratio, nodeExtra: n.data.imgExtra });
+          const blob = await apiImage(p, metas, mcfg, { size: n.data.size, ratio: n.data.ratio, nodeExtra: n.data.imgExtra, warn: addWarn });
           const rec = await saveAssetRecord(S.activeId, 'image', blob, {
             name: assetNameFor(n, entities, 'image'),
             prompt: stripMentionMarks(prompt), effectivePrompt: p,
@@ -5479,6 +5509,7 @@ window.__ModuleLoader__.load({
             refs: refs.map((r) => r.blob),
             refNames: refs.map((r) => r.entity || r.name || ''), // 跨镜衔接标注用（图2..N 的实体名）
             nodeExtra: n.data.vidExtra, // 节点级扩展参数（手动参数框，如 {"use_context_ir":true}）
+            warn: addWarn, // 参考素材超限等告警回传（节点上可见）
             // 任务提交成功即持久化 task id：轮询中断/页面关闭后仍可凭 id 回查结果（钱花了就必须能找回）
             onTask: (tid, qurl) => {
               update((s) => { const nd = s.graph.nodes[n.id]; if (nd) { nd.data.taskId = String(tid || ''); nd.data.taskQueryUrl = String(qurl || ''); } });
@@ -8970,7 +9001,10 @@ window.__ModuleLoader__.load({
       const [val, setVal] = useState('');
       const [busy, setBusy] = useState(false);
       const [picking, setPicking] = useState(false);
+      const [stats, setStats] = useState(null); // 存储实况：是否真在用 SQLite、库在哪、多少数据
+      const loadStats = () => { hostRpc('dbStats').then((r) => setStats(r || null)).catch(() => setStats({ error: true })); };
       useEffect(() => { if (S.dataRoot) setVal(S.dataRoot); }, [S.dataRoot]);
+      useEffect(() => { loadStats(); }, [S.dataRoot, S.assetsTick]);
       const save = async () => {
         if (busy) return;
         setBusy(true);
@@ -9057,6 +9091,21 @@ window.__ModuleLoader__.load({
                 h('button', { type: 'button', className: 'dshic-mini', disabled: busy || picking, onPointerDown: (e) => e.stopPropagation(), onClick: save }, T('dataRootSave')),
               ),
               picking ? h('div', { className: 'dshic-hint', key: 'picking' }, T('dataRootPicking')) : null,
+              h('div', { className: 'dshic-row', key: 'stats', style: { alignItems: 'center', gap: 6 } },
+                h('span', { className: 'dshic-hint', style: { flex: 1, minWidth: 0 } },
+                  !stats ? '存储实况：读取中…'
+                    : stats.error ? '存储实况：无法读取（后端未提供该接口）'
+                    : (stats.store === 'sqlite'
+                      ? '存储实况：SQLite 库' + (stats.dbExists ? '（' + (stats.dbBytes / 1048576).toFixed(2) + ' MB' + (stats.walBytes ? ' + WAL ' + (stats.walBytes / 1048576).toFixed(2) + ' MB' : '') + '）' : '（未创建）') + ' · ' + stats.projects + ' 项目 · ' + stats.assets + ' 资产 · 检索 ' + (stats.fts || '-')
+                      : stats.store === 'json'
+                        ? '存储实况：JSON 降级模式（宿主运行时缺 node:sqlite，数据仍在数据目录的文件里）'
+                        : '存储实况：未设置数据目录（资产存浏览器本地 IndexedDB）')),
+                h('button', {
+                  type: 'button', className: 'dshic-mini is-ghost', title: '重新检测存储实况',
+                  onPointerDown: (e) => e.stopPropagation(), onClick: loadStats,
+                }, '↻'),
+              ),
+              stats && stats.dbPath ? h('div', { key: 'dbpath', className: 'dshic-hint' }, '库文件：' + stats.dbPath) : null,
               h('div', { className: 'dshic-row', key: 'row2' },
                 S.dataRoot ? h('button', { type: 'button', className: 'dshic-mini', onPointerDown: (e) => e.stopPropagation(), onClick: openDir }, T('dataRootOpen')) : null,
                 h('button', { type: 'button', className: 'dshic-mini is-ghost', disabled: busy || picking, title: T('dataRootImportHint'), onPointerDown: (e) => e.stopPropagation(), onClick: importFromRoot }, Ic('folder', 11), T('dataRootImportBtn')),
