@@ -12,6 +12,8 @@ import { createReadStream, createWriteStream, existsSync, lstatSync, mkdirSync, 
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { createHash } from 'node:crypto';
+import { createRequire } from 'node:module';
 
 const NAME = 'infinite-canvas';
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -179,6 +181,403 @@ function writeDataRootMeta(meta) {
 function sanitizeFolderName(name) {
   const s = String(name || '').replace(/[\\/:*?"<>|\u0000-\u001f]/g, '_').replace(/\s+/g, ' ').trim().slice(0, 60);
   return s || '未命名项目';
+}
+
+// ============================================================
+// 存储引擎 v2（0.18.0）：SQLite（node:sqlite）+ CAS 对象库
+//   <dataRoot>/canvas.db                元数据 + 项目文档 = 唯一事实源
+//   <dataRoot>/objects/<sha2>/<sha256>  媒体文件（内容寻址、去重、引用计数）
+// node:sqlite 需要 Node ≥22.5（DSH 捆绑 Node 24 满足）；不可用时整站回退 v1 JSON 存储。
+// ============================================================
+const require_ = createRequire(import.meta.url);
+const SQLITE = (() => { try { return require_('node:sqlite'); } catch { return null; } })();
+let _db = null;       // DatabaseSync 实例（按 dataRoot 缓存）
+let _dbRoot = null;
+let _rpcMethods = null; // RPC 方法表（apply 时赋值；测试直接调用）
+
+function sqlActive() { return !!SQLITE && !!dataRoot(); }
+function dbFileFor(root) { return path.join(root, 'canvas.db'); }
+function objectsDirFor(root) { return path.join(root, 'objects'); }
+function objectAbsFor(root, sha) { return path.join(objectsDirFor(root), String(sha).slice(0, 2), String(sha)); }
+
+function closeDb() {
+  if (!_db) return;
+  try { _db.close(); } catch { /* 已关闭 */ }
+  _db = null;
+  _dbRoot = null;
+}
+process.on('exit', () => { try { closeDb(); } catch { /* 忽略 */ } });
+
+/** 打开（或复用）数据目录的 canvas.db；全新库自动执行一次性 v1 迁移。 */
+function getDb() {
+  const root = dataRoot();
+  if (!root || !SQLITE) return null;
+  if (_db && _dbRoot === root) return _db;
+  closeDb();
+  mkdirSync(root, { recursive: true });
+  const db = new SQLITE.DatabaseSync(dbFileFor(root));
+  db.exec('PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000; PRAGMA foreign_keys=ON;');
+  ensureSchema(db, root);
+  _db = db;
+  _dbRoot = root;
+  return _db;
+}
+
+function metaGet(db, k) {
+  const r = db.prepare('SELECT value FROM meta WHERE key = ?').get(k);
+  return r ? r.value : null;
+}
+function metaSet(db, k, v) {
+  db.prepare('INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)').run(k, String(v));
+}
+
+function ensureSchema(db, root) {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT);
+    CREATE TABLE IF NOT EXISTS projects (
+      id TEXT PRIMARY KEY, name TEXT, created_at INTEGER, updated_at INTEGER,
+      bible_updated_at INTEGER DEFAULT 0, summary TEXT, tombstones TEXT, doc TEXT);
+    CREATE TABLE IF NOT EXISTS assets (
+      id TEXT PRIMARY KEY, project_id TEXT, episode_id TEXT,
+      kind TEXT, mime TEXT, name TEXT,
+      rel TEXT, sha TEXT, bytes INTEGER,
+      width INTEGER, height INTEGER, duration REAL,
+      prompt TEXT, category TEXT, entity TEXT, entities TEXT, node_label TEXT,
+      text TEXT, source TEXT, created_at INTEGER, updated_at INTEGER);
+    CREATE INDEX IF NOT EXISTS idx_assets_proj ON assets(project_id, created_at DESC, id DESC);
+    CREATE INDEX IF NOT EXISTS idx_assets_sha ON assets(sha);
+    CREATE TABLE IF NOT EXISTS bindings (asset_id TEXT, entity_id TEXT, PRIMARY KEY (asset_id, entity_id));
+    CREATE TABLE IF NOT EXISTS entities (id TEXT PRIMARY KEY, project_id TEXT, kind TEXT, name TEXT);
+    CREATE TABLE IF NOT EXISTS episodes (id TEXT PRIMARY KEY, project_id TEXT, season INTEGER, number INTEGER, title TEXT);
+  `);
+  if (!metaGet(db, 'fts_tokenizer')) {
+    try {
+      db.exec(`CREATE VIRTUAL TABLE IF NOT EXISTS assets_fts USING fts5(id UNINDEXED, name, prompt, tokenize = 'trigram')`);
+      metaSet(db, 'fts_tokenizer', 'trigram'); // trigram：中文子串级全文检索（SQLite ≥3.34）
+    } catch {
+      db.exec(`CREATE VIRTUAL TABLE IF NOT EXISTS assets_fts USING fts5(id UNINDEXED, name, prompt)`);
+      metaSet(db, 'fts_tokenizer', 'unicode61');
+    }
+  } else if (metaGet(db, 'fts_tokenizer') === 'unicode61') {
+    db.exec(`CREATE VIRTUAL TABLE IF NOT EXISTS assets_fts USING fts5(id UNINDEXED, name, prompt)`);
+  } else {
+    db.exec(`CREATE VIRTUAL TABLE IF NOT EXISTS assets_fts USING fts5(id UNINDEXED, name, prompt, tokenize = 'trigram')`);
+  }
+  if (!metaGet(db, 'schema_version')) {
+    // 全新库：从 v1 布局（~/.dsh 项目 JSON + 数据目录 assets.json 镜像）一次性导入
+    const counts = migrateV1IntoDb(db, root);
+    metaSet(db, 'schema_version', '2');
+    metaSet(db, 'migrated_from', 'v1@' + new Date().toISOString());
+    metaSet(db, 'migrated_counts', JSON.stringify(counts));
+  }
+}
+
+/** 项目文档摘要（列表页用，避免每次列表都解析全量 doc）。 */
+function docSummary(d) {
+  const nodes = Object.values(d.nodes || {}).map((n) => ({
+    id: n.id, type: n.type, label: (n.data && n.data.label) || '', status: (n.data && n.data.status) || 'idle',
+  }));
+  return { nodeIds: Object.keys(d.nodes || {}), nodes, source: d.source || 'app' };
+}
+
+/** v1 → v2 一次性迁移：文档按 updatedAt 新者胜合并；资产索引照抄（媒体文件原地保留，rel 指针不动——零风险迁移）。 */
+function migrateV1IntoDb(db, root) {
+  const counts = { projects: 0, assets: 0 };
+  const insProj = db.prepare('INSERT OR REPLACE INTO projects (id, name, created_at, updated_at, bible_updated_at, summary, tombstones, doc) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
+  const docs = new Map();
+  const consider = (d) => {
+    if (!d || !d.id) return;
+    const cur = docs.get(d.id);
+    if (!cur || ((cur.updatedAt || 0) <= (d.updatedAt || 0))) docs.set(d.id, d);
+  };
+  try {
+    for (const f of readdirSync(PROJECTS_DIR)) {
+      if (!f.endsWith('.json')) continue;
+      try { consider(JSON.parse(readFileSync(path.join(PROJECTS_DIR, f), 'utf8'))); } catch { /* 损坏跳过 */ }
+    }
+  } catch { /* 无旧目录 */ }
+  try {
+    const meta = readDataRootMeta();
+    for (const entry of meta.projects) {
+      try { consider(JSON.parse(readFileSync(path.join(root, 'projects', entry.folder, 'project.json'), 'utf8'))); } catch { /* 跳过 */ }
+    }
+  } catch { /* 无镜像 */ }
+  for (const d of docs.values()) {
+    insProj.run(
+      d.id, String(d.name || d.id).slice(0, 80), d.createdAt || 0, d.updatedAt || 0, d.bibleUpdatedAt || 0,
+      JSON.stringify(docSummary(d)), JSON.stringify(d.tombstones || []), JSON.stringify(d),
+    );
+    counts.projects++;
+  }
+  try {
+    const meta = readDataRootMeta();
+    for (const entry of meta.projects) {
+      let list = null;
+      try { list = JSON.parse(readFileSync(path.join(root, 'projects', entry.folder, 'assets.json'), 'utf8')); } catch { continue; }
+      if (!Array.isArray(list)) continue;
+      for (const a of list) {
+        if (!a || !a.id) continue;
+        upsertAssetRow(db, assetRowFromRecord({ ...a, projectId: a.projectId || entry.id }));
+        counts.assets++;
+      }
+    }
+  } catch { /* 无索引 */ }
+  return counts;
+}
+
+/** 客户端资产记录 → SQL 行参数（0.18 统一形状）。 */
+function assetRowFromRecord(a) {
+  return {
+    id: String(a.id),
+    project_id: String(a.projectId || ''),
+    episode_id: a.episodeId ? String(a.episodeId) : null,
+    kind: String(a.kind || ''),
+    mime: String(a.mime || ''),
+    name: String(a.name || ''),
+    rel: a.rel ? String(a.rel) : null,
+    sha: a.sha ? String(a.sha).toLowerCase() : null,
+    bytes: Number(a.size || a.bytes || 0) || null,
+    width: Number(a.width || 0) || null,
+    height: Number(a.height || 0) || null,
+    duration: Number(a.duration || 0) || null,
+    prompt: String(a.prompt || ''),
+    category: String(a.category || 'general'),
+    entity: a.entity ? String(a.entity) : null,
+    entities: Array.isArray(a.entities) ? JSON.stringify(a.entities) : null,
+    node_label: a.nodeLabel ? String(a.nodeLabel) : null,
+    text: (a.kind === 'text' && typeof a.text === 'string') ? a.text : null,
+    source: String(a.source || ''),
+    created_at: Number(a.createdAt) || Date.now(),
+    updated_at: Date.now(),
+  };
+}
+
+/** SQL 行 → 客户端资产记录（v1 形状超集：新增 sha/episodeId）。 */
+function rowToAsset(r) {
+  const out = {
+    id: r.id, projectId: r.project_id, kind: r.kind, mime: r.mime, name: r.name,
+    createdAt: r.created_at, category: r.category || 'general', prompt: r.prompt || '', source: r.source || '',
+  };
+  if (r.episode_id) out.episodeId = r.episode_id;
+  if (r.rel) { out.rel = r.rel; out.size = r.bytes || 0; }
+  if (r.sha) { out.sha = r.sha; out.size = r.bytes || 0; }
+  if (r.width) out.width = r.width;
+  if (r.height) out.height = r.height;
+  if (r.duration) out.duration = r.duration;
+  if (r.entity) out.entity = r.entity;
+  if (r.entities) { try { out.entities = JSON.parse(r.entities); } catch { /* 忽略 */ } }
+  if (r.node_label) out.nodeLabel = r.node_label;
+  if (r.text != null && r.text !== '') out.text = r.text;
+  return out;
+}
+
+function syncFts(db, id, name, prompt) {
+  db.prepare('DELETE FROM assets_fts WHERE id = ?').run(id);
+  db.prepare('INSERT INTO assets_fts (id, name, prompt) VALUES (?, ?, ?)').run(id, String(name || ''), String(prompt || ''));
+}
+
+function upsertAssetRow(db, row) {
+  db.prepare(`INSERT INTO assets (id, project_id, episode_id, kind, mime, name, rel, sha, bytes, width, height, duration, prompt, category, entity, entities, node_label, text, source, created_at, updated_at)
+    VALUES (@id, @project_id, @episode_id, @kind, @mime, @name, @rel, @sha, @bytes, @width, @height, @duration, @prompt, @category, @entity, @entities, @node_label, @text, @source, @created_at, @updated_at)
+    ON CONFLICT(id) DO UPDATE SET project_id=@project_id, episode_id=@episode_id, kind=@kind, mime=@mime, name=@name, rel=@rel, sha=@sha, bytes=@bytes,
+      width=@width, height=@height, duration=@duration, prompt=@prompt, category=@category, entity=@entity, entities=@entities,
+      node_label=@node_label, text=@text, source=@source, updated_at=@updated_at`).run(row);
+  syncFts(db, row.id, row.name, row.prompt);
+}
+
+/** 对象引用计数：>0 表示仍有资产引用，不可物理删除。 */
+function objectRefCount(db, sha) {
+  return db.prepare('SELECT COUNT(*) AS n FROM assets WHERE sha = ?').get(sha).n;
+}
+/** 引用归零后删除 CAS 对象（其它项目还在用就保留——内容寻址天然跨项目共享）。 */
+function gcObjectIfUnreferenced(db, root, sha) {
+  try {
+    if (objectRefCount(db, sha) > 0) return false;
+    const abs = objectAbsFor(root, sha);
+    if (existsSync(abs)) unlinkSync(abs);
+    return true;
+  } catch { return false; }
+}
+
+/** 资产删除（SQL 模式）：行 + FTS + rel 旧文件 / sha 对象按引用计数清理。 */
+function dbAssetDelete(id) {
+  const db = getDb();
+  const root = dataRoot();
+  const row = db.prepare('SELECT * FROM assets WHERE id = ?').get(id);
+  if (!row) return { ok: true, deleted: false };
+  db.prepare('DELETE FROM assets WHERE id = ?').run(id);
+  db.prepare('DELETE FROM assets_fts WHERE id = ?').run(id);
+  if (row.sha && root) gcObjectIfUnreferenced(db, root, row.sha);
+  if (row.rel && root) {
+    try {
+      const mapped = physicalRel(row.rel) || row.rel;
+      const { abs } = safeJoin(root, mapped);
+      unlinkSync(abs);
+    } catch { /* 已不存在视为成功 */ }
+  }
+  return { ok: true, deleted: true };
+}
+
+/** 资产分页查询：过滤 + keyset 游标（created_at, id）+ 中文全文检索。 */
+function dbAssetsList(args) {
+  const db = getDb();
+  const limit = Math.min(200, Math.max(1, Number(args && args.limit) || 50));
+  const where = [];
+  const params = {};
+  const projectId = String((args && args.projectId) || '');
+  if (projectId) { where.push('project_id = @projectId'); params.projectId = projectId; }
+  const category = String((args && args.category) || '');
+  if (category) { where.push('category = @category'); params.category = category; }
+  const kind = String((args && args.kind) || '');
+  if (kind) { where.push('kind = @kind'); params.kind = kind; }
+  const q = String((args && args.q) || '').trim();
+  if (q) {
+    if (q.length >= 3 && metaGet(db, 'fts_tokenizer') === 'trigram') {
+      where.push("id IN (SELECT id FROM assets_fts WHERE assets_fts MATCH @q)");
+      params.q = '"' + q.replace(/"/g, '""') + '"';
+    } else {
+      where.push("(name LIKE @like ESCAPE '\\' OR prompt LIKE @like ESCAPE '\\')");
+      params.like = '%' + q.replace(/[\\%_]/g, (c) => '\\' + c) + '%';
+    }
+  }
+  let cursor = null;
+  if (args && args.cursor) {
+    try { cursor = JSON.parse(Buffer.from(String(args.cursor), 'base64').toString('utf8')); } catch { cursor = null; }
+  }
+  if (Array.isArray(cursor) && cursor.length === 2) {
+    where.push('(created_at < @cAt OR (created_at = @cAt AND id < @cId))');
+    params.cAt = Number(cursor[0]) || 0;
+    params.cId = String(cursor[1] || '');
+  }
+  const whereSql = where.length ? 'WHERE ' + where.join(' AND ') : '';
+  const total = db.prepare('SELECT COUNT(*) AS n FROM assets ' + whereSql).get(params).n;
+  const rows = db.prepare('SELECT * FROM assets ' + whereSql + ' ORDER BY created_at DESC, id DESC LIMIT @limit').all({ ...params, limit: limit + 1 });
+  let nextCursor = null;
+  if (rows.length > limit) {
+    rows.length = limit;
+    const last = rows[rows.length - 1];
+    nextCursor = Buffer.from(JSON.stringify([last.created_at, last.id])).toString('base64');
+  }
+  return { ok: true, total, items: rows.map(rowToAsset), nextCursor };
+}
+
+function dbAssetsGet(ids) {
+  const db = getDb();
+  const out = [];
+  const get = db.prepare('SELECT * FROM assets WHERE id = ?');
+  for (const id of (Array.isArray(ids) ? ids : []).slice(0, 200)) {
+    const r = get.get(String(id));
+    if (r) out.push(rowToAsset(r));
+  }
+  return { ok: true, items: out };
+}
+
+function dbAssetNames(projectId) {
+  const db = getDb();
+  const rows = db.prepare('SELECT id, name FROM assets WHERE project_id = ? ORDER BY created_at DESC').all(String(projectId || ''));
+  return { ok: true, names: rows.map((r) => ({ id: r.id, name: r.name })) };
+}
+
+function dbAssetCreate(a) {
+  if (!a || !a.id || !a.projectId) throw new Error('需要 asset.id 与 asset.projectId');
+  const db = getDb();
+  const row = assetRowFromRecord(a);
+  upsertAssetRow(db, row);
+  return { ok: true, asset: rowToAsset(db.prepare('SELECT * FROM assets WHERE id = ?').get(row.id)) };
+}
+
+function dbAssetUpdate(id, patch) {
+  const db = getDb();
+  const row = db.prepare('SELECT * FROM assets WHERE id = ?').get(String(id || ''));
+  if (!row) throw new Error('资产不存在：' + id);
+  const cur = rowToAsset(row);
+  const merged = { ...cur };
+  if (patch && patch.name !== undefined) merged.name = String(patch.name).slice(0, 80);
+  if (patch && patch.category !== undefined) merged.category = String(patch.category || 'general');
+  if (patch && patch.prompt !== undefined) merged.prompt = String(patch.prompt || '');
+  if (patch && patch.entity !== undefined) merged.entity = patch.entity ? String(patch.entity) : undefined;
+  if (patch && patch.entities !== undefined) merged.entities = Array.isArray(patch.entities) ? patch.entities : undefined;
+  if (patch && patch.nodeLabel !== undefined) merged.nodeLabel = patch.nodeLabel ? String(patch.nodeLabel) : undefined;
+  if (patch && patch.text !== undefined && cur.kind === 'text') merged.text = String(patch.text || '');
+  upsertAssetRow(db, assetRowFromRecord({ ...merged, createdAt: cur.createdAt }));
+  return { ok: true, asset: rowToAsset(db.prepare('SELECT * FROM assets WHERE id = ?').get(row.id)) };
+}
+
+/** CAS 对象库 GC：扫描 objects/，删除无任何资产行引用的对象（mtime 超过 24h 才删，避免与并发上传竞态）。 */
+function dbObjectsGc() {
+  const root = dataRoot();
+  const db = getDb();
+  if (!root || !db) throw new Error('SQL 存储不可用');
+  const odir = objectsDirFor(root);
+  let scanned = 0;
+  let removed = 0;
+  const grace = Date.now() - 24 * 3600 * 1000;
+  try {
+    for (const bucket of readdirSync(odir)) {
+      const bdir = path.join(odir, bucket);
+      let stats = null;
+      try { stats = statSync(bdir); } catch { continue; }
+      if (!stats.isDirectory()) continue;
+      for (const f of readdirSync(bdir)) {
+        if (!/^[0-9a-f]{64}$/i.test(f)) continue;
+        scanned++;
+        const abs = path.join(bdir, f);
+        let st = null;
+        try { st = statSync(abs); } catch { continue; }
+        if (st.mtimeMs > grace) continue; // 近期写入：可能尚未登记资产行
+        if (objectRefCount(db, f) === 0) {
+          try { unlinkSync(abs); removed++; } catch { /* 忽略 */ }
+        }
+      }
+    }
+  } catch { /* 目录不存在 = 无对象 */ }
+  return { ok: true, scanned, removed };
+}
+
+function readDocOrNull(id) {
+  if (sqlActive()) {
+    const db = getDb();
+    const row = db.prepare('SELECT doc FROM projects WHERE id = ?').get(id);
+    if (!row) return null;
+    try { return JSON.parse(row.doc); } catch { return null; }
+  }
+  try { return JSON.parse(readFileSync(projectFile(id), 'utf8')); } catch { return null; }
+}
+function docExists(id) {
+  if (sqlActive()) {
+    const db = getDb();
+    return !!db.prepare('SELECT id FROM projects WHERE id = ?').get(id);
+  }
+  return existsSync(projectFile(id));
+}
+
+/** JSON 降级模式的资产分页：扫全部 assets.json 平铺 → 过滤 → offset 游标模拟（无检索）。 */
+function jsonAssetsList(args) {
+  const root = dataRoot();
+  const items = [];
+  if (root) {
+    try {
+      const meta = readDataRootMeta();
+      for (const entry of meta.projects) {
+        let list = null;
+        try { list = JSON.parse(readFileSync(path.join(root, 'projects', entry.folder, 'assets.json'), 'utf8')); } catch { continue; }
+        if (Array.isArray(list)) for (const a of list) { if (a && a.id) items.push({ ...a, projectId: a.projectId || entry.id }); }
+      }
+    } catch { /* 无目录 */ }
+  }
+  const projectId = String((args && args.projectId) || '');
+  const kind = String((args && args.kind) || '');
+  const category = String((args && args.category) || '');
+  const rows = items
+    .filter((a) => (!projectId || a.projectId === projectId) && (!kind || a.kind === kind) && (!category || (a.category || 'general') === category))
+    .sort((x, y) => (y.createdAt || 0) - (x.createdAt || 0));
+  const total = rows.length;
+  let start = 0;
+  if (args && args.cursor) { try { start = Number(Buffer.from(String(args.cursor), 'base64').toString('utf8')) || 0; } catch { start = 0; } }
+  const limit = Math.min(200, Math.max(1, Number(args && args.limit) || 50));
+  const page = rows.slice(start, start + limit);
+  const nextCursor = start + limit < total ? Buffer.from(String(start + limit)).toString('base64') : null;
+  return Promise.resolve({ ok: true, total, items: page, nextCursor });
 }
 /** 确保项目的物理文件夹（按项目名）与清单条目存在；改名时尽力重命名目录（被占用/冲突则保留旧文件夹）。返回文件夹名。 */
 function ensureProjectFolder(pid, name) {
@@ -516,6 +915,21 @@ function projectFile(id) {
   return path.join(PROJECTS_DIR, String(id) + '.json');
 }
 function projectsList() {
+  if (sqlActive()) {
+    const db = getDb();
+    const rows = db.prepare('SELECT id, name, created_at, updated_at, bible_updated_at, summary, tombstones FROM projects ORDER BY updated_at DESC').all();
+    return rows.map((r) => {
+      let sum = {};
+      try { sum = JSON.parse(r.summary || '{}'); } catch { /* 旧行/损坏摘要 */ }
+      let tombs = [];
+      try { tombs = JSON.parse(r.tombstones || '[]'); } catch { /* 旧行 */ }
+      return {
+        id: r.id, name: r.name, createdAt: r.created_at || 0, updatedAt: r.updated_at || 0,
+        source: sum.source || 'app', nodeIds: sum.nodeIds || [], nodes: sum.nodes || [],
+        tombstones: Array.isArray(tombs) ? tombs : [], bibleUpdatedAt: r.bible_updated_at || 0,
+      };
+    });
+  }
   let files = [];
   try { files = readdirSync(PROJECTS_DIR).filter((f) => f.endsWith('.json')); } catch { return []; }
   const list = [];
@@ -546,8 +960,7 @@ async function projectsPut(args) {
   if (deletedProjectIds().includes(id)) return { ok: true, id, deleted: true };
   const f = projectFile(id);
   const doc = (args && args.doc) || {};
-  let prev = {};
-  try { prev = JSON.parse(readFileSync(f, 'utf8')); } catch { /* 新项目 */ }
+  let prev = readDocOrNull(id) || {};
   // 墓碑：对话删除的节点 + 客户端本地删除的节点（客户端删除时也会写入 tombstones）。
   // tombstoneAt 记录每个墓碑的创建时刻：只有**推送时间戳（doc.ts）不早于墓碑时刻**的推送
   // 才被认定为"撤销恢复"允许清墓碑；陈旧推送（快照早于删除、无 ts 或 ts 更老）不得借
@@ -724,7 +1137,7 @@ async function fetchProxyForward(reqBody) {
   const buf = Buffer.from(await upstream.arrayBuffer());
   return { status: upstream.status, contentType: upstream.headers.get('content-type') || 'application/json; charset=utf-8', buf };
 }
-/** 设置数据根目录（绝对路径）并立即迁移布局；供 RPC 与测试复用。 */
+/** 设置数据根目录（绝对路径）并挂载数据库；SQL 模式下首次打开自动执行 v1→v2 迁移。 */
 function setDataRoot(raw) {
   raw = String(raw ?? '').trim();
   if (!raw) throw new Error('需要数据根目录路径');
@@ -736,16 +1149,36 @@ function setDataRoot(raw) {
   const cfg = readIcConfig();
   cfg.dataRoot = root;
   writeIcConfig(cfg);
-  // 首次设置/换目录：立即迁移布局（pid 文件夹 → 项目名文件夹）并镜像全部项目文档
-  let migrated = null;
-  try { migrated = dataRootMigrate(); } catch (e) { migrated = { error: String((e && e.message) || e) }; }
-  return { ok: true, dataRoot: root, migrated };
+  closeDb(); // 换目录：关闭旧库句柄，下一次访问按新路径重开
+  let opened = null;
+  if (sqlActive()) {
+    try {
+      const db = getDb();
+      opened = { mode: 'sqlite', migrated: JSON.parse(metaGet(db, 'migrated_counts') || '{}') };
+    } catch (e) { opened = { mode: 'sqlite', error: String((e && e.message) || e) }; }
+  } else {
+    // v1 布局迁移（仅 JSON 降级模式）；就绪后自动搬存量资产到磁盘由客户端负责
+    let migrated = null;
+    try { migrated = dataRootMigrate(); } catch (e) { migrated = { error: String((e && e.message) || e) }; }
+    opened = { mode: 'json', migrated };
+  }
+  return { ok: true, dataRoot: root, ...opened };
 }
 async function projectsDelete(args) {
   const id = String((args && args.id) || '');
-  try { unlinkSync(projectFile(id)); } catch { /* 已不存在视为成功 */ }
+  if (sqlActive()) {
+    const db = getDb();
+    const root = dataRoot();
+    // 先收集对象引用：项目资产行删除后，仅本项目引用的 CAS 对象一并回收
+    const shas = db.prepare('SELECT DISTINCT sha FROM assets WHERE project_id = ? AND sha IS NOT NULL').all(id).map((r) => r.sha);
+    db.prepare('DELETE FROM assets WHERE project_id = ?').run(id);
+    db.prepare('DELETE FROM projects WHERE id = ?').run(id);
+    if (root) for (const sha of shas) gcObjectIfUnreferenced(db, root, sha);
+  } else {
+    try { unlinkSync(projectFile(id)); } catch { /* 已不存在视为成功 */ }
+    try { removeDataRootProject(id); } catch { /* 数据目录镜像清理失败不影响删除 */ }
+  }
   try { addDeletedProjectId(id); } catch { /* 墓碑写失败不影响删除 */ }
-  try { removeDataRootProject(id); } catch { /* 数据目录镜像清理失败不影响删除 */ }
   return { ok: true };
 }
 async function projectsSync() {
@@ -1009,6 +1442,11 @@ function canvasWriteNode(args) {
 }
 /** 读取项目文档：把"文件不存在/内容损坏"变成用户和模型都读得懂的报错（不泄漏绝对路径）。 */
 function readDoc(id) {
+  if (sqlActive()) {
+    const doc = readDocOrNull(id);
+    if (!doc) throw new Error('项目不存在：' + id + '（先用 canvas_list_projects 查看可用项目 id）');
+    return doc;
+  }
   const f = projectFile(id);
   let raw;
   try {
@@ -1022,8 +1460,21 @@ function readDoc(id) {
     throw new Error('项目文件损坏，无法解析：' + id + '（可考虑重建该项目）');
   }
 }
-/** 原子写项目文档：先写临时文件再改名，避免半写导致项目"消失"。 */
+/** 原子写项目文档：SQL 模式走单行事务；文件模式先写临时文件再改名，避免半写导致项目"消失"。 */
 function writeIcDoc(id, doc) {
+  if (sqlActive()) {
+    const db = getDb();
+    db.prepare(`INSERT INTO projects (id, name, created_at, updated_at, bible_updated_at, summary, tombstones, doc)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(id) DO UPDATE SET name = excluded.name, updated_at = excluded.updated_at,
+                  bible_updated_at = excluded.bible_updated_at, summary = excluded.summary,
+                  tombstones = excluded.tombstones, doc = excluded.doc`)
+      .run(
+        id, String(doc.name || id).slice(0, 80), doc.createdAt || Date.now(), doc.updatedAt || Date.now(),
+        doc.bibleUpdatedAt || 0, JSON.stringify(docSummary(doc)), JSON.stringify(doc.tombstones || []), JSON.stringify(doc),
+      );
+    return;
+  }
   const f = projectFile(id);
   const tmp = f + '.' + process.pid + '.tmp';
   writeFileSync(tmp, JSON.stringify(doc, null, 1), 'utf8');
@@ -1237,11 +1688,20 @@ function canvasRelayout(args) {
 }
 async function canvasDeleteProject(args) {
   const id = String((args && args.projectId) || '');
-  const f = projectFile(id);
   let name = id;
-  try { name = JSON.parse(readFileSync(f, 'utf8')).name || id; } catch { /* 本来就不存在 */ }
-  try { unlinkSync(f); } catch { /* 已删除 */ }
-  try { removeDataRootProject(id); } catch { /* 数据目录镜像清理失败不影响删除 */ }
+  const prevDoc = readDocOrNull(id);
+  if (prevDoc && prevDoc.name) name = prevDoc.name;
+  if (sqlActive()) {
+    const db = getDb();
+    const root = dataRoot();
+    const shas = db.prepare('SELECT DISTINCT sha FROM assets WHERE project_id = ? AND sha IS NOT NULL').all(id).map((r) => r.sha);
+    db.prepare('DELETE FROM assets WHERE project_id = ?').run(id);
+    db.prepare('DELETE FROM projects WHERE id = ?').run(id);
+    if (root) for (const sha of shas) gcObjectIfUnreferenced(db, root, sha);
+  } else {
+    try { unlinkSync(projectFile(id)); } catch { /* 已删除 */ }
+    try { removeDataRootProject(id); } catch { /* 数据目录镜像清理失败不影响删除 */ }
+  }
   // 通知客户端把这个项目也从本地删掉，否则下次推送会把它复活 + 长效墓碑：拒收迟到的推送
   const cfg = readIcConfig();
   const prev = (cfg.ui && cfg.ui.deletedProjects) || [];
@@ -1326,10 +1786,17 @@ function storyboardConsistencyWarnings(bible, shots, extraNames) {
   }
   return warnings;
 }
-/** 从数据目录的项目资产索引里取资产名（与客户端"设定集/资产中登记"的判定口径对齐）。 */
+/** 取资产名（SQL 模式查 assets 表；JSON 模式读数据目录索引；与客户端"设定集/资产中登记"的判定口径对齐）。 */
 function readAssetIndexNames(pid) {
+  if (!pid) return [];
+  if (sqlActive()) {
+    try {
+      const db = getDb();
+      return db.prepare('SELECT name FROM assets WHERE project_id = ?').all(pid).map((r) => r.name).filter(Boolean);
+    } catch { return []; }
+  }
   const root = dataRoot();
-  if (!root || !pid) return [];
+  if (!root) return [];
   try {
     const entry = readDataRootMeta().projects.find((p) => p.id === pid);
     if (!entry) return [];
@@ -1381,9 +1848,8 @@ async function canvasNodeStatus(args) {
 async function canvasOpen(args) {
   const pid = String((args && args.projectId) || '');
   if (pid) {
-    const f = projectFile(pid); // 校验 id 合法性
     // 项目必须真实存在：否则工具回"✅ 已打开"，而前端因为找不到项目什么都不做（假成功）
-    if (!existsSync(f)) throw new Error('项目不存在：' + pid + '（先用 canvas_list_projects 查看可用项目 id）');
+    if (!docExists(pid)) throw new Error('项目不存在：' + pid + '（先用 canvas_list_projects 查看可用项目 id）');
   }
   const cfg = readIcConfig();
   cfg.ui = { ...(cfg.ui || {}), openRequest: { projectId: pid || null, at: Date.now() } };
@@ -1588,7 +2054,7 @@ async function updateInstall() {
 export const inject = ['webServer', 'tools'];
 
 // 仅供诊断 / 自动化测试（不属于 RPC 面，运行时行为不受影响）
-export const _internals = { updateCheck, updateInstall, npmLatestVersion, cmpVer, findPnpm, getProfileDir: () => PROFILE_DIR, getVersion: () => VERSION, dataRoot, setDataRoot, dataRootMigrate, dataRootImport, ensureProjectFolder, physicalRel, mirrorProjectToDataRoot, writeAssetIndex, removeAssetIndexEntry, readDataRootMeta, removeDataRootProject, deletedProjectIds, addDeletedProjectId, clearDeletedProjectId, fetchProxyForward, storyboardConsistencyWarnings, readAssetIndexNames, safeJoin, mimeOf, pipeFile, getIcConfigPath: () => CONFIG_PATH, canvasCreateProject, canvasWriteNode, canvasConnect, canvasDeleteProject, canvasDeleteNode, canvasRunNode, canvasNodeStatus, canvasGetBible, canvasUpdateBible, canvasCreateNode, canvasOpen, projectsList, projectsPut, projectsGet, projectsDelete, projectsSync };
+export const _internals = { updateCheck, updateInstall, npmLatestVersion, cmpVer, findPnpm, getProfileDir: () => PROFILE_DIR, getVersion: () => VERSION, dataRoot, setDataRoot, dataRootMigrate, dataRootImport, ensureProjectFolder, physicalRel, mirrorProjectToDataRoot, writeAssetIndex, removeAssetIndexEntry, readDataRootMeta, removeDataRootProject, deletedProjectIds, addDeletedProjectId, clearDeletedProjectId, fetchProxyForward, storyboardConsistencyWarnings, readAssetIndexNames, safeJoin, mimeOf, pipeFile, getIcConfigPath: () => CONFIG_PATH, canvasCreateProject, canvasWriteNode, canvasConnect, canvasDeleteProject, canvasDeleteNode, canvasRunNode, canvasNodeStatus, canvasGetBible, canvasUpdateBible, canvasCreateNode, canvasOpen, projectsList, projectsPut, projectsGet, projectsDelete, projectsSync, sqliteAvailable: () => !!SQLITE, getDb, closeDb, dbAssetsList, dbAssetsGet, dbAssetNames, dbAssetCreate, dbAssetUpdate, dbAssetDelete, dbObjectsGc, objectAbsFor, readDocOrNull, docExists, sqlActive, rpcMethods: () => _rpcMethods };
 
 function resolveModel(providers, want) {
   const byProvider = want && want.provider
@@ -1748,7 +2214,7 @@ export function apply(ctx) {
         const root = dataRoot();
         let exists = false;
         if (root) { try { exists = statSync(root).isDirectory(); } catch { /* 不存在 */ } }
-        return { dataRoot: root, exists, configPath: CONFIG_PATH };
+        return { dataRoot: root, exists, configPath: CONFIG_PATH, sql: !!SQLITE, store: sqlActive() ? 'sqlite' : 'json' };
       },
       async dataRootSet(args) {
         return setDataRoot((args && args.root) ?? '');
@@ -1766,15 +2232,36 @@ export function apply(ctx) {
         } catch { /* 同步抛错同样忽略 */ }
         return { ok: true, dataRoot: root };
       },
-      // 资产元数据索引：客户端把资产记录（无 blob）写入 <项目文件夹>/assets.json（数据目录随拷随用）
+      // 资产元数据写入（v1 兼容入口，0.18 起客户端走 assetCreate）：SQL 模式 upsert 进 assets 表
       async assetIndexPut(args) {
         const projectId = String((args && args.projectId) || '');
         const asset = (args && args.asset) || null;
         if (!projectId || !asset || !asset.id) throw new Error('需要 projectId 与 asset');
+        if (sqlActive()) return dbAssetCreate({ ...asset, projectId });
         return writeAssetIndex(projectId, String((args && args.projectName) || ''), [asset]);
       },
       async assetIndexBulkPut(args) {
         const items = Array.isArray(args && args.items) ? args.items : [];
+        if (sqlActive()) {
+          // 兼容旧客户端的"启动全量同步"：逐条 upsert；空表不覆盖非空项目（防旧浏览器清库）
+          const byProject = new Map();
+          for (const it of items) {
+            if (!it || !it.projectId) continue;
+            const key = String(it.projectId);
+            if (!byProject.has(key)) byProject.set(key, []);
+            if (it.asset && it.asset.id) byProject.get(key).push(it.asset);
+          }
+          const db = getDb();
+          let indexed = 0;
+          for (const [pid, list] of byProject) {
+            if (!list.length) {
+              const n = db.prepare('SELECT COUNT(*) AS n FROM assets WHERE project_id = ?').get(pid).n;
+              if (n > 0) continue; // 空表保护：绝不因旧客户端启动清掉服务端已有资产
+            }
+            for (const a of list) { upsertAssetRow(db, assetRowFromRecord({ ...a, projectId: pid })); indexed++; }
+          }
+          return { ok: true, indexed, projects: byProject.size };
+        }
         const byProject = new Map();
         for (const it of items) {
           if (!it || !it.projectId) continue;
@@ -1790,10 +2277,54 @@ export function apply(ctx) {
         }
         return { ok: true, indexed, projects: byProject.size };
       },
-      // 一键迁移/对齐：旧 pid 文件夹 → 项目名文件夹 + 全部项目文档镜像
-      async dataRootMigrate() { return dataRootMigrate(); },
-      // 一键导入：换电脑后把数据目录拷过来 → 扫描 project.json/assets.json 合并进本机
-      async dataRootImport() { return dataRootImport(); },
+      // ===== 资产库 v2（0.18）：服务端是唯一事实源，任意浏览器/远程访问同一份 =====
+      async assetsList(args) {
+        if (sqlActive()) return dbAssetsList(args);
+        return jsonAssetsList(args);
+      },
+      async assetsGet(args) {
+        if (sqlActive()) return dbAssetsGet(args && args.ids);
+        const ids = new Set((Array.isArray(args && args.ids) ? args.ids : []).map(String));
+        const r = await jsonAssetsList({ limit: 200000 });
+        return { ok: true, items: r.items.filter((a) => ids.has(String(a.id))) };
+      },
+      async assetNames(args) {
+        if (sqlActive()) return dbAssetNames(args && args.projectId);
+        const r = await jsonAssetsList({ projectId: args && args.projectId, limit: 200000 });
+        return { ok: true, names: r.items.map((a) => ({ id: a.id, name: a.name })) };
+      },
+      async assetCreate(args) {
+        const a = (args && args.asset) || null;
+        if (!a || !a.id || !a.projectId) throw new Error('需要 asset.id 与 asset.projectId');
+        if (sqlActive()) return dbAssetCreate(a);
+        return writeAssetIndex(String(a.projectId), String((args && args.projectName) || ''), [a]);
+      },
+      async assetUpdate(args) {
+        const id = String((args && args.id) || '');
+        if (!id) throw new Error('需要 asset.id');
+        if (sqlActive()) return dbAssetUpdate(id, (args && args.patch) || {});
+        // JSON 降级：读旧索引改单条写回
+        const r = await jsonAssetsList({ limit: 200000 });
+        const cur = r.items.find((a) => String(a.id) === id);
+        if (!cur) throw new Error('资产不存在：' + id);
+        const patch = (args && args.patch) || {};
+        const next = { ...cur, ...(patch.name !== undefined ? { name: String(patch.name).slice(0, 80) } : {}), ...(patch.category !== undefined ? { category: String(patch.category || 'general') } : {}) };
+        return writeAssetIndex(String(next.projectId), '', [next]);
+      },
+      async objectsGc() { return dbObjectsGc(); },
+      // 一键迁移/对齐：旧 pid 文件夹 → 项目名文件夹 + 全部项目文档镜像（v1 JSON 模式专用）
+      async dataRootMigrate() {
+        if (sqlActive()) return { ok: true, skipped: 'sqlite（数据目录即主存储，无需布局迁移）' };
+        return dataRootMigrate();
+      },
+      // 一键导入：换电脑后把数据目录拷过来 → SQL 模式指向目录即自动挂载/迁移；JSON 模式扫描合并
+      async dataRootImport() {
+        if (sqlActive()) {
+          const db = getDb();
+          return { ok: true, mode: 'sqlite', migrated: JSON.parse(metaGet(db, 'migrated_counts') || '{}'), note: '数据目录已就绪：指向该目录后打开画布即为全部数据' };
+        }
+        return dataRootImport();
+      },
       async pickFolder() {
         const r = await pickFolderDialog();
         return r; // { ok, path } | { ok:false, cancelled } | { ok:false, unsupported }
@@ -1814,6 +2345,9 @@ export function apply(ctx) {
       async canvasNodeStatus(args) { return canvasNodeStatus(args); },
       async canvasOpen(args) { return canvasOpen(args); },
       async assetDelete(args) {
+        const id = String((args && args.id) || '');
+        if (!id) return { ok: true };
+        if (sqlActive()) return dbAssetDelete(id);
         const root = dataRoot();
         const rel = String((args && args.rel) || '');
         // 逻辑路径（pid）→ 物理路径（项目名文件夹）：不映射会删不到真实文件
@@ -1826,9 +2360,8 @@ export function apply(ctx) {
         }
         // 同步清掉 assets.json 里的记录，保持数据目录与应用状态一致
         const pid = String((args && args.projectId) || '');
-        const assetId = String((args && args.id) || '');
-        if (pid && assetId) {
-          try { removeAssetIndexEntry(pid, String((args && args.projectName) || ''), assetId); } catch { /* 索引清理失败不影响 */ }
+        if (pid) {
+          try { removeAssetIndexEntry(pid, String((args && args.projectName) || ''), id); } catch { /* 索引清理失败不影响 */ }
         }
         return { ok: true };
       },
@@ -2204,8 +2737,14 @@ export function apply(ctx) {
     try { registerCanvasSkill(ctx, toolDisposers); } catch { /* skills 服务不可用时跳过 */ }
 
     // 数据根目录已设置时：启动即迁移/对齐布局（pid 文件夹 → 项目名文件夹 + 项目文档镜像），失败静默（下次设置/重启再试）
-    try { if (dataRoot()) dataRootMigrate(); } catch { /* 迁移失败不影响启动 */ }
+    try {
+      if (dataRoot()) {
+        if (sqlActive()) getDb(); // 预热 SQLite（必要时触发 v1→v2 一次性迁移）
+        else dataRootMigrate();
+      }
+    } catch { /* 迁移失败不影响启动 */ }
 
+    _rpcMethods = methods;
     const registrations = [
       ctx.webServer.register({
         kind: 'exact',
@@ -2389,6 +2928,92 @@ export function apply(ctx) {
           } catch (e) {
             res.statusCode = 400;
             res.end(String((e && e.message) || e));
+          }
+        },
+      }),
+      // CAS 对象库（0.18）：POST 上传（内容寻址去重）+ GET 读取（immutable + Range，远程访问与视频拖动友好）
+      ctx.webServer.register({
+        kind: 'exact',
+        path: `/${NAME}/api/object`,
+        async handler(req, res) {
+          try {
+            const root = dataRoot();
+            if (!root) throw new Error('未设置数据根目录');
+            if (req.method === 'POST' || req.method === 'PUT') {
+              const odir = objectsDirFor(root);
+              mkdirSync(odir, { recursive: true });
+              const tmp = path.join(odir, '.tmp-' + process.pid + '-' + Date.now());
+              const hash = createHash('sha256');
+              let size = 0;
+              const MAX_UPLOAD = 512 * 1024 * 1024;
+              await new Promise((resolve, reject) => {
+                const ws = createWriteStream(tmp);
+                const fail = (err) => {
+                  try { ws.destroy(); } catch { /* 忽略 */ }
+                  try { unlinkSync(tmp); } catch { /* 忽略 */ }
+                  reject(err);
+                };
+                req.on('data', (c) => { size += c.length; hash.update(c); if (size > MAX_UPLOAD) fail(new Error('文件过大（上限 512MB）')); });
+                req.on('error', fail);
+                req.on('aborted', () => fail(new Error('上传中断')));
+                ws.on('error', fail);
+                ws.on('finish', resolve);
+                req.pipe(ws);
+              });
+              const sha = hash.digest('hex');
+              const dest = objectAbsFor(root, sha);
+              let deduped = false;
+              if (existsSync(dest)) {
+                try { unlinkSync(tmp); } catch { /* 忽略 */ }
+                deduped = true; // 内容已存在：内容寻址天然去重
+              } else {
+                mkdirSync(path.dirname(dest), { recursive: true });
+                renameSync(tmp, dest);
+              }
+              res.setHeader('content-type', 'application/json; charset=utf-8');
+              res.end(JSON.stringify({ ok: true, sha, size, deduped }));
+              return;
+            }
+            if (req.method === 'GET') {
+              const u = new URL(req.url, 'http://localhost');
+              const sha = String(u.searchParams.get('sha') || '').toLowerCase();
+              if (!/^[0-9a-f]{64}$/.test(sha)) { res.statusCode = 400; res.end('非法 sha256'); return; }
+              const abs = objectAbsFor(root, sha);
+              let st;
+              try { st = statSync(abs); } catch { res.statusCode = 404; res.end('对象不存在'); return; }
+              const mime = String(u.searchParams.get('mime') || 'application/octet-stream');
+              res.setHeader('content-type', /^[\w.+-]+\/[\w.+-]+$/.test(mime) ? mime : 'application/octet-stream');
+              res.setHeader('accept-ranges', 'bytes');
+              res.setHeader('cache-control', 'public, max-age=31536000, immutable'); // 内容寻址：内容永不变，可永久缓存
+              const m = /^bytes=(\d*)-(\d*)$/.exec(String(req.headers.range || ''));
+              if (m && (m[1] !== '' || m[2] !== '')) {
+                let start;
+                let end;
+                if (m[1] === '') { start = Math.max(0, st.size - Number(m[2])); end = st.size - 1; }
+                else { start = parseInt(m[1], 10); end = m[2] === '' ? st.size - 1 : Math.min(parseInt(m[2], 10), st.size - 1); }
+                if (!Number.isFinite(start) || !Number.isFinite(end) || start > end || start >= st.size) {
+                  res.statusCode = 416;
+                  res.setHeader('content-range', 'bytes */' + st.size);
+                  res.end();
+                  return;
+                }
+                res.statusCode = 206;
+                res.setHeader('content-range', `bytes ${start}-${end}/${st.size}`);
+                res.setHeader('content-length', String(end - start + 1));
+                pipeFile(abs, { start, end }, res);
+              } else {
+                res.setHeader('content-length', String(st.size));
+                pipeFile(abs, {}, res);
+              }
+              return;
+            }
+            res.statusCode = 405;
+            res.setHeader('content-type', 'application/json; charset=utf-8');
+            res.end(JSON.stringify({ error: '仅接受 GET/POST/PUT' }));
+          } catch (e) {
+            res.statusCode = 400;
+            res.setHeader('content-type', 'application/json; charset=utf-8');
+            res.end(JSON.stringify({ error: String((e && e.message) || e) }));
           }
         },
       }),
