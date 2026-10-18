@@ -8546,7 +8546,7 @@ window.__ModuleLoader__.load({
                   h('input', { type: 'checkbox', checked: p.generateAudio === true, onChange: (e) => patchProvider(p.id, 'generateAudio', e.target.checked), onPointerDown: (e) => e.stopPropagation() }),
                   h('span', {}, T('vidAudioOpt'))) : null,
               ],
-              (kind === 'image' || detectVideoVendor(p) === 'openai' || detectVideoVendor(p) === 'seedance') ? [
+              (kind === 'image' || kind === 'video') ? [
                 h(Field, { key: 'extra', label: T('cfgExtra'), value: p.extra || '', onChange: (v) => patchProvider(p.id, 'extra', v), placeholder: '{"watermark":false,"prompt_extend":false}', tip: T('cfgExtraHint') }),
               ] : null,
               h('div', { className: 'dshic-row', style: { marginTop: 4 } },
