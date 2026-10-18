@@ -2157,10 +2157,13 @@ window.__ModuleLoader__.load({
       let base = s.baseUrl.replace(/\/+$/, '').replace(/\/images\/generations$/, '');
       if (!base.replace(/^https?:\/\//i, '').includes('/')) base = base + '/v1';
       const refs = refBlobs || [];
-      const auth = s.apiKey ? { Authorization: 'Bearer ' + s.apiKey } : {};
+      const auth = s.apiKey ? { Authorization: 'Bearer ' + String(s.apiKey).trim() } : {};
       const extra = parseExtraParams(s.extra); // 厂商专属参数（留空不发送）
       // 优云智算（compshare）任务式：Qwen-Image 异步任务（提交 → 轮询 → output_url 下载）
       if (s.mode === 'compshare') return await compshareImageTask(prompt, refs, s, opts);
+      // 协议自动路由：优云智算的图片 API 只有任务式（/image/v1/tasks）——误配成通用模式
+      // 会在 /v1/images/generations 上拿到 401 "invalid api key"（该面不存在），按域名自动切任务式
+      try { if (/compshare\.cn$/i.test(new URL(base).hostname)) return await compshareImageTask(prompt, refs, s, opts); } catch { /* URL 异常由后续流程报错 */ }
       const upstreamTimeout = Number(s.timeoutMs) > 0 ? Number(s.timeoutMs) : 120000; // 商汤等同步接口 20s+，默认 120s
       // 参考图编辑模式：multipart 上传到 /images/edits（OpenAI gpt-image-1 兼容）
       if (refs.length && s.mode === 'edits') {
@@ -2254,7 +2257,7 @@ window.__ModuleLoader__.load({
       let base = String(s.baseUrl || '').trim().replace(/\/+$/, '');
       base = base.replace(/\/image\/v1$/i, ''); // 粘贴了完整路径前缀也兼容
       if (!base) throw new Error('未配置图片 API 地址（优云智算：https://cp.compshare.cn）');
-      const headers = { 'Content-Type': 'application/json', Accept: 'application/json', Authorization: 'Bearer ' + (s.apiKey || '') };
+      const headers = { 'Content-Type': 'application/json', Accept: 'application/json', Authorization: 'Bearer ' + String(s.apiKey || '').trim() };
       const extra = parseExtraParams(s.extra); // 透传：optimize_prompt / use_context_ir 等任务级字段
       const api = async (method, path, body, idem) => {
         const h = { ...headers };
@@ -2824,7 +2827,7 @@ window.__ModuleLoader__.load({
         const ex = (() => { try { return parseExtraParams(s.extra) || {}; } catch (e) { throw new Error('扩展参数配置有误：' + ((e && e.message) || e)); } })();
         // 路径风格：优云智算网关挂 /minimax/v2/...，MiniMax 官方裸 /v2/...；扩展参数 pathPrefix 可显式覆盖
         const prefix = String(ex.pathPrefix || (/compshare/i.test(base) ? '/minimax' : ''));
-        const headers = { 'Content-Type': 'application/json', Accept: 'application/json', Authorization: 'Bearer ' + (s.apiKey || '') };
+        const headers = { 'Content-Type': 'application/json', Accept: 'application/json', Authorization: 'Bearer ' + String(s.apiKey || '').trim() };
         // 分辨率大小写敏感（480P/768P/1080P/2K/4K）：画布的 720P 语义等同原生 768P，显式映射不依赖厂商静默降级
         const RESO = { '480P': '480P', '720P': '768P', '768P': '768P', '1080P': '1080P', '2K': '2K', '4K': '4K' };
         const resolution = String(ex.resolution || RESO[String(o.resolution || '').toUpperCase()] || '768P');
