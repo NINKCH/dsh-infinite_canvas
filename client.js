@@ -249,6 +249,7 @@ window.__ModuleLoader__.load({
       'imgMode': '参考图模式',
       'modeGenerations': '生图 /images/generations（支持多参考图）',
       'modeEdits': '参考图编辑 /images/edits（多参考图上传）',
+      'modeCompshare': '优云智算任务式 /image/v1/tasks（Qwen-Image，参考图登记 + 提示词优化）',
       'catMismatch': '提示：资产分类为「{a}」，端口期望「{b}」，已保留连接',
       'nStoryboard': '分镜表',
       'nScript': '剧本',
@@ -656,6 +657,7 @@ window.__ModuleLoader__.load({
       'imgMode': 'Reference mode',
       'modeGenerations': 'image /images/generations (with references)',
       'modeEdits': 'image edit /images/edits (multi-reference upload)',
+      'modeCompshare': 'Compshare task /image/v1/tasks (Qwen-Image, reference upload)',
       'catMismatch': 'Note: asset category is "{a}", port expects "{b}". Connected anyway.',
       'nStoryboard': 'Storyboard',
       'nScript': 'Script',
@@ -2151,6 +2153,8 @@ window.__ModuleLoader__.load({
       const refs = refBlobs || [];
       const auth = s.apiKey ? { Authorization: 'Bearer ' + s.apiKey } : {};
       const extra = parseExtraParams(s.extra); // 厂商专属参数（留空不发送）
+      // 优云智算（compshare）任务式：Qwen-Image 异步任务（提交 → 轮询 → output_url 下载）
+      if (s.mode === 'compshare') return await compshareImageTask(prompt, refs, s, opts);
       const upstreamTimeout = Number(s.timeoutMs) > 0 ? Number(s.timeoutMs) : 120000; // 商汤等同步接口 20s+，默认 120s
       // 参考图编辑模式：multipart 上传到 /images/edits（OpenAI gpt-image-1 兼容）
       if (refs.length && s.mode === 'edits') {
@@ -2214,6 +2218,106 @@ window.__ModuleLoader__.load({
         return r2.blob;
       }
       throw new Error('图片 API 响应中没有 data[0].b64_json / url');
+    }
+
+    // —— 优云智算（compshare）Qwen-Image 任务式图片 API ——
+    //  提交 POST /image/v1/tasks（Idempotency-Key 必填，UUID）→ 3s 轮询 GET /image/v1/tasks/{id}
+    //  → succeeded 取 task.output_url 下载；failed/cancelled/blocked 抛出明确原因。
+    //  参考图走三步上传（upload_urls → PUT 签名直传 → assets 登记）换 asset_id；
+    //  登记结果缓存在画布资产元数据（compAssetIdCache）：同一张 CAS 资产不重复上传。
+    const compAssetIdCache = new Map(); // 画布资产 id → 优云 asset_id
+    /** 参考图上传前置：统一 MIME/扩展名并测真实像素尺寸（平台校验上传宽高必须与图片一致）。 */
+    async function imageBlobMeta(input) {
+      const blob = input.blob || input;
+      const type = (blob.type || 'image/png').toLowerCase();
+      const mime = /jpeg|jpg/.test(type) ? 'image/jpeg' : /webp/.test(type) ? 'image/webp' : 'image/png';
+      const ext = mime === 'image/jpeg' ? 'jpg' : mime === 'image/webp' ? 'webp' : 'png';
+      let width = 0;
+      let height = 0;
+      try {
+        const bmp = await createImageBitmap(blob);
+        width = bmp.width;
+        height = bmp.height;
+        try { bmp.close && bmp.close(); } catch { /* 忽略 */ }
+      } catch { /* 测量失败交由下方显式报错 */ }
+      if (!width || !height) throw new Error('参考图尺寸测量失败（仅支持 PNG/JPG/WebP）');
+      return { blob, mime, ext, width, height };
+    }
+    async function compshareImageTask(prompt, refs, s, opts) {
+      const o = opts || {};
+      let base = String(s.baseUrl || '').trim().replace(/\/+$/, '');
+      base = base.replace(/\/image\/v1$/i, ''); // 粘贴了完整路径前缀也兼容
+      if (!base) throw new Error('未配置图片 API 地址（优云智算：https://cp.compshare.cn）');
+      const headers = { 'Content-Type': 'application/json', Accept: 'application/json', Authorization: 'Bearer ' + (s.apiKey || '') };
+      const extra = parseExtraParams(s.extra); // 透传：optimize_prompt / use_context_ir 等任务级字段
+      const api = async (method, path, body, idem) => {
+        const h = { ...headers };
+        if (idem) h['Idempotency-Key'] = idem;
+        const r = await fetchViaProxy(base + path, { method, headers: h, ...(body !== undefined ? { body } : {}), timeoutMs: 120000, label: '优云图片 ' + method });
+        if (!r.ok) throw new Error('优云图片 API HTTP ' + r.status + '：' + r.text.slice(0, 300));
+        let j = null; try { j = JSON.parse(r.text); } catch { throw new Error('优云图片 API 响应非 JSON：' + r.text.slice(0, 200)); }
+        // 网关业务错误可能 HTTP 200：RetCode≠0 或 {type:'error'} 都算失败
+        if ((j.RetCode != null && Number(j.RetCode) !== 0) || j.type === 'error') {
+          throw new Error('优云图片 API 失败：' + ((j.error && j.error.message) || j.Message || JSON.stringify(j).slice(0, 200)));
+        }
+        return j;
+      };
+      // 参考图：三步上传换 asset_id（≤10 张，顺序生效；已登记过的资产直接复用）
+      const referenceImages = [];
+      for (const ref of (refs || []).slice(0, 10)) {
+        const cached = ref.assetId ? compAssetIdCache.get(ref.assetId) : null;
+        if (cached) { referenceImages.push({ asset_id: cached }); continue; }
+        const meta = await imageBlobMeta(ref);
+        const fileName = 'ref-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 6) + '.' + meta.ext;
+        const up = await api('POST', '/image/v1/upload_urls', { file_name: fileName, content_type: meta.mime, file_size: meta.blob.size });
+        const put = await fetchViaProxy(up.upload_url, {
+          method: 'PUT',
+          headers: { 'Content-Type': meta.mime, Authorization: up.authorization, bucket: up.bucket, ufile_indicated_region: up.region },
+          bodyRaw: arrayBufferToBase64(await meta.blob.arrayBuffer()),
+          bodyContentType: meta.mime,
+          timeoutMs: 180000,
+          label: '参考图上传',
+        });
+        if (!put.ok) throw new Error('参考图上传失败 HTTP ' + put.status + '：' + put.text.slice(0, 200));
+        const reg = await api('POST', '/image/v1/assets', { object_key: up.object_key, file_name: fileName, content_type: meta.mime, file_size: meta.blob.size, width: meta.width, height: meta.height });
+        const aid = reg && reg.reference && reg.reference.asset_id;
+        if (!aid) throw new Error('参考图登记失败：响应中没有 reference.asset_id');
+        if (ref.assetId) compAssetIdCache.set(ref.assetId, aid);
+        referenceImages.push({ asset_id: aid });
+      }
+      // 任务体：用户可变项透传（比例/清晰度原样发送，厂商不支持会明确报错）；文本任务不带模型字段（端点即 Qwen-Image）
+      const body = {
+        prompt,
+        aspect_ratio: String(o.ratio || '1:1'),
+        resolution: String(o.size || '1K'),
+        ...(referenceImages.length ? { reference_images: referenceImages } : {}),
+        ...(extra || {}),
+      };
+      const idem = (globalThis.crypto && crypto.randomUUID) ? crypto.randomUUID() : ('idem-' + Date.now().toString(36) + Math.random().toString(36).slice(2));
+      const j1 = await api('POST', '/image/v1/tasks', body, idem);
+      const tid = j1 && j1.task_id;
+      if (!tid) throw new Error('优云图片任务创建失败：响应中没有 task_id');
+      if (o.onTask) { try { o.onTask(tid, base + '/image/v1/tasks/' + encodeURIComponent(tid)); } catch { /* 忽略 */ } }
+      const FINAL = { failed: 1, cancelled: 1, blocked: 1 };
+      const deadline = Date.now() + 20 * 60 * 1000;
+      for (;;) {
+        await sleep(3000); // 官方推荐 3s 轮询
+        if (genAborted()) {
+          try { await api('POST', '/image/v1/tasks/' + encodeURIComponent(tid) + '/cancel', {}); } catch { /* 取消失败不影响中断（积分自动释放） */ }
+          throw new Error(T('stoppedNote'));
+        }
+        const q = await api('GET', '/image/v1/tasks/' + encodeURIComponent(tid)).catch((e) => { console.warn('[infinite-canvas] 优云图片轮询失败（继续）:', String((e && e.message) || e)); return null; });
+        if (!q || !q.task) continue;
+        const st = String(q.task.status || '');
+        if (st === 'succeeded') {
+          if (!q.task.output_url) throw new Error('优云图片任务成功但没有 output_url');
+          const dl = await fetchViaProxy(q.task.output_url, { method: 'GET', timeoutMs: 180000, label: '下载生成图片' });
+          if (!dl.ok) throw new Error('下载生成图片失败 HTTP ' + dl.status);
+          return dl.blob;
+        }
+        if (FINAL[st]) throw new Error('优云图片任务' + (st === 'blocked' ? '被审核拦截' : st) + '：' + (q.task.error_message || q.task.error_code || st));
+        if (Date.now() > deadline) throw new Error('优云图片任务超过 20 分钟未完成（任务 id ' + tid + '，可凭 id 继续回查）');
+      }
     }
 
     /** 带超时的 fetch：网关挂住时不会让节点永久处于 running（停止/刷新仍能恢复）。 */
@@ -2440,7 +2544,8 @@ window.__ModuleLoader__.load({
       seedance:  { label: '火山方舟 · Seedance（豆包视频）', base: 'https://ark.cn-beijing.volces.com/api/v3/contents/generations/tasks', keyPh: 'ARK API Key', note: 'Base URL 填方舟提交端点或 /api/v3 均可；模型 id 如 doubao-seedance-2-0-260128' },
       kling:     { label: '快手可灵 Kling', base: 'https://api.klingai.com', keyPh: 'AK:SK（冒号分隔）', note: 'Key 填 AK:SK，代码自动签 JWT；国际站把 Base URL 改为 api-singapore.klingai.com；时长按官方 5/10s 取整' },
       wan:       { label: '阿里通义万相 Wan（DashScope）', base: 'https://dashscope.aliyuncs.com', note: '异步任务制；国际站把 Base URL 改为 dashscope-intl.aliyuncs.com；图生视频走 img_url' },
-      minimax:   { label: 'MiniMax 海螺视频', base: 'https://api.minimaxi.com', note: '异步任务制；时长按官方 6/10s 取整；首帧图支持 base64' },
+      minimax:   { label: 'MiniMax 海螺视频（V1 协议）', base: 'https://api.minimaxi.com', note: '异步任务制；时长按官方 6/10s 取整；首帧图支持 base64' },
+      minimaxv2: { label: 'MiniMax H3 · V2 协议（优云智算 / 官方）', base: 'https://cp.compshare.cn', keyPh: 'sk-ml-…', note: 'V2 协议自动适配：优云智算走 /minimax/v2，官方（api.minimax.io/.cn）走 /v2；content[] 多模态（首帧/尾帧/参考图≤9/视频≤3/音频≤3），原生音频，分辨率 480P/768P/1080P/2K/4K（大小写敏感），时长 4-30s；use_context_ir / mute_audio 等走扩展参数' },
       vidu:      { label: '生数科技 Vidu', base: 'https://api.vidu.com', note: '图片支持 base64；时长按官方 4/8s 取整' },
       runway:    { label: 'Runway Gen-4', base: 'https://api.dev.runwayml.com', note: '代码自动带 X-Runway-Version 头；时长 5/10s；首帧图支持 dataURL' },
       veo:       { label: 'Google Veo（Gemini API）', base: 'https://generativelanguage.googleapis.com', keyPh: 'API Key', note: '模型 id 如 veo-3.0-fast-generate-preview；图生视频走 inlineData base64' },
@@ -2522,6 +2627,7 @@ window.__ModuleLoader__.load({
       const model = String(s.model || '').toLowerCase();
       // 模型名优先：第三方网关（relayrouter 等）的 URL 看不出真实厂商，只有模型名能说明
       if (/wanx|万相|(^|[^a-z])wan(\d|[-_]\d|x)/.test(model)) return 'wan';
+      if (/minimax-?h3|hailuo-?03/.test(model)) return 'minimaxv2'; // H3 走 V2 协议（必须先于 V1 minimax 判定）
       if (/(^|[^a-z])kling/.test(model)) return 'kling';
       if (/minimax|hailuo/.test(model)) return 'minimax';
       if (/vidu/.test(model)) return 'vidu';
@@ -2701,6 +2807,62 @@ window.__ModuleLoader__.load({
             return u ? { state: 'done', url: u } : { state: 'fail', error: '成功但无视频下载地址' };
           }
           if (st === 'fail') return { state: 'fail', error: (j.base_resp && j.base_resp.status_msg) || '失败' };
+          return { state: 'wait' };
+        });
+        return await downloadVideo(url, {});
+      },
+      // —— MiniMax H3 · V2 协议（优云智算 /minimax/v2，官方 api.minimax.io|api.minimaxi.com /v2）：
+      //    content[] 多模态自动路由（文生/首尾帧/参考素材），原生音频，分辨率大小写敏感 ——
+      async minimaxv2(prompt, frameBlob, s, o) {
+        const base = vendorBase(s.url, VIDEO_VENDORS.minimaxv2.base);
+        const ex = (() => { try { return parseExtraParams(s.extra) || {}; } catch (e) { throw new Error('扩展参数配置有误：' + ((e && e.message) || e)); } })();
+        // 路径风格：优云智算网关挂 /minimax/v2/...，MiniMax 官方裸 /v2/...；扩展参数 pathPrefix 可显式覆盖
+        const prefix = String(ex.pathPrefix || (/compshare/i.test(base) ? '/minimax' : ''));
+        const headers = { 'Content-Type': 'application/json', Accept: 'application/json', Authorization: 'Bearer ' + (s.apiKey || '') };
+        // 分辨率大小写敏感（480P/768P/1080P/2K/4K）：画布的 720P 语义等同原生 768P，显式映射不依赖厂商静默降级
+        const RESO = { '480P': '480P', '720P': '768P', '768P': '768P', '1080P': '1080P', '2K': '2K', '4K': '4K' };
+        const resolution = String(ex.resolution || RESO[String(o.resolution || '').toUpperCase()] || '768P');
+        // content[] 组装：H3 规则——首尾帧与参考素材不可混用；参考音频不能独立使用（必须伴随图/视频）
+        const refs = o.hardFrame ? [] : (o.refs || []).slice(0, 9);
+        const auds = (o.audioRefs || []).slice(0, 3);
+        const refMode = refs.length > 0 || auds.length > 0; // 有参考素材（含音频）→ 全部走参考模式
+        const content = [{ type: 'text', text: prompt }];
+        if (frameBlob && !refMode) {
+          content.push({ type: 'image_url', image_url: { url: await blobToDataUrlScaled(frameBlob) }, role: 'first_frame' });
+        } else {
+          if (frameBlob) content[0].text = videoRefNote(o.refNames) + '\n' + prompt; // 首帧降级为首张参考图，衔接标注前置
+          if (frameBlob) content.push({ type: 'image_url', image_url: { url: await blobToDataUrlScaled(frameBlob) }, role: 'reference_image' });
+          for (const b of refs.slice(0, refMode && frameBlob ? 8 : 9)) content.push({ type: 'image_url', image_url: { url: await blobToDataUrlScaled(b) }, role: 'reference_image' });
+          for (const b of auds) content.push({ type: 'audio_url', audio_url: { url: await blobToDataUrl(b) }, role: 'reference_audio' }); // 音色对齐（原生音画联合）
+        }
+        const body = {
+          model: s.model || 'MiniMax-H3',
+          content,
+          resolution,
+          duration: Math.round(Number(o.duration)) || 5, // 官方 4-30s 整数（优云智算扩展上限 30）
+          ratio: (frameBlob && !refMode) ? 'adaptive' : (o.ratio || '16:9'), // 纯首帧模式比例跟随素材；其余用节点比例
+          aigc_watermark: false, // 稳定默认：不加 AIGC 水印
+        };
+        // 扩展参数透传：use_context_ir / skill_id / mute_audio / pathPrefix / resolution 覆盖等
+        for (const k of ['use_context_ir', 'skill_id', 'mute_audio', 'pathPrefix', 'resolution', 'callback_url', 'callback_token']) { if (ex[k] !== undefined) body[k] = ex[k]; }
+        const r1 = await fetchViaProxy(base + prefix + '/v2/video_generation', { headers, body, label: 'H3 提交' });
+        if (!r1.ok) throw new Error('H3 提交 HTTP ' + r1.status + '：' + r1.text.slice(0, 300));
+        let j1 = null; try { j1 = JSON.parse(r1.text); } catch { throw new Error('H3 响应非 JSON：' + r1.text.slice(0, 200)); }
+        const tid = j1 && (j1.task_id || (j1.data && j1.data.task_id));
+        if (!tid) throw new Error('H3 响应中没有 task_id：' + r1.text.slice(0, 200));
+        if (o.onTask) { try { o.onTask(tid, base + prefix + '/v2/query/video_generation/' + encodeURIComponent(tid)); } catch { /* 持久化失败不影响生成 */ } }
+        const url = await vendorPoll('H3', 8000, async () => {
+          const r = await fetchViaProxy(base + prefix + '/v2/query/video_generation/' + encodeURIComponent(tid), { method: 'GET', headers, timeoutMs: 60000, label: 'H3 查询' });
+          if (!r || !r.ok) return { state: 'wait' };
+          let j = null; try { j = JSON.parse(r.text); } catch { return { state: 'wait' }; }
+          const t = (j && j.task) || j;
+          const st = String((t && t.status) || '').toLowerCase();
+          if (st === 'succeeded') {
+            const u = t && t.content && t.content.url;
+            return u ? { state: 'done', url: u } : { state: 'fail', error: '成功但响应中没有 content.url' };
+          }
+          if (st === 'failed') return { state: 'fail', error: (t && t.error && (t.error.message || t.error.code)) || '失败' };
+          if (st === 'cancelled' || st === 'expired') return { state: 'fail', error: '任务' + st };
           return { state: 'wait' };
         });
         return await downloadVideo(url, {});
@@ -5192,7 +5354,7 @@ window.__ModuleLoader__.load({
         if (type === 'image-gen') {
           // 参考图 = 连线（用户顺序）+ @引用命中的设定集资产（按出现顺序）
           const { refs, entities } = await collectRefs(n, prompt, bible);
-          const metas = refs.map((r) => ({ blob: r.blob, name: r.name, category: r.category }));
+          const metas = refs.map((r) => ({ blob: r.blob, name: r.name, category: r.category, assetId: r.assetId }));
           const p = buildEffectivePrompt(prompt, refs, entities, bible);
           // 模型解析：节点选择优先，未指定路由到星标默认模型；都没有 = 明确报错（不再静默走演示模式）
           const mcfg = resolveImageModelCfg(settings, nodeImageModelRef(n));
@@ -6085,6 +6247,18 @@ window.__ModuleLoader__.load({
       const models = kind === 'image' ? flattenImageModels(settings) : flattenVideoModels(settings);
       const star = kind === 'image' ? settings.imageStar : settings.videoStar;
       const cur = kind === 'image' ? nodeImageModelRef(n) : nodeVideoModelRef(n);
+      // 当前选中模型的厂商：H3（V2 协议）分辨率档位扩展为 480P/768P/1080P/2K/4K（大小写敏感）
+      const videoModelName = (() => {
+        if (kind !== 'video') return '';
+        const [pid, mid] = String(cur || '').split('|');
+        const p = (settings.videoProviders || []).find((x) => x.id === pid);
+        const m = p && (p.models || []).find((x) => x.id === mid);
+        return (m && m.model) || '';
+      })();
+      const isH3 = kind === 'video' && /minimax-?h3|hailuo-?03/i.test(videoModelName);
+      const resos = (kind === 'video' && isH3)
+        ? (['480P', '768P', '1080P', '2K', '4K'].includes(String(n.data.resolution)) ? ['480P', '768P', '1080P', '2K', '4K'] : ['480P', '768P', '1080P', '2K', '4K'].concat([String(n.data.resolution || '')]))
+        : (VIDEO_RESOLUTIONS.includes(String(n.data.resolution)) ? VIDEO_RESOLUTIONS : VIDEO_RESOLUTIONS.concat([String(n.data.resolution || '')]));
       const setModel = (v) => update((s) => {
         const nd = s.graph.nodes[n.id];
         if (!nd) return;
@@ -6128,7 +6302,7 @@ window.__ModuleLoader__.load({
                 }),
                 h(MiniSelect, {
                   key: 'res', value: n.data.resolution || '720P', title: T('resolutionLabel'), width: 68,
-                  options: VIDEO_RESOLUTIONS.map((x) => ({ value: x, label: x })),
+                  options: resos.map((x) => ({ value: x, label: x })),
                   onChange: (v) => update((s) => { const nd = s.graph.nodes[n.id]; if (nd) nd.data.resolution = v; }),
                 }),
               ],
@@ -8292,7 +8466,8 @@ window.__ModuleLoader__.load({
                   h('span', { className: 'dshic-field-label' }, T('imgMode')),
                   h('select', { className: 'dshic-select', value: p.mode || 'generations', onChange: (e) => patchProvider(p.id, 'mode', e.target.value), onPointerDown: (e) => e.stopPropagation() },
                     h('option', { value: 'generations' }, T('modeGenerations')),
-                    h('option', { value: 'edits' }, T('modeEdits')))),
+                    h('option', { value: 'edits' }, T('modeEdits')),
+                    h('option', { value: 'compshare' }, T('modeCompshare')))),
               ] : [
                 (detectVideoVendor(p) === 'openai' || detectVideoVendor(p) === 'seedance') ? h(Field, { key: 'of', label: T('vidOutFormat'), value: p.outputFormat || '', onChange: (v) => patchProvider(p.id, 'outputFormat', v), placeholder: 'mp4（留空不发送）' }) : null,
                 (detectVideoVendor(p) === 'openai' || detectVideoVendor(p) === 'seedance') ? h('label', { key: 'ga', className: 'dshic-row', style: { gap: 6, fontSize: 11 } },
