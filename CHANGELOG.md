@@ -4,6 +4,12 @@ All notable changes to `@ninkch/dsh-infinite-canvas` are documented here (newest
 GitHub Releases carry the same notes in English; maintainer-facing runbooks live in
 [`RELEASING.md`](RELEASING.md) and [`docs/release.md`](docs/release.md).
 
+## [0.18.4] — 2026-10-18
+
+### Fixed
+- **Reference images with EXIF rotation no longer fail asset registration on Compshare**: the platform verifies the declared width/height against the dimensions it parses from the uploaded file, while the browser's decoder returns them rotated (portrait photos come back swapped) — registration was rejected with `Params [Width/Height] not available`. The generator now parses the **raw file dimensions** itself (PNG IHDR / JPEG SOF markers, unit-tested) and, when registration is rejected, **retries once with the raw dimensions**; the console logs the successful switch. Decode failures also fall back to the raw dimensions instead of aborting.
+- **Compshare API errors echo the parameters that were actually sent** (`已发送参数：object_key=… file_size=… width=… height=…`), so a rejection states what the server received instead of leaving the payload to guesswork.
+
 ## [0.18.3] — 2026-10-18
 
 ### Fixed
