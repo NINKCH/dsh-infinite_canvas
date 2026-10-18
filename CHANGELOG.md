@@ -4,6 +4,18 @@ All notable changes to `@ninkch/dsh-infinite-canvas` are documented here (newest
 GitHub Releases carry the same notes in English; maintainer-facing runbooks live in
 [`RELEASING.md`](RELEASING.md) and [`docs/release.md`](docs/release.md).
 
+## [0.18.2] — 2026-10-18
+
+### Added
+- **Per-node manual extra params**: image and video generation nodes get a dedicated "Extended params (JSON)" field; node-level parameters merge over provider-level extras (node wins). MiniMax H3's `use_context_ir` / `mute_audio` / `skill_id` belong here.
+- **Asset re-import script** (`scripts/reimport-assets.mjs`): standalone, idempotent recovery for data directories whose asset index was missed by the one-shot v1→v2 migration (e.g. `canvas.meta.json` absent or empty at first database creation — exactly the "nodes are there, assets are gone" report). Scans folder-by-folder without needing the manifest; project docs missing locally are restored from `project.json` mirrors; records created after 0.18 (already CAS-backed) are never overwritten.
+
+### Fixed
+- **Fetch proxy deduplicated forwarded headers** (lowercase normalization): a client-sent `Content-Type` plus the proxy's defaulting `content-type` were forwarded as two headers, which strict gateways reject with `400 Content-Type must be application/json` (observed on Compshare's task API). This removes the same latent risk for every vendor routed through the proxy.
+- **Compshare image hosts auto-route to the task API**: an `*.compshare.cn` base URL configured with the OpenAI-compatible style used to 401 (`invalid api key`) because that gateway has no such surface; it now always uses the task API regardless of the configured style. Pasted API keys are trimmed (stray whitespace/newlines used to break auth).
+- **Settings changes refresh the canvas immediately**: node model dropdowns and star defaults kept a stale list until an unrelated re-render happened.
+- **Node history strips follow asset deletion**: deleting an asset sweeps its entries from every node's generation history (plus stale last-frame references); existing ghost "…" entries self-heal when the node opens — pruning is skipped while the server is unreachable, so valid history is never mistakenly removed.
+
 ## [0.18.1] — 2026-10-18
 
 ### Fixed
