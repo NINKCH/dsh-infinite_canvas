@@ -2078,7 +2078,8 @@ window.__ModuleLoader__.load({
     }
     async function saveAssetRecord(projectId, kind, blob, meta) {
       const id = uid('a');
-      const mime = blob.type || (kind === 'image' ? 'image/png' : 'video/webm');
+      const mime = blob.type && blob.type !== 'application/octet-stream' ? blob.type
+        : (kind === 'image' ? 'image/png' : 'video/mp4');
       const rec = {
         id, projectId, kind,
         mime,
@@ -2093,36 +2094,29 @@ window.__ModuleLoader__.load({
       if (meta && Array.isArray(meta.entities) && meta.entities.length) rec.entities = meta.entities;
       if (meta && meta.nodeLabel) rec.nodeLabel = meta.nodeLabel;
       if (meta && meta.effectivePrompt) rec.effectivePrompt = meta.effectivePrompt;
-      if (S.dataRoot) {
-        if (S.store === 'sqlite') {
-          // 0.18 主路径：上传 CAS 对象（内容寻址去重）→ 服务端建资产行（任意浏览器/远程立即可见）
-          const r = await fetch('/' + NS + '/api/object', { method: 'POST', body: blob });
-          if (!r.ok) throw new Error('资产上传失败: ' + (await r.text()));
-          const j = await r.json();
-          rec.sha = j.sha;
-          rec.size = j.size || blob.size;
-          rec.stored = 'cas';
-          const proj = S.projects.find((p) => p.id === projectId);
-          const saved = await hostRpc('assetCreate', { asset: assetIndexRecord(rec), projectName: (proj && proj.name) || '' });
-          const out = (saved && saved.asset) || rec;
-          assetMem.set(out.id, out);
-          assetNameCache.set(out.id, out.name);
-          return out;
-        }
-        // JSON 降级（Host 无 node:sqlite）：旧落盘路径 + 索引镜像
-        const rel = `projects/${projectId}/${kind}/${assetFileBase(rec)}.${extFromMime(mime)}`;
-        const r = await fetch('/' + NS + '/api/asset?rel=' + encodeURIComponent(rel), { method: 'POST', body: blob });
-        if (!r.ok) throw new Error('资产落盘失败: ' + (await r.text()));
-        rec.rel = rel;
-        rec.size = blob.size;
-        rec.stored = 'disk';
-      } else {
-        rec.blob = blob;
-        rec.stored = 'idb';
+      // 【硬规则】资产文件一律落数据目录的项目文件夹（projects/<项目>/<类型>/<文件>），元数据进
+      // canvas.db；IndexedDB 已废弃——未配置数据目录时明确报错，绝不静默塞进浏览器。
+      if (!S.dataRoot) {
+        throw new Error('未设置数据根目录：资产无法持久化（浏览器 IndexedDB 存储已废弃）。请在 画布 → 设置 → 数据根目录 里配置后重新生成。');
       }
-      await idbPut(rec);
+      const rel = `projects/${projectId}/${kind}/${assetFileBase(rec)}.${extFromMime(mime)}`;
+      const r = await fetch('/' + NS + '/api/asset?rel=' + encodeURIComponent(rel), { method: 'POST', body: blob });
+      if (!r.ok) throw new Error('资产落盘失败: ' + (await r.text()));
+      rec.rel = rel;
+      rec.size = blob.size;
+      rec.stored = 'disk';
+      const proj = S.projects.find((p) => p.id === projectId);
+      if (S.store === 'sqlite') {
+        // 主路径：文件落项目文件夹 + 元数据进 canvas.db（任意浏览器/远程立即可见）
+        const saved = await hostRpc('assetCreate', { asset: assetIndexRecord(rec), projectName: (proj && proj.name) || '' });
+        const out = (saved && saved.asset) || rec;
+        assetMem.set(out.id, out);
+        assetNameCache.set(out.id, out.name);
+        return out;
+      }
+      await idbPut(rec); // JSON 降级模式（宿主缺 node:sqlite）：本机元数据缓存
       assetNameCache.set(rec.id, rec.name);
-      if (S.dataRoot) mirrorAssetIndex(rec); // JSON 降级模式：元数据镜像进 assets.json
+      mirrorAssetIndex(rec); // 元数据镜像进 assets.json
       return rec;
     }
     /** 资产元数据索引记录（去 blob；文本资产保留 text 以便导入端免读文件即可预览）。 */
@@ -2148,8 +2142,8 @@ window.__ModuleLoader__.load({
         projectId: rec.projectId, projectName: (proj && proj.name) || rec.projectId, asset: assetIndexRecord(rec),
       }).catch(() => { /* 索引失败不影响资产本身 */ });
     }
-    /** 数据根目录就绪后：把浏览器 IndexedDB 里的存量 blob 资产搬进服务端（CAS + 资产行），搬完即从本地退役。
-     *  0.17 旧版本的"落盘到项目文件夹 + assets.json 索引"由 Host 侧 v1→v2 迁移负责，这里只处理从未落盘的遗留。 */
+    /** 数据根目录就绪后：把浏览器 IndexedDB 里的存量 blob 资产搬到数据目录的项目文件夹
+     *  （projects/<项目>/<类型>/<文件>），搬完从 IndexedDB 移除——**IndexedDB 只减不增，最终清零**。 */
     async function autoMigrateAssetsToRoot() {
       if (!S.dataRoot) return;
       try {
@@ -2159,16 +2153,15 @@ window.__ModuleLoader__.load({
         let done = 0;
         for (const rec of pending) {
           try {
-            const r = await fetch('/' + NS + '/api/object', { method: 'POST', body: rec.blob });
+            const mime = rec.blob.type || rec.mime || (rec.kind === 'image' ? 'image/png' : 'video/mp4');
+            const rel = `projects/${rec.projectId}/${rec.kind}/${assetFileBase(rec)}.${extFromMime(mime)}`;
+            const r = await fetch('/' + NS + '/api/asset?rel=' + encodeURIComponent(rel), { method: 'POST', body: rec.blob });
             if (!r.ok) continue;
-            const j = await r.json();
-            const meta = { ...rec, sha: j.sha, size: rec.size || rec.blob.size };
+            const meta = { ...rec, rel, size: rec.size || rec.blob.size };
             delete meta.blob;
-            meta.stored = 'cas';
+            meta.stored = 'disk';
             const proj = S.projects.find((p) => p.id === rec.projectId);
-            const saved = await hostRpc('assetCreate', { asset: assetIndexRecord(meta), projectName: (proj && proj.name) || '' });
-            const out = (saved && saved.asset) || meta;
-            assetMem.set(out.id, out);
+            await hostRpc('assetCreate', { asset: assetIndexRecord(meta), projectName: (proj && proj.name) || '' });
             try { await idbDelete(rec.id); } catch { /* 本地清理失败不阻塞迁移 */ }
             done++;
           } catch { /* 单个失败继续下一个 */ }
@@ -2257,7 +2250,8 @@ window.__ModuleLoader__.load({
       const g = cv.getContext('2d');
       const rnd = mulberry32(hashStr(prompt || 'demo'));
       const hues = [0, 1, 2, 3].map(() => Math.floor(rnd() * 360));
-      const mimes = ['video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm', 'video/mp4'];
+      // mp4 优先（现代 Chrome/Edge 原生支持 H.264 录制）：webm 只是兜底，保证产物统一为 mp4
+      const mimes = ['video/mp4;codecs=avc1.42E01E', 'video/mp4', 'video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm'];
       const mime = (typeof MediaRecorder !== 'undefined') && mimes.find((m) => MediaRecorder.isTypeSupported(m));
       if (!mime) throw new Error('当前环境不支持 MediaRecorder，无法使用演示视频生成');
       const stream = cv.captureStream(30);
@@ -3696,7 +3690,8 @@ window.__ModuleLoader__.load({
       }
       const cv = document.createElement('canvas'); cv.width = W; cv.height = H;
       const g = cv.getContext('2d');
-      const mimes = ['video/webm;codecs=vp9,opus', 'video/webm;codecs=vp8,opus', 'video/webm', 'video/mp4'];
+      // mp4 优先（含音轨：H.264 + AAC）：webm 只是兜底，保证成片统一为 mp4
+      const mimes = ['video/mp4;codecs=avc1.42E01E,mp4a.40.2', 'video/mp4', 'video/webm;codecs=vp9,opus', 'video/webm;codecs=vp8,opus', 'video/webm'];
       const mime = (typeof MediaRecorder !== 'undefined') && mimes.find((m) => MediaRecorder.isTypeSupported(m));
       if (!mime) throw new Error('当前环境不支持视频录制');
       const stream = cv.captureStream(30);
@@ -4852,35 +4847,27 @@ window.__ModuleLoader__.load({
         source: (meta && meta.source) || 'ai',
         category: (meta && meta.category) || 'script',
       };
-      // 文本资产：0.18 起正文随元数据进 canvas.db（预览/下载不必回读文件）；
-      // JSON 降级落盘 .md 文件；无数据目录降级为仅 IndexedDB。绝不阻塞生成主流程。
-      if (S.dataRoot && S.store === 'sqlite') {
-        try {
-          const proj = S.projects.find((p) => p.id === projectId);
-          const saved = await hostRpc('assetCreate', { asset: assetIndexRecord(rec), projectName: (proj && proj.name) || '' });
-          const out = (saved && saved.asset) || rec;
-          assetMem.set(out.id, out);
-          assetNameCache.set(out.id, out.name);
-          return out;
-        } catch (err) {
-          console.warn('[infinite-canvas] 文本资产入库失败（降级为浏览器存储）:', String((err && err.message) || err));
-        }
-      } else if (S.dataRoot) {
-        try {
-          const rel = `projects/${projectId}/text/${assetFileBase(rec)}.md`;
-          const blob = new Blob([rec.text], { type: 'text/markdown' });
-          const r = await fetch('/' + NS + '/api/asset?rel=' + encodeURIComponent(rel), { method: 'POST', body: blob });
-          if (!r.ok) throw new Error(await r.text());
-          rec.rel = rel;
-          rec.size = blob.size;
-          rec.stored = 'disk';
-        } catch (err) {
-          console.warn('[infinite-canvas] 文本资产落盘失败（降级为浏览器存储）:', String((err && err.message) || err));
-        }
+      // 文本资产：文件（.md）落数据目录的项目文件夹，正文同时进 canvas.db（预览/下载不必回读文件）。
+      // 未设数据目录时明确报错（IndexedDB 已废弃），绝不静默。
+      if (!S.dataRoot) throw new Error('未设置数据根目录：文本资产无法持久化（IndexedDB 已废弃）。请在设置里配置数据根目录。');
+      const rel = `projects/${projectId}/text/${assetFileBase(rec)}.md`;
+      const blob = new Blob([rec.text], { type: 'text/markdown' });
+      const r = await fetch('/' + NS + '/api/asset?rel=' + encodeURIComponent(rel), { method: 'POST', body: blob });
+      if (!r.ok) throw new Error('文本资产落盘失败: ' + (await r.text()));
+      rec.rel = rel;
+      rec.size = blob.size;
+      rec.stored = 'disk';
+      const proj = S.projects.find((p) => p.id === projectId);
+      if (S.store === 'sqlite') {
+        const saved = await hostRpc('assetCreate', { asset: assetIndexRecord(rec), projectName: (proj && proj.name) || '' });
+        const out = (saved && saved.asset) || rec;
+        assetMem.set(out.id, out);
+        assetNameCache.set(out.id, out.name);
+        return out;
       }
       await idbPut(rec);
       assetNameCache.set(rec.id, rec.name);
-      if (S.dataRoot) mirrorAssetIndex(rec); // JSON 降级模式：镜像进 assets.json
+      mirrorAssetIndex(rec); // JSON 降级模式：镜像进 assets.json
       return rec;
     }
 
