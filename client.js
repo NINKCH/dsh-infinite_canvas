@@ -6573,6 +6573,36 @@ window.__ModuleLoader__.load({
         })();
         return () => { cancelled = true; };
       }, [kind, n.data.assetId, n.data.label, S.assetsTick]);
+      // 历史条自愈：已被删除的资产（渲染成 … 的幽灵格）自动从节点 history 剔除；
+      // 服务端不可达时跳过本轮（宁可不修剪，绝不误删有效历史）
+      useEffect(() => {
+        const histList = n.data.history || [];
+        if (!histList.length) return;
+        let ok = true;
+        (async () => {
+          let alive = null;
+          if (S.store) {
+            const r = await hostRpc('assetsGet', { ids: histList.map((x) => x.assetId) }).catch(() => null);
+            if (!r) return;
+            alive = new Set((r.items || []).map((x) => x.id));
+          } else {
+            const recs = await Promise.all(histList.map((x) => idbGetRaw(x.assetId).catch(() => null)));
+            alive = new Set(histList.filter((_, i) => recs[i]).map((x) => x.assetId));
+          }
+          if (!ok) return;
+          const dead = histList.filter((x) => !alive.has(x.assetId)).map((x) => x.assetId);
+          if (!dead.length) return;
+          update((s) => {
+            const nd = s.graph.nodes[n.id];
+            if (!nd || !Array.isArray(nd.data.history)) return;
+            const next = nd.data.history.filter((x) => !dead.includes(x.assetId));
+            if (next.length === nd.data.history.length) return;
+            nd.data.history = next;
+            if (nd.data.assetId && dead.includes(nd.data.assetId)) nd.data.assetId = next.length ? next[next.length - 1].assetId : null;
+          });
+        })();
+        return () => { ok = false; };
+      }, [n.id, S.assetsTick, S.store]);
       const promptEdge = S.graph.edges.find((x) => x.toNode === n.id && x.toPort === 'prompt');
       const promptSrc = promptEdge && S.graph.nodes[promptEdge.fromNode];
       const fromStoryboard = !!(promptSrc && promptSrc.type === 'storyboard');
@@ -8043,7 +8073,11 @@ window.__ModuleLoader__.load({
         assetMem.delete(a.id);
         update((s) => {
           for (const nd of Object.values(s.graph.nodes)) {
-            if (nd.data && nd.data.assetId === a.id) { nd.data.assetId = null; nd.data.status = 'idle'; }
+            const d = nd.data;
+            if (!d) continue;
+            if (d.assetId === a.id) { d.assetId = null; d.status = 'idle'; }
+            if (d.lastAssetId === a.id) d.lastAssetId = null; // 尾帧引用同步清理
+            if (Array.isArray(d.history) && d.history.some((x) => x.assetId === a.id)) d.history = d.history.filter((x) => x.assetId !== a.id); // 历史条同步清理
           }
           s.assetsTick++;
         });
