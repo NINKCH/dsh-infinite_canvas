@@ -1117,7 +1117,13 @@ async function fetchProxyForward(reqBody) {
   const url = String((reqBody && reqBody.url) || '');
   if (!/^https?:\/\//i.test(url)) throw new Error('需要 http(s) 接口 url');
   const method = String((reqBody && reqBody.method) || 'POST').toUpperCase();
-  const headers = { ...((reqBody && reqBody.headers && typeof reqBody.headers === 'object') ? reqBody.headers : {}) };
+  // 头部统一小写：客户端与默认补值可能各自携带不同大小写的同名头（Content-Type 与 content-type），
+  // 混用会作为重复头转发，严格网关（优云智算）直接 400 "Content-Type must be application/json"
+  const headers = {};
+  for (const [hk, hv] of Object.entries((reqBody && reqBody.headers && typeof reqBody.headers === 'object') ? reqBody.headers : {})) {
+    if (hv === undefined || hv === null) continue;
+    headers[String(hk).toLowerCase()] = String(hv);
+  }
   let body;
   if (method !== 'GET' && method !== 'HEAD') {
     if (reqBody && reqBody.bodyRaw != null) {

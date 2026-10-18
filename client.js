@@ -2158,12 +2158,20 @@ window.__ModuleLoader__.load({
       if (!base.replace(/^https?:\/\//i, '').includes('/')) base = base + '/v1';
       const refs = refBlobs || [];
       const auth = s.apiKey ? { Authorization: 'Bearer ' + String(s.apiKey).trim() } : {};
-      const extra = parseExtraParams(s.extra); // 厂商专属参数（留空不发送）
+      // 节点级扩展参数（手动参数框）与供应商扩展参数合并（节点优先）
+      const nodeExtra = String((opts && opts.nodeExtra) || '').trim();
+      let extraSrc = String(s.extra || '');
+      if (nodeExtra) {
+        try {
+          extraSrc = JSON.stringify({ ...(extraSrc.trim() ? JSON.parse(extraSrc) : {}), ...JSON.parse(nodeExtra) });
+        } catch (e) { throw new Error('节点扩展参数需为 JSON 对象：' + ((e && e.message) || e)); }
+      }
+      const extra = parseExtraParams(extraSrc); // 厂商专属参数（留空不发送）
       // 优云智算（compshare）任务式：Qwen-Image 异步任务（提交 → 轮询 → output_url 下载）
-      if (s.mode === 'compshare') return await compshareImageTask(prompt, refs, s, opts);
+      if (s.mode === 'compshare') return await compshareImageTask(prompt, refs, { ...s, extra: extraSrc }, opts);
       // 协议自动路由：优云智算的图片 API 只有任务式（/image/v1/tasks）——误配成通用模式
       // 会在 /v1/images/generations 上拿到 401 "invalid api key"（该面不存在），按域名自动切任务式
-      try { if (/compshare\.cn$/i.test(new URL(base).hostname)) return await compshareImageTask(prompt, refs, s, opts); } catch { /* URL 异常由后续流程报错 */ }
+      try { if (/compshare\.cn$/i.test(new URL(base).hostname)) return await compshareImageTask(prompt, refs, { ...s, extra: extraSrc }, opts); } catch { /* URL 异常由后续流程报错 */ }
       const upstreamTimeout = Number(s.timeoutMs) > 0 ? Number(s.timeoutMs) : 120000; // 商汤等同步接口 20s+，默认 120s
       // 参考图编辑模式：multipart 上传到 /images/edits（OpenAI gpt-image-1 兼容）
       if (refs.length && s.mode === 'edits') {
@@ -3072,6 +3080,14 @@ window.__ModuleLoader__.load({
     };
     async function apiVideo(prompt, frameBlob, s, opts) {
       const o = opts || {};
+      // 节点级扩展参数（手动参数框）与供应商扩展参数合并（节点优先），各 runner 的 mergeExtra 自动生效
+      const nodeExtra = String(o.nodeExtra || '').trim();
+      if (nodeExtra) {
+        try {
+          const baseExtra = String(s.extra || '').trim();
+          s = { ...s, extra: JSON.stringify({ ...(baseExtra ? JSON.parse(baseExtra) : {}), ...JSON.parse(nodeExtra) }) };
+        } catch (e) { throw new Error('节点扩展参数需为 JSON 对象：' + ((e && e.message) || e)); }
+      }
       // 衔接模式：auto=尾帧降级为参考图（保留实体参考图）；hard=硬首帧（放弃参考图，画面绝对承接）；
       // off=忽略首帧。网关禁止 first_frame 与 reference_image 混用，故 hard 模式必须放弃参考图。
       if (o.frameMode === 'off') frameBlob = null;
@@ -5368,7 +5384,7 @@ window.__ModuleLoader__.load({
           // 模型解析：节点选择优先，未指定路由到星标默认模型；都没有 = 明确报错（不再静默走演示模式）
           const mcfg = resolveImageModelCfg(settings, nodeImageModelRef(n));
           if (!mcfg) throw new Error(T('errNoImageModel'));
-          const blob = await apiImage(p, metas, mcfg, { size: n.data.size, ratio: n.data.ratio });
+          const blob = await apiImage(p, metas, mcfg, { size: n.data.size, ratio: n.data.ratio, nodeExtra: n.data.imgExtra });
           const rec = await saveAssetRecord(S.activeId, 'image', blob, {
             name: assetNameFor(n, entities, 'image'),
             prompt: stripMentionMarks(prompt), effectivePrompt: p,
@@ -5391,6 +5407,7 @@ window.__ModuleLoader__.load({
             frameMode: n.data.frameMode || 'auto', // auto=尾帧降级为参考图 / hard=硬首帧（放弃参考图） / off=忽略首帧
             refs: refs.map((r) => r.blob),
             refNames: refs.map((r) => r.entity || r.name || ''), // 跨镜衔接标注用（图2..N 的实体名）
+            nodeExtra: n.data.vidExtra, // 节点级扩展参数（手动参数框，如 {"use_context_ir":true}）
             // 任务提交成功即持久化 task id：轮询中断/页面关闭后仍可凭 id 回查结果（钱花了就必须能找回）
             onTask: (tid, qurl) => {
               update((s) => { const nd = s.graph.nodes[n.id]; if (nd) { nd.data.taskId = String(tid || ''); nd.data.taskQueryUrl = String(qurl || ''); } });
@@ -6317,6 +6334,17 @@ window.__ModuleLoader__.load({
               ],
           h('div', { className: 'dshic-flex' }),
         ),
+        h('input', {
+          key: 'nextra', className: 'dshic-input', value: (kind === 'video' ? n.data.vidExtra : n.data.imgExtra) || '',
+          placeholder: '扩展参数 JSON，如 {"use_context_ir":true}',
+          title: '节点级扩展参数：合并进供应商扩展参数，节点值优先',
+          onChange: (e) => update((s) => {
+            const nd = s.graph.nodes[n.id];
+            if (!nd) return;
+            if (kind === 'video') nd.data.vidExtra = e.target.value; else nd.data.imgExtra = e.target.value;
+          }),
+          onPointerDown: (e) => e.stopPropagation(),
+        }),
       );
     }
 
@@ -8396,12 +8424,12 @@ window.__ModuleLoader__.load({
     }
 
     /** 图片/视频模型多配置列表：名称 / 地址 / Key / 模型（/模式），可增删、设默认。 */
-    function Field({ label, value, onChange, placeholder, password }) {
+    function Field({ label, value, onChange, placeholder, password, tip }) {
       // 敏感字段（API Key）：默认脱敏，点击小眼睛切换明文显示
       const [reveal, setReveal] = useState(false);
       if (!password) {
         return h('div', { className: 'dshic-field' },
-          h('span', { className: 'dshic-field-label' }, label),
+          h('span', { className: 'dshic-field-label' }, label, tip ? InfoTip(tip) : null),
           h('input', {
             className: 'dshic-input', type: 'text', value, placeholder: placeholder || '',
             onChange: (e) => onChange(e.target.value),
@@ -8491,14 +8519,15 @@ window.__ModuleLoader__.load({
             ),
             open ? [
               kind === 'video' ? h('div', { key: 'vendor', className: 'dshic-field' },
-                h('span', { className: 'dshic-field-label' }, T('vendorLabel')),
+                h('div', { className: 'dshic-row' },
+                  h('span', { className: 'dshic-field-label' }, T('vendorLabel')),
+                  InfoTip((VIDEO_VENDORS[detectVideoVendor(p)] || {}).note || '')),
                 h('select', {
                   className: 'dshic-select', value: detectVideoVendor(p),
                   onPointerDown: (e) => e.stopPropagation(),
                   onChange: (e) => { const v = e.target.value; const vd = VIDEO_VENDORS[v]; patchProvider(p.id, 'vendor', v); if (vd && vd.base && !p[urlKey]) patchProvider(p.id, urlKey, vd.base); },
                 },
                   Object.entries(VIDEO_VENDORS).map(([id, vd]) => h('option', { key: id, value: id }, vd.label))),
-                h('div', { className: 'dshic-hint' }, (VIDEO_VENDORS[detectVideoVendor(p)] || {}).note || ''),
               ) : null,
               h(Field, { key: 'u', label: T('baseUrl'), value: p[urlKey] || '', onChange: (v) => patchProvider(p.id, urlKey, v), placeholder: kind === 'video' ? ((VIDEO_VENDORS[detectVideoVendor(p)] || {}).base || urlPh) : urlPh }),
               h(Field, { key: 'k', label: T('apiKey'), value: p.apiKey || '', onChange: (v) => patchProvider(p.id, 'apiKey', v), placeholder: kind === 'video' ? ((VIDEO_VENDORS[detectVideoVendor(p)] || {}).keyPh || 'sk-…') : 'sk-…', password: true }),
@@ -8518,8 +8547,7 @@ window.__ModuleLoader__.load({
                   h('span', {}, T('vidAudioOpt'))) : null,
               ],
               (kind === 'image' || detectVideoVendor(p) === 'openai' || detectVideoVendor(p) === 'seedance') ? [
-                h(Field, { key: 'extra', label: T('cfgExtra'), value: p.extra || '', onChange: (v) => patchProvider(p.id, 'extra', v), placeholder: '{"watermark":false,"prompt_extend":false}' }),
-                h('div', { className: 'dshic-hint' }, T('cfgExtraHint')),
+                h(Field, { key: 'extra', label: T('cfgExtra'), value: p.extra || '', onChange: (v) => patchProvider(p.id, 'extra', v), placeholder: '{"watermark":false,"prompt_extend":false}', tip: T('cfgExtraHint') }),
               ] : null,
               h('div', { className: 'dshic-row', style: { marginTop: 4 } },
                 h('span', { className: 'dshic-field-label', style: { flex: 1, minWidth: 0 } }, T('modelsLabel')),
@@ -8680,10 +8708,7 @@ window.__ModuleLoader__.load({
                     h('span', {}, T('seedanceWatermark')))
                 : null,
               (kind === 'image' || kind === 'video')
-                ? h(Field, { key: 'extra', label: T('cfgExtra'), value: cfg.extra || '', onChange: (v) => patch(cfg.id, 'extra', v), placeholder: '{"watermark":false,"prompt_extend":false}' })
-                : null,
-              (kind === 'image' || kind === 'video')
-                ? h('div', { className: 'dshic-hint' }, T('cfgExtraHint'))
+                ? h(Field, { key: 'extra', label: T('cfgExtra'), value: cfg.extra || '', onChange: (v) => patch(cfg.id, 'extra', v), placeholder: '{"watermark":false,"prompt_extend":false}', tip: T('cfgExtraHint') })
                 : null,
               kind === 'tts'
                 ? h(Field, { key: 'voice', label: T('voice'), value: cfg.voice || '', onChange: (v) => patch(cfg.id, 'voice', v), placeholder: 'alloy' })
