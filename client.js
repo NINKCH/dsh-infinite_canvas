@@ -1377,7 +1377,10 @@ window.__ModuleLoader__.load({
       }
       return out;
     }
-    function saveSettings(s) { lsSet(LS_SETTINGS, s); }
+    function saveSettings(s) {
+      lsSet(LS_SETTINGS, s);
+      notify(); // 设置即改即存（无保存按钮），但必须通知画布重渲染——否则节点上的模型下拉/星标一直是旧快照
+    }
 
     // ---------- 供应商 + 模型（图片/视频）：扁平视图与解析 ----------
     let legacyImageApiRefMap = {}; // 旧扁平配置 id → 'providerId|modelId'（节点字段懒迁移用）
