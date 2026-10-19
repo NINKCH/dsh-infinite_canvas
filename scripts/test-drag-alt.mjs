@@ -146,7 +146,19 @@ const run = (movers) => {
 
 // ---------------- 3) 快捷键面板 ----------------
 ok(/function ShortcutsPanel\(/.test(src), '未找到 ShortcutsPanel 组件');
-ok(/h\(ShortcutsPanel\)/.test(src), 'ShortcutsPanel 未挂到画布');
+ok(/h\(ShortcutsPanel\)/.test(src), 'ShortcutsPanel 未挂载');
+// 位置契约：入口必须在**顶部工具栏**里（用户要求），而不是画布左上角浮层。
+// 工具栏函数体里必须出现它，且画布容器（CanvasPage）里不能再有 —— 防止后续重构又挪回去。
+const toolbarBody = fnBody('Toolbar');
+ok(/h\(ShortcutsPanel\)/.test(toolbarBody), '快捷键入口不在顶部工具栏里（应放在工具栏右侧）');
+const canvasPageBody = fnBody('CanvasPage');
+ok(!/h\(ShortcutsPanel\)/.test(canvasPageBody), '快捷键入口仍挂在画布内（应已移到工具栏）');
+// 下拉面板要相对按钮定位（否则挪进工具栏后会飘到页面左上角）
+ok(/\.dshic-keys-wrap\{position:relative/.test(src), '.dshic-keys-wrap 不是相对定位（下拉面板会脱离按钮）');
+ok(/\.dshic-keys-pop\{position:absolute;right:0;top:calc\(100% \+ 6px\)/.test(src), '下拉面板未相对按钮右对齐定位');
+// 面板关闭行为：Esc + 点击面板外（捕获阶段，避免被画布的 stopPropagation 吞掉）
+ok(/window\.addEventListener\('pointerdown', onDown, true\)/.test(src), '缺少点击面板外关闭（或未用捕获阶段）');
+ok(/el\.contains\(e\.target\)/.test(src), '面板外判定未用 contains（会把面板内点击也当成外部）');
 ok(/keysOpen: false/.test(src), '缺少 keysOpen 状态');
 ok(/'keysBtn'/.test(src) && /'keysTitle'/.test(src), '缺少快捷键面板文案键');
 // 面板里列出的每一项都必须对应代码里真实存在的快捷键

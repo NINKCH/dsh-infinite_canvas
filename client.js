@@ -1327,17 +1327,18 @@ window.__ModuleLoader__.load({
 .dshic-mask-stage img{max-width:100%;max-height:52vh;display:block;}
 .dshic-mask-paint{position:absolute;inset:0;width:100%;height:100%;cursor:crosshair;touch-action:none;}
 .dshic-mask-toolbar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
-/* 快捷键浮层（画布左上角） */
-.dshic-keys-wrap{position:absolute;left:12px;top:12px;z-index:16;display:flex;flex-direction:column;align-items:flex-start;gap:6px;}
-.dshic-keys-btn{display:inline-flex;align-items:center;gap:6px;height:26px;padding:0 9px;border-radius:8px;
-  border:1px solid var(--dsw-alias-border-l2);cursor:pointer;font:inherit;font-size:12px;white-space:nowrap;
-  background:color-mix(in srgb,var(--dsw-alias-bg-overlay) 82%,transparent);color:var(--dsw-alias-label-secondary);
-  backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);}
-.dshic-keys-btn:hover{color:var(--dsw-alias-label-primary);border-color:var(--dsw-alias-border-l1);}
-.dshic-keys-btn.is-open{color:var(--dsw-alias-brand-primary);border-color:color-mix(in srgb,var(--dsw-alias-brand-primary) 45%,transparent);}
+/* 快捷键入口（工具栏内）+ 下拉面板（绝对定位在按钮下方） */
+.dshic-keys-wrap{position:relative;display:inline-flex;flex:none;}
+.dshic-keys-btn{display:inline-flex;align-items:center;gap:5px;height:28px;padding:0 9px;border-radius:8px;
+  border:none;background:transparent;cursor:pointer;font:inherit;font-size:13px;white-space:nowrap;flex:none;
+  color:var(--dsw-alias-label-primary);}
+.dshic-keys-btn:hover{background:color-mix(in srgb,var(--dsw-alias-label-primary) 8%,transparent);}
+.dshic-keys-btn.is-open{background:color-mix(in srgb,var(--dsw-alias-brand-primary) 18%,transparent);color:var(--dsw-alias-brand-primary);}
 .dshic-keys-btn-label{line-height:1;}
 .dshic-keys-caret{font-size:9px;opacity:.75;line-height:1;}
-.dshic-keys-pop{width:330px;max-height:min(70vh,520px);overflow:auto;box-sizing:border-box;padding:10px 12px;
+/* 面板右对齐：按钮位于工具栏右半侧，向左展开才不会出屏；窄屏换行时也跟随按钮 */
+.dshic-keys-pop{position:absolute;right:0;top:calc(100% + 6px);z-index:30;
+  width:330px;max-height:min(70vh,520px);overflow:auto;box-sizing:border-box;padding:10px 12px;
   border-radius:10px;border:1px solid var(--dsw-alias-border-l2);
   background:color-mix(in srgb,var(--dsw-alias-bg-overlay) 72%,transparent);
   backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);
@@ -8936,6 +8937,8 @@ window.__ModuleLoader__.load({
           h(Btn, { onClick: () => zoomStep(1.18), title: T('zoomIn') }, Ic('zoomIn', 12)),
         ),
         h('div', { className: 'dshic-toolbar-sep' }),
+        h(ShortcutsPanel), // 快捷键入口（工具栏右侧，缩放控件与项目名之间）
+        h('div', { className: 'dshic-toolbar-sep' }),
         naming
           ? h('input', {
               className: 'dshic-input', style: { width: 160 }, autoFocus: true, defaultValue: proj ? proj.name : '',
@@ -10720,7 +10723,6 @@ window.__ModuleLoader__.load({
               h('div', { className: 'dshic-guide-h', style: { display: 'none', zIndex: 9999 }, ref: (el) => { hGuidEl = el; } }),
             ),
             h(Minimap),
-            h(ShortcutsPanel), // 左上角快捷键浮层（不随画布缩放，固定屏幕坐标）
             nodes.length === 0 ? h('div', { className: 'dshic-empty' },              h('div', { className: 'dshic-empty-card' },
                 h('div', { className: 'dshic-empty-title' }, T('emptyNodeTitle')),
                 h('div', { className: 'dshic-hint', style: { maxWidth: 320 } }, T('emptyNodeHint')),
@@ -10782,12 +10784,23 @@ window.__ModuleLoader__.load({
     // ============================================================
     function ShortcutsPanel() {
       const open = !!S.keysOpen;
-      // Esc 关闭（仅在打开时挂监听，避免常年占用 keydown）
+      const wrapRef = useRef(null);
+      // 打开时：Esc 关闭 + 点击面板外关闭（都只在打开期间挂监听，避免常年占用全局事件）
       useEffect(() => {
         if (!open) return undefined;
         const onKey = (e) => { if (e.key === 'Escape') { update((s) => { s.keysOpen = false; }); } };
+        // 用捕获阶段：画布/工具栏上的 handler 可能 stopPropagation，冒泡阶段会收不到
+        const onDown = (e) => {
+          const el = wrapRef.current;
+          if (el && e.target && el.contains && el.contains(e.target)) return; // 点面板内或按钮本身：交给按钮自己的 onClick 处理
+          update((s) => { s.keysOpen = false; });
+        };
         window.addEventListener('keydown', onKey);
-        return () => window.removeEventListener('keydown', onKey);
+        window.addEventListener('pointerdown', onDown, true);
+        return () => {
+          window.removeEventListener('keydown', onKey);
+          window.removeEventListener('pointerdown', onDown, true);
+        };
       }, [open]);
       const row = (key, text) => h('div', { className: 'dshic-keys-row', key },
         h('span', { className: 'dshic-keys-key' }, key),
@@ -10795,12 +10808,12 @@ window.__ModuleLoader__.load({
       const group = (title, items) => h('div', { className: 'dshic-keys-group', key: title },
         h('div', { className: 'dshic-keys-group-title' }, title),
         ...items.map(([k, v], i) => row(k + '|' + i, k, v)));
-      return h('div', { className: 'dshic-keys-wrap' },
+      return h('div', { className: 'dshic-keys-wrap', ref: wrapRef },
         h('button', {
           type: 'button',
           className: cls('dshic-keys-btn', open && 'is-open'),
           title: T('keysBtn'),
-          onPointerDown: (e) => e.stopPropagation(), // 不触发画布平移/框选
+          onPointerDown: (e) => e.stopPropagation(), // 不触发放大/拖拽等工具栏行为
           onClick: (e) => { e.stopPropagation(); update((s) => { s.keysOpen = !s.keysOpen; }); },
         }, h('span', { className: 'dshic-keys-btn-label' }, T('keysBtn')), h('span', { className: 'dshic-keys-caret' }, open ? '▴' : '▾')),
         open
