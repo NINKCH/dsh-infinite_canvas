@@ -58,7 +58,7 @@ node scripts/regress.mjs --list       # 看当前清单
 ```
 
 清单以 `scripts/regress.mjs` 的 `SUITE` 为**唯一事实源**（与 `RELEASING.md` §标准发版流程第 1 步逐项一致），
-当前含 **22 项**：2 个 `node --check` 语法闸门 + 20 个脚本。
+**当前项数与分组以 `node scripts/regress.mjs --list` 实时输出为准——runbook 不写死项数**（门禁新增脚本时这里是必漏之地）。
 
 | 分组 | 脚本 |
 | --- | --- |
@@ -126,7 +126,7 @@ git push origin main dev
 ## 7. 发布日检查清单
 
 - [ ] dev 全部改动已提交并推送
-- [ ] `node scripts/regress.mjs --strict` 全绿（22 项，SKIP 算失败）+ 涉及 UI 的重启实测通过
+- [ ] `node scripts/regress.mjs --strict` 全绿（项数以 `node scripts/regress.mjs --list` 为准，不在此写死；SKIP 算失败）+ 涉及 UI 的重启实测通过
 - [ ] `package.json` version = 目标版本号（自查，勿依赖守卫）
 - [ ] **用户明确批准版本号**
 - [ ] 合并 main（**`git push origin main` 由维护者本人执行**）→ 建 GitHub Release `vX.Y.Z`（指向 main）
