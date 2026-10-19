@@ -172,7 +172,7 @@ console.log('  ✓ registerReferenceAsset：非宽高错误直抛 / 一次成功
 
 // ---------------- 4) 厂商路由事实断言（源码级，防回归） ----------------
 // compshare 任务式：登记走 registerReferenceAsset（抽出的函数被调用点引用）
-ok(/const reg = await registerReferenceAsset\(api, regPayload, meta\);/.test(src), 'compshare 登记未走 registerReferenceAsset（抽取回退？）');
+ok(/await registerReferenceAsset\(api,/.test(src), 'compshare 登记未走 registerReferenceAsset（抽取回退？）');
 // OpenAI 兼容路径不做登记（generations/edits 直接带参考图，没有 upload_urls/assets 三步）：
 const apiImageStart = src.indexOf('async function apiImage(');
 const apiImageEnd = src.indexOf('async function ', apiImageStart + 10);

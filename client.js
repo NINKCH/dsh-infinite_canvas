@@ -2856,7 +2856,7 @@ window.__ModuleLoader__.load({
         try { bmp.close && bmp.close(); } catch { /* 忽略 */ }
       } catch { /* 解码失败时退回文件头尺寸 */ }
       if (!width || !height) { if (raw) { width = raw.w; height = raw.h; } }
-      if (!width || !height) throw new Error('参考图尺寸测量失败');
+      if (!width || !height) throw new Error('参考图尺寸测量失败（' + mime + '，文件头与浏览器解码都没读出宽高——文件可能已损坏）');
       return { blob, mime, ext, width, height, rawWidth: raw ? raw.w : width, rawHeight: raw ? raw.h : height };
     }
     async function compshareImageTask(prompt, refs, s, opts) {
@@ -2911,9 +2911,15 @@ window.__ModuleLoader__.load({
         });
         if (!put.ok) throw new Error('参考图上传失败 HTTP ' + put.status + '：' + put.text.slice(0, 200));
         // 登记：宽高必须与平台解析出的文件尺寸一致。浏览器解码尺寸与文件原始尺寸在
-        // EXIF 旋转图上不同 → 先用解码尺寸，被拒（Params [Width/Height] not available）时用原始尺寸重试一次
+        // EXIF 旋转图上不同 → 先用解码尺寸，被拒（Params [Width/Height] not available）时用原始尺寸重试一次。
+        // 重试发生过 = 这张图带 EXIF 旋转，节点上给一条可见提示（用户下次换图心里有数）
         const regPayload = (w, h) => ({ object_key: up.object_key, file_name: fileName, content_type: meta.mime, file_size: meta.blob.size, width: w, height: h });
-        const reg = await registerReferenceAsset(api, regPayload, meta);
+        let retried = false;
+        const reg = await registerReferenceAsset(api, (w, h) => {
+          if (w === meta.rawWidth && h === meta.rawHeight && (meta.rawWidth !== meta.width || meta.rawHeight !== meta.height)) retried = true;
+          return regPayload(w, h);
+        }, meta);
+        if (retried && o.warn) o.warn('参考图带 EXIF 旋转：平台按文件原始尺寸 ' + meta.rawWidth + '×' + meta.rawHeight + ' 登记成功（浏览器解码是 ' + meta.width + '×' + meta.height + '）');
         const aid = reg && reg.reference && reg.reference.asset_id;
         if (!aid) throw new Error('参考图登记失败：响应中没有 reference.asset_id');
         if (ref.assetId) compAssetIdCache.set(ref.assetId, aid);
