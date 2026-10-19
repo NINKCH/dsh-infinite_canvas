@@ -693,15 +693,68 @@ function writeAssetIndex(pid, projectName, assets, opts) {
   renameSync(tmp, f);
   return { ok: true, folder, count: list.length };
 }
-/** 删除项目的数据目录镜像（项目被删除时调用）。 */
+/** 删除项目的数据目录镜像（项目被删除时调用）。
+ *  BLK-01：SQL 模式下目录名可能没有 meta 条目（实测就是项目 id），旧实现此时静默 return、
+ *  永远删不掉目录。现在：优先用 meta 的 folder；没有条目就回退 <pid>；两个候选都尝试删；
+ *  删除失败不再吞掉，返回值里带 removed/errors 供调用方暴露。 */
 function removeDataRootProject(pid) {
+  const out = { removed: false, dirs: [], errors: [] };
   const root = dataRoot();
-  if (!root || !pid) return;
+  if (!root || !pid) return out;
   const meta = readDataRootMeta();
-  const entry = meta.projects.find((p) => p.id === pid);
+  const entry = meta.projects.find((p) => p.id === pid) || null;
+  const candidates = [];
+  if (entry && entry.folder) candidates.push(entry.folder);
+  if (!candidates.includes(pid)) candidates.push(pid);
   meta.projects = meta.projects.filter((p) => p.id !== pid);
-  writeDataRootMeta(meta);
-  if (entry) rmrf(path.join(root, 'projects', entry.folder));
+  try { writeDataRootMeta(meta); } catch (e) { out.errors.push('meta: ' + String((e && e.message) || e)); }
+  for (const folder of candidates) {
+    const dir = path.join(root, 'projects', folder);
+    if (!existsSync(dir)) { out.dirs.push({ dir, existed: false }); continue; }
+    try { rmrf(dir); out.dirs.push({ dir, existed: true, removed: !existsSync(dir) }); if (!existsSync(dir)) out.removed = true; }
+    catch (e) { out.dirs.push({ dir, existed: true, removed: false }); out.errors.push(dir + ': ' + String((e && e.message) || e)); }
+  }
+  return out;
+}
+
+/** BLK-01：SQL 模式删除项目时的统一清理（两条删除入口共用，禁止各写一份）。
+ *  DB 行 → FTS 行 → 资产文件（rel/sha）→ 项目镜像目录 → meta 条目，每一处失败都返回可见。
+ *  不碰 craft/ 目录（归 IC-B2）。 */
+function sqlDeleteProjectRows(db, id, root) {
+  const result = { ok: true, projectId: id, fts: 0, assets: 0, files: 0, dir: null, errors: [] };
+  // 1) 资产行与它们占用的文件：先取快照，再删行
+  let rows = [];
+  try { rows = db.prepare('SELECT id, rel, sha FROM assets WHERE project_id = ?').all(id); } catch (e) { result.errors.push('select assets: ' + String((e && e.message) || e)); }
+  result.assets = rows.length;
+  // 2) FTS：DELETE FROM assets 绕过了 dbAssetDelete（那里才同步删 FTS）→ 这里逐条清
+  try {
+    const delFts = db.prepare('DELETE FROM assets_fts WHERE id = ?');
+    for (const r of rows) { try { delFts.run(r.id); result.fts++; } catch { /* 单条失败继续 */ } }
+  } catch (e) { result.errors.push('fts: ' + String((e && e.message) || e)); }
+  // 3) 资产文件（rel 镜像 / sha 对象）：删行前先按引用清理
+  try {
+    db.prepare('DELETE FROM assets WHERE project_id = ?').run(id);
+    db.prepare('DELETE FROM projects WHERE id = ?').run(id);
+  } catch (e) { result.errors.push('delete rows: ' + String((e && e.message) || e)); }
+  if (root) {
+    const seen = new Set();
+    for (const r of rows) {
+      if (r.rel) {
+        try {
+          const mapped = physicalRel(r.rel) || r.rel;
+          const { abs } = safeJoin(root, mapped);
+          if (seen.has(abs)) continue;
+          seen.add(abs);
+          if (existsSync(abs)) { unlinkSync(abs); result.files++; }
+        } catch { /* 已不存在视为成功 */ }
+      }
+      if (r.sha) { try { gcObjectIfUnreferenced(db, root, r.sha); } catch { /* 对象清理失败不阻塞 */ } }
+    }
+  }
+  // 4) 项目镜像目录（含 meta 条目缺失时的 id 回退）
+  try { result.dir = removeDataRootProject(id); if (result.dir.errors.length) result.errors.push(...result.dir.errors); } catch (e) { result.errors.push('dir: ' + String((e && e.message) || e)); }
+  if (result.errors.length) result.ok = false;
+  return result;
 }
 /** 一次性迁移/对齐数据目录布局：旧 pid 文件夹 → 项目名文件夹，并镜像全部项目文档。 */
 function dataRootMigrate() {
@@ -1173,20 +1226,17 @@ function setDataRoot(raw) {
 }
 async function projectsDelete(args) {
   const id = String((args && args.id) || '');
+  let cleanup = null;
   if (sqlActive()) {
-    const db = getDb();
-    const root = dataRoot();
-    // 先收集对象引用：项目资产行删除后，仅本项目引用的 CAS 对象一并回收
-    const shas = db.prepare('SELECT DISTINCT sha FROM assets WHERE project_id = ? AND sha IS NOT NULL').all(id).map((r) => r.sha);
-    db.prepare('DELETE FROM assets WHERE project_id = ?').run(id);
-    db.prepare('DELETE FROM projects WHERE id = ?').run(id);
-    if (root) for (const sha of shas) gcObjectIfUnreferenced(db, root, sha);
+    // BLK-01：行 + FTS + 资产文件 + 镜像目录，一处收口（与 canvasDeleteProject 共用同一实现）
+    cleanup = sqlDeleteProjectRows(getDb(), id, dataRoot());
   } else {
     try { unlinkSync(projectFile(id)); } catch { /* 已不存在视为成功 */ }
     try { removeDataRootProject(id); } catch { /* 数据目录镜像清理失败不影响删除 */ }
   }
   try { addDeletedProjectId(id); } catch { /* 墓碑写失败不影响删除 */ }
-  return { ok: true };
+  // 清理失败必须可见：ok 保留删除语义，disk 字段给出磁盘侧实际结果
+  return { ok: true, disk: cleanup };
 }
 async function projectsSync() {
   const cfg = readIcConfig();
@@ -1698,13 +1748,10 @@ async function canvasDeleteProject(args) {
   let name = id;
   const prevDoc = readDocOrNull(id);
   if (prevDoc && prevDoc.name) name = prevDoc.name;
+  let cleanup = null;
   if (sqlActive()) {
-    const db = getDb();
-    const root = dataRoot();
-    const shas = db.prepare('SELECT DISTINCT sha FROM assets WHERE project_id = ? AND sha IS NOT NULL').all(id).map((r) => r.sha);
-    db.prepare('DELETE FROM assets WHERE project_id = ?').run(id);
-    db.prepare('DELETE FROM projects WHERE id = ?').run(id);
-    if (root) for (const sha of shas) gcObjectIfUnreferenced(db, root, sha);
+    // BLK-01：与 projectsDelete 共用同一清理实现（行 + FTS + 资产文件 + 镜像目录）
+    cleanup = sqlDeleteProjectRows(getDb(), id, dataRoot());
   } else {
     try { unlinkSync(projectFile(id)); } catch { /* 已删除 */ }
     try { removeDataRootProject(id); } catch { /* 数据目录镜像清理失败不影响删除 */ }
@@ -1712,14 +1759,15 @@ async function canvasDeleteProject(args) {
   // 通知客户端把这个项目也从本地删掉，否则下次推送会把它复活 + 长效墓碑：拒收迟到的推送
   const cfg = readIcConfig();
   const prev = (cfg.ui && cfg.ui.deletedProjects) || [];
-  const prevTomb = Array.isArray(cfg.ui.deletedProjectIds) ? cfg.ui.deletedProjectIds : [];
+  // 防御：config 里可能根本没有 ui 段（新装/被手工清空）——直接解引用 cfg.ui 会 TypeError 打断删除
+  const prevTomb = Array.isArray(cfg.ui && cfg.ui.deletedProjectIds) ? cfg.ui.deletedProjectIds : [];
   cfg.ui = {
     ...(cfg.ui || {}),
     deletedProjects: [...new Set([...prev, id])].slice(-50),
     deletedProjectIds: [...new Set([...prevTomb, id])].slice(-200),
   };
   writeIcConfig(cfg);
-  return { ok: true, projectId: id, name };
+  return { ok: true, projectId: id, name, disk: cleanup };
 }
 async function canvasDeleteNode(args) {
   const id = String((args && args.projectId) || '');
@@ -2187,7 +2235,7 @@ async function updateInstall() {
 export const inject = ['webServer', 'tools'];
 
 // 仅供诊断 / 自动化测试（不属于 RPC 面，运行时行为不受影响）
-export const _internals = { updateCheck, updateInstall, npmLatestVersion, cmpVer, findPnpm, getProfileDir: () => PROFILE_DIR, getVersion: () => VERSION, dataRoot, setDataRoot, dataRootMigrate, dataRootImport, ensureProjectFolder, physicalRel, mirrorProjectToDataRoot, writeAssetIndex, removeAssetIndexEntry, readDataRootMeta, removeDataRootProject, deletedProjectIds, addDeletedProjectId, clearDeletedProjectId, fetchProxyForward, storyboardConsistencyWarnings, readAssetIndexNames, safeJoin, mimeOf, pipeFile, getIcConfigPath: () => CONFIG_PATH, canvasCreateProject, canvasWriteNode, canvasConnect, canvasDeleteProject, canvasDeleteNode, canvasRunNode, canvasNodeStatus, canvasGetBible, canvasUpdateBible, canvasCreateNode, canvasOpen, projectsList, projectsPut, projectsGet, projectsDelete, projectsSync, sqliteAvailable: () => !!SQLITE, getDb, closeDb, dbAssetsList, dbAssetsGet, dbAssetNames, dbAssetCreate, dbAssetUpdate, dbAssetDelete, dbObjectsGc, objectAbsFor, readDocOrNull, docExists, sqlActive, rpcMethods: () => _rpcMethods, canvasUpdateNode, canvasGenerateNode };
+export const _internals = { updateCheck, updateInstall, npmLatestVersion, cmpVer, findPnpm, getProfileDir: () => PROFILE_DIR, getVersion: () => VERSION, dataRoot, setDataRoot, dataRootMigrate, dataRootImport, ensureProjectFolder, physicalRel, mirrorProjectToDataRoot, writeAssetIndex, removeAssetIndexEntry, readDataRootMeta, removeDataRootProject, sqlDeleteProjectRows, deletedProjectIds, addDeletedProjectId, clearDeletedProjectId, fetchProxyForward, storyboardConsistencyWarnings, readAssetIndexNames, safeJoin, mimeOf, pipeFile, getIcConfigPath: () => CONFIG_PATH, canvasCreateProject, canvasWriteNode, canvasConnect, canvasDeleteProject, canvasDeleteNode, canvasRunNode, canvasNodeStatus, canvasGetBible, canvasUpdateBible, canvasCreateNode, canvasOpen, projectsList, projectsPut, projectsGet, projectsDelete, projectsSync, sqliteAvailable: () => !!SQLITE, getDb, closeDb, dbAssetsList, dbAssetsGet, dbAssetNames, dbAssetCreate, dbAssetUpdate, dbAssetDelete, dbObjectsGc, objectAbsFor, readDocOrNull, docExists, sqlActive, rpcMethods: () => _rpcMethods, canvasUpdateNode, canvasGenerateNode };
 
 function resolveModel(providers, want) {
   const byProvider = want && want.provider
