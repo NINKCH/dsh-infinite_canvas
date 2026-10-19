@@ -14,14 +14,19 @@ GitHub Releases carry the same notes in English; maintainer-facing runbooks live
 - **Vendor-format video prompts from the storyboard**: prompts for storyboard-driven shots are composed in the reference-generation format the video vendors actually expect — subject/picture binding, speaker-tagged dialogue with per-speaker voice, an absolute timeline, and a soundscape paragraph — replacing the previous mechanical sentence assembly.
 - **Segment continuity**: separately generated segments now actually connect. Shots carry explicit hand-off state (`tail` = where this shot ends, plus camera), and the next shot's prompt inherits the previous shot's hand-off instead of inventing its own starting pose.
 - **Alt-drag to place a node freely** while keeping the existing collision-pushing behaviour as the default, plus a **keyboard-shortcuts panel** listing every canvas shortcut (the entry lives in the top toolbar).
+- **Unknown video vendors degrade instead of dying**: a recognized vendor name without an official adapter no longer hard-fails the generation (`暂未适配的视频厂商格式`) — it falls back to the OpenAI-compatible chain (with its existing Seedance-content[]/Sora fallbacks) and shows a node-level notice naming the vendor, the format used, and where to set the vendor explicitly.
+- **EXIF rotation is reported, not just survived**: when a Compshare reference upload is registered with the raw file dimensions after the decoded-dims attempt was rejected, the node now shows a visible note with both dimension pairs (previously console-only).
 
 ### Fixed
 - **Final-cut merge could never complete**: `composeFinalCut` referenced an undeclared `dur` variable, so every merge threw `ReferenceError: dur is not defined` and no finished cut could be produced. The whole compose loop was hardened while fixing it.
 - **Continuity fixes found by an end-to-end audit**: 13 defects across storyboard segmentation, ports and skills (including two incompatible vocabularies for shot size that silently fell through to the wrong matching mode), and a semantic inversion where a shot's tail was read as its own starting state instead of the previous shot's end state.
 - **Character-sheet skill**: the built-in prompt now forbids foreign objects and declares an empty-handed stance plus a whitelist of allowed items.
+- **Craft outputs no longer survive project deletion**: deleting a project now also removes its ArtCraft `craft/` directory (resolved through the same project-folder base as every other call), idempotent and with visible failures. The root cause was fixed too: projects that only ever existed in SQL storage mode never registered their data-root folder entry — which is why on-disk folders showed the project id instead of the name.
+- **Asset-dimension measurement failures name the file**: the error now includes the sniffed MIME type and hints the file may be corrupt, instead of a bare sentence.
 
 ### Changed
 - **Assets always land in the project folder**: newly generated media (text/image/video) is written to `projects/<project>/<kind>/` and recorded in `canvas.db`; IndexedDB writes were dropped from the upload path. Without a configured data root, generation now fails with a clear error instead of silently storing media in the browser. Recording is mp4-first (webm remains the fallback).
+- **The three extension mappings now have one documented responsibility each**: disk persistence takes the MIME subtype as-is; Craft paths keep filename-first (the name is the stable identifier inside ArtCraft projects); user downloads keep MIME-first with a whitelisted filename fallback (`final.2026` never becomes `.2026`, `setup.exe` never passes). Every call site is pinned to its own mapping.
 
 ### Internal
 - One regression entry point (`scripts/regress.mjs`) with unified four-state reporting (PASS/FAIL/SKIP/ERROR) and a `--strict` release gate; `RELEASING.md` and `docs/release.md` now share one script list instead of disagreeing (12 vs 10). The film-merge path (`test-compose`) is finally part of the gate.
@@ -29,6 +34,9 @@ GitHub Releases carry the same notes in English; maintainer-facing runbooks live
 - Canvas → ArtCraft calls now pass an absolute `base` (project directory) with a relative `path`, fixing silent misplacement when the bridge resolved paths against the plugin process cwd.
 - Download filenames follow the real container instead of a hardcoded extension.
 - The content-addressed object store's **write path is retired**: new uploads never create `objects/` (media goes to `projects/<project>/<kind>/` via `/api/asset`), and `POST`/`PUT /api/object` now answer `405` with an explanation instead of silently accepting. The **read path is kept**, so media created on 0.18.0–0.18.4 still loads, and unreferenced legacy objects are still reclaimed by reference count when their last asset is deleted.
+- The reference-upload trio (magic-byte sniffing, raw-dimension parsing, rejected-dims registration retry) is extracted as testable pure functions and pinned by `test-image-upload.mjs` **before** any further hardening (it was patched five times in ten days with zero coverage); vendor detection, gateway-prefix normalization and the unknown-vendor fallback are pinned by `test-vendor-detect.mjs` (18 model-name + 9 URL cases).
+- A one-shot `ftsReconcile` maintenance RPC removes `assets_fts` rows whose asset is gone and repairs the inverse (direct SQL inserts skip FTS), idempotent with explicit counts — stock orphans from the 0.18.0 rewrite (58 vs 56 on the live library) converge on first run.
+- The three extension mappings are pinned by `test-ext-mapping.mjs` (per-surface binding, dangerous-suffix rejection) and the craft-directory cleanup by `test-craft-cleanup.mjs`. The regression gate grows from 24 to 29 items.
 
 ## [0.18.4] — 2026-10-18
 
