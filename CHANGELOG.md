@@ -4,6 +4,31 @@ All notable changes to `@ninkch/dsh-infinite-canvas` are documented here (newest
 GitHub Releases carry the same notes in English; maintainer-facing runbooks live in
 [`RELEASING.md`](RELEASING.md) and [`docs/release.md`](docs/release.md).
 
+## [Unreleased]
+
+> Version number and release scope are **not decided yet** — the maintainer picks both after
+> the first batch closes. This section only records what is already on `dev`.
+
+### Added
+- **Full node control for the agent** (`canvas_update_node`, `canvas_generate_node`): the assistant can now read and patch any field of an existing node (prompt, ratio, size, duration, resolution, shots, …) instead of being limited to create/write, and can trigger a generation and wait for the finished asset in one call. `canvas_node_status` additionally exposes the effective prompts and generation parameters, and nodes surface reference-cap warnings. Settings gained a storage statistics panel.
+- **Vendor-format video prompts from the storyboard**: prompts for storyboard-driven shots are composed in the reference-generation format the video vendors actually expect — subject/picture binding, speaker-tagged dialogue with per-speaker voice, an absolute timeline, and a soundscape paragraph — replacing the previous mechanical sentence assembly.
+- **Segment continuity**: separately generated segments now actually connect. Shots carry explicit hand-off state (`tail` = where this shot ends, plus camera), and the next shot's prompt inherits the previous shot's hand-off instead of inventing its own starting pose.
+- **Alt-drag to place a node freely** while keeping the existing collision-pushing behaviour as the default, plus a **keyboard-shortcuts panel** listing every canvas shortcut (the entry lives in the top toolbar).
+
+### Fixed
+- **Final-cut merge could never complete**: `composeFinalCut` referenced an undeclared `dur` variable, so every merge threw `ReferenceError: dur is not defined` and no finished cut could be produced. The whole compose loop was hardened while fixing it.
+- **Continuity fixes found by an end-to-end audit**: 13 defects across storyboard segmentation, ports and skills (including two incompatible vocabularies for shot size that silently fell through to the wrong matching mode), and a semantic inversion where a shot's tail was read as its own starting state instead of the previous shot's end state.
+- **Character-sheet skill**: the built-in prompt now forbids foreign objects and declares an empty-handed stance plus a whitelist of allowed items.
+
+### Changed
+- **Assets always land in the project folder**: newly generated media (text/image/video) is written to `projects/<project>/<kind>/` and recorded in `canvas.db`; IndexedDB writes were dropped from the upload path. Without a configured data root, generation now fails with a clear error instead of silently storing media in the browser. Recording is mp4-first (webm remains the fallback).
+
+### Internal
+- One regression entry point (`scripts/regress.mjs`) with unified four-state reporting (PASS/FAIL/SKIP/ERROR) and a `--strict` release gate; `RELEASING.md` and `docs/release.md` now share one script list instead of disagreeing (12 vs 10). The film-merge path (`test-compose`) is finally part of the gate.
+- Deleting a project now also clears its disk mirror directory and its FTS rows (regression from the 0.18.0 storage rewrite).
+- Canvas → ArtCraft calls now pass an absolute `base` (project directory) with a relative `path`, fixing silent misplacement when the bridge resolved paths against the plugin process cwd.
+- Download filenames follow the real container instead of a hardcoded extension.
+
 ## [0.18.4] — 2026-10-18
 
 ### Fixed
