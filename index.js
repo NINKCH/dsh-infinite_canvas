@@ -2349,6 +2349,21 @@ export function apply(ctx) {
         if (root) { try { exists = statSync(root).isDirectory(); } catch { /* 不存在 */ } }
         return { dataRoot: root, exists, configPath: CONFIG_PATH, sql: !!SQLITE, store: sqlActive() ? 'sqlite' : 'json' };
       },
+      /** BLK-02：项目在数据根下的**绝对目录** = <dataRoot>/projects/<物理文件夹>。
+       *  画布调 ArtCraft 时以它为 base（ArtCraft 0.3.x 无数据根概念、/status 也不再返回 dataRoot），
+       *  避免「无 base 的相对路径」被按插件进程 cwd 解析而静默写错目录。 */
+      async projectDirGet(args) {
+        const root = dataRoot();
+        const pid = String((args && args.projectId) || '');
+        if (!root) return { ok: false, error: '未设置数据根目录', projectId: pid };
+        if (!pid) return { ok: false, error: '缺少 projectId', projectId: pid };
+        const meta = readDataRootMeta();
+        const entry = meta.projects.find((p) => p.id === pid) || null;
+        const folder = entry ? entry.folder : sanitizeFolderName(pid);
+        const abs = path.join(root, 'projects', folder);
+        try { mkdirSync(abs, { recursive: true }); } catch { /* 目录建不出来交给调用方报错 */ }
+        return { ok: true, projectId: pid, folder, abs, dataRoot: root, legacy: !entry };
+      },
       // 存储实况：一眼看清"是否真在用 SQLite 库、库在哪、多少数据"（客户端设置页显示）
       async dbStats() {
         const root = dataRoot();

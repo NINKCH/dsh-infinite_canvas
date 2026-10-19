@@ -4480,10 +4480,12 @@ window.__ModuleLoader__.load({
     const craft = {
       status: async () => { const r = await craftFetch('/status', {}, 20000, true); return await r.json(); },
       projects: async () => { const r = await craftFetch('/projects'); return await r.json(); },
-      write: async (rel, blob) => { const r = await craftFetch('/fs?action=write&rel=' + encodeURIComponent(rel), { method: 'POST', body: blob }, 180000); return await r.json(); },
-      writeText: async (rel, text) => { const r = await craftFetch('/fs?action=write&rel=' + encodeURIComponent(rel), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ rel, text }) }, 60000); return await r.json(); },
-      readText: async (rel) => { const r = await craftFetch('/fs?op=readtext&rel=' + encodeURIComponent(rel)); return (await r.json()).text; },
-      file: async (rel) => { const r = await craftFetch('/file?rel=' + encodeURIComponent(rel), {}, 180000); return await r.blob(); },
+      // BLK-02：所有文件类调用一律 base(项目绝对目录) + path(相对)，绝不发「无 base 的相对 rel」——
+      // 无 base 时 ArtCraft 按插件进程 cwd 解析，会 200 静默写到 DSH profile 目录（现场证据见 _qa/BLK-02）。
+      write: async (base, rel, blob) => { const r = await craftFetch('/fs?action=write&base=' + encodeURIComponent(base) + '&path=' + encodeURIComponent(rel), { method: 'POST', body: blob }, 180000); return await r.json(); },
+      writeText: async (base, rel, text) => { const r = await craftFetch('/fs?action=write&base=' + encodeURIComponent(base) + '&path=' + encodeURIComponent(rel), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ base, path: rel, text }) }, 60000); return await r.json(); },
+      readText: async (base, rel) => { const r = await craftFetch('/fs?op=readtext&base=' + encodeURIComponent(base) + '&path=' + encodeURIComponent(rel)); return (await r.json()).text; },
+      file: async (base, rel) => { const r = await craftFetch('/file?base=' + encodeURIComponent(base) + '&path=' + encodeURIComponent(rel), {}, 180000); return await r.blob(); },
       jobStart: async (p) => { const r = await craftFetch('/job', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(p) }, 30000); return await r.json(); },
       jobGet: async (id, tail) => { const r = await craftFetch('/job?id=' + encodeURIComponent(id) + '&tail=' + (tail || 12)); return await r.json(); },
       jobCancel: async (id) => { const r = await craftFetch('/job/cancel', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id }) }); return await r.json(); },
@@ -4498,6 +4500,34 @@ window.__ModuleLoader__.load({
       update((s) => { s.craftStatus = { at: Date.now(), data }; });
       return data;
     }
+    // ---- BLK-02：ArtCraft 调用的目录基准 ----
+    // ArtCraft 是纯桥接、**没有自己的数据根**（0.3.x 起 /api/status 也不再返回 dataRoot）。
+    // 因此画布必须自己给出绝对基准：每个项目的目录 = <画布数据根>/projects/<物理文件夹>，
+    // 由 Host 的 projectDirGet 解析（meta 无条目时回退 id），再以 base + 相对 path 调 ArtCraft。
+    // 绝不发「无 base 的相对 rel」——那样会被按插件进程 cwd 解析、200 却写错目录（见 _qa/BLK-02）。
+    const craftBaseCache = new Map(); // projectId -> { at, abs }
+    async function craftBaseDir(pid) {
+      const id = String(pid || S.activeId || '');
+      if (!id) return null;
+      const hit = craftBaseCache.get(id);
+      if (hit && Date.now() - hit.at < 60000) return hit.abs;
+      let r = null;
+      try { r = await hostRpc('projectDirGet', { projectId: id }); } catch { r = null; }
+      if (r && r.ok && r.abs) { craftBaseCache.set(id, { at: Date.now(), abs: r.abs }); return r.abs; }
+      return null;
+    }
+    /** 取不到项目目录时明确失败（未配数据根/宿主过旧），不做任何相对路径兜底。 */
+    async function craftBaseDirRequired(pid) {
+      const abs = await craftBaseDir(pid);
+      if (!abs) throw new Error('未设置画布数据根目录：ArtCraft 调用需要绝对的项目目录作为基准（设置 → 数据根目录）');
+      return abs;
+    }
+    /** 项目目录下的相对路径 → 本机绝对路径（ArtCraft 的 args/FCP7 XML 都用它）。 */
+    function joinLocal(absDir, rel) {
+      const s = String(absDir || '').replace(/\//g, '\\').replace(/\\+$/, '');
+      const r = String(rel || '').replace(/\\/g, '/').replace(/^\/+/, '');
+      return s + '\\' + r.replace(/\//g, '\\');
+    }
     async function craftStatusSafe() {
       try { return await craft.status(); } catch { toast(T('craftUnreachable')); return null; }
     }
@@ -4506,22 +4536,7 @@ window.__ModuleLoader__.load({
       if (!cs || !cs.at || Date.now() - cs.at > 120000 || !cs.data || !cs.data.bins) return false;
       return Object.keys(cs.data.bins).some((k) => cs.data.bins[k] && cs.data.bins[k].found);
     }
-    function slugifyName(name) {
-      return String(name || '').replace(/[\\/:*?"<>|]/g, '').trim() || 'project';
-    }
-    function craftProjectSlug() {
-      const p = S.projects.find((x) => x.id === S.activeId);
-      if (!p) return 'project';
-      if (!p.slug) {
-        let base = slugifyName(p.name);
-        const taken = new Set(S.projects.filter((x) => x.id !== p.id && x.slug).map((x) => x.slug));
-        if (taken.has(base)) base = base + '-' + p.id.slice(-4);
-        p.slug = base;
-        lsSet(LS_PROJECTS, S.projects);
-      }
-      return p.slug;
-    }
-    // 资产 assetId → dataRoot 相对路径 映射（项目级元数据，localStorage）
+    // 资产 assetId → 项目内相对路径 映射（项目级元数据，localStorage）
     function craftMapLoad(pid) { return lsGet('dsh-ic:craftmap:' + pid, {}) || {}; }
     function craftMapSave(pid, map) { lsSet('dsh-ic:craftmap:' + pid, map); }
     function craftMapSet(pid, assetId, rel) { const m = craftMapLoad(pid); m[assetId] = rel; craftMapSave(pid, m); }
@@ -4577,14 +4592,22 @@ window.__ModuleLoader__.load({
       const pid = S.activeId;
       const map = craftMapLoad(pid);
       if (!opts.force && map[rec.id]) return map[rec.id];
-      // Craft 后期数据统一放在**画布数据根目录**的项目目录下：projects/<项目>/<slug 前缀去掉>/craft/…
-      // （ArtCraft 数据根目录 = 画布数据根目录时，即落在 <root>/projects/<项目>/craft/media/）
-      const rel = 'projects/' + craftProjectSlug() + '/craft/media/' + assetFileBase(rec) + extForMime(rec.mime, rec.name);
+      // BLK-02：写入基准 = 项目绝对目录（base），路径只用 craft/ 下的相对段。
+      // ArtCraft 侧解析后落点 = <数据根>/projects/<物理文件夹>/craft/media/…；不再依赖 slug 与它的 cwd。
+      const base = await craftBaseDirRequired(pid);
+      const rel = 'craft/media/' + assetFileBase(rec) + extForMime(rec.mime, rec.name);
       const blob = rec.blob || await assetBlob(rec.id);
       if (!blob) throw new Error('资产内容不可用: ' + rec.id);
-      await craft.write(rel, blob);
-      craftMapSet(pid, rec.id, rel);
-      return rel;
+      await craft.write(base, rel, blob);
+      const stored = 'projects/' + craftFolderOf(base) + '/' + rel; // 返回给 Host 侧取用（逻辑路径）
+      craftMapSet(pid, rec.id, stored);
+      return stored;
+    }
+    /** 从项目绝对目录里取物理文件夹名（base 的末段），用于拼 Host 可识别的逻辑路径。 */
+    function craftFolderOf(abs) {
+      const s = String(abs || '').replace(/[\\/]+$/, '');
+      const i = Math.max(s.lastIndexOf('\\'), s.lastIndexOf('/'));
+      return i >= 0 ? s.slice(i + 1) : s;
     }
     async function ensureAssetOnDisk(rec) { return syncAssetToDisk(rec, { force: false }); }
     async function videoDurationOf(blob) {
@@ -4679,8 +4702,9 @@ window.__ModuleLoader__.load({
       });
       return out.join('\n');
     }
-    /** FilmCraft 任务后台轮询：状态写回节点，done 后回收产物入资产库。 */
-    async function pollFilmcraftJob(nodeId, jobId, outRel) {
+    /** FilmCraft 任务后台轮询：状态写回节点，done 后回收产物入资产库。
+     *  base = 项目绝对目录（BLK-02：取产物也必须带 base，否则读到的是插件 cwd 下的同名文件）。 */
+    async function pollFilmcraftJob(nodeId, jobId, outRel, base) {
       const deadline = Date.now() + 30 * 60 * 1000; // 与 jobStart 的 timeoutMs 对齐：绝不无限轮询
       for (;;) {
         if (Date.now() > deadline) {
@@ -4700,7 +4724,7 @@ window.__ModuleLoader__.load({
         });
         if (snap.status === 'done') {
           try {
-            const blob = await craft.file(outRel);
+            const blob = await craft.file(base, outRel);
             const rec = await saveAssetRecord(S.activeId, 'video', blob, {
               name: T('finalCutDone') + '-FC-' + new Date().toISOString().slice(5, 16).replace('T', ' '),
               prompt: 'filmcraft export', source: 'filmcraft', category: 'finalcut',
@@ -8663,6 +8687,9 @@ window.__ModuleLoader__.load({
         const st = await craftStatusSafe();
         if (!st) return;
         if (!(st.bins && st.bins.filmcraft && st.bins.filmcraft.found)) { toast(T('craftCliMissing').replace('{name}', 'filmcraft')); return; }
+        // BLK-02：先取项目绝对目录（ArtCraft 无数据根，必须由画布给 base）
+        let base;
+        try { base = await craftBaseDirRequired(S.activeId); } catch (e) { toast('Craft: ' + ((e && e.message) || e)); return; }
         const items = [];
         for (const x of segs) {
           if (!x.nd.data.assetId) continue;
@@ -8673,31 +8700,34 @@ window.__ModuleLoader__.load({
             const rel = await ensureAssetOnDisk({ ...(rec || {}), id: x.nd.data.assetId, blob });
             const vd = await videoDurationOf(blob);
             const ed = Number(x.nd.data.editDuration) || 0;
-            items.push({ rel, name: (rec && rec.name) || 'seg', sub: getSub(x), dur: ed > 0 ? Math.min(ed, vd) : vd });
+            // items.rel 用「项目目录下的相对路径」，FCP7 XML 里再拼成绝对路径
+            items.push({ rel: rel.slice(rel.indexOf('/craft/') + 1), name: (rec && rec.name) || 'seg', sub: getSub(x), dur: ed > 0 ? Math.min(ed, vd) : vd });
           } catch (e) { toast('Craft: ' + (e.message || e)); return; }
         }
         if (!items.length) { toast(T('noSegments')); return; }
-        const slug = craftProjectSlug();
         const dims = videoDimsFor({ resolution: n.data.resolution, ratio: n.data.ratio });
         const xml = buildFcp7Xml(items, {
           name: (S.projects.find((p) => p.id === S.activeId) || {}).name || 'project',
-          dataRoot: (st.dataRoot && st.dataRoot.path) || '',
+          dataRoot: base, // BLK-02：媒体绝对路径 = 项目目录 + items.rel（原读 ArtCraft 的 dataRoot 字段恒为空）
           width: dims.w, height: dims.h,
         });
+        const outRel = 'craft/out/final.mp4'; // 相对 base
         try {
-          await craft.writeText('projects/' + slug + '/craft/timeline.xml', xml);
-          await craft.writeText('projects/' + slug + '/craft/subs.srt', buildSrt(items));
+          await craft.writeText(base, 'craft/timeline.xml', xml);
+          await craft.writeText(base, 'craft/subs.srt', buildSrt(items));
         } catch (e) { return; /* craftFetch 已提示 */ }
         setFcDialog({
-          args: JSON.stringify(['--project', 'projects/' + slug + '/craft/drama.fcproj', '--import', 'projects/' + slug + '/craft/timeline.xml', '--export', 'projects/' + slug + '/craft/out/final.mp4'], null, 1),
-          outRel: 'projects/' + slug + '/craft/out/final.mp4',
+          // args 里一律绝对路径（job 的 cwd 语义不依赖）
+          args: JSON.stringify(['--project', joinLocal(base, 'craft/drama.fcproj'), '--import', joinLocal(base, 'craft/timeline.xml'), '--export', joinLocal(base, outRel)], null, 1),
+          outRel,
+          base,
         });
       };
-      const submitFc = (args, outRel) => {
-        craft.jobStart({ bin: 'filmcraft', args, outputs: [outRel], timeoutMs: 30 * 60 * 1000 }).then((job) => {
+      const submitFc = (args, outRel, base) => {
+        craft.jobStart({ bin: 'filmcraft', cwd: base, args, outputs: [outRel], timeoutMs: 30 * 60 * 1000 }).then((job) => {
           update((s) => { const nd = s.graph.nodes[n.id]; if (nd) { nd.data.fcJobId = job.id; nd.data.fcStatus = 'running'; } });
           setFcDialog(null);
-          pollFilmcraftJob(n.id, job.id, outRel);
+          pollFilmcraftJob(n.id, job.id, outRel, base);
         }).catch(() => { /* craftFetch 已提示 */ });
       };
       return [
@@ -9921,12 +9951,16 @@ window.__ModuleLoader__.load({
       useEffect(() => { probeCraft().then(() => force((x) => x + 1)); }, []);
       const cs = S.craftStatus;
       const data = cs && cs.data;
-      const slug = craftProjectSlug();
-      // Craft 后期目录 = **画布数据根目录** + 项目目录 + \craft（不再有 ArtCraft 独立数据目录的 second 口径）
-      const craftDir = S.dataRoot ? (S.dataRoot.replace(/[\\/]+$/, '') + '\\projects\\' + slug + '\\craft') : '';
-      // ArtCraft 自身的数据目录若与画布数据根目录不一致 → 后期文件会落到两处，必须提醒
-      const artRoot = data && data.dataRoot ? data.dataRoot.path : '';
-      const rootMismatch = !!(S.dataRoot && artRoot && artRoot.replace(/[\\/]+$/, '') !== S.dataRoot.replace(/[\\/]+$/, ''));
+      const [craftBase, setCraftBase] = useState('');
+      // BLK-02：后期目录由画布自己算 —— <数据根>/projects/<物理文件夹>/craft。
+      // ArtCraft 0.3.x 已无「自有数据根」概念（/status 无 dataRoot），故不再做两边对比，
+      // 改为把实际基准显示出来，供 QA/用户核对落点。
+      useEffect(() => {
+        let ok = true;
+        craftBaseDir(S.activeId).then((abs) => { if (ok) setCraftBase(abs || ''); }).catch(() => { /* 未配置数据根 */ });
+        return () => { ok = false; };
+      }, [S.activeId, S.dataRoot]);
+      const craftDir = craftBase ? (craftBase.replace(/[\\/]+$/, '') + '\\craft') : '';
       // Craft 家族全量动态渲染：ArtCraft /status 返回几款 bins 就渲染几款（当前 12 款），不再写死
       const binKeys = (data && data.bins ? Object.keys(data.bins) : []).sort();
       const readyCount = binKeys.filter((k) => data.bins[k] && data.bins[k].found).length;
@@ -9954,7 +9988,6 @@ window.__ModuleLoader__.load({
         ),
         open ? [
           craftDir ? h('div', { className: 'dshic-hint' }, T('craftDirLabel') + '：' + craftDir) : h('div', { className: 'dshic-err' }, T('craftDataRootNeed')),
-          rootMismatch ? h('div', { className: 'dshic-err' }, T('craftRootMismatch')) : null,
           ...(data ? binKeys.map((k) => binRow(k)) : []),
         ] : null,
       );
@@ -9984,11 +10017,15 @@ window.__ModuleLoader__.load({
         if (!rec || (!rec.blob && !rec.rel)) { toast(T('noResult')); return; }
         setRunning(true); setErr(null); setProgress('…');
         try {
+          // BLK-02：PhotoCraft 的输入/输出也一律 base(项目绝对目录) + 相对路径
+          const base = await craftBaseDirRequired(S.activeId);
           const mediaRel = await ensureAssetOnDisk(rec);
-          const outRel = 'projects/' + craftProjectSlug() + '/craft/out/graded/' + rec.id + '-graded' + extForMime(rec.mime, rec.name);
+          const mediaUnderBase = mediaRel.slice(mediaRel.indexOf('/craft/') + 1); // craft/media/…
+          const outRel = 'craft/out/graded/' + rec.id + '-graded' + extForMime(rec.mime, rec.name);
           const job = await craft.jobStart({
             bin: 'photocraft',
-            args: ['run', mediaRel, '--cmd', cmd, '--params', JSON.stringify(paramsObj), '--out', outRel],
+            cwd: base,
+            args: ['run', joinLocal(base, mediaUnderBase), '--cmd', cmd, '--params', JSON.stringify(paramsObj), '--out', joinLocal(base, outRel)],
             outputs: [outRel], timeoutMs: 600000,
           });
           setJobId(job.id);
@@ -10004,7 +10041,7 @@ window.__ModuleLoader__.load({
                 throw new Error('PhotoCraft ' + status + '：' + ((snap.stderr || '').split('\n').filter(Boolean).slice(-3).join('\n') || ''));
               }
               if (!(snap.outputs && snap.outputs[0] && snap.outputs[0].exists)) throw new Error('任务完成但未找到输出文件');
-              const blob = await craft.file(outRel);
+              const blob = await craft.file(base, outRel);
               const rec2 = await saveAssetRecord(S.activeId, 'image', blob, {
                 name: (rec.name || 'image') + '-graded',
                 prompt: 'photocraft ' + cmd, source: 'craft', category: rec.category || 'general',
@@ -10069,7 +10106,7 @@ window.__ModuleLoader__.load({
         let args;
         try { args = JSON.parse(argsText); } catch { setErr(T('craftInvalidJson')); return; }
         if (!Array.isArray(args)) { setErr(T('craftInvalidJson')); return; }
-        onSubmit(args, String(outRel || '').trim());
+        onSubmit(args, String(outRel || '').trim(), info.base);
       };
       return h('div', { className: 'dshic-mask-overlay', onPointerDown: (e) => { if (e.target === e.currentTarget) onClose(); } },
         h('div', { className: 'dshic-mask-card' },
@@ -11020,6 +11057,8 @@ window.__ModuleLoader__.load({
           };
           // IC-01：下载侧扩展名判定的纯函数出口（供 scripts/test-download-ext.mjs 直接断言）
           window.__DSH_IC_MEDIA__ = { extForDownload };
+          // BLK-02：ArtCraft 目录基准相关的纯函数出口（供 scripts/test-craft-base.mjs 断言）
+          window.__DSH_IC_CRAFT__ = { craftBaseDir, craftBaseDirRequired, joinLocal, craftFolderOf, craft };
         }
       },
     };
