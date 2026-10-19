@@ -51,9 +51,21 @@ if (mUnrel) {
 ok(!/^## \[?\d+\.\d+\.\d+/m.test(section), 'Unreleased 段里出现了具体版本号标题（版本号必须由维护者拍板）');
 ok(!/^## \[Unreleased\].*?\d+\.\d+\.\d+/m.test(section), 'Unreleased 段里写死了版本号');
 
-// ---------- 3) CAS 写路径退役不得提前出现（与 IC-08 强绑定） ----------
-const casRe = /object store|objects\/|CAS\b|content-addressed/i;
-ok(!casRe.test(section), 'Unreleased 段出现 CAS / objects/ 表述 —— 该条与 IC-08 强绑定，IC-08 未合入前不得写进 CHANGELOG');
+// ---------- 3) CAS 写路径退役：与 IC-08 强绑定（落地状态变了，断言跟着变） ----------
+// 原口径（IC-08 未合入时）：Unreleased 段**不得**出现 CAS/objects 表述。
+// 现口径（IC-08 已合入）：允许出现，但措辞必须是「写路径退役 + 读路径保留」，
+// 不能写成「CAS 整体移除」——那会让 0.18.0–0.18.4 的老资产被误认为失效。
+{
+  const mentionsCas = /object store|objects\/|CAS\b|content-addressed/i.test(section);
+  if (mentionsCas) {
+    ok(/write path/i.test(section), 'CAS 条目缺少「写路径退役（write path）」的限定——不允许写成整体移除');
+    ok(/read path/i.test(section), 'CAS 条目缺少「读路径保留（read path）」说明——老资产 0.18.0–0.18.4 仍要能读');
+    ok(/0\.18\.0|0\.18\.4|legacy/i.test(section), 'CAS 条目没说是哪些版本的历史数据（0.18.0–0.18.4 / legacy）');
+  }
+  // 反向守卫：读路径真的还在代码里（防止有人删了读路径却在 CHANGELOG 说保留）
+  const hostSrc = readFileSync(path.join(ROOT, 'index.js'), 'utf8');
+  ok(/api\/object/.test(hostSrc), 'CHANGELOG 声称保留读路径，但 index.js 里已找不到 /api/object 路由');
+}
 
 // ---------- 4) package.json 版本未被擅自改动 ----------
 const pkg = JSON.parse(readFileSync(path.join(ROOT, 'package.json'), 'utf8'));
@@ -116,5 +128,5 @@ if (errs.length) {
   for (const e of errs) console.error('  - ' + e);
   process.exit(1);
 }
-console.log('✓ IC-07 验证通过：Unreleased 段结构完整（4 分组）、无提前写死的版本号、无越界的 CAS 退役条目，' + COVERAGE.length + ' 个未发版提交全部有记录');
+console.log('✓ IC-07 验证通过：Unreleased 段结构完整（4 分组）、无提前写死的版本号、CAS 条目措辞与读路径保留一致，' + COVERAGE.length + ' 个未发版提交全部有记录');
 process.exit(0);

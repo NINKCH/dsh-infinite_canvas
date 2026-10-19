@@ -12,7 +12,6 @@ import { createReadStream, createWriteStream, existsSync, lstatSync, mkdirSync, 
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { createHash } from 'node:crypto';
 import { createRequire } from 'node:module';
 
 const NAME = 'infinite-canvas';
@@ -184,9 +183,13 @@ function sanitizeFolderName(name) {
 }
 
 // ============================================================
-// 存储引擎 v2（0.18.0）：SQLite（node:sqlite）+ CAS 对象库
+// 存储引擎 v2（0.18.0）：SQLite（node:sqlite）+ 项目文件夹落盘
 //   <dataRoot>/canvas.db                元数据 + 项目文档 = 唯一事实源
-//   <dataRoot>/objects/<sha2>/<sha256>  媒体文件（内容寻址、去重、引用计数）
+//   <dataRoot>/projects/<项目>/<类型>/   媒体文件（0.18.5 起新上传一律落这里）
+//   <dataRoot>/objects/<sha2>/<sha256>  历史 CAS 对象库：**只读保留**
+//       ！0.18.0–0.18.4 上传的媒体在这里，删掉老用户的图/视频会 404
+//       ！IC-08 已退役写路径：不再有 POST /api/object，新上传不再产生对象
+//       ！删资产时仍按引用计数回收（gcObjectIfUnreferenced），避免只增不减
 // node:sqlite 需要 Node ≥22.5（DSH 捆绑 Node 24 满足）；不可用时整站回退 v1 JSON 存储。
 // ============================================================
 const require_ = createRequire(import.meta.url);
@@ -504,36 +507,8 @@ function dbAssetUpdate(id, patch) {
   return { ok: true, asset: rowToAsset(db.prepare('SELECT * FROM assets WHERE id = ?').get(row.id)) };
 }
 
-/** CAS 对象库 GC：扫描 objects/，删除无任何资产行引用的对象（mtime 超过 24h 才删，避免与并发上传竞态）。 */
-function dbObjectsGc() {
-  const root = dataRoot();
-  const db = getDb();
-  if (!root || !db) throw new Error('SQL 存储不可用');
-  const odir = objectsDirFor(root);
-  let scanned = 0;
-  let removed = 0;
-  const grace = Date.now() - 24 * 3600 * 1000;
-  try {
-    for (const bucket of readdirSync(odir)) {
-      const bdir = path.join(odir, bucket);
-      let stats = null;
-      try { stats = statSync(bdir); } catch { continue; }
-      if (!stats.isDirectory()) continue;
-      for (const f of readdirSync(bdir)) {
-        if (!/^[0-9a-f]{64}$/i.test(f)) continue;
-        scanned++;
-        const abs = path.join(bdir, f);
-        let st = null;
-        try { st = statSync(abs); } catch { continue; }
-        if (st.mtimeMs > grace) continue; // 近期写入：可能尚未登记资产行
-        if (objectRefCount(db, f) === 0) {
-          try { unlinkSync(abs); removed++; } catch { /* 忽略 */ }
-        }
-      }
-    }
-  } catch { /* 目录不存在 = 无对象 */ }
-  return { ok: true, scanned, removed };
-}
+/** CAS 对象库 GC 已随写路径退役（IC-08）：新上传不再产生 objects/，历史对象由删资产时的
+ *  引用计数回收（gcObjectIfUnreferenced）兜住，不需要独立的定期扫描入口。 */
 
 function readDocOrNull(id) {
   if (sqlActive()) {
@@ -2235,7 +2210,7 @@ async function updateInstall() {
 export const inject = ['webServer', 'tools'];
 
 // 仅供诊断 / 自动化测试（不属于 RPC 面，运行时行为不受影响）
-export const _internals = { updateCheck, updateInstall, npmLatestVersion, cmpVer, findPnpm, getProfileDir: () => PROFILE_DIR, getVersion: () => VERSION, dataRoot, setDataRoot, dataRootMigrate, dataRootImport, ensureProjectFolder, physicalRel, mirrorProjectToDataRoot, writeAssetIndex, removeAssetIndexEntry, readDataRootMeta, removeDataRootProject, sqlDeleteProjectRows, deletedProjectIds, addDeletedProjectId, clearDeletedProjectId, fetchProxyForward, storyboardConsistencyWarnings, readAssetIndexNames, safeJoin, mimeOf, pipeFile, getIcConfigPath: () => CONFIG_PATH, canvasCreateProject, canvasWriteNode, canvasConnect, canvasDeleteProject, canvasDeleteNode, canvasRunNode, canvasNodeStatus, canvasGetBible, canvasUpdateBible, canvasCreateNode, canvasOpen, projectsList, projectsPut, projectsGet, projectsDelete, projectsSync, sqliteAvailable: () => !!SQLITE, getDb, closeDb, dbAssetsList, dbAssetsGet, dbAssetNames, dbAssetCreate, dbAssetUpdate, dbAssetDelete, dbObjectsGc, objectAbsFor, readDocOrNull, docExists, sqlActive, rpcMethods: () => _rpcMethods, canvasUpdateNode, canvasGenerateNode };
+export const _internals = { updateCheck, updateInstall, npmLatestVersion, cmpVer, findPnpm, getProfileDir: () => PROFILE_DIR, getVersion: () => VERSION, dataRoot, setDataRoot, dataRootMigrate, dataRootImport, ensureProjectFolder, physicalRel, mirrorProjectToDataRoot, writeAssetIndex, removeAssetIndexEntry, readDataRootMeta, removeDataRootProject, sqlDeleteProjectRows, deletedProjectIds, addDeletedProjectId, clearDeletedProjectId, fetchProxyForward, storyboardConsistencyWarnings, readAssetIndexNames, safeJoin, mimeOf, pipeFile, getIcConfigPath: () => CONFIG_PATH, canvasCreateProject, canvasWriteNode, canvasConnect, canvasDeleteProject, canvasDeleteNode, canvasRunNode, canvasNodeStatus, canvasGetBible, canvasUpdateBible, canvasCreateNode, canvasOpen, projectsList, projectsPut, projectsGet, projectsDelete, projectsSync, sqliteAvailable: () => !!SQLITE, getDb, closeDb, dbAssetsList, dbAssetsGet, dbAssetNames, dbAssetCreate, dbAssetUpdate, dbAssetDelete, objectAbsFor, readDocOrNull, docExists, sqlActive, rpcMethods: () => _rpcMethods, canvasUpdateNode, canvasGenerateNode };
 
 function resolveModel(providers, want) {
   const byProvider = want && want.provider
@@ -2529,7 +2504,7 @@ export function apply(ctx) {
         const next = { ...cur, ...(patch.name !== undefined ? { name: String(patch.name).slice(0, 80) } : {}), ...(patch.category !== undefined ? { category: String(patch.category || 'general') } : {}) };
         return writeAssetIndex(String(next.projectId), '', [next]);
       },
-      async objectsGc() { return dbObjectsGc(); },
+      // CAS 对象库 GC 已随写路径退役（IC-08）：见 dbObjectsGc 位置的说明。
       // 一键迁移/对齐：旧 pid 文件夹 → 项目名文件夹 + 全部项目文档镜像（v1 JSON 模式专用）
       async dataRootMigrate() {
         if (sqlActive()) return { ok: true, skipped: 'sqlite（数据目录即主存储，无需布局迁移）' };
@@ -3249,7 +3224,8 @@ export function apply(ctx) {
           }
         },
       }),
-      // CAS 对象库（0.18）：POST 上传（内容寻址去重）+ GET 读取（immutable + Range，远程访问与视频拖动友好）
+      // CAS 对象库读路径（0.18）：0.18.0–0.18.4 上传的媒体仍在 objects/ 里，必须继续可读。
+      // IC-08 起写路径已退役（POST/PUT 一律 405），只有 GET。
       ctx.webServer.register({
         kind: 'exact',
         path: `/${NAME}/api/object`,
@@ -3257,42 +3233,16 @@ export function apply(ctx) {
           try {
             const root = dataRoot();
             if (!root) throw new Error('未设置数据根目录');
-            if (req.method === 'POST' || req.method === 'PUT') {
-              const odir = objectsDirFor(root);
-              mkdirSync(odir, { recursive: true });
-              const tmp = path.join(odir, '.tmp-' + process.pid + '-' + Date.now());
-              const hash = createHash('sha256');
-              let size = 0;
-              const MAX_UPLOAD = 512 * 1024 * 1024;
-              await new Promise((resolve, reject) => {
-                const ws = createWriteStream(tmp);
-                const fail = (err) => {
-                  try { ws.destroy(); } catch { /* 忽略 */ }
-                  try { unlinkSync(tmp); } catch { /* 忽略 */ }
-                  reject(err);
-                };
-                req.on('data', (c) => { size += c.length; hash.update(c); if (size > MAX_UPLOAD) fail(new Error('文件过大（上限 512MB）')); });
-                req.on('error', fail);
-                req.on('aborted', () => fail(new Error('上传中断')));
-                ws.on('error', fail);
-                ws.on('finish', resolve);
-                req.pipe(ws);
-              });
-              const sha = hash.digest('hex');
-              const dest = objectAbsFor(root, sha);
-              let deduped = false;
-              if (existsSync(dest)) {
-                try { unlinkSync(tmp); } catch { /* 忽略 */ }
-                deduped = true; // 内容已存在：内容寻址天然去重
-              } else {
-                mkdirSync(path.dirname(dest), { recursive: true });
-                renameSync(tmp, dest);
-              }
+            // IC-08：写路径已退役——新上传一律经 /api/asset 落项目文件夹。
+            // 明确回 4xx 而不是静默接受：挂着旧版本 JS 的标签页 POST 过来时必须看得见失败。
+            if (req.method !== 'GET') {
+              res.statusCode = 405;
               res.setHeader('content-type', 'application/json; charset=utf-8');
-              res.end(JSON.stringify({ ok: true, sha, size, deduped }));
+              res.setHeader('allow', 'GET');
+              res.end(JSON.stringify({ error: '对象库写路径已退役（0.18.5 起新上传走 /api/asset 落项目文件夹）；本路由仅支持 GET 读取历史对象' }));
               return;
             }
-            if (req.method === 'GET') {
+            {
               const u = new URL(req.url, 'http://localhost');
               const sha = String(u.searchParams.get('sha') || '').toLowerCase();
               if (!/^[0-9a-f]{64}$/.test(sha)) { res.statusCode = 400; res.end('非法 sha256'); return; }
@@ -3325,9 +3275,6 @@ export function apply(ctx) {
               }
               return;
             }
-            res.statusCode = 405;
-            res.setHeader('content-type', 'application/json; charset=utf-8');
-            res.end(JSON.stringify({ error: '仅接受 GET/POST/PUT' }));
           } catch (e) {
             res.statusCode = 400;
             res.setHeader('content-type', 'application/json; charset=utf-8');

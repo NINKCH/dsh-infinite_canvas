@@ -28,6 +28,7 @@ GitHub Releases carry the same notes in English; maintainer-facing runbooks live
 - Deleting a project now also clears its disk mirror directory and its FTS rows (regression from the 0.18.0 storage rewrite).
 - Canvas → ArtCraft calls now pass an absolute `base` (project directory) with a relative `path`, fixing silent misplacement when the bridge resolved paths against the plugin process cwd.
 - Download filenames follow the real container instead of a hardcoded extension.
+- The content-addressed object store's **write path is retired**: new uploads never create `objects/` (media goes to `projects/<project>/<kind>/` via `/api/asset`), and `POST`/`PUT /api/object` now answer `405` with an explanation instead of silently accepting. The **read path is kept**, so media created on 0.18.0–0.18.4 still loads, and unreferenced legacy objects are still reclaimed by reference count when their last asset is deleted.
 
 ## [0.18.4] — 2026-10-18
 

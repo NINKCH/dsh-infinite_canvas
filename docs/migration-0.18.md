@@ -10,8 +10,20 @@ upgrading an existing deployment and moving data to a new machine.
 |---|---|
 | Asset metadata in **each browser's IndexedDB** | **`<dataRoot>/canvas.db`** (SQLite, WAL) — one source of truth for every browser |
 | Project documents in `~/.dsh/infinite-canvas/projects/*.json` + a mirror in the data directory | Stored in `canvas.db`; the old files are frozen and no longer written |
-| Media in `<dataRoot>/projects/<project>/<kind>/…` + metadata mirror `assets.json` | New uploads go to `<dataRoot>/objects/<sha2>/<sha256>` (content-addressed, deduplicated); legacy files stay where they are and keep working |
+| Media in `<dataRoot>/projects/<project>/<kind>/…` + metadata mirror `assets.json` | New uploads go to `<dataRoot>/projects/<project>/<kind>/…` and are recorded in `canvas.db`; legacy files stay where they are and keep working |
 | Copying the data directory was not enough to migrate | The data directory **is** the complete data package — copy it, point the data root at it, done |
+
+## A note on `objects/` (versions 0.18.0–0.18.4)
+
+For a few 0.18 releases, newly uploaded media was stored content-addressed under
+`<dataRoot>/objects/<sha2>/<sha256>` instead of the project folder. That **write
+path has since been retired** — current versions never create new objects — but
+**media uploaded during 0.18.0–0.18.4 still lives there and is still served** by
+`GET /api/object`. Keep the `objects/` directory when you copy or back up your data
+root, otherwise those older assets will fail to load.
+
+Deleting an asset still reclaims its object when no other asset references it, so
+the directory does not grow unbounded.
 
 ## Upgrade the production machine
 
@@ -37,7 +49,10 @@ upgrading an existing deployment and moving data to a new machine.
    back into `canvas.db`). If you must copy a running directory, copy all
    `canvas.db*` files (`canvas.db`, `canvas.db-wal`, `canvas.db-shm`).
 2. Copy the **entire data directory** to the new machine (e.g. `D:\canvas-data`),
-   including `objects/`.
+   including `objects/` — the historical object store (see the note above) is still
+   needed for media uploaded on 0.18.0–0.18.4. If you started on 0.18.0–0.18.4 and
+   never upgraded in between, your newest assets may be in `objects/`; after the
+   upgrade, keep that folder.
 3. On the new machine, install the plugin (0.18+), open Infinite Canvas →
    Settings → data root → point it at the copied directory. The database mounts
    as-is; if the directory is an old ≤ 0.17 layout (no `canvas.db`), the one-shot
@@ -58,13 +73,15 @@ tunnel behind access control if the content matters.
 Downgrade the plugin to 0.17.x and it reads the legacy stores again. Everything
 that existed before the upgrade is still in its original location (old project
 JSON files, `assets.json`, media files) — 0.18 freezes them rather than deleting.
-Data created **after** upgrading lives only in `canvas.db`/`objects/` and will
-not appear under 0.17.x, so treat rollback as a one-way door for new data.
+Data created **after** upgrading lives only in `canvas.db` (and, for media uploaded
+on 0.18.0–0.18.4, `objects/`) and will not appear under 0.17.x, so treat rollback as
+a one-way door for new data.
 
 ## Backup
 
 With the Harness stopped, backing up the data directory is a plain file copy:
-`canvas.db` (plus `-wal`/`-shm` if present) and `objects/`. To verify integrity
-after restoring, open the canvas and spot-check a few assets; the database can be
-rebuilt from a frozen ≤ 0.17 layout plus browser-side uploads if ever needed
-(`objectsGc` reclaims orphaned objects).
+`canvas.db` (plus `-wal`/`-shm` if present), `projects/`, and — if you ever ran
+0.18.0–0.18.4 — the historical `objects/` directory. To verify integrity after
+restoring, open the canvas and spot-check a few assets; the database can be rebuilt
+from a frozen ≤ 0.17 layout plus browser-side uploads if ever needed. Unreferenced
+objects are reclaimed automatically when the asset that pointed at them is deleted.

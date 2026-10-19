@@ -66,6 +66,7 @@ const SUITE = [
   { name: 'test-db.mjs', desc: '存储引擎 v2（SQLite/CAS/迁移）' },
   { name: 'test-delete-project.mjs', desc: 'BLK-01 删项目清镜像目录 + FTS 等值' },
   { name: 'test-dataroot.mjs', desc: '数据目录布局 / 文档镜像 / 一键导入' },
+  { name: 'test-object-read.mjs', desc: 'IC-08 CAS 写路径退役 + 读路径保留' },
   { name: 'test-changelog.mjs', desc: 'IC-07 CHANGELOG 结构 / 版本号未定 / CAS 条目不越界' },
   // --- 网络与条件用例 ---
   { name: 'test-image-proxy.mjs', desc: '图片 API 代理（CORS 规避）' },
