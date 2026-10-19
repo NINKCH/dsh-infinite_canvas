@@ -229,6 +229,18 @@ if (windowStub.__DSH_IC_TABS__) {
     walk(Comp, name === 'CanvasPage' ? {} : {}, 'tab:' + name);
   }
   console.log('页签直渲染：' + Object.keys(windowStub.__DSH_IC_TABS__).join(', '));
+  // 快捷键面板：展开态也要渲染一次（闭合态只画按钮，展开态才构造整张列表 —— 列表里引用错变量时报错只在这一态出现）
+  const SP = windowStub.__DSH_IC_TABS__.ShortcutsPanel;
+  if (SP && windowStub.__DSH_IC_SYNC__) {
+    const st = windowStub.__DSH_IC_SYNC__.state();
+    void st;
+    // 直接以展开态调用（组件读 S.keysOpen；这里通过全局 patch 后渲染）
+    try {
+      const g = windowStub.__DSH_IC_SYNC__;
+      if (g && typeof g.setKeysOpen === 'function') g.setKeysOpen(true);
+    } catch { /* 无该缝隙时跳过 */ }
+    walk(SP, {}, 'ShortcutsPanel:open');
+  }
 } else {
   console.error('✗ 未找到 __DSH_IC_TABS__（冒烟缝隙被移除？）');
   process.exit(1);

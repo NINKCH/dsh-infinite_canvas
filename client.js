@@ -259,6 +259,28 @@ window.__ModuleLoader__.load({
       'hideKey': '隐藏（脱敏显示）',
       'supportBtn': '帮助与反馈',
       'supportTitle': '帮助与反馈',
+      // 快捷键面板（左上角浮层）
+      'keysBtn': '快捷键',
+      'keysTitle': '快捷键与操作',
+      'keysHint': '点击按钮收起；Esc 也可关闭',
+      'keysDrag': '画布操作',
+      'keysEdit': '编辑',
+      'keysView': '视图',
+      'kAltDrag': '按住 Alt 拖动节点：自由摆放，不推挤/不吸附（可覆盖穿过其他节点）',
+      'kDrag': '拖动节点：碰到邻居时实时推挤让位（保持不重叠）',
+      'kShiftDrag': 'Shift + 拖动：临时关闭对齐吸附',
+      'kShiftClick': 'Shift + 点击：加选/取消选中节点',
+      'kMarquee': 'Shift + 拖动空白：框选',
+      'kMiddle': '中键拖动：平移画布',
+      'kWheel': '滚轮：以指针为中心缩放',
+      'kDblClick': '双击空白：添加节点菜单',
+      'kRightClick': '右键：节点/画布菜单',
+      'kUndo': 'Ctrl / ⌘ + Z：撤销',
+      'kRedo': 'Ctrl / ⌘ + Shift + Z（或 Ctrl + Y）：重做',
+      'kCopy': 'Ctrl / ⌘ + D：复制选中节点',
+      'kDel': 'Delete / Backspace：删除选中的节点或连线',
+      'kEsc': 'Esc：关闭菜单 / 取消选择',
+      'kZoomKeys': '双击项目名：重命名项目',
       'supportNote': '有问题或改进建议，提 Issue 或进群反馈。',
       'supportGithub': 'GitHub 仓库',
       'supportIssues': '访问 GitHub，提 Issue',
@@ -685,6 +707,28 @@ window.__ModuleLoader__.load({
       'hideKey': 'Hide key (masked)',
       'supportBtn': 'Help & feedback',
       'supportTitle': 'Help & feedback',
+      // Shortcuts panel (floating, top-left of the canvas)
+      'keysBtn': 'Shortcuts',
+      'keysTitle': 'Shortcuts & gestures',
+      'keysHint': 'Click the button again to collapse; Esc also closes',
+      'keysDrag': 'Canvas',
+      'keysEdit': 'Editing',
+      'keysView': 'View',
+      'kAltDrag': 'Hold Alt while dragging a node: free placement, no pushing / no snapping (may overlap other nodes)',
+      'kDrag': 'Drag a node: neighbours are pushed aside in real time (nodes never overlap)',
+      'kShiftDrag': 'Shift + drag: temporarily disable alignment snapping',
+      'kShiftClick': 'Shift + click: add / remove a node from the selection',
+      'kMarquee': 'Shift + drag on empty canvas: marquee select',
+      'kMiddle': 'Middle-button drag: pan the canvas',
+      'kWheel': 'Wheel: zoom around the pointer',
+      'kDblClick': 'Double-click empty canvas: add-node menu',
+      'kRightClick': 'Right-click: node / canvas context menu',
+      'kUndo': 'Ctrl / ⌘ + Z: undo',
+      'kRedo': 'Ctrl / ⌘ + Shift + Z (or Ctrl + Y): redo',
+      'kCopy': 'Ctrl / ⌘ + D: duplicate selected nodes',
+      'kDel': 'Delete / Backspace: delete selected nodes or edge',
+      'kEsc': 'Esc: close menu / clear selection',
+      'kZoomKeys': 'Double-click the project name: rename the project',
       'supportNote': 'Found a bug or have an idea? File an issue or join the group.',
       'supportGithub': 'GitHub repository',
       'supportIssues': 'Visit GitHub & file an issue',
@@ -1283,6 +1327,34 @@ window.__ModuleLoader__.load({
 .dshic-mask-stage img{max-width:100%;max-height:52vh;display:block;}
 .dshic-mask-paint{position:absolute;inset:0;width:100%;height:100%;cursor:crosshair;touch-action:none;}
 .dshic-mask-toolbar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
+/* 快捷键浮层（画布左上角） */
+.dshic-keys-wrap{position:absolute;left:12px;top:12px;z-index:16;display:flex;flex-direction:column;align-items:flex-start;gap:6px;}
+.dshic-keys-btn{display:inline-flex;align-items:center;gap:6px;height:26px;padding:0 9px;border-radius:8px;
+  border:1px solid var(--dsw-alias-border-l2);cursor:pointer;font:inherit;font-size:12px;white-space:nowrap;
+  background:color-mix(in srgb,var(--dsw-alias-bg-overlay) 82%,transparent);color:var(--dsw-alias-label-secondary);
+  backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);}
+.dshic-keys-btn:hover{color:var(--dsw-alias-label-primary);border-color:var(--dsw-alias-border-l1);}
+.dshic-keys-btn.is-open{color:var(--dsw-alias-brand-primary);border-color:color-mix(in srgb,var(--dsw-alias-brand-primary) 45%,transparent);}
+.dshic-keys-btn-label{line-height:1;}
+.dshic-keys-caret{font-size:9px;opacity:.75;line-height:1;}
+.dshic-keys-pop{width:330px;max-height:min(70vh,520px);overflow:auto;box-sizing:border-box;padding:10px 12px;
+  border-radius:10px;border:1px solid var(--dsw-alias-border-l2);
+  background:color-mix(in srgb,var(--dsw-alias-bg-overlay) 72%,transparent);
+  backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);
+  box-shadow:0 8px 24px color-mix(in srgb,var(--dsw-alias-bg-base) 50%,transparent);}
+.dshic-keys-title{font-size:12px;font-weight:600;color:var(--dsw-alias-label-primary);margin-bottom:8px;}
+.dshic-keys-group{margin-bottom:9px;}
+.dshic-keys-group-title{font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;
+  color:var(--dsw-alias-label-secondary);opacity:.8;margin-bottom:4px;}
+.dshic-keys-row{display:flex;align-items:baseline;gap:8px;padding:2px 0;font-size:12px;line-height:17px;}
+.dshic-keys-key{flex:none;min-width:84px;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  font-size:11px;color:var(--dsw-alias-label-primary);background:color-mix(in srgb,var(--dsw-alias-label-primary) 8%,transparent);
+  border-radius:4px;padding:1px 5px;text-align:center;white-space:nowrap;}
+.dshic-keys-text{flex:1;min-width:0;color:var(--dsw-alias-label-secondary);word-break:break-word;}
+.dshic-keys-hint{margin-top:2px;padding-top:7px;border-top:1px solid var(--dsw-alias-border-l2);
+  font-size:11px;color:var(--dsw-alias-label-secondary);opacity:.75;}
+/* Alt 自由摆放（不推挤）时的节点轮廓：虚线 + 轻微透明，明确"现在可以覆盖穿过" */
+.dshic-node.is-free-drag{outline:2px dashed var(--dsw-alias-brand-primary);outline-offset:2px;opacity:.92;}
 /* 小地图 */
 .dshic-minimap{position:absolute;right:12px;bottom:12px;width:160px;height:100px;background:var(--dsw-alias-bg-overlay);
   border:1px solid var(--dsw-alias-border-l2);border-radius:8px;z-index:15;overflow:hidden;cursor:pointer;box-sizing:border-box;
@@ -5500,6 +5572,7 @@ window.__ModuleLoader__.load({
       updateBusy: false,
       updateMsg: null,
       updateDismissed: false,
+      keysOpen: false,       // 左上角快捷键面板是否展开（纯 UI 状态，不持久化）
     };
     const listeners = new Set();
     let saveTimer = null;
@@ -6564,7 +6637,9 @@ window.__ModuleLoader__.load({
     // ============================================================
     // 画布交互（平移 / 缩放 / 拖动 / 连线 / 框选）
     // ============================================================
-    const drag = { mode: null, sx: 0, sy: 0, moved: false, nodeStarts: null, marquee: null, linkFrom: null, shift: false };
+    // altNoPush：本次拖动是否处于「按住 Alt 自由摆放」模式（不推挤邻居、也不吸附加固）。
+    // 注意每次 pointermove 都重新读 e.altKey，所以拖动中途按下/松开 Alt 会实时切换。
+    const drag = { mode: null, sx: 0, sy: 0, moved: false, nodeStarts: null, marquee: null, linkFrom: null, shift: false, altNoPush: false };
 
     function onCanvasPointerDown(e) {
       const target = e.target;
@@ -6619,6 +6694,7 @@ window.__ModuleLoader__.load({
       drag.mode = 'node';
       drag.sx = e.clientX; drag.sy = e.clientY;
       drag.moved = false;
+      drag.altNoPush = !!e.altKey; // 起手就按住 Alt → 整段拖动自由摆放
       const ids = S.sel.has(n.id) ? [...S.sel] : [n.id];
       // 分组拖动时携带其成员
       const allIds = [];
@@ -6672,10 +6748,15 @@ window.__ModuleLoader__.load({
       } else if (drag.mode === 'node') {
         if (Math.abs(dxs) + Math.abs(dys) > 2) drag.moved = true;
         let dxw = dxs / V.scale, dyw = dys / V.scale;
+        // 按住 Alt = 自由摆放：跳过对齐吸附 + 跳过碰撞推挤（允许穿过/覆盖其他节点）。
+        // 典型场景：矩阵布局里挪中间的节点，普通拖动会把整片邻居推开打乱布局，Alt 拖动只挪它自己。
+        // 实时读 e.altKey（而不是只看起手那一刻）：拖动途中按下/松开立即生效。
+        const noPush = !!e.altKey;
+        drag.altNoPush = noPush;
         // 对齐吸附：以首个拖动节点为基准，与其他节点左/中/右、上/中/下对齐（容差 6px）
         const prim = drag.nodeStarts[0];
         const ndP = prim && S.graph.nodes[prim.id];
-        if (ndP && !e.shiftKey && drag.nodeStarts.length) {
+        if (ndP && !e.shiftKey && !noPush && drag.nodeStarts.length) {
           const snap = 6 / V.scale;
           const ph = ndP.h || 96;
           const px = prim.x + dxw, py = prim.y + dyw;
@@ -6697,6 +6778,15 @@ window.__ModuleLoader__.load({
           if (bestV) dxw += bestV.delta;
           if (bestH) dyw += bestH.delta;
           showGuides(bestV ? bestV.line : null, bestH ? bestH.line : null);
+        } else if (noPush) {
+          hideGuides(); // Alt 自由摆放：吸附线一并隐藏，避免"看着被吸住其实没吸"
+        }
+        // Alt 自由摆放的可见反馈：被拖节点加虚线轮廓，用户能立刻分清"现在没在推挤"
+        for (const st of drag.nodeStarts) {
+          const el = nodeEls.get(st.id);
+          if (!el) continue;
+          if (noPush) el.classList.add('is-free-drag');
+          else el.classList.remove('is-free-drag');
         }
         const movedIds = new Set();
         for (const st of drag.nodeStarts) {
@@ -6711,7 +6801,9 @@ window.__ModuleLoader__.load({
         }
         // —— 实时碰撞推挤（物理感）：拖动节点碰到谁，谁沿远离方向实时让位；被推者再推别人（级联）。
         //    上下左右同理：下节点上移碰到上节点 → 上节点实时上移；全程无弹跳，松手即定格。
-        resolvePushNow(movedIds);
+        //    按住 Alt 时**整段禁用**（不推挤 = 允许覆盖穿过），松手后位置照旧保留，不会弹回。
+        if (!noPush) resolvePushNow(movedIds);
+
         if (movedIds.size) {
           for (const e2 of S.graph.edges) {
             if (!movedIds.has(e2.fromNode) && !movedIds.has(e2.toNode)) continue;
@@ -6740,6 +6832,14 @@ window.__ModuleLoader__.load({
     function onCanvasPointerUp(e) {
       if (!drag.mode) return;
       const mode = drag.mode;
+      // 收尾：清掉 Alt 自由摆放的视觉标记（无论是否发生过移动，避免虚线轮廓残留在节点上）
+      if (mode === 'node') {
+        for (const st of (drag.nodeStarts || [])) {
+          const el = nodeEls.get(st.id);
+          if (el) el.classList.remove('is-free-drag');
+        }
+        drag.altNoPush = false;
+      }
       if (mode === 'node' && drag.moved) {
         // 拖动期间直接写了模型坐标，这里只需通知 + 保存
         notify();
@@ -10620,6 +10720,7 @@ window.__ModuleLoader__.load({
               h('div', { className: 'dshic-guide-h', style: { display: 'none', zIndex: 9999 }, ref: (el) => { hGuidEl = el; } }),
             ),
             h(Minimap),
+            h(ShortcutsPanel), // 左上角快捷键浮层（不随画布缩放，固定屏幕坐标）
             nodes.length === 0 ? h('div', { className: 'dshic-empty' },              h('div', { className: 'dshic-empty-card' },
                 h('div', { className: 'dshic-empty-title' }, T('emptyNodeTitle')),
                 h('div', { className: 'dshic-hint', style: { maxWidth: 320 } }, T('emptyNodeHint')),
@@ -10671,6 +10772,68 @@ window.__ModuleLoader__.load({
           ? h('video', { src: lb.url, controls: true, preload: 'metadata', style: { maxWidth: '92vw', maxHeight: '80vh' } })
           : h('img', { src: lb.url, draggable: false, style: { maxWidth: '92vw', maxHeight: '80vh', objectFit: 'contain' } }),
         h('button', { type: 'button', className: 'dshic-mini is-ghost', style: { color: '#eee', borderColor: 'rgba(255,255,255,.35)' }, onClick: closeLightbox }, '✕'),
+      );
+    }
+
+    // ============================================================
+    // 快捷键面板（画布左上角浮层）：按钮点开 → 下方展开半透明列表
+    //   纯展示、不持久化；点面板外或再点按钮或 Esc 收起。
+    //   内容与代码里**真实存在**的快捷键一一对应（改快捷键时同步这里）。
+    // ============================================================
+    function ShortcutsPanel() {
+      const open = !!S.keysOpen;
+      // Esc 关闭（仅在打开时挂监听，避免常年占用 keydown）
+      useEffect(() => {
+        if (!open) return undefined;
+        const onKey = (e) => { if (e.key === 'Escape') { update((s) => { s.keysOpen = false; }); } };
+        window.addEventListener('keydown', onKey);
+        return () => window.removeEventListener('keydown', onKey);
+      }, [open]);
+      const row = (key, text) => h('div', { className: 'dshic-keys-row', key },
+        h('span', { className: 'dshic-keys-key' }, key),
+        h('span', { className: 'dshic-keys-text' }, text));
+      const group = (title, items) => h('div', { className: 'dshic-keys-group', key: title },
+        h('div', { className: 'dshic-keys-group-title' }, title),
+        ...items.map(([k, v], i) => row(k + '|' + i, k, v)));
+      return h('div', { className: 'dshic-keys-wrap' },
+        h('button', {
+          type: 'button',
+          className: cls('dshic-keys-btn', open && 'is-open'),
+          title: T('keysBtn'),
+          onPointerDown: (e) => e.stopPropagation(), // 不触发画布平移/框选
+          onClick: (e) => { e.stopPropagation(); update((s) => { s.keysOpen = !s.keysOpen; }); },
+        }, h('span', { className: 'dshic-keys-btn-label' }, T('keysBtn')), h('span', { className: 'dshic-keys-caret' }, open ? '▴' : '▾')),
+        open
+          ? h('div', {
+              className: 'dshic-keys-pop',
+              onPointerDown: (e) => e.stopPropagation(), // 面板内点击不进画布
+              onWheel: (e) => e.stopPropagation(),
+            },
+              h('div', { className: 'dshic-keys-title' }, T('keysTitle')),
+              group(T('keysDrag'), [
+                ['Alt + 拖动', T('kAltDrag')],
+                ['拖动', T('kDrag')],
+                ['Shift + 拖动', T('kShiftDrag')],
+                ['Shift + 点击', T('kShiftClick')],
+                ['Shift + 框选', T('kMarquee')],
+                ['中键拖动', T('kMiddle')],
+                ['滚轮', T('kWheel')],
+                ['双击空白', T('kDblClick')],
+                ['右键', T('kRightClick')],
+              ]),
+              group(T('keysEdit'), [
+                ['Ctrl/⌘ Z', T('kUndo')],
+                ['Ctrl/⌘ ⇧ Z', T('kRedo')],
+                ['Ctrl/⌘ D', T('kCopy')],
+                ['Delete', T('kDel')],
+                ['Esc', T('kEsc')],
+              ]),
+              group(T('keysView'), [
+                ['双击项目名', T('kZoomKeys')],
+              ]),
+              h('div', { className: 'dshic-keys-hint' }, T('keysHint')),
+            )
+          : null,
       );
     }
 
@@ -10793,7 +10956,7 @@ window.__ModuleLoader__.load({
         // 冒烟测试专用缝隙（仅在 smoke-render.mjs 设置了该标记时存在）：
         // 直接暴露各页签组件与同步入口，让测试能逐个渲染/驱动，抓白屏与同步断链问题
         if (typeof window !== 'undefined' && window.__DSH_IC_SMOKE__) {
-          window.__DSH_IC_TABS__ = { ProjectsTab, AssetsTab, BibleTab, SettingsTab, CanvasPage };
+          window.__DSH_IC_TABS__ = { ProjectsTab, AssetsTab, BibleTab, SettingsTab, CanvasPage, ShortcutsPanel };
           // 成片合成（composeFinalCut）纯函数级出口：浏览器录制链路无法在 Node 端跑，
           // 但合成主循环（分段推进/裁剪/转场/字幕）可以用假的 video/MediaRecorder 真实执行——
           // 这正是历史上一处 "dur is not defined" 在真机上才炸的漏洞所在。
@@ -10811,6 +10974,8 @@ window.__ModuleLoader__.load({
             hostSyncTick, mergeHostDoc, loadBible, loadGraphDoc,
             removeNodes, ungroupNode, undo, redo, pushHistory,
             graph: () => JSON.parse(JSON.stringify(S.graph)),
+            // 冒烟测试用：切换「快捷键面板」展开态，让展开后的列表也走一次真实渲染
+            setKeysOpen: (v) => { S.keysOpen = !!v; },
             state: () => ({ stopped: hostSyncStopped, busy: hostSyncBusy, projects: S.projects.map((p) => p.id), activeId: S.activeId, ready: S.ready }),
           };
         }
