@@ -4538,6 +4538,33 @@ window.__ModuleLoader__.load({
       if (m.includes('wav')) return '.wav';
       return '.bin';
     }
+    /** IC-01：下载侧扩展名判定（**mime 优先** → 文件名白名单兜底 → kind 兜底）。
+     *  与 extForMime 的差别是关键：extForMime 是「文件名优先」，下载侧若照搬会让
+     *  `final.2026` 这类带点号的资产名得到 `.2026`；下载到的文件扩展名必须反映真实容器。 */
+    const DOWNLOAD_EXT_BY_MIME = [
+      [/^image\/png$/, '.png'], [/^image\/jpe?g$/, '.jpg'], [/^image\/webp$/, '.webp'], [/^image\/gif$/, '.gif'],
+      [/^video\/mp4$/, '.mp4'], [/^video\/quicktime$/, '.mov'], [/^video\/webm$/, '.webm'], [/^video\/x-matroska$/, '.mkv'],
+      [/^audio\/mpeg$/, '.mp3'], [/^audio\/mp4$/, '.m4a'], [/^audio\/(x-)?wav$/, '.wav'],
+      [/^text\/markdown$/, '.md'], [/^text\/plain$/, '.txt'],
+    ];
+    const DOWNLOAD_EXT_BY_NAME = new Set(['.png', '.jpg', '.jpeg', '.webp', '.gif', '.mp4', '.mov', '.webm', '.mkv', '.mp3', '.m4a', '.wav', '.md', '.txt']);
+    function extForDownload(mime, name, kind) {
+      const m = String(mime || '').split(';')[0].trim().toLowerCase();
+      if (m) { for (const [re, ext] of DOWNLOAD_EXT_BY_MIME) if (re.test(m)) return ext; }
+      const nm = String(name || '').match(/\.([a-z0-9]{2,5})$/i);
+      if (nm) { const ext = '.' + nm[1].toLowerCase(); if (DOWNLOAD_EXT_BY_NAME.has(ext)) return ext; }
+      if (kind === 'image') return '.png';
+      if (kind === 'video') return '.mp4';
+      if (kind === 'audio') return '.mp3';
+      if (kind === 'text') return '.md';
+      return '.bin';
+    }
+    /** 下载名 = 可读前缀 + 真实扩展名。assetId 只为取 mime/kind；记录取不到时按 kind 兜底。 */
+    async function downloadNameForAsset(assetId, base, kind) {
+      let rec = null;
+      try { rec = assetId ? await idbGet(assetId) : null; } catch { rec = null; }
+      return base + extForDownload(rec && rec.mime, rec && rec.name, (rec && rec.kind) || kind);
+    }
     /** 资产落盘到 <项目>/media/（force=false 时已有映射则复用；force=true 覆盖写）。 */
     /** ArtCraft 工作区里的文件名：资产名（人工可读，如「角色-张山 多视图」）+ id 尾号（唯一，避免同名覆盖）。 */
     function assetFileBase(rec) {
@@ -7841,7 +7868,7 @@ window.__ModuleLoader__.load({
               h('button', {
                 type: 'button', className: 'dshic-mini is-ghost',
                 onPointerDown: (e) => e.stopPropagation(),
-                onClick: () => downloadBlobFromUrl(assetUrlV, (kind === 'image' ? 'image' : 'video') + '-' + n.id.slice(-5) + (kind === 'image' ? '.png' : '.webm')),
+                onClick: async () => downloadBlobFromUrl(assetUrlV, await downloadNameForAsset(n.data.assetId, (kind === 'image' ? 'image' : 'video') + '-' + n.id.slice(-5), kind)),
               }, Ic('download', 11), T('download')),
               h('button', {
                 type: 'button', className: 'dshic-mini is-ghost', disabled: S.running || n.data.status === 'running',
@@ -8780,7 +8807,7 @@ window.__ModuleLoader__.load({
                 h('button', {
                   type: 'button', className: 'dshic-mini is-ghost',
                   onPointerDown: (e) => e.stopPropagation(),
-                  onClick: () => downloadBlobFromUrl(fcUrl, 'finalcut-fc-' + n.id.slice(-5) + '.mp4'),
+                  onClick: async () => downloadBlobFromUrl(fcUrl, await downloadNameForAsset(n.data.fcAssetId, 'finalcut-fc-' + n.id.slice(-5), 'video')),
                 }, Ic('download', 11), T('download')),
                 h('button', {
                   type: 'button', className: 'dshic-mini is-ghost', title: T('voiceExtractBtn'),
@@ -8799,7 +8826,7 @@ window.__ModuleLoader__.load({
                 h('button', {
                   type: 'button', className: 'dshic-mini is-ghost',
                   onPointerDown: (e) => e.stopPropagation(),
-                  onClick: () => downloadBlobFromUrl(assetUrlV, 'finalcut-' + n.id.slice(-5) + '.webm'),
+                  onClick: async () => downloadBlobFromUrl(assetUrlV, await downloadNameForAsset(n.data.assetId, 'finalcut-' + n.id.slice(-5), 'video')),
                 }, Ic('download', 11), T('download')),
                 h('div', { className: 'dshic-flex' }),
               ),
@@ -9424,7 +9451,7 @@ window.__ModuleLoader__.load({
         onPointerDown: (e) => e.stopPropagation(),
         onClick: startRename,
       }, Ic('pencil', 11));
-      const downloadName = (a.name || 'asset') + (a.kind === 'image' ? '.png' : a.kind === 'video' ? '.webm' : a.kind === 'audio' ? '.mp3' : '.md');
+      const downloadName = (a.name || 'asset') + extForDownload(a.mime, a.name, a.kind);
       return h('div', { className: 'dshic-asset', onClick: a.kind === 'audio' ? undefined : () => onAdd(a), title: a.kind === 'text' ? T('textAssetHint') : a.kind === 'audio' ? '' : T('addAssetNode') },
         a.kind === 'text'
           ? h('div', { className: 'dshic-textcard is-title' },
@@ -10991,6 +11018,8 @@ window.__ModuleLoader__.load({
             setKeysOpen: (v) => { S.keysOpen = !!v; },
             state: () => ({ stopped: hostSyncStopped, busy: hostSyncBusy, projects: S.projects.map((p) => p.id), activeId: S.activeId, ready: S.ready }),
           };
+          // IC-01：下载侧扩展名判定的纯函数出口（供 scripts/test-download-ext.mjs 直接断言）
+          window.__DSH_IC_MEDIA__ = { extForDownload };
         }
       },
     };
