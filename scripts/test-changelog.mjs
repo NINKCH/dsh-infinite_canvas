@@ -139,8 +139,10 @@ const git = (args) => {
 const cntAll = git(['rev-list', '--count', 'main..dev']);
 if (cntAll && Number(cntAll) > 0) {
   const shas = (git(['log', '--format=%h %s', 'main..dev']) || '').split(/\r?\n/).filter(Boolean);
-  // 纯收尾提交 = 主题以 docs(IC-07)/chore(test)/docs(OBS 开头，或改动只含 CHANGELOG.md+scripts/
-  const isChore = (subject) => /^(docs\(IC-07\)|chore\(test\)|docs\(OBS|test\(IC-07\))/.test(subject);
+  // 纯收尾提交 = 主题以 docs(IC-07)/chore(test)/fix(OBS) 开头——它修的是门禁自身
+  // （test-changelog/test-craft-cleanup）或记录 CHANGELOG，"记录对象"都是上一个功能
+  // 提交，不进功能覆盖账（否则每次收尾都会让门禁自爆，21963fc→140df84 两次坐实）。
+  const isChore = (subject) => /^(docs\(IC-07\)|chore\(test\)|fix\(OBS|docs\(OBS|test\(IC-07\))/.test(subject);
   const functional = [];
   const shasSet = new Set();
   for (const line of shas) {
