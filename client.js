@@ -20,7 +20,9 @@ window.__ModuleLoader__.load({
     const NODE_W = 240;
     const CRAFT_SKILL = 'canvas-craft'; // 内置创作方法论技能（未选技能时默认注入）
 
-    const NODE_TYPES = ['text', 'shot', 'image-gen', 'video-gen', 'image-asset', 'video-asset'];
+    // 节点类型的唯一事实源是 TYPE_LABEL / TYPE_KIND / PORTS（见下方）：历史上这里还有一个
+    // 写死的类型清单常量，既不完整（缺 script/storyboard/finalcut/group）又无人引用，
+    // 已由 IC-02 删除；audit.mjs 会断言它不会复活。
 
     // 每类节点的端口定义（kind: text | image | video）
     const PORTS = {

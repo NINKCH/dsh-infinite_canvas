@@ -49,20 +49,34 @@ node scripts/smoke-render.mjs   # 渲染冒烟：抓渲染期 ReferenceError（�
 
 ## 3. 发布前校验（脚本全绿才算过）
 
+**唯一入口**：
+
 ```
-node scripts/check-pack.mjs     # 打包清单 + 元数据核对（npm pack --dry-run）
-node scripts/smoke-render.mjs   # 渲染冒烟：假 React 走真实组件树
-node scripts/test-update.mjs    # 更新检查功能测试（真实 registry 比对）
-node scripts/test-tools.mjs     # 对话工具 schema 校验（标准 JSON Schema，防方言错误）
-node scripts/test-mentions.mjs  # @引用解析单测（解析/高亮转义/设定集匹配/[图N]绑定/命名）
-node scripts/audit.mjs          # 机械化体检（i18n 键对齐/CSS 类/节点类型覆盖/RPC 与工具一致）
-node scripts/test-host-hardening.mjs # Host 加固回归（读流错误接管/项目合并与墓碑/来源校验等）
-node scripts/test-llm-stream.mjs   # LLM 流式与推理模型重试（思考实时推送/按配置上限重试）
-node scripts/test-sync-bible.mjs   # 同步合并回归（设定集拉回/边墓碑防复活）
-node scripts/test-user-scenarios.mjs # 用户实测场景定向复验（轮询无损/自动连线/设定集读写）
-node scripts/test-dataroot.mjs       # 数据目录回归（项目名文件夹/文档镜像/资产索引/一键导入）
-node scripts/test-image-proxy.mjs    # 图片 API 代理回归（CORS 规避：JSON/二进制/状态码透传/超时）
+node scripts/regress.mjs --strict     # 发版门禁：四态输出，SKIP 也算失败
+node scripts/regress.mjs              # 日常开发：条件用例缺前置记 SKIP，不算失败
+node scripts/regress.mjs --list       # 看当前清单
 ```
+
+清单以 `scripts/regress.mjs` 的 `SUITE` 为**唯一事实源**（与 `RELEASING.md` §标准发版流程第 1 步逐项一致），
+当前含 **22 项**：2 个 `node --check` 语法闸门 + 20 个脚本。
+
+| 分组 | 脚本 |
+| --- | --- |
+| 静态审计 | `audit.mjs` |
+| 渲染与组件 | `smoke-render.mjs`、`test-drag-alt.mjs`、`test-download-ext.mjs`、`test-craft-base.mjs` |
+| 核心链路（历史事故区） | `test-compose.mjs`、`test-tools.mjs`、`test-mentions.mjs`、`test-llm-stream.mjs`、`test-sync-bible.mjs`、`test-user-scenarios.mjs`、`test-host-hardening.mjs` |
+| 存储与数据目录 | `test-db.mjs`、`test-delete-project.mjs`、`test-dataroot.mjs` |
+| 网络与条件用例 | `test-image-proxy.mjs`、`test-update.mjs`（需网络）、`test-real-project.mjs`、`test-real-project-graph.mjs`（需真实数据根） |
+| 打包 | `check-pack.mjs` |
+
+**为什么要有 regress**：此前最危险的成片链路（`test-compose.mjs`）**不在任何门禁清单里**——历史上
+`bc77bb8e fix(finalcut): 每次合成都崩(ReferenceError: dur is not defined)` 正是只在用户点"合成"时炸、
+静态审计抓不到的典型，而修复它时这条链路连跑都没人跑。
+
+**条件用例纪律**：`test-real-project.mjs` / `test-real-project-graph.mjs` 读真实数据根
+（默认 `D:/data/canvas-data`，可用 `DSH_IC_DATA_ROOT` 覆盖）、`test-update.mjs` 打真实 npm registry。
+缺前置时它们会打印"跳过"并 exit 0 —— 这是**假绿**，所以发版一律 `--strict`（SKIP 判失败），
+且 SKIP 时必须打印"原因 + 缺失的前置"。
 
 `check-pack` 防的三类事故：漏打包（如 locale/icon 没进包）、多打包（`.github`/`scripts` 混入）、元数据漂移（版本/exports/`dsh.bundle.patch`）。
 
@@ -112,9 +126,9 @@ git push origin main dev
 ## 7. 发布日检查清单
 
 - [ ] dev 全部改动已提交并推送
-- [ ] 10 项回归脚本全绿（§3 清单）+ 涉及 UI 的重启实测通过
+- [ ] `node scripts/regress.mjs --strict` 全绿（22 项，SKIP 算失败）+ 涉及 UI 的重启实测通过
 - [ ] `package.json` version = 目标版本号（自查，勿依赖守卫）
 - [ ] **用户明确批准版本号**
-- [ ] 合并 main 并推送 → 建 GitHub Release `vX.Y.Z`（指向 main）
+- [ ] 合并 main（**`git push origin main` 由维护者本人执行**）→ 建 GitHub Release `vX.Y.Z`（指向 main）
 - [ ] Actions 绿 + `npm view`（官方源）版本正确
 - [ ] 汇报版本号 + "重启 Harness 后生效"

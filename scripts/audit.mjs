@@ -100,6 +100,14 @@ for (const t of types) {
 }
 notes.push(`节点类型 ${types.size} 种（可运行 ${RUNNABLE.filter((t) => types.has(t)).length} 种）：${[...types].join(', ')}`);
 
+// ---------- 3b) 死常量防复活（IC-02）：NODE_TYPES 曾是一份缺 4 种类型且无人引用的写死清单 ----------
+{
+  const dead = /\bconst NODE_TYPES\s*=/;
+  if (dead.test(client)) add(problems, 'client.js 里又出现了写死的 NODE_TYPES（节点类型唯一事实源是 TYPE_LABEL/TYPE_KIND/PORTS）');
+  // 凡出现 NODE_TYPES 的引用都算问题（上面已覆盖定义；这里防有人换个名字引用旧常量）
+  if (/\bNODE_TYPES\b/.test(client)) add(problems, 'client.js 仍引用 NODE_TYPES（应为死代码，已删）');
+}
+
 // ---------- 4) Host：RPC 方法是否与前端调用一致 ----------
 const rpcMethods = new Set();
 {

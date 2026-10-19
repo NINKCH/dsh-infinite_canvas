@@ -6,5 +6,3 @@ node_modules/
 .s.cjs
 publish-auth-url.txt
 publish-out.txt
-publish-auth-url.txt
-publish-out.txt

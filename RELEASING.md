@@ -39,17 +39,16 @@ npm 发布**完全由 GitHub Actions 自动完成**（npm 已绑定 GitHub，Tru
 ## 标准发版流程
 
 1. 在 `dev` 完成改动并自测（全绿才算过）：
-   - `node --check index.js client.js`
-   - 12 项回归测试：`scripts/audit.mjs`、`smoke-render.mjs`、`test-tools.mjs`、`test-mentions.mjs`、
-     `test-update.mjs`、`test-host-hardening.mjs`、`test-llm-stream.mjs`、`test-sync-bible.mjs`、
-     `test-user-scenarios.mjs`、`test-dataroot.mjs`、`test-image-proxy.mjs`、`check-pack.mjs`
+   - **回归 = `node scripts/regress.mjs --strict`**（唯一入口；脚本清单见 `scripts/regress.mjs` 的 `SUITE`，与 [`docs/release.md`](docs/release.md) §3 逐项一致）
+   - 发版门禁一律用 `--strict`：条件用例（真实项目 / 真实 registry）缺前置时算**失败**，不许"跳过也算绿"
    - 涉及 UI/工作流的：重启 Harness + 刷新后人工验证（画布操作是给用户用的，必须真实点一遍）
 2. **向维护者汇报"改了什么 + 测了什么 + 结果 + 建议版本号"，获得明确批准**。
 3. 确认 `package.json` 的 `version` 已是目标版本号（发版前自查，别指望守卫兜底）。
 4. **发版记录用英文**：先在 [`CHANGELOG.md`](CHANGELOG.md) 顶部新增 `## [X.Y.Z] — 日期` 英文段落，
    GitHub Release 的 body 从 CHANGELOG 复制英文段落——**GitHub 面向公众，一律英文**（早期版本正文
    曾因编码通道损坏出现整段 `???`，已全部重写为英文；中文汇报只留在对话里给维护者看）。
-5. 合并进 main 并推送：`git switch main && git merge dev && git push origin main dev`。
+5. 合并进 main 并推送：`git switch main && git merge dev` —— **`git push origin main` 由维护者本人执行**；
+   `dev` 由开发者推送。**开发者不得推送 main**。
 6. 建 GitHub Release 触发发布（两种方式任选）：
    - 网页：GitHub → Releases → Draft a new release → 选/建 tag `vX.Y.Z`（指向 main）→ Publish release；
    - API/脚本：POST `/repos/NINKCH/dsh-infinite_canvas/releases`
