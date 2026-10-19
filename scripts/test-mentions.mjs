@@ -14,7 +14,7 @@ const body = m[1];
 const catLabel = (c) => ({ character: '角色', scene: '场景', prop: '道具', general: '通用' }[c] || '通用');
 const effLang = () => 'zh';
 const factory = new Function('catLabel', 'effLang', body + `
-  return { parseMentions, highlightMentions, stripMentionMarks, matchBibleEntity, assetBelongsToEntity, entityLabelOf, entityCategoryOf, buildEffectivePrompt, assetNameFor, nowStamp, repairUnclosedMentions, bibleNames, subjectInfoFromRef, condenseDesc, voiceFromDesc, buildStructuredVideoPrompt };
+  return { parseMentions, highlightMentions, stripMentionMarks, matchBibleEntity, assetBelongsToEntity, entityLabelOf, entityCategoryOf, buildEffectivePrompt, assetNameFor, nowStamp, repairUnclosedMentions, bibleNames, subjectInfoFromRef, condenseDesc, voiceFromDesc, buildStructuredVideoPrompt, shotContinuityPlan, shotContinuityBlock, storyboardContinuityNote, frameAnchorText, tailFrameScore, frameSeamMetrics, seamVerdict };
 `);
 const api = factory(catLabel, effLang);
 
@@ -138,6 +138,83 @@ eq(api.bibleNames({ characters: [{ name: '林晚' }], scenes: [{ name: '楼道' 
   if (sp.includes('non_diegetic_music:') && !api.buildStructuredVideoPrompt(shots2, refs2, b2, { zh: true }).includes('overall_soundscape:')) errs.push('无音乐时不应省略声音段');
   if (api.buildStructuredVideoPrompt(shots2, refs2, b2, { zh: true }).includes('non_diegetic_music:')) errs.push('未提供音乐时不应臆造 non_diegetic_music');
   if (api.buildStructuredVideoPrompt(shots2, [], b2, { zh: true }) !== '') errs.push('无参考图时应返回空串（回退普通提示词）');
+}
+
+// 10) 分镜衔接：段落类型规划 / 衔接块 / 首帧软锚定 / 尾帧选帧评分 / 接缝判定
+{
+  // 段落类型：首镜=opening，其余默认 continuation；换场/新角色/特写插入能被识别
+  const a = api.shotContinuityPlan({ title: '开场', visual: '远景 院子', duration: 3 }, null, 0);
+  eq(a.seg, 'opening', '第 1 镜无上游 → 首段');
+
+  const b = api.shotContinuityPlan({ title: '对话', visual: '近景 抬头', duration: 2 }, { visual: '远景 院子' }, 1);
+  eq(b.seg, 'continuation', '默认续帧');
+  eq(b.fromTail, true, '有上一镜时 fromTail 为真');
+  eq(b.tail.length > 0, true, '缺省 tail 用本镜画面兜底（不编造剧情）');
+
+  const c = api.shotContinuityPlan({ title: '换场', visual: '次日 切至 天台，风吹', duration: 3 }, { visual: '院子' }, 1);
+  eq(c.seg, 'scene_change', '换场镜头识别');
+  eq(c.join, 'loose', '换场接缝档位放宽');
+
+  const d = api.shotContinuityPlan({ title: '入场', visual: '反派推门走进来', duration: 3 }, { visual: '院子' }, 1);
+  eq(d.seg, 'new_character', '新角色入场识别');
+
+  const e = api.shotContinuityPlan({ title: '快切', visual: '刀光', duration: 0.5 }, { visual: '院子' }, 1);
+  eq(e.seg, 'cut', '极短镜头视作特写插入');
+  eq(e.join, 'cut', '插入镜头不要求画面连续');
+
+  // 显式字段优先（AI 写出的 seg 不被画面文本覆盖）
+  const f = api.shotContinuityPlan({ seg: 'scene_change', visual: '续着走', duration: 3 }, { visual: '院子' }, 1);
+  eq(f.seg, 'scene_change', '显式 seg 优先于启发式');
+
+  // 衔接块：续帧镜头必须写出承接尾态 + 运镜延续；首段（无上游）不输出衔接块
+  const planTail = api.shotContinuityPlan({
+    title: '追问', visual: '近景 糯糯 抬头', duration: 2,
+    tail: '右手抬到胸口一半，视线仍锁在瓦力脸上', cam: '右移横移，匀速，未停',
+  }, { visual: '远景' }, 1);
+  const cb = api.shotContinuityBlock(planTail, { zh: true });
+  if (!cb.includes('承接上镜结尾')) errs.push('衔接块缺少「承接上镜结尾」');
+  if (!cb.includes('右手抬到胸口一半')) errs.push('衔接块未带入接点尾态');
+  if (!cb.includes('运镜延续：右移横移')) errs.push('衔接块未带入运镜延续');
+  if (!cb.includes('禁止')) errs.push('衔接块缺少禁止重演/重置的硬约束');
+  eq(api.shotContinuityBlock(a, { zh: true }), '', '首段不输出衔接块（无中生有）');
+  eq(api.shotContinuityBlock(api.shotContinuityPlan({ seg: 'scene_change', visual: '次日' }, {}, 1), { zh: true }).includes('换场'), true, '换场镜头衔接块标明段落类型');
+
+  // 首帧软锚定：有首帧才输出，且角色参考图模式下标明 [图1] 是尾帧
+  const anchorRef = api.frameAnchorText({ hasFrame: true, role: 'reference_image', zh: true });
+  if (!anchorRef.includes('[图1]') || !anchorRef.includes('第 1 帧')) errs.push('软锚定未指明 [图1] 是上一段尾帧且锁定第 1 帧');
+  if (!api.frameAnchorText({ hasFrame: true, role: 'first_frame', zh: true }).includes('首帧')) errs.push('硬首帧锚定文案缺失');
+  eq(api.frameAnchorText({ hasFrame: false, zh: true }), '', '无首帧时不输出锚定');
+
+  // 尾帧选帧评分：动作进行中 + 清晰 > 动作顶点 + 模糊；静止定格也不该最高分
+  const good = api.tailFrameScore({ motion: 0.45, sharp: 0.95, coverage: 0.9, jitter: 0, complete: 0.7 });
+  const vertex = api.tailFrameScore({ motion: 1, sharp: 0.4, coverage: 0.9, jitter: 0.6, complete: 1 });
+  const frozen = api.tailFrameScore({ motion: 0, sharp: 0.95, coverage: 0.9, jitter: 0, complete: 1 });
+  if (!(good > vertex)) errs.push('选帧评分：动作顶点+模糊的帧不应高于动作进行中的清晰帧');
+  if (!(good > frozen)) errs.push('选帧评分：完全静止的定格帧不应高于动作进行中的帧');
+
+  // 接缝判定：同画面通过、渐变画面失败；跨场/插入放宽阈值
+  const mk = (vals) => ({ data: Uint8ClampedArray.from(vals), w: 4, h: 4 });
+  const base = Array.from({ length: 16 }, (_, i) => (i % 4) * 60);
+  const same = mk(base);
+  const shifted = mk(base.map((v) => 255 - v));
+  const near = mk(base.map((v, i) => Math.min(255, v + (i % 3))));
+  const mSame = api.frameSeamMetrics(same, near);
+  if (!(mSame.sim > 0.9)) errs.push('接缝度量：几乎相同的画面相似度应接近 1（实际 ' + (mSame && mSame.sim) + '）');
+  const vSame = api.seamVerdict(mSame, 'strict');
+  eq(vSame.ok, true, '同场续帧：同画面应通过');
+  const mJump = api.frameSeamMetrics(same, shifted);
+  eq(api.seamVerdict(mJump, 'strict').ok, false, '同场续帧：反相画面应判为跳变');
+  eq(api.seamVerdict(mJump, 'loose').thr < api.seamVerdict(mJump, 'strict').thr, true, '跨场接缝阈值更宽');
+  if (!api.seamVerdict(mJump, 'strict').note.includes('阈值')) errs.push('不达标时应给出可读原因');
+  eq(api.seamVerdict(null, 'strict').ok, true, '无量度时不误判（不阻断流程）');
+
+  // 跨分镜表承接：尾镜的接点尾态 / 运镜要带进下一个分镜表的约束
+  const note = api.storyboardContinuityNote([
+    { visual: '近景 陈拾 捡起信', motion: '俯身', tail: '手伸到一半，还没碰到信', cam: '下俯跟进，匀速' },
+  ], '第一场', true);
+  if (!note || !note.text.includes('还没碰到信')) errs.push('跨分镜承接未带出接点尾态');
+  if (!note.text.includes('下俯跟进')) errs.push('跨分镜承接未带出运镜');
+  eq(api.storyboardContinuityNote([], '第一场', true), null, '无尾镜时不造承接约束');
 }
 
 if (errs.length) {

@@ -1834,6 +1834,11 @@ async function canvasNodeStatus(args) {
         : [],
       // 音效/环境音：声音设计提示，随镜头透出给对话侧与视频提示词
       sfx: String((s && s.sfx) || '').slice(0, 120),
+      // 分镜衔接（分段生成的接戏依据）：接点尾态/运镜延续/起始态/段落类型——对话侧改写 shots 时必须一起带回
+      tail: String((s && s.tail) || '').slice(0, 160),
+      cam: String((s && s.cam) || '').slice(0, 120),
+      start: String((s && s.start) || '').slice(0, 160),
+      seg: String((s && s.seg) || '').slice(0, 24),
     }))
     : undefined;
   const d = n.data || {};
@@ -1861,6 +1866,13 @@ async function canvasNodeStatus(args) {
     stopNote: d.stopNote || null,
     genWarn: d.genWarn || null,
     lastAssetId: d.lastAssetId || null,
+    // 尾帧「最佳选帧」（续帧接力首选：动作进行中/清晰/不抖）
+    tailPickAssetId: d.lastPickAssetId || null,
+    tailPick: d.tailPickMeta || null,
+    // 续帧来源：'wired'=首帧来自 frame 连线；节点 id=自动取上一段视频尾帧
+    chainFrom: d.chainFrom || null,
+    // 接缝校验：{ ok, sim, thr, note }——同场续帧阈值 0.55 / 跨场 0.35 / 特写插入 0.15
+    seam: d.seam || null,
     historyAssetIds: Array.isArray(d.history) ? d.history.map((x) => x && x.assetId).filter(Boolean).slice(-20) : [],
     assetId: d.assetId || null,
     // 视频任务凭据：中断/超时后对话侧可凭 id 回查结果（钱花了就必须能找回）
@@ -1872,7 +1884,7 @@ async function canvasNodeStatus(args) {
   };
 }
 /** 可被 canvas_update_node 修改的节点字段白名单（结构字段 id/type/x/y/w/h/data 一律不可写）。 */
-const NODE_PATCH_FIELDS = ['prompt', 'idea', 'output', 'text', 'script', 'requirement', 'label', 'ratio', 'size', 'duration', 'resolution', 'frameMode', 'count', 'imageModel', 'videoModel', 'model'];
+const NODE_PATCH_FIELDS = ['prompt', 'idea', 'output', 'text', 'script', 'requirement', 'label', 'ratio', 'size', 'duration', 'resolution', 'frameMode', 'count', 'imageModel', 'videoModel', 'model', 'cont'];
 /** 更新已有节点的字段：对话侧"改提示词 / 改参数"的唯一入口（此前只能删节点重建）。 */
 function canvasUpdateNode(args) {
   const pid = String((args && args.projectId) || '');
@@ -1895,6 +1907,8 @@ function canvasUpdateNode(args) {
       v = k === 'count' ? Math.round(num) : num;
     } else if (k === 'label') {
       v = String(v == null ? '' : v).slice(0, 40);
+    } else if (k === 'cont') {
+      v = !(v === false || v === 'false' || v === 0 || v === '0'); // 分镜衔接开关：默认开
     } else {
       v = String(v == null ? '' : v);
     }
@@ -2659,7 +2673,7 @@ export function apply(ctx) {
             additionalProperties: false,
           },
           output: {
-            schema: { type: 'object', properties: { ok: { type: 'boolean' }, text: { type: 'string' }, status: { type: 'string' }, assetId: { type: 'string' }, prompt: { type: 'string' }, ratio: { type: 'string' }, size: { type: 'string' }, duration: { type: 'number' }, resolution: { type: 'string' }, frameMode: { type: 'string' }, imageModel: { type: 'string' }, videoModel: { type: 'string' }, genWarn: { type: 'string' }, historyAssetIds: { type: 'array', items: { type: 'string' } }, warnings: { type: 'array', items: { type: 'string' } }, shots: { type: 'array', items: { type: 'object', properties: { index: { type: 'number' }, title: { type: 'string' }, duration: { type: 'number' }, visual: { type: 'string' }, motion: { type: 'string' }, characters: { type: 'array', items: { type: 'string' } }, scene: { type: 'string' }, props: { type: 'array', items: { type: 'string' } } } } } }, required: ['ok', 'text'] },
+            schema: { type: 'object', properties: { ok: { type: 'boolean' }, text: { type: 'string' }, status: { type: 'string' }, assetId: { type: 'string' }, prompt: { type: 'string' }, ratio: { type: 'string' }, size: { type: 'string' }, duration: { type: 'number' }, resolution: { type: 'string' }, frameMode: { type: 'string' }, imageModel: { type: 'string' }, videoModel: { type: 'string' }, genWarn: { type: 'string' }, chainFrom: { type: 'string' }, seam: { type: 'object', properties: { ok: { type: 'boolean' }, sim: { type: 'number' }, thr: { type: 'number' }, note: { type: 'string' } } }, tailPickAssetId: { type: 'string' }, historyAssetIds: { type: 'array', items: { type: 'string' } }, warnings: { type: 'array', items: { type: 'string' } }, shots: { type: 'array', items: { type: 'object', properties: { index: { type: 'number' }, title: { type: 'string' }, duration: { type: 'number' }, visual: { type: 'string' }, motion: { type: 'string' }, tail: { type: 'string' }, cam: { type: 'string' }, start: { type: 'string' }, seg: { type: 'string' }, characters: { type: 'array', items: { type: 'string' } }, scene: { type: 'string' }, props: { type: 'array', items: { type: 'string' } } } } } }, required: ['ok', 'text'] },
             render: (args, value) => [{ type: 'text', text: String(value.text || '') }],
           },
           timeoutMs: 30000,
@@ -2677,8 +2691,11 @@ export function apply(ctx) {
               lines.push('镜头清单（' + shots.length + ' 镜，总时长 ' + shots.reduce((a, x) => a + (Number(x.duration) || 0), 0) + 's）——视频提示词的镜头序列以此为准:');
               shots.forEach((sh) => {
                 const dl = (sh.dialogue || []).map((d) => d.role + '：' + d.line).join('；');
-                lines.push(sh.index + '. ' + sh.title + '（' + sh.duration + 's）角色:' + (sh.characters.join('/') || '-') + '｜场景:' + (sh.scene || '-') + '｜道具:' + (sh.props.join('/') || '-')
+                lines.push(sh.index + '. ' + sh.title + '（' + sh.duration + 's）' + (sh.seg ? '[' + sh.seg + '] ' : '') + '角色:' + (sh.characters.join('/') || '-') + '｜场景:' + (sh.scene || '-') + '｜道具:' + (sh.props.join('/') || '-')
                   + '\n   画面: ' + sh.visual + '\n   动作: ' + sh.motion
+                  + (sh.tail ? '\n   接点尾态(应写进下一镜起始态): ' + sh.tail : '')
+                  + (sh.cam ? '\n   运镜延续: ' + sh.cam : '')
+                  + (sh.start ? '\n   起始态: ' + sh.start : '')
                   + (dl ? '\n   台词: ' + dl : '')
                   + (sh.sfx ? '\n   音效: ' + sh.sfx : ''));
               });
@@ -2703,12 +2720,18 @@ export function apply(ctx) {
             if (params.length) lines.push('生成参数: ' + params.join(' · '));
             if (s.historyAssetIds.length) lines.push('历史产物（' + s.historyAssetIds.length + ' 条，最新在最后）: ' + s.historyAssetIds.join(', '));
             if (s.genWarn) lines.push('生成告警: ' + s.genWarn);
+            // 分镜衔接状态：续帧来源 + 接缝校验 + 最佳选帧（对话侧汇报成片质量时要一并说明）
+            if (s.chainFrom) lines.push('续帧: ' + (s.chainFrom === 'wired' ? '首帧来自 frame 连线（上一段尾帧）' : '自动取上一段视频的尾帧作首帧'));
+            if (s.seam) lines.push('接缝校验: ' + (s.seam.ok ? '通过' : '偏跳') + (s.seam.sim != null ? '（相似度 ' + s.seam.sim + '，阈值 ' + s.seam.thr + '）' : '') + (s.seam.note ? ' — ' + s.seam.note : ''));
+            if (s.tailPick && s.tailPickAssetId) lines.push('尾帧最佳选帧: ' + Number(s.tailPick.t || 0).toFixed(2) + 's 处（得分 ' + s.tailPick.score + '）资产 ' + s.tailPickAssetId);
             return {
               ok: true, status: s.status, assetId: s.assetId || undefined,
               prompt: s.prompt || undefined, ratio: s.ratio || undefined, size: s.size || undefined,
               duration: s.duration == null ? undefined : s.duration, resolution: s.resolution || undefined,
               frameMode: s.frameMode || undefined, imageModel: s.imageModel || undefined, videoModel: s.videoModel || undefined,
               genWarn: s.genWarn || undefined,
+              chainFrom: s.chainFrom || undefined, seam: s.seam || undefined,
+              tailPickAssetId: s.tailPickAssetId || undefined,
               historyAssetIds: s.historyAssetIds.length ? s.historyAssetIds : undefined,
               warnings: warnings.length ? warnings : undefined, shots: shots.length ? shots : undefined,
               text: lines.join('\n'),

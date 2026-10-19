@@ -296,7 +296,7 @@ window.__ModuleLoader__.load({
       'lbHint': '点击空白处或按 Esc 关闭',
       'resizeList': '拖拽调整分镜列表高度',
       'frameModeLabel': '衔接',
-      'frameModeHint': '首帧口连线时的处理方式。网关禁止首帧与参考图混用：融合=尾帧降级为第1张参考图（保留实体参考图，衔接为软约束）；硬首帧=用真首帧参数（画面绝对承接，但放弃参考图）；忽略=不使用首帧',
+      'frameModeHint': '首帧来源的处理方式（首帧=上一段尾帧，用于跨段接戏）。网关禁止首帧与参考图混用：融合=尾帧降级为第1张参考图（保留实体参考图，衔接为软约束+提示词锚定）；硬首帧=用真首帧参数（画面绝对承接，但放弃参考图）；忽略=不使用首帧。即使没有连 frame 线，续帧段也会自动取上一段尾帧作首帧',
       'frameModeAuto': '参考图融合',
       'frameModeHard': '硬首帧（弃参考图）',
       'frameModeOff': '忽略首帧',
@@ -531,7 +531,23 @@ window.__ModuleLoader__.load({
       'ungroup': '解散分组',
       'redraw': '重绘',
       'lastFrame': '尾帧',
+      'tailPick': '尾帧选帧',
+      'tailPickHint': '续帧接力用的尾帧：从片尾多帧里选「动作进行中、清晰、不抖」的一帧，而不是机械取最后一帧',
       'chainNext': '接续下一镜',
+      'chainInfo': '续帧：首帧来自上一段尾帧',
+      'chainAuto': '自动取上一段尾帧作首帧',
+      'chainManual': '首帧来自连线',
+      'contToggle': '分镜衔接',
+      'contToggleHint': '开启后，分镜会为每镜写出「承接上镜尾态 / 接点尾态（动作进行中）/ 运镜延续 / 段落类型」——分段生成才能接得上',
+      'shotTail': '接点尾态',
+      'segOpening': '首段·交代',
+      'segContinuation': '续帧',
+      'segNew_character': '新角色入场',
+      'segScene_change': '换场',
+      'segCloseup': '特写插入',
+      'seamOk': '接缝通过',
+      'seamFail': '接缝偏跳',
+      'seamHint': '接缝校验：本段首帧与上一段尾帧的画面相似度',
       'craftCard': 'Craft 后期（ArtCraft）',
       'craftUnreachable': 'Craft 未连接：确认 dsh-artcraft 插件已安装/启用并重启过 Harness',
       'craftDataRoot': '数据目录',
@@ -704,7 +720,7 @@ window.__ModuleLoader__.load({
       'lbHint': 'Click outside or press Esc to close',
       'resizeList': 'Drag to resize the shot list',
       'frameModeLabel': 'Chaining',
-      'frameModeHint': 'How the first-frame input is used. The gateway forbids mixing first_frame with reference_image: Fuse = the tail frame becomes reference image #1 (keeps entity refs; continuity is a soft constraint); Hard = true first_frame param (exact continuity, drops refs); Ignore = do not use the frame',
+      'frameModeHint': 'How the first frame is sourced (first frame = previous segment tail, for cross-segment continuity). The gateway forbids mixing first_frame with reference_image: Fuse = tail frame becomes reference image #1 (keeps entity refs; soft constraint + prompt anchoring); Hard = true first_frame param (exact continuity, drops refs); Ignore = no frame. Even without a frame wire, continuation segments auto-take the previous tail',
       'frameModeAuto': 'Fuse with refs',
       'frameModeHard': 'Hard first frame',
       'frameModeOff': 'Ignore frame',
@@ -939,7 +955,23 @@ window.__ModuleLoader__.load({
       'ungroup': 'Ungroup',
       'redraw': 'Redraw from this',
       'lastFrame': 'Last frame',
+      'tailPick': 'Tail pick',
+      'tailPickHint': 'Tail frame used for chaining: the best "mid-motion, sharp, stable" frame near the end, not blindly the last one',
       'chainNext': 'Chain next shot',
+      'chainInfo': 'Chained: first frame comes from the previous segment tail',
+      'chainAuto': 'Auto: previous segment tail as first frame',
+      'chainManual': 'First frame from wire',
+      'contToggle': 'Continuity',
+      'contToggleHint': 'When on, the storyboard writes a tail state / start state / camera carry-over / segment type for every shot — that is what makes separately generated segments connect',
+      'shotTail': 'Hand-off tail',
+      'segOpening': 'Opening',
+      'segContinuation': 'Continuation',
+      'segNew_character': 'New character',
+      'segScene_change': 'Scene change',
+      'segCloseup': 'Insert',
+      'seamOk': 'Seam OK',
+      'seamFail': 'Seam jump',
+      'seamHint': 'Seam check: similarity between this segment first frame and the previous tail frame',
       'craftCard': 'Craft post (ArtCraft)',
       'craftUnreachable': 'Craft not connected: make sure dsh-artcraft is installed/enabled and Harness was restarted',
       'craftDataRoot': 'Data root',
@@ -1666,6 +1698,203 @@ window.__ModuleLoader__.load({
         .map((x) => (x && x.name ? String(x.name).trim() : '')).filter(Boolean);
     }
 
+    // ---------- 分镜衔接（续帧接力 / 段落调度 / 接缝校验）----------
+    //  为什么需要它：每段视频是**独立采样**的，模型不知道上一段最后发生了什么。分镜只写"本镜拍什么"、
+    //  不写"接在哪、怎么接"，模型就自己脑补起点 → 每段各演各的。行业解法不是提示词玄学，而是三层工程：
+    //   ① 分镜层写「承接上镜尾态 / 本镜起始态 / 接点尾态（动作进行中）/ 运镜延续」；
+    //   ② 生成层把上一段尾帧作为本段首帧（首尾帧模式优先，其次尾帧降级为第 1 张参考图并软锚定）；
+    //   ③ 剪辑/校验层比对接缝（尾帧 vs 下段首帧），超阈值打回。
+    /** 归一到 0-1 的相似度（0.8 以上视为同一画面）。数字或 null。 */
+    function normSim(x) {
+      const v = Number(x);
+      if (!Number.isFinite(v)) return null;
+      return Math.max(0, Math.min(1, v > 1.0001 ? v / 100 : v));
+    }
+    /** 镜头画面文本（visual + motion），用于衔接描述与相似度兜底。 */
+    function shotVisualText(sh) {
+      if (!sh) return '';
+      return [String(sh.visual || '').trim(), String(sh.motion || '').trim()].filter(Boolean).join('；');
+    }
+    /**
+     * 镜头衔接规划：把「尾部状态 / 起始状态 / 运镜延续 / 段落类型 / 接缝档位」统一解出来。
+     * 分镜字段可手写（tail/start/cam），缺失时用 visual 兜底——**绝不编造剧情**，只做"能确认的推断"。
+     * seg:   'opening'（首段，交代）| 'continuation'（续帧，默认）| 'new_character'（新角色入场，参考图模式）
+     *        | 'scene_change'（换场，不接尾帧）| 'closeup'（特写/细节插入，接缝不被画面盯着看 → 标准放宽）
+     * join:  'strict'（同步长硬接）| 'loose'（跨场/换景，允许软接）| 'cut'（特写插入，跳切合理，不接力）
+     * @returns {{seg,name,join,fromTail,fromShot,tail,start,cam,chain,note}}
+     */
+    function shotContinuityPlan(sh, prev, idx) {
+      const s = sh || {};
+      const i = Number.isFinite(Number(idx)) ? Number(idx) : 0;
+      const prevShot = i > 0 ? (prev || null) : null;
+      const segRaw = String(s.seg || '').trim().toLowerCase();
+      const SEG_ALIAS = {
+        opening: 'opening', open: 'opening', '首段': 'opening', '开场': 'opening',
+        continuation: 'continuation', cont: 'continuation', '续': 'continuation', '续帧': 'continuation', '承接': 'continuation',
+        new_character: 'new_character', newchar: 'new_character', '新角色': 'new_character', '入场': 'new_character',
+        scene_change: 'scene_change', scene: 'scene_change', '换场': 'scene_change', '转场': 'scene_change',
+        closeup: 'closeup', insert: 'closeup', '特写': 'closeup', '插入': 'closeup',
+      };
+      let seg = SEG_ALIAS[segRaw] || '';
+      const boxed = (k) => String(s[k] || '').trim();
+      if (!seg) {
+        if (!prevShot) seg = 'opening';
+        else if (/换场|场景切换|转场|另一处|另一场景|切至|切到|次日|翌日|与此同时|数日后|[Cc]ut to/.test(shotVisualText(s))) seg = 'scene_change';
+        else if (/新角色|首次出场|走进来|入镜|入场|冒出|推门进|[Ee]nters?/.test(shotVisualText(s))) seg = 'new_character';
+        else if (Number(s.duration) > 0 && Number(s.duration) < 1.5 && !(s.dialogue || []).length) seg = 'cut';
+        else seg = 'continuation';
+      }
+      if (seg === 'opening' && prevShot) seg = 'continuation'; // 首段只能在第 1 镜；后面标"开场"视为续帧
+      const join = seg === 'scene_change' ? 'loose' : seg === 'cut' ? 'cut' : seg === 'new_character' ? 'loose' : 'strict';
+      const tail = boxed('tail') || (prevShot ? shotVisualText(s).slice(0, 80) : '');
+      const start = boxed('start') || (prevShot ? ('承接上一镜结尾：' + (boxed('tail') || shotVisualText(prevShot).slice(0, 80))) : '');
+      const cam = boxed('cam');
+      const chain = (seg === 'continuation' || seg === 'new_character') && !!prevShot;
+      return {
+        idx: i, seg, join, fromTail: i > 0, fromShot: i > 0, chain,
+        name: String(s.title || '').trim(),
+        tail, start, cam,
+        note: boxed('note'),
+      };
+    }
+    /**
+     * 由上一段分镜的尾镜推出本分镜的「承接约束」（跨分镜表接戏）。
+     * 与 aiStoryboardShots 的 prevTail 契约一致：{ label, text, shot }，但这里显式带出衔接字段。
+     */
+    function storyboardContinuityNote(prevShots, label, zh) {
+      const arr = (prevShots || []).filter(Boolean);
+      const tailShot = arr.length ? arr[arr.length - 1] : null;
+      if (!tailShot) return null;
+      const plan = shotContinuityPlan(tailShot, null, 0);
+      const text = [
+        zh ? '尾镜画面：' : 'Tail frame: ', String(tailShot.visual || '').trim(),
+        zh && plan.tail ? '\n尾镜结束状态：' + plan.tail : (plan.tail ? '\nTail end state: ' + plan.tail : ''),
+        zh && plan.cam ? '\n尾镜运镜：' + plan.cam : (plan.cam ? '\nTail camera: ' + plan.cam : ''),
+        String(tailShot.motion || '').trim() ? '\n' + (zh ? '尾镜最后动作：' : 'Tail last action: ') + String(tailShot.motion).trim() : '',
+      ].filter(Boolean).join('');
+      return { label: String(label || ''), text: text + '\n', shot: tailShot, plan };
+    }
+    /**
+     * 镜头衔接块（写进视频提示词）：让模型知道"接在哪、从哪起、留什么给下一段"。
+     * 只在分镜明确给出衔接信息或确属跨分镜承接时生成；普通首镜（无上游）返回 ''，绝不无中生有。
+     */
+    function shotContinuityBlock(plan, opts) {
+      const p = plan || {};
+      const o = opts || {};
+      const zh = o.zh !== false;
+      if (!p.fromShot) return '';
+      const isFirst = p.idx === 0;
+      // 段类型：本分镜表内续帧 / 承接上一个分镜表 / 不接（换场·特写插入）
+      let kindLine = '';
+      if (p.seg === 'scene_change') kindLine = zh ? '段落类型：换场（不承接上一镜画面，直接建立新空间；环境声可延续）' : 'Segment type: scene change (do not continue the previous frame; establish the new space; ambience may carry over)';
+      else if (p.seg === 'cut') kindLine = zh ? '段落类型：特写/细节插入（可与上一镜跳切，不要求画面连续）' : 'Segment type: insert close-up (jump cut allowed, no frame continuity required)';
+      else if (p.seg === 'new_character') kindLine = zh ? '段落类型：新角色入场（新角色须在画面中自然进入，不得凭空出现）' : 'Segment type: new character enters (must enter naturally, never pop in)';
+      else if (p.seg === 'continuation') kindLine = zh
+        ? (isFirst ? '段落类型：承接上一个分镜表（本分镜第 1 镜从上一镜结尾继续，不重演、不重新建立场景）' : '段落类型：续帧（从上一镜结尾继续，不重演）')
+        : (isFirst ? 'Segment type: continues the previous storyboard (no re-establishing, no replay)' : 'Segment type: continuation (continue from the previous shot, no replay)');
+      const parts = [];
+      if (p.tail && (p.seg === 'continuation' || p.seg === 'new_character')) parts.push((zh ? '承接上镜结尾（本镜起始态，不得重置姿态/位置/手持物）：' : 'Continue from the previous shot end state (start exactly here; do not reset posture/position/handheld props): ') + p.tail);
+      else if (p.start && p.seg === 'continuation') parts.push((zh ? '本镜起始态：' : 'Start state: ') + p.start);
+      if (p.cam) parts.push((zh ? '运镜延续：' : 'Camera continues: ') + p.cam + (zh ? '（方向与速度保持，不反向、不突变）' : ' (same direction and speed; no reversal, no sudden change)'));
+      if (p.note) parts.push((zh ? '接戏要求：' : 'Continuity requirement: ') + p.note);
+      if (!kindLine && !parts.length) return '';
+      const head = zh ? '【衔接】' : '[Continuity] ';
+      const end = zh
+        ? '禁止重启姿态、禁止重新建立场景、禁止改变人物朝向与站位（除非剧情明确要求）'
+        : 'Never reset posture, never re-establish the scene, never change facing or blocking unless the story demands it';
+      const body = [kindLine].concat(parts, [end]).filter(Boolean);
+      // 统一标点：拼接前去掉各自尾部标点，避免出现「。；」这种叠标点
+      const clean = body.map((x) => String(x).replace(/[。；;.、\s]+$/, '')).filter(Boolean);
+      return head + clean.join(zh ? '；' : '; ') + (zh ? '。' : '.');
+    }
+    /**
+     * 首帧（上一段尾帧）的软锚定说明：把首帧图钉在"第 1 帧"，模型只允许往后运动。
+     * 接口不支持硬首帧时这是**提高权重**，不是锁像素——调用方要给用户可见的告警。
+     */
+    function frameAnchorText(opts) {
+      const o = opts || {};
+      const zh = o.zh !== false;
+      if (!o.hasFrame) return '';
+      const asFirst = o.role === 'first_frame';
+      return zh
+        ? (asFirst
+          ? '【首帧锚定】本次输入的首帧图就是上一段视频的结尾画面：第 1 帧必须与该图完全一致（构图、人物位置、朝向、手持道具、光线），只允许从第 1 帧之后继续运动。'
+          : '【首帧锚定】[图1] 是上一段视频的结尾画面（衔接参考，非风格参考）：第 1 帧必须与 [图1] 的画面一致——构图、人物位置、朝向、手持道具、主光方向都不得改动，只允许往后延续运动。')
+        : (asFirst
+          ? '[First-frame anchor] The input first frame IS the last frame of the previous segment: frame 1 must match it exactly (framing, blocking, facing, handheld props, light) and motion starts only after frame 1.'
+          : '[First-frame anchor] [Picture 1] is the last frame of the previous segment (a continuity reference, not a style reference): frame 1 must match it - framing, blocking, facing, handheld props and key light unchanged; only continue the motion.');
+    }
+    /**
+     * 尾帧选帧评分：不是"取最后一帧"——最后一帧常落在动作顶点/运动模糊/遮挡/收敛抖动上。
+     * 返回 0-1 分，越高越适合当下一段首帧（动作进行中、清晰、无遮挡、不抖）。
+     * @param m { motion（相邻帧差 0-1）, sharp（清晰度 0-1）, coverage（前景占比 0-1）, jitter（模型收敛抖动 0-1）, complete（动作完成度 0-1） }
+     */
+    function tailFrameScore(m) {
+      const c = (x, d) => (Number.isFinite(Number(x)) ? Math.max(0, Math.min(1, Number(x))) : d);
+      const motion = c(m && m.motion, 0.5);
+      const sharp = c(m && m.sharp, 0.5);
+      const coverage = c(m && m.coverage, 1);
+      const jitter = c(m && m.jitter, 0);
+      const complete = c(m && m.complete, 0.5);
+      // 动作"进行中"最好：太快（模糊/顶点）或完全静止（定格）都扣分
+      const motionFit = 1 - Math.abs(motion - 0.45) / 0.55;
+      // 动作完成度：留 30% 未完成最利于续接（完成度 0.7 附近满分，1=完成态扣分）
+      const incomplete = 1 - Math.abs(complete - 0.7) / 0.7;
+      const score = 0.34 * Math.max(0, motionFit) + 0.30 * sharp + 0.16 * coverage + 0.14 * Math.max(0, incomplete) - 0.22 * jitter;
+      return Math.max(0, Math.min(1, score));
+    }
+    /**
+     * 帧间相似度（接缝校验）：只比较缩略灰度图，抗压缩噪声。
+     * 指标：MAD（平均绝对差）、粗糙结构相关（16 宫格均值相关）——两者都要过才算接得上。
+     * @param a/b { data: Uint8ClampedArray|number[]（RGBA）, w, h }（同尺寸，调用方先缩到 32×32 灰度或同等）
+     */
+    function frameSeamMetrics(a, b) {
+      const ga = a && a.data, gb = b && b.data;
+      if (!ga || !gb || !ga.length || ga.length !== gb.length) return null;
+      const n = ga.length;
+      let sad = 0;
+      let ma = 0, mb = 0;
+      for (let i = 0; i < n; i++) { sad += Math.abs(ga[i] - gb[i]); ma += ga[i]; mb += gb[i]; }
+      ma /= n; mb /= n;
+      let cov = 0, va = 0, vb = 0;
+      for (let i = 0; i < n; i++) { const da = ga[i] - ma, db = gb[i] - mb; cov += da * db; va += da * da; vb += db * db; }
+      const corr = (va > 1e-6 && vb > 1e-6) ? cov / Math.sqrt(va * vb) : (Math.abs(ma - mb) < 6 ? 1 : 0);
+      // 宫格结构相似：把图切成 G×G 求每格均值，再做相关（对整体位移/缩放不敏感，抓"画面是否同一空间"）
+      const G = 16;
+      const side = Math.round(Math.sqrt(n)) || 1;
+      const cellA = new Array(G * G).fill(0), cellB = new Array(G * G).fill(0), cnt = new Array(G * G).fill(0);
+      for (let i = 0; i < n; i++) {
+        const x = i % side, y = Math.floor(i / side);
+        const gx = Math.min(G - 1, Math.floor((x / side) * G));
+        const gy = Math.min(G - 1, Math.floor((y / side) * G));
+        const k = gy * G + gx;
+        cellA[k] += ga[i]; cellB[k] += gb[i]; cnt[k]++;
+      }
+      let cm = 0;
+      const ca = cellA.map((v, k) => (cnt[k] ? v / cnt[k] : 0)), cb = cellB.map((v, k) => (cnt[k] ? v / cnt[k] : 0));
+      for (let k = 0; k < ca.length; k++) cm += ca[k] / ca.length;
+      let cv = 0, cv2 = 0, cva = 0, cvb = 0;
+      for (let k = 0; k < ca.length; k++) { const da = ca[k] - cm, db = cb[k] - cm; cv += da * db; cva += da * da; cvb += db * db; }
+      const gridCorr = (cva > 1e-6 && cvb > 1e-6) ? cv / Math.sqrt(cva * cvb) : 0;
+      return {
+        mad: sad / n, // 0-255
+        corr, // -1..1
+        gridCorr, // -1..1
+        sim: Math.max(0, Math.min(1, 0.35 * corr + 0.65 * gridCorr)), // 0-1 综合相似度
+      };
+    }
+    /** 接缝判定：超过档位阈值才算"接得上"，否则给出明确原因（供 UI 打回/告警）。 */
+    function seamVerdict(metrics, join) {
+      if (!metrics) return { ok: true, sim: null, note: '' };
+      const thr = join === 'loose' ? 0.35 : join === 'cut' ? 0.15 : 0.55;
+      const sim = metrics.sim;
+      const ok = sim >= thr;
+      return {
+        ok, sim, thr,
+        note: ok ? '' : ('接缝相似度 ' + sim.toFixed(2) + ' < 阈值 ' + thr.toFixed(2) + '（' + (join === 'loose' ? '跨场/换景' : join === 'cut' ? '特写插入' : '同场续帧') + '）：画面可能跳变'),
+      };
+    }
+
     // ---------- 视频「参考生成」结构化提示词（对齐 MiniMax H3 / 优云智算的优化后格式）----------
     //  为什么需要它：机械拼装（风格 + [图N] 绑定 + 镜头列表 + 设定集全文）会让模型把台词/场景判错；
     //  这个格式把「素材 → 主体 → 分镜 → 台词 → 声音」显式绑定，模型据此做音画同步与口型对齐。
@@ -1731,10 +1960,19 @@ window.__ModuleLoader__.load({
       if (!subjects.length) return '';
       const sid = (sub) => subjects.indexOf(sub) + 1;
       const pic = (n2) => '<Picture ' + n2 + '>';
-      // 名称 → <Subject N>（长名优先，避免"瓦力"吃掉"瓦力的铃铛"）
+      // 名称 → <Subject N>（长名优先，避免"瓦力"吃掉"瓦力的铃铛"）；顺带清掉 @引用@ 的包裹符号，
+      // 否则会留下「@<Subject 2>@」这种残迹（@ 是画布内的引用语法，不该发给视频模型）
       const ordered = subjects.slice().sort((a, b) => b.name.length - a.name.length);
+      const mentionRe = /@([^@\s，。；、,;:.!?！？「」（）()]{1,24})@/g;
       const rewrite = (text) => {
         let out = String(text || '');
+        if (out.includes('@')) {
+          out = out.replace(mentionRe, (all, inner) => {
+            const hit = subjects.find((sub) => sub.name.toLowerCase() === String(inner).trim().toLowerCase());
+            if (hit) return '<Subject ' + sid(hit) + '>';
+            return inner; // 未登记的 @名称@ 去掉包裹符号（不要再把画布语法发给模型）
+          });
+        }
         for (const sub of ordered) {
           if (!sub.name) continue;
           out = out.split(sub.name).join('<Subject ' + sid(sub) + '>');
@@ -1798,8 +2036,19 @@ window.__ModuleLoader__.load({
           ? '台词必须由画面内对应的主体当场开口说出（口型与台词同步、语气贴合情绪）；严禁画外音/旁白。'
           : 'Dialogue must be spoken on screen by the matching subject with lip-sync; never voice-over.');
       }
+      // 跨段续帧：首帧锚定（上一段尾帧作为本段第 1 帧）——放在逐镜之前，权重最高
+      const anchor = frameAnchorText({ hasFrame: !!o.hasFrame, role: o.frameRole, zh });
+      if (anchor) outs.push(anchor);
       list.forEach((s, i) => {
         const parts = [];
+        // 镜头衔接：段类型 + 承接上镜尾态 + 运镜延续（只对**本分镜表内**的镜头生成；
+        // 第 1 镜跨段承接由 frameAnchorText/调用方负责，避免同一句话说两遍）
+        const plan = shotContinuityPlan(s, list[i - 1], i);
+        if (i > 0) {
+          const cb = shotContinuityBlock(plan, { zh });
+          // 衔接块自带句末标点，作为段落级前置说明独立成句（去掉句末标点后由上层分隔符统一）
+          if (cb) parts.push(rewrite(cb).replace(/[。.]+$/, ''));
+        }
         const visual = rewrite(String(s.visual || '').trim());
         if (visual) parts.push(visual);
         const motion = rewrite(String(s.motion || '').trim());
@@ -1835,6 +2084,12 @@ window.__ModuleLoader__.load({
       if (music) {
         outs.push('non_diegetic_music:');
         outs.push(music);
+      }
+      // ⑦ 跨段接戏（仅当本段承接上一段：有首帧尾帧接力或分镜标了承接）
+      const contLine = String(o.continuity || '').trim();
+      if (contLine) {
+        outs.push('continuity:');
+        outs.push(contLine);
       }
       return outs.join('\n');
     }
@@ -3582,35 +3837,218 @@ window.__ModuleLoader__.load({
 
     /** 从视频 Blob 提取最后一帧为 PNG（通用：任何 API 生成的视频都能取尾帧）。 */
     async function extractLastFrame(videoBlob) {
+      const r = await extractTailFrames(videoBlob, { count: 2, span: 0.2 });
+      if (!r || !r.last) throw new Error('尾帧提取失败');
+      return r.last;
+    }
+    /**
+     * 尾帧候选抽取（续帧接力的关键）：**不取最后一帧**。
+     * 最后一帧常落在动作顶点、运动模糊、遮挡、模型收敛抖动上——用它当下一段首帧，接缝必然跳。
+     * 做法：取末尾若干帧做候选，给每帧打「动作进行中 / 清晰 / 无遮挡 / 不抖」分，取最高分那帧。
+     * @returns { blobs: Blob[], picks: Array<{ t, blob, score, metrics }>, best: { blob, t, score } | null }
+     */
+    async function extractTailFrames(videoBlob, opts) {
+      const o = opts || {};
+      const count = Math.max(2, Math.min(24, Number(o.count) || 9)); // 候选帧数（末段采样）
+      const span = Math.max(0.1, Math.min(2, Number(o.span) || 0.8)); // 采样窗口：结尾前 0.8s
       const url = URL.createObjectURL(videoBlob);
+      let v = null;
       try {
-        const v = document.createElement('video');
+        v = document.createElement('video');
         v.src = url; v.muted = true; v.preload = 'auto';
         await new Promise((res, rej) => {
           v.onloadedmetadata = () => res();
           v.onerror = () => rej(new Error('视频解码失败'));
-          setTimeout(res, 10000);
+          setTimeout(res, 12000);
         });
-        if (!isFinite(v.duration) || v.duration <= 0) throw new Error('视频时长不可用');
-        await new Promise((res) => {
-          v.onseeked = res;
-          try { v.currentTime = Math.max(0, v.duration - 0.05); } catch { res(); }
-          setTimeout(res, 5000);
+        const dur = Number(v.duration);
+        if (!isFinite(dur) || dur <= 0) throw new Error('视频时长不可用');
+        const canvas = document.createElement('canvas');
+        canvas.width = v.videoWidth || 1280;
+        canvas.height = v.videoHeight || 720;
+        const ctx = canvas.getContext('2d', { willReadFrequently: true });
+        // 采样时刻：结尾前 span 秒内均匀取 count 帧，最后一帧贴近片尾
+        const t0 = Math.max(0, dur - span);
+        const times = [];
+        for (let i = 0; i < count; i++) times.push(Math.min(dur - 0.02, t0 + (span * i) / Math.max(1, count - 1)));
+        times[times.length - 1] = Math.max(0, dur - 0.04);
+        const grabs = [];
+        for (const t of times) {
+          await new Promise((res) => {
+            let done = false;
+            const fin = () => { if (!done) { done = true; res(); } };
+            v.onseeked = fin;
+            try { v.currentTime = t; } catch { fin(); }
+            setTimeout(fin, 4000);
+          });
+          await new Promise((res) => {
+            if (v.readyState >= 2) return res();
+            v.oncanplay = res;
+            setTimeout(res, 2000);
+          });
+          try {
+            ctx.drawImage(v, 0, 0, canvas.width, canvas.height);
+          } catch { continue; }
+          // 缩略灰度（64×36）：算清晰度/运动/结构用，够用且极快
+          const tw = 64, th = Math.max(1, Math.round((64 * canvas.height) / Math.max(1, canvas.width)));
+          const small = document.createElement('canvas');
+          small.width = tw; small.height = th;
+          const sctx = small.getContext('2d', { willReadFrequently: true });
+          sctx.drawImage(canvas, 0, 0, tw, th);
+          const img = sctx.getImageData(0, 0, tw, th);
+          const gray = new Uint8ClampedArray(tw * th);
+          let sum = 0;
+          for (let i = 0; i < gray.length; i++) {
+            const r = img.data[i * 4], g = img.data[i * 4 + 1], b = img.data[i * 4 + 2];
+            const y = Math.round(0.299 * r + 0.587 * g + 0.114 * b);
+            gray[i] = y; sum += y;
+          }
+          // 清晰度：拉普拉斯响应均值（越高越锐利）
+          let lap = 0, lapN = 0;
+          for (let y2 = 1; y2 < th - 1; y2++) {
+            for (let x2 = 1; x2 < tw - 1; x2++) {
+              const i = y2 * tw + x2;
+              const l = 4 * gray[i] - gray[i - 1] - gray[i + 1] - gray[i - tw] - gray[i + tw];
+              lap += Math.abs(l); lapN++;
+            }
+          }
+          const sharpRaw = lapN ? lap / lapN : 0;
+          // 前景占比：与画面均值的偏离度（粗估有人/物主体的程度）
+          let dev = 0;
+          const mean = sum / gray.length;
+          for (let i = 0; i < gray.length; i++) dev += Math.abs(gray[i] - mean);
+          const coverageRaw = gray.length ? dev / gray.length : 0;
+          grabs.push({ t, gray, sharpRaw, coverageRaw, full: null });
+          // 全分辨率 PNG 只对最终入选帧生成（省内存）
+        }
+        if (!grabs.length) throw new Error('尾帧采样失败');
+        // 帧间差（运动幅度）+ 收敛抖动（相邻帧差突然变小 = 定格；突然变大 = 抖）
+        const diffs = [];
+        for (let i = 1; i < grabs.length; i++) {
+          const a = grabs[i - 1].gray, b = grabs[i].gray;
+          let s2 = 0;
+          for (let k = 0; k < a.length; k++) s2 += Math.abs(a[k] - b[k]);
+          diffs.push(a.length ? s2 / a.length / 255 : 0); // 0-1
+        }
+        const maxSharp = Math.max(...grabs.map((g) => g.sharpRaw), 1e-6);
+        const picks = grabs.map((g, i) => {
+          const prevDiff = i > 0 ? diffs[i - 1] : (diffs[0] || 0);
+          const nextDiff = i < diffs.length ? diffs[i] : prevDiff;
+          const motion = Math.max(0, Math.min(1, (prevDiff * 6))); // 归一：0.17/帧 ≈ 满运动
+          const sharp = Math.max(0, Math.min(1, g.sharpRaw / maxSharp));
+          const coverage = Math.max(0, Math.min(1, g.coverageRaw / 60));
+          // 收敛抖动：自身运动相对邻域突变（模型末端常见突变）
+          const jitter = Math.min(1, Math.abs(prevDiff - nextDiff) * 8);
+          // 动作完成度：越接近片尾越可能"演完了"（末 3 帧按时间梯度推断）
+          const complete = Math.max(0, Math.min(1, 0.35 + (i / Math.max(1, grabs.length - 1)) * 0.65));
+          const score = tailFrameScore({ motion, sharp, coverage, jitter, complete });
+          return { t: g.t, score, metrics: { motion, sharp, coverage, jitter, complete }, gray: g.gray, idx: i };
         });
-        await new Promise((res) => {
-          if (v.readyState >= 2) return res();
-          v.oncanplay = res;
-          setTimeout(res, 3000);
-        });
-        const cv = document.createElement('canvas');
-        cv.width = v.videoWidth; cv.height = v.videoHeight;
-        cv.getContext('2d').drawImage(v, 0, 0);
-        const blob = await new Promise((res) => cv.toBlob(res, 'image/png'));
-        if (!blob) throw new Error('尾帧提取失败');
-        return blob;
+        const best = picks.slice().sort((a, b) => b.score - a.score)[0];
+        // 为入选帧 + 末帧各生成一张全分辨率 PNG（末帧始终产出，保证 last 端口行为不变）
+        const wanted = new Set([best.idx, grabs.length - 1]);
+        const blobs = new Map();
+        for (const gi of [...wanted].sort((a, b) => a - b)) {
+          const g = grabs[gi];
+          await new Promise((res) => {
+            let done = false;
+            const fin = () => { if (!done) { done = true; res(); } };
+            v.onseeked = fin;
+            try { v.currentTime = g.t; } catch { fin(); }
+            setTimeout(fin, 4000);
+          });
+          await new Promise((res) => { if (v.readyState >= 2) return res(); v.oncanplay = res; setTimeout(res, 2000); });
+          try { ctx.drawImage(v, 0, 0, canvas.width, canvas.height); } catch { continue; }
+          const blob = await new Promise((res) => canvas.toBlob(res, 'image/png'));
+          if (blob) blobs.set(gi, blob);
+        }
+        const lastBlob = blobs.get(grabs.length - 1) || blobs.get(best.idx) || null;
+        const bestBlob = blobs.get(best.idx) || lastBlob;
+        return {
+          last: lastBlob,
+          best: bestBlob,
+          bestT: best.t,
+          bestScore: best.score,
+          picks: picks.map((p) => ({ t: p.t, score: p.score, metrics: p.metrics })),
+        };
       } finally {
         URL.revokeObjectURL(url);
       }
+    }
+    /** 缩略灰度（接缝校验用）：任意图 Blob → 32×32 RGBA。 */
+    async function grayThumb(blob, size) {
+      const n = Math.max(8, Math.min(128, Number(size) || 32));
+      const url = URL.createObjectURL(blob);
+      try {
+        const img = new Image();
+        img.src = url;
+        await new Promise((res, rej) => {
+          img.onload = () => res();
+          img.onerror = () => rej(new Error('图片解码失败'));
+          setTimeout(res, 8000);
+        });
+        const cv = document.createElement('canvas');
+        cv.width = n; cv.height = n;
+        const ctx = cv.getContext('2d', { willReadFrequently: true });
+        // 保持比例居中裁切（letterbox 会稀释位移信号，直接拉伸更敏感）
+        ctx.drawImage(img, 0, 0, n, n);
+        const im = ctx.getImageData(0, 0, n, n);
+        const gray = new Uint8ClampedArray(n * n);
+        for (let i = 0; i < gray.length; i++) {
+          gray[i] = Math.round(0.299 * im.data[i * 4] + 0.587 * im.data[i * 4 + 1] + 0.114 * im.data[i * 4 + 2]);
+        }
+        return { data: gray, w: n, h: n };
+      } finally {
+        URL.revokeObjectURL(url);
+      }
+    }
+    /** 首帧抽取（末段续帧时校验用）：视频开头第一帧 PNG。 */
+    async function extractFirstFrame(videoBlob) {
+      const url = URL.createObjectURL(videoBlob);
+      try {
+        const v = document.createElement('video');
+        v.src = url; v.muted = true; v.preload = 'auto';
+        await new Promise((res) => {
+          let done = false;
+          const fin = () => { if (!done) { done = true; res(); } };
+          v.onloadedmetadata = fin;
+          v.onerror = fin;
+          setTimeout(fin, 10000);
+        });
+        await new Promise((res) => {
+          let done = false;
+          const fin = () => { if (!done) { done = true; res(); } };
+          v.onseeked = fin;
+          try { v.currentTime = 0.02; } catch { fin(); }
+          setTimeout(fin, 4000);
+        });
+        await new Promise((res) => { if (v.readyState >= 2) return res(); v.oncanplay = res; setTimeout(res, 2000); });
+        const cv = document.createElement('canvas');
+        cv.width = v.videoWidth || 1280; cv.height = v.videoHeight || 720;
+        cv.getContext('2d').drawImage(v, 0, 0);
+        return await new Promise((res) => cv.toBlob(res, 'image/png'));
+      } finally {
+        URL.revokeObjectURL(url);
+      }
+    }
+    /** 续帧链：找到"上一个视频生成节点"。
+     *  优先 ① frame 口连线的来源视频 ② 同一上游分镜表被连出的其它视频节点中已生成、且位置最靠上的那个。 */
+    function autoPrevVideoNode(n) {
+      const frameEdge = S.graph.edges.find((x) => x.toNode === n.id && x.toPort === 'frame');
+      if (frameEdge) {
+        const src = S.graph.nodes[frameEdge.fromNode];
+        if (src && src.type === 'video-gen' && src.data.assetId) return src;
+      }
+      const promptEdge = S.graph.edges.find((x) => x.toNode === n.id && x.toPort === 'prompt');
+      if (!promptEdge) return null;
+      const sbId = promptEdge.fromNode;
+      const sibs = S.graph.edges
+        .filter((x) => x.fromNode === sbId && x.toNode !== n.id)
+        .map((x) => S.graph.nodes[x.toNode])
+        .filter((v) => v && v.type === 'video-gen' && v.data.assetId && (v.y < n.y || (v.y === n.y && v.x < n.x)));
+      if (!sibs.length) return null;
+      sibs.sort((a, b) => (b.y - a.y) || (b.x - a.x)); // 最近的一段（同列/同排里最靠近的上一段）
+      return sibs[0];
     }
     /** 链式下一镜：以本镜尾帧为首帧，克隆一个视频生成节点并自动连线。 */
     function chainNext(n) {
@@ -3624,8 +4062,10 @@ window.__ModuleLoader__.load({
           nd2.data.resolution = n.data.resolution || '720P';
           nd2.data.ratio = n.data.ratio || '16:9';
           nd2.data.videoModel = nodeVideoModelRef(n);
+          nd2.data.frameMode = 'hard'; // 链式下一镜：画面绝对承接 → 默认硬首帧
         }
-        s.graph.edges.push({ id: uid('e'), fromNode: n.id, fromPort: 'last', toNode: nn.id, toPort: 'frame' });
+        // 尾帧接力：优先「最佳选帧」（动作进行中/清晰），退到真·尾帧
+        s.graph.edges.push({ id: uid('e'), fromNode: n.id, fromPort: (n.data.lastPickAssetId ? 'tailpick' : 'last'), toNode: nn.id, toPort: 'frame' });
       });
       pushHistory();
       toast(T('lastFrame') + ' → ' + T('portFrame') + ' ✓');
@@ -4631,14 +5071,25 @@ window.__ModuleLoader__.load({
       }
       return out;
     }
-    async function aiStoryboardShots(scriptText, requirement, count, model, onDelta, prevTail) {
+    async function aiStoryboardShots(scriptText, requirement, count, model, onDelta, prevTail, opts) {
       const settings = loadSettings();
       const bible = bibleBlock(loadBible(S.activeId));
       const zh = effLang() !== 'en';
+      const contOn = !(opts && opts.cont === false); // 分镜衔接开关（默认开）
+      const contFields = (() => {
+        if (zh) {
+          return contOn
+            ? '{"title":"…","visual":"…","motion":"…","tail":"…","cam":"…","start":"…","seg":"continuation","characters":["…"],"scene":"…","props":["…"],"duration":3,"dialogue":[{"role":"陈拾","line":"收件时间，1999……"}],"sfx":"邮包搭扣声、撕纸声"}'
+            : '{"title":"…","visual":"…","motion":"…","characters":["…"],"scene":"…","props":["…"],"duration":3,"dialogue":[{"role":"陈拾","line":"收件时间，1999……"}],"sfx":"邮包搭扣声、撕纸声"}';
+        }
+        return contOn
+          ? '{"title":"…","visual":"…","motion":"…","tail":"…","cam":"…","start":"…","seg":"continuation","characters":["…"],"scene":"…","props":["…"],"duration":3,"dialogue":[{"role":"Chen","line":"…"}],"sfx":"zipper snap, paper tear"}'
+          : '{"title":"…","visual":"…","motion":"…","characters":["…"],"scene":"…","props":["…"],"duration":3,"dialogue":[{"role":"Chen","line":"…"}],"sfx":"zipper snap, paper tear"}';
+      })();
       const jsonContract = zh
         ? [
             '把剧本拆解为「多镜头一次性视频生成」的分镜脚本：铺开后由**一个视频生成节点**把全部镜头按顺序与时长写进同一条提示词，由视频模型一次性生成整段视频（镜头间由模型直接硬切，不是一镜一视频再拼接）。',
-            '只输出一个 JSON 对象：{"shots":[{"title":"…","visual":"…","motion":"…","characters":["…"],"scene":"…","props":["…"],"duration":3,"dialogue":[{"role":"陈拾","line":"收件时间，1999……"}],"sfx":"邮包搭扣声、撕纸声"}]}。',
+            '只输出一个 JSON 对象：{"shots":[' + contFields + ']}。',
             '规则：',
             '- visual 是本镜画面描述（景别、人物外观与站位、场景、光线、构图，60 字内）；',
             '- **visual 与 motion 里的角色/场景/道具必须写成 @资产名@ 引用形式**（前后各一个 @ 精确包裹，如「@陈拾@ 在 @城市街头@ 的围挡旁拿起 @奇怪快递件@」）；名称必须与设定集/资产**逐字一致**；剧本原文里已出现的 @资产名@ 锚点要在镜头中原样保留（名称逐字一致）；名称内不得含 @、空格或标点；@ 后绝不允许直接跟其他文字（必须以 @ 闭合）——系统会隐藏两个 @ 并把名称显示为蓝色加粗，未登记的 @名称@ 会被一致性检查提示补充；',
@@ -4654,10 +5105,21 @@ window.__ModuleLoader__.load({
             '- **按情绪选景别**：孤独/绝望/宏大危机=远景；对峙/动作/关系建立=全景；对话/试探/信息交换=中景；震惊/怀疑/内心动摇=近景；崩溃/嘶吼/情绪爆发=特写；关键细节/道具揭示=大特写——冲突用全景、揭秘转近景、爆发给特写、反转可拉远，景别变化本身在讲情绪；',
             '- **快切镜头（<1.5s）的 visual/motion 要极短**（一个动作、一句画内信息），信息量大的镜头才配长时长——时长与内容量必须匹配；',
             '- 只输出 JSON，不要输出任何其他内容。',
-          ].join('\n')
+          ].concat(contOn ? [
+            '',
+            '**【分镜衔接·硬性】成片是分段生成的，每段模型看不到上一段画面——衔接只能靠写在分镜里的"接点"。除末镜外，每镜都必须写 tail 与 cam：**',
+            '- **tail（接点尾态）**：本镜**最后一刻**的状态，一行写清——人物姿势停在哪个动作的中途、朝向、视线落点、手持物位置、位置关系（如「右手抬到胸口一半，视线仍锁在 @陈拾@ 脸上，@糯糯@ 停在他左后方半步」「已侧身转到 3/4 面，还没完全转身面对对方」）。**必须是"动作进行中"的状态，不能写成"已经完成/站定/看向"**——切点停在静止定格，下一镜就没有动作可接，接缝必然暴露；',
+            '- **cam（运镜延续）**：本镜运镜的方向与速度，写成下一镜可以直接"接着走"的形式（如「右移横移，匀速，未停」「缓推向面部，接近停住」）；末镜写「收束静止」；**全片避免相邻镜反向运镜**（上一镜右移、下一镜突然左移 = 观众立刻感觉跳），需要反向时把切点设计成遮挡/过肩/特写插入；',
+            '- **start（仅第 1 镜或 seg 非续帧的镜头需要）**：本镜起始状态；续帧镜头不写 start（它会自动承接上一镜 tail）；',
+            '- **seg（段落类型）**：`continuation` 续帧（默认，绝大多数镜头）、`scene_change` 换场/切换地点时间、`new_character` 新角色首次出场、`closeup` 特写/细节插入（允许跳切）、`opening` 仅第 1 镜且无上游承接时；',
+            '- **一镜只做一个主动作**：转身、走路、推镜、换表情不要塞进同一镜——模型只会执行前半段，下一镜就对不上；',
+            '- **一段一运镜**：不要又推又横移又摇；',
+            '- **大位移拆镜**：人物横移超过画面 1/4、或场景大换位，就再拆一镜（用不同景别接，而不是一镜硬走）；',
+            '- **轴线一致**：两人对话，同一轴线关系（如男左女右）在相邻镜必须保持一致，不得越轴。',
+          ] : []).join('\n')
         : [
             'Break the script into shots for ONE multi-shot video generation: after expansion, a single video-gen node composes ALL shots (in order, with durations) into one prompt, and the video model generates the whole clip in one call (hard cuts inside the model — not one video per shot stitched together).',
-            'Output only one JSON object: {"shots":[{"title":"…","visual":"…","motion":"…","characters":["…"],"scene":"…","props":["…"],"duration":3,"dialogue":[{"role":"Chen","line":"…"}],"sfx":"zipper snap, paper tear"}]}.',
+            'Output only one JSON object: {"shots":[' + contFields + ']}.',
             'Rules:',
             '- visual = the shot\'s frame description (shot size, wardrobe, staging, light, framing, <=60 words);',
             '- **characters/scenes/props inside visual and motion must be written as @Name@ references** (an @ on each side, e.g. "@Chen@ picks up @Parcel@ by @Street@"); names must match the bible/assets VERBATIM, with no @, space or punctuation inside; an @ must never be followed directly by other text (always close with @) - the UI hides the @s and shows the name in blue bold; unregistered @Name@ is flagged by the consistency check;',
@@ -4673,7 +5135,18 @@ window.__ModuleLoader__.load({
             '- **Pick the shot size by emotion**: loneliness/despair/grand crisis = wide; confrontation/action/relationship = full; dialogue/probing/info exchange = medium; shock/suspicion/inner shake = close-up; breakdown/screaming/emotional burst = extreme close-up; key detail/prop reveal = big close-up — conflicts play wide, reveals move close, bursts go extreme, reversals can pull wide; the changing distance itself tells the emotion;',
             '- **Rapid cuts (<1.5s) get minimal visual/motion** (one action, one piece of in-frame information); long durations are earned by information density — duration must match content;',
             '- Output JSON only.',
-          ].join('\n');
+          ].concat(contOn ? [
+            '',
+            '**[CONTINUITY - HARD] the film is generated in segments and each segment cannot see the previous one, so the "hand-off point" must be written into the storyboard. Every shot except the last MUST carry tail and cam:**',
+            '- **tail (hand-off tail state)**: the state at the LAST instant of this shot, in one line - where the posture stops mid-motion, facing, gaze target, hand/prop position, blocking (e.g. "right hand half-way up to the chest, eyes still locked on @Chen@, @Nuonuo@ half a step behind his left shoulder"). It MUST be a mid-motion state, never a settled/completed pose: a cut on a static freeze leaves nothing for the next shot to continue, which is exactly what makes the seam visible;',
+            '- **cam (camera carry-over)**: the move direction and speed of this shot, written so the next shot can continue it (e.g. "lateral right, constant speed, never stops"; "slow push-in, almost settled"). Last shot: "settle to static". Avoid reversing direction on adjacent shots (right pan then sudden left pan reads as a jump); if you need a reversal, make the cut a wipe/over-shoulder/insert close-up;',
+            '- **start**: the start state, needed only for shot 1 or shots whose seg is not a continuation; continuation shots omit it (they inherit the previous tail);',
+            '- **seg (segment type)**: `continuation` (default, most shots), `scene_change` (new place/time), `new_character` (a character appears for the first time), `closeup` (insert/detail, jump cut allowed), `opening` (only shot 1 with no upstream continuation);',
+            '- **one primary action per shot**: never pack a turn + walk + push-in + expression change into one shot - the model only executes the first half and the next shot cannot match it;',
+            '- **one camera move per shot**;',
+            '- **split big displacements**: if a character crosses more than 1/4 of the frame, or the staging changes a lot, break it into another shot (different shot size) instead of one long move;',
+            '- **keep the axis**: in a dialogue, the same side relationship (e.g. man left / woman right) must hold across adjacent shots - never cross the line.',
+          ] : []).join('\n');
       const methodology = await loadSkillRules(settings.skillStoryboard, zh)
         || await loadSkillRules(CRAFT_SKILL, zh); // 未选技能时默认注入内置创作方法论
       const system = [
@@ -4701,27 +5174,35 @@ window.__ModuleLoader__.load({
         const sh = prevTail.shot;
         if (!sh) return null;
         const dl = (sh.dialogue || []).map((d) => d.role + (zh ? '：' : ': ') + d.line).join(zh ? '；' : '; ');
+        const tailState = String(sh.tail || '').trim();
+        const camState = String(sh.cam || '').trim();
         return zh
           ? `【承接约束·硬性】本分镜承接「${label}」的最后一镜——**只承接它的结尾瞬间，不要重演它**：\n`
             + `  尾镜画面：${String(sh.visual || '').trim()}\n`
             + `  尾镜最后动作：${String(sh.motion || '').trim()}\n`
+            + (tailState ? `  尾镜接点尾态（本分镜第 1 镜必须从这里继续，动作处于进行中）：${tailState}\n` : '')
+            + (camState ? `  尾镜运镜（第 1 镜须同向延续，不得反向、不得突变）：${camState}\n` : '')
             + (dl ? `  尾镜台词：${dl}\n` : '')
             + (String(sh.sfx || '').trim() ? `  尾镜音效/环境声：${String(sh.sfx).trim()}\n` : '')
             + `要求：\n`
             + `  1) 第 1 镜从上一镜的**最后一个动作**继续（人物位置、朝向、情绪、光线保持一致），不得重新建立场景、不得跳回远景交代、不得切换地点；\n`
             + `  2) 与上一镜的画面重叠**不超过 0.2 秒**（不要重演上一镜的内容）；\n`
             + `  3) **背景声连续**：环境音/音效自然延续（风声、电流声、街道底噪等），不得突然静音或更换环境声；\n`
-            + `  4) 第 1 镜的画面描述里明确写出承接关系（如「承接上一镜，<角色>保持<姿态>，继续…」）。`
+            + `  4) 第 1 镜的画面描述里明确写出承接关系（如「承接上一镜，<角色>保持<姿态>，继续…」）；\n`
+            + `  5) 第 1 镜的 seg 标 continuation，并**不要写 start**（自动承接上一镜 tail）。`
           : `[CONTINUITY CONSTRAINT - HARD] This storyboard continues the LAST SHOT of "${label}" - continue only its final instant, do NOT replay it:\n`
             + `  Tail frame: ${String(sh.visual || '').trim()}\n`
             + `  Tail last action: ${String(sh.motion || '').trim()}\n`
+            + (tailState ? `  Tail hand-off state (shot 1 must continue from here, mid-motion): ${tailState}\n` : '')
+            + (camState ? `  Tail camera (shot 1 continues the same direction, no reversal, no sudden change): ${camState}\n` : '')
             + (dl ? `  Tail dialogue: ${dl}\n` : '')
             + (String(sh.sfx || '').trim() ? `  Tail SFX/ambience: ${String(sh.sfx).trim()}\n` : '')
             + `Requirements:\n`
             + `  1) Shot 1 continues from the LAST ACTION of the previous shot (same position, facing, emotion, light) - no re-establishing, no wide reset, no location change;\n`
             + `  2) overlap with the previous shot must be <= 0.2s (do not replay the previous shot);\n`
             + `  3) ambient background sound continues naturally (wind, electrical hum, street noise) - never cut to silence or swap ambience;\n`
-            + `  4) state the continuity explicitly in shot 1's frame description.`;
+            + `  4) state the continuity explicitly in shot 1's frame description;\n`
+            + `  5) shot 1 uses seg=continuation and omits start (it inherits the previous tail).`;
       })();
       const prevLine = cont || '';
       const user = [
@@ -4756,6 +5237,11 @@ window.__ModuleLoader__.load({
         title: String(s.title || (T('shotPrefix') + (i + 1))).slice(0, 24),
         visual: String(s.visual || ''),
         motion: String(s.motion || ''),
+        // 分镜衔接（分段生成的接戏依据）：接点尾态 / 运镜延续 / 起始态 / 段落类型
+        tail: String(s.tail || '').trim().slice(0, 120),
+        cam: String(s.cam || '').trim().slice(0, 80),
+        start: String(s.start || '').trim().slice(0, 120),
+        seg: String(s.seg || '').trim().toLowerCase().slice(0, 20),
         characters: Array.isArray(s.characters) ? s.characters.map(String).slice(0, 6) : [],
         scene: String(s.scene || ''),
         props: Array.isArray(s.props) ? s.props.map(String).slice(0, 6) : [],
@@ -5349,6 +5835,8 @@ window.__ModuleLoader__.load({
     function servedAssetId(src, fromPort) {
       if (!src || !src.data) return null;
       if (fromPort === 'last') return src.data.lastAssetId || null;
+      // tailpick = 尾帧「最佳选帧」（续帧接力首选：动作进行中/清晰/不抖）
+      if (fromPort === 'tailpick') return src.data.lastPickAssetId || src.data.lastAssetId || null;
       return src.data.assetId || null;
     }
     async function resolveAssetBlob(nodeId, portId) {
@@ -5503,7 +5991,7 @@ window.__ModuleLoader__.load({
       flushSave();
       try {
         const prev = prevSceneTail(n); // 场 N-1 的尾镜 → 作为本场第 1 镜的硬性承接约束
-        const shots = await aiStoryboardShots(st, n.data.requirement, n.data.count || 6, n.data.model, (kind, d) => aiStreamAppend(n.id, kind, d), prev);
+        const shots = await aiStoryboardShots(st, n.data.requirement, n.data.count || 6, n.data.model, (kind, d) => aiStreamAppend(n.id, kind, d), prev, { cont: n.data.cont !== false });
         // 未闭合引用自愈：句尾丢闭合 @ 的引用按设定集名补全（否则参考图静默丢失）
         const _known = bibleNames(loadBible(S.activeId));
         for (const sh of shots) {
@@ -5658,7 +6146,6 @@ window.__ModuleLoader__.load({
           });
           commitGenResult(n.id, rec.id, false, 'image');
         } else {
-          const frameBlob = await resolveAssetBlob(n.id, 'frame');
           const { refs, entities, audioBlobs } = await collectRefs(n, prompt, bible);
           // 上游是分镜表 → 走厂商「参考生成」结构化提示词（主体/分镜/台词/声音显式绑定，音画同步；
           // 机械拼装会让模型把台词与场景判错）；节点上已手写结构化提示词则原样尊重。
@@ -5669,22 +6156,95 @@ window.__ModuleLoader__.load({
           })();
           const shotList = sbUp && Array.isArray(sbUp.data.shots) ? sbUp.data.shots : [];
           const handWritten = String(n.data.prompt || '').trim();
+          // 分镜衔接规划：段落类型（续帧/换场/新角色/特写插入）+ 首镜承接口 + 是否接力尾帧
+          const zh = effLang() !== 'en';
+          const plan = (() => {
+            if (!shotList.length) return { first: null, chain: false, join: 'loose', seg: 'opening', fromShot: false };
+            const first = shotContinuityPlan(shotList[0], null, 0);
+            // 跨分镜表承接：上游分镜表「衔接上一镜」输入口 ← 上一个分镜表「尾镜」输出口
+            const prevSb = (() => {
+              const e2 = S.graph.edges.find((x) => x.toNode === (sbUp && sbUp.id) && x.toPort === 'prev');
+              const src = e2 && S.graph.nodes[e2.fromNode];
+              return src && src.type === 'storyboard' ? src : null;
+            })();
+            const prevNote = prevSb ? storyboardContinuityNote(prevSb.data.shots || [], String(prevSb.data.label || ''), zh) : null;
+            let seg = first.seg;
+            // 第 1 镜没有表内上一镜时，可承接上一个分镜表 → 实质是续帧
+            if (seg === 'opening' && prevNote) seg = 'continuation';
+            const join = seg === 'scene_change' ? 'loose' : seg === 'cut' ? 'cut' : seg === 'new_character' ? 'loose' : 'strict';
+            return { first, chain: seg === 'continuation', seg, join, fromShot: !!prevNote };
+          })();
+          // 首帧来源：① frame 口连线（用户显式）② 续帧链自动取「上一个视频」的尾帧
+          let frameBlob = await resolveAssetBlob(n.id, 'frame');
+          let frameAuto = false;
+          if (!frameBlob && plan.chain) {
+            const prevVid = autoPrevVideoNode(n);
+            if (prevVid && prevVid.data.assetId) {
+              try {
+                const vb = await assetBlob(prevVid.data.assetId);
+                if (vb) {
+                  // 优先复用它已选好的最佳尾帧（避免重复解码整段视频）；没有再现场选帧
+                  if (prevVid.data.lastPickAssetId && prevVid.data.lastAssetVideo === prevVid.data.assetId) {
+                    frameBlob = await assetBlob(prevVid.data.lastPickAssetId).catch(() => null);
+                  }
+                  if (!frameBlob) {
+                    const tail = await extractTailFrames(vb, { count: 9, span: 0.8 }).catch(() => null);
+                    frameBlob = (tail && (tail.best || tail.last)) || null;
+                  }
+                  if (frameBlob) {
+                    frameAuto = true;
+                    addWarn('已自动取「' + String(prevVid.data.label || '上一段视频') + '」的尾帧作为本段首帧（续帧接力）');
+                  }
+                }
+              } catch { /* 取不到尾帧则降级为纯参考图生成 */ }
+            }
+          }
+          const frameMode = n.data.frameMode || 'auto';
+          const useFrame = frameMode !== 'off' && !!frameBlob;
+          // 硬首帧只在"不挂实体参考图"时可用（多数厂商 first_frame 与 reference_image 互斥）；
+          // 续帧段若还要实体参考图 → 尾帧降级为首张参考图 + 软锚定（frameAnchorText 会写明）
+          const hardFrame = useFrame && frameMode === 'hard';
+          const anchorRole = (useFrame && !hardFrame && refs.length) ? 'reference_image' : 'first_frame';
           let music = '';
           try { const ex2 = parseExtraParams(n.data.vidExtra); if (ex2 && typeof ex2.music === 'string') music = ex2.music; } catch { /* 扩展参数非法时忽略音乐提示 */ }
+          // 跨段承接说明：本分镜第 1 镜承接上一个分镜表尾镜（续帧时首帧图已带画面，这里补文字约束）
+          const continuity = (() => {
+            if (!plan.fromShot) return '';
+            const st = shotList[0] || {};
+            const tail = String(st.tail || '').trim();
+            const bits = [];
+            if (plan.seg === 'continuation') {
+              bits.push(zh ? '本段是上一段的直接续帧：第 1 帧从上一段结尾接着演，不重演、不重新建立场景、不切换机位' : 'This segment continues the previous one: start from its last frame, no replay, no re-establishing, no camera reset');
+              if (tail) bits.push((zh ? '起始状态：' : 'Start state: ') + tail);
+            } else if (plan.seg === 'scene_change') {
+              bits.push(zh ? '本段换场：不承接上一段画面，但环境声/情绪可延续' : 'Scene change: do not continue the previous frame; ambience and mood may carry over');
+            } else if (plan.seg === 'new_character') {
+              bits.push(zh ? '本段有新角色入场：新角色必须从画面内自然进入（走入/被带入），不得凭空出现' : 'A new character enters: they must enter naturally from within the frame, never pop in');
+            }
+            return bits.join(zh ? '；' : '; ');
+          })();
           let p;
           if (handWritten.includes('subject_definitions')) {
             p = handWritten; // 高级用法：手写结构化提示词，原样发送
           } else if (shotList.length) {
-            p = buildStructuredVideoPrompt(shotList, refs, bible, { zh: effLang() !== 'en', prompt: handWritten, music });
+            p = buildStructuredVideoPrompt(shotList, refs, bible, {
+              zh, prompt: handWritten, music, hasFrame: useFrame, frameRole: anchorRole, continuity,
+            });
             if (!p) p = buildEffectivePrompt(prompt, refs, entities, bible); // 无参考图时回退
           } else {
             p = buildEffectivePrompt(prompt, refs, entities, bible);
           }
+          // 非结构化路径（无参考图/手写提示词）也要有首帧锚定与承接说明
+          if (!shotList.length || !p.includes('subject_definitions')) {
+            const pre = [frameAnchorText({ hasFrame: useFrame, role: anchorRole, zh }), continuity].filter(Boolean).join(zh ? '；' : '; ');
+            if (pre) p = pre + '\n' + p;
+          }
           const mcfg = resolveVideoModelCfg(settings, nodeVideoModelRef(n));
           if (!mcfg) throw new Error(T('errNoVideoModel'));
-          const blob = await apiVideo(p, frameBlob, mcfg, {
+          const blob = await apiVideo(p, useFrame ? frameBlob : null, mcfg, {
             duration: n.data.duration, resolution: n.data.resolution, ratio: n.data.ratio,
-            frameMode: n.data.frameMode || 'auto', // auto=尾帧降级为参考图 / hard=硬首帧（放弃参考图） / off=忽略首帧
+            frameMode, // auto=尾帧降级为参考图（保留实体参考图）/ hard=硬首帧（放弃参考图）/ off=忽略首帧
+            hardFrame,
             refs: refs.map((r) => r.blob),
             refNames: refs.map((r) => r.entity || r.name || ''), // 跨镜衔接标注用（图2..N 的实体名）
             nodeExtra: n.data.vidExtra, // 节点级扩展参数（手动参数框，如 {"use_context_ir":true}）
@@ -5705,6 +6265,13 @@ window.__ModuleLoader__.load({
             nodeLabel: (n.data && n.data.label) || '',
             category: 'finalcut', // 节点生成的视频 = 成片（实体归属由 entities 字段承担，不占用分类）
           });
+          // 记录续帧来源（节点上可追溯：本段是从哪一段接过来的）
+          if (useFrame) {
+            update((s) => {
+              const nd = s.graph.nodes[n.id];
+              if (nd) { nd.data.chainFrom = frameAuto ? (autoPrevVideoNode(n) || {}).id || null : 'wired'; }
+            });
+          }
           commitGenResult(n.id, rec.id, false, 'video');
           // 实测结果与设置不一致时留可见提示（厂商忽略 size/duration 是常见情况，必须让人看见而不是静默）
           try {
@@ -5720,19 +6287,52 @@ window.__ModuleLoader__.load({
               if (notes.length) update((s) => { const nd = s.graph.nodes[n.id]; if (nd) nd.data.genWarn = notes.join('；'); });
             }
           } catch { /* 探测失败不影响生成 */ }
-          // 尾帧提取（通用）：供 last 端口输出与链式下一镜使用
+          // 尾帧抽取（续帧接力的关键）：末段多帧候选里选「动作进行中/清晰/不抖」的一帧，
+          // 而不是机械取最后一帧（最后一帧常在动作顶点/模糊/抖动上）。
           try {
-            const fBlob = await extractLastFrame(blob);
-            const fRec = await saveAssetRecord(S.activeId, 'image', fBlob, {
-              name: T('lastFrame') + '-' + (n.data.label || n.id.slice(-4)),
-              prompt: 'last frame of ' + prompt.slice(0, 60), source: 'api', category: 'image',
-            });
-            update((s) => {
-              const nd = s.graph.nodes[n.id];
-              if (nd) { nd.data.lastAssetId = fRec.id; nd.data.lastAssetVideo = rec.id; }
-              s.assetsTick++;
-            });
+            const tail = await extractTailFrames(blob, { count: 9, span: 0.8 });
+            if (tail && tail.last) {
+              const fRec = await saveAssetRecord(S.activeId, 'image', tail.last, {
+                name: T('lastFrame') + '-' + (n.data.label || n.id.slice(-4)),
+                prompt: 'last frame of ' + prompt.slice(0, 60), source: 'api', category: 'image',
+              });
+              // 最佳选帧单独存一份（last 口保持"真·最后一帧"语义，接力用"最佳帧"）
+              let pickRec = null;
+              if (tail.best && tail.best !== tail.last) {
+                pickRec = await saveAssetRecord(S.activeId, 'image', tail.best, {
+                  name: T('tailPick') + '-' + (n.data.label || n.id.slice(-4)),
+                  prompt: 'continuity tail pick t=' + Number(tail.bestT || 0).toFixed(2) + 's; ' + prompt.slice(0, 40),
+                  source: 'api', category: 'image',
+                });
+              }
+              update((s) => {
+                const nd = s.graph.nodes[n.id];
+                if (nd) {
+                  nd.data.lastAssetId = fRec.id; nd.data.lastAssetVideo = rec.id;
+                  nd.data.lastPickAssetId = pickRec ? pickRec.id : fRec.id;
+                  nd.data.tailPickMeta = { t: Number(tail.bestT || 0), score: Math.round((tail.bestScore || 0) * 100) / 100 };
+                }
+                s.assetsTick++;
+              });
+            }
           } catch { /* 尾帧提取失败不影响主流程 */ }
+          // 接缝校验：本段首帧 vs 上一段尾帧（续帧段才有意义）。不达标 → 节点上可见告警（不静默）
+          if (useFrame && plan.chain) {
+            try {
+              const first = await extractFirstFrame(blob);
+              if (first) {
+                const ga = await grayThumb(frameBlob, 32);
+                const gb = await grayThumb(first, 32);
+                const met = frameSeamMetrics(ga, gb);
+                const v = seamVerdict(met, plan.join);
+                update((s) => {
+                  const nd = s.graph.nodes[n.id];
+                  if (nd) nd.data.seam = { ok: v.ok, sim: v.sim == null ? null : Math.round(v.sim * 100) / 100, thr: v.thr, note: v.note, at: Date.now() };
+                });
+                if (!v.ok) addWarn('接缝校验未通过：' + v.note + '（建议：调低运动幅度重生成，或改用"硬首帧"模式）');
+              }
+            } catch { /* 校验失败不影响产物 */ }
+          }
         }
         return true;
       } catch (err) {
@@ -6974,6 +7574,23 @@ window.__ModuleLoader__.load({
         n.data.genWarn ? h('div', { key: 'gw', className: 'dshic-hint', style: { color: 'var(--dsw-alias-state-warning-primary, #d08700)' } }, '⚠ ' + n.data.genWarn) : null,
         n.data.stopNote ? h('div', { key: 'sn', className: 'dshic-hint' }, '⏹ ' + n.data.stopNote) : null,
         n.data.error ? h('div', { key: 'err', className: 'dshic-err' }, n.data.error) : null,
+        // 续帧状态：本段首帧来自哪里（上一段尾帧 / 连线）+ 接缝校验结果（不达标必须让人看见）
+        kind === 'video' && (n.data.chainFrom || n.data.seam)
+          ? h('div', { key: 'chain', className: 'dshic-hint', style: { display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' } },
+              n.data.chainFrom
+                ? h('span', { title: T('chainInfo') }, '🔗 ' + (n.data.chainFrom === 'wired' ? T('chainManual') : T('chainAuto')))
+                : null,
+              n.data.seam
+                ? h('span', {
+                    title: T('seamHint'),
+                    style: { color: n.data.seam.ok ? 'var(--dsw-alias-state-success-primary, #2f9e44)' : 'var(--dsw-alias-state-warning-primary, #d08700)' },
+                  }, (n.data.seam.ok ? '✓ ' : '⚠ ') + (n.data.seam.ok ? T('seamOk') : T('seamFail')) + (n.data.seam.sim != null ? ' ' + n.data.seam.sim : ''))
+                : null,
+              n.data.tailPickMeta
+                ? h('span', { title: T('tailPickHint') }, '✂ ' + T('tailPick') + ' ' + Number(n.data.tailPickMeta.t || 0).toFixed(1) + 's')
+                : null,
+            )
+          : null,
         assetUrlV && kind === 'image'
           ? h('img', { key: 'img', className: 'dshic-preview', src: assetUrlV, draggable: false, 'data-no-drag': '1', style: { cursor: 'zoom-in' }, onPointerDown: (e) => e.stopPropagation(), onClick: (e) => { e.stopPropagation(); openLightbox('image', assetUrlV, n.data.label); } })
           : null,
@@ -7569,6 +8186,14 @@ window.__ModuleLoader__.load({
             options: [{ value: '0', label: T('autoShots') }].concat([3, 4, 6, 8, 10, 12, 16].map((x) => ({ value: String(x), label: x + ' ' + T('shotsUnit') }))),
             onChange: (v) => update((s) => { const nd = s.graph.nodes[n.id]; if (nd) nd.data.count = Number(v); }),
           }),
+          // 分镜衔接：写作时强制每镜带「承接上镜尾态 / 接点尾态 / 运镜延续」，并可标记段落类型
+          h('button', {
+            key: 'cont', type: 'button',
+            className: 'dshic-mini' + (n.data.cont !== false ? '' : ' is-ghost'),
+            title: T('contToggleHint'),
+            onPointerDown: (e) => e.stopPropagation(),
+            onClick: () => update((s) => { const nd = s.graph.nodes[n.id]; if (nd) nd.data.cont = nd.data.cont === false; }),
+          }, (n.data.cont !== false ? '✓ ' : '') + T('contToggle')),
           h('div', { className: 'dshic-flex' }),
         ),
         h('button', { key: 'gen', type: 'button', className: 'dshic-gen', disabled: running, onClick: generate, onPointerDown: (e) => e.stopPropagation() },
@@ -7590,15 +8215,27 @@ window.__ModuleLoader__.load({
         shots.length
           ? h('div', { key: 'listwrap', style: { position: 'relative', alignSelf: 'stretch' } },
               h('div', { key: 'list', className: 'dshic-shot-list', style: { maxHeight: listH + 'px' } },
-                shots.map((sh, i) => h('div', { key: i, className: 'dshic-shot-item', onPointerDown: (e) => e.stopPropagation() },
+                shots.map((sh, i) => {
+                  const pl = shotContinuityPlan(sh, shots[i - 1], i);
+                  return h('div', { key: i, className: 'dshic-shot-item', onPointerDown: (e) => e.stopPropagation() },
                   h('strong', {}, `${sh.title} · ${sh.duration}s `), ...mentionNodes(sh.visual),
+                  pl.seg !== 'continuation'
+                    ? h('div', { className: 'dshic-shot-label', style: { marginTop: 2, opacity: 0.9 } }, '〔' + T('seg' + pl.seg.charAt(0).toUpperCase() + pl.seg.slice(1)) + '〕')
+                    : null,
+                  String(sh.tail || '').trim()
+                    ? h('div', { className: 'dshic-shot-label', style: { marginTop: 2, opacity: 0.9 } }, '↳ ' + T('shotTail') + '：' + String(sh.tail).trim())
+                    : null,
+                  String(sh.cam || '').trim()
+                    ? h('div', { className: 'dshic-shot-label', style: { marginTop: 2, opacity: 0.85 } }, '🎥 ' + String(sh.cam).trim())
+                    : null,
                   (sh.dialogue || []).length
                     ? h('div', { className: 'dshic-shot-label', style: { marginTop: 3 } }, '台词 ' + sh.dialogue.map((d) => `${d.role}：${d.line}`).join('；'))
                     : null,
                   String(sh.sfx || '').trim()
                     ? h('div', { className: 'dshic-shot-label', style: { marginTop: 2, opacity: 0.85 } }, '音效 ' + String(sh.sfx).trim())
                     : null,
-                )),
+                );
+                }),
               ),
               h('div', { key: 'grip', className: 'dshic-shot-grip', title: T('resizeList'), onPointerDown: startResize }, '⌟'),
             )
