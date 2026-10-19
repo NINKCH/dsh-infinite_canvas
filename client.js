@@ -1752,13 +1752,24 @@ window.__ModuleLoader__.load({
       const join = (seg === 'scene_change' || seg === 'new_character') ? 'loose' : seg === 'closeup' ? 'cut' : 'strict';
       // 只有真正需要画面承接的段落才接力尾帧；新角色入场首帧若来自上一段，新角色反而无从进入
       const chain = seg === 'continuation' && !!prevShot;
-      const tail = boxed('tail') || (prevShot ? shotVisualText(s).slice(0, 80) : '');
-      const start = boxed('start') || (prevShot ? ('承接上一镜结尾：' + (boxed('tail') || shotVisualText(prevShot).slice(0, 80))) : '');
+      // ownTail = 本镜的接点尾态（留给**下一镜**）；cam = 本镜运镜（同样留给下一镜延续）
+      const tail = boxed('tail');
       const cam = boxed('cam');
+      // prevTail = **上一镜**的接点尾态 = 本镜的起始态（衔接块要引用的是它，不是本镜自己的 tail）。
+      // 旧分镜没写 tail 时退到上一镜的「最后动作」——诚实标注来源，而不是拿本镜画面冒充。
+      let prevTail = '';
+      let prevTailSource = '';
+      if (prevShot) {
+        const pt = String(prevShot.tail || '').trim();
+        const pm = String(prevShot.motion || '').trim();
+        if (pt) { prevTail = pt; prevTailSource = 'tail'; }
+        else if (pm) { prevTail = pm; prevTailSource = 'motion'; }
+      }
+      const start = boxed('start');
       return {
         idx: i, seg, join, fromTail: i > 0, fromShot: i > 0, chain,
         name: String(s.title || '').trim(),
-        tail, start, cam,
+        tail, cam, start, prevTail, prevTailSource,
         note: boxed('note'),
       };
     }
@@ -1770,11 +1781,15 @@ window.__ModuleLoader__.load({
       const arr = (prevShots || []).filter(Boolean);
       const tailShot = arr.length ? arr[arr.length - 1] : null;
       if (!tailShot) return null;
+      // 尾镜的 tail/cam 是直接字段（第 0 镜没有"上一镜"，规划器不会替它推断，所以直接读字段）
       const plan = shotContinuityPlan(tailShot, null, 0);
+      const tailState = String(tailShot.tail || '').trim();
+      const camState = String(tailShot.cam || '').trim();
       const text = [
         zh ? '尾镜画面：' : 'Tail frame: ', String(tailShot.visual || '').trim(),
-        zh && plan.tail ? '\n尾镜结束状态：' + plan.tail : (plan.tail ? '\nTail end state: ' + plan.tail : ''),
-        zh && plan.cam ? '\n尾镜运镜：' + plan.cam : (plan.cam ? '\nTail camera: ' + plan.cam : ''),
+        tailState ? (zh ? '\n尾镜接点尾态（本段第 1 镜必须从这里继续，动作处于进行中）：' + tailState
+          : '\nTail hand-off state (shot 1 continues from here, mid-motion): ' + tailState) : '',
+        camState ? (zh ? '\n尾镜运镜（第 1 镜须同向延续）：' + camState : '\nTail camera (shot 1 continues the same direction): ' + camState) : '',
         String(tailShot.motion || '').trim() ? '\n' + (zh ? '尾镜最后动作：' : 'Tail last action: ') + String(tailShot.motion).trim() : '',
       ].filter(Boolean).join('');
       return { label: String(label || ''), text: text + '\n', shot: tailShot, plan };
@@ -1798,9 +1813,22 @@ window.__ModuleLoader__.load({
         ? (isFirst ? '段落类型：承接上一个分镜表（本分镜第 1 镜从上一镜结尾继续，不重演、不重新建立场景）' : '段落类型：续帧（从上一镜结尾继续，不重演）')
         : (isFirst ? 'Segment type: continues the previous storyboard (no re-establishing, no replay)' : 'Segment type: continuation (continue from the previous shot, no replay)');
       const parts = [];
-      if (p.tail && (p.seg === 'continuation' || p.seg === 'new_character')) parts.push((zh ? '承接上镜结尾（本镜起始态，不得重置姿态/位置/手持物）：' : 'Continue from the previous shot end state (start exactly here; do not reset posture/position/handheld props): ') + p.tail);
-      else if (p.start && p.seg === 'continuation') parts.push((zh ? '本镜起始态：' : 'Start state: ') + p.start);
+      // 承接上镜结尾：引用的是**上一镜**的接点尾态（本镜的起始态），不是本镜自己的 tail。
+      // 旧分镜没写 tail 时用上一镜的 motion 兜底，并诚实标注来源（不拿本镜画面冒充上一镜结尾）。
+      if (p.prevTail && (p.seg === 'continuation' || p.seg === 'new_character')) {
+        const src = p.prevTailSource === 'motion'
+          ? (zh ? '（上一镜未写接点尾态，按其最后动作推断）' : ' (previous shot has no explicit hand-off state; inferred from its last action)')
+          : '';
+        parts.push((zh ? '承接上镜结尾（本镜起始态，不得重置姿态/位置/手持物）：' : 'Continue from the previous shot end state (start exactly here; do not reset posture/position/handheld props): ') + p.prevTail + src);
+      } else if (p.start && p.seg === 'continuation') {
+        parts.push((zh ? '本镜起始态：' : 'Start state: ') + p.start);
+      }
+      // 运镜延续：优先用上一镜的运镜（本镜要接着走）；没有则用本镜自己写的 cam
       if (p.cam) parts.push((zh ? '运镜延续：' : 'Camera continues: ') + p.cam + (zh ? '（方向与速度保持，不反向、不突变）' : ' (same direction and speed; no reversal, no sudden change)'));
+      // 本镜的接点尾态单独提示，明确它是留给下一段的（同时提醒不要在片尾收成定格）
+      if (p.tail && p.seg === 'continuation') {
+        parts.push((zh ? '本镜接点（片尾停在此状态，保持动作进行中，不要演完站定）' : 'End this shot on this hand-off state, still mid-motion; do not settle to a static pose') + '：' + p.tail);
+      }
       if (p.note) parts.push((zh ? '接戏要求：' : 'Continuity requirement: ') + p.note);
       if (!kindLine && !parts.length) return '';
       const head = zh ? '【衔接】' : '[Continuity] ';

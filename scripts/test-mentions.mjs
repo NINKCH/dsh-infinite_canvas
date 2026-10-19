@@ -146,10 +146,12 @@ eq(api.bibleNames({ characters: [{ name: '林晚' }], scenes: [{ name: '楼道' 
   const a = api.shotContinuityPlan({ title: '开场', visual: '远景 院子', duration: 3 }, null, 0);
   eq(a.seg, 'opening', '第 1 镜无上游 → 首段');
 
-  const b = api.shotContinuityPlan({ title: '对话', visual: '近景 抬头', duration: 2 }, { visual: '远景 院子' }, 1);
+  const b = api.shotContinuityPlan({ title: '对话', visual: '近景 抬头', duration: 2 }, { visual: '远景 院子', motion: '缓推' }, 1);
   eq(b.seg, 'continuation', '默认续帧');
   eq(b.fromTail, true, '有上一镜时 fromTail 为真');
-  eq(b.tail.length > 0, true, '缺省 tail 用本镜画面兜底（不编造剧情）');
+  eq(b.tail, '', '本镜没写 tail 时保持为空（绝不拿本镜画面冒充接点尾态）');
+  eq(b.prevTail, '缓推', '缺 tail 时承接退到上一镜的 motion，并标注来源');
+  eq(b.prevTailSource, 'motion', '推断来源应标注为 motion');
 
   const c = api.shotContinuityPlan({ title: '换场', visual: '次日 切至 天台，风吹', duration: 3 }, { visual: '院子' }, 1);
   eq(c.seg, 'scene_change', '换场镜头识别');
@@ -166,14 +168,19 @@ eq(api.bibleNames({ characters: [{ name: '林晚' }], scenes: [{ name: '楼道' 
   const f = api.shotContinuityPlan({ seg: 'scene_change', visual: '续着走', duration: 3 }, { visual: '院子' }, 1);
   eq(f.seg, 'scene_change', '显式 seg 优先于启发式');
 
-  // 衔接块：续帧镜头必须写出承接尾态 + 运镜延续；首段（无上游）不输出衔接块
+  // 衔接块：承接引用的是【上一镜】的 tail，本镜自己的 tail 只作为「片尾接点」
   const planTail = api.shotContinuityPlan({
     title: '追问', visual: '近景 糯糯 抬头', duration: 2,
     tail: '右手抬到胸口一半，视线仍锁在瓦力脸上', cam: '右移横移，匀速，未停',
-  }, { visual: '远景' }, 1);
+  }, { visual: '远景', tail: '刚转过侧脸，手还搭在椅背', cam: '左移横移，匀速' }, 1);
   const cb = api.shotContinuityBlock(planTail, { zh: true });
   if (!cb.includes('承接上镜结尾')) errs.push('衔接块缺少「承接上镜结尾」');
-  if (!cb.includes('右手抬到胸口一半')) errs.push('衔接块未带入接点尾态');
+  if (!cb.includes('刚转过侧脸，手还搭在椅背')) errs.push('衔接块未引用【上一镜】的接点尾态');
+  if (!cb.includes('右手抬到胸口一半')) errs.push('衔接块未带入本镜的片尾接点');
+  if (cb.includes('承接上镜结尾（本镜起始态，不得重置姿态/位置/手持物）：右手抬到胸口一半')) {
+    errs.push('衔接块把本镜自己的 tail 误当成起始态（承接内容必须是上一镜的）');
+  }
+  if (!cb.includes('本镜接点')) errs.push('衔接块缺少「本镜接点」提示（片尾要停在动作进行中）');
   if (!cb.includes('运镜延续：右移横移')) errs.push('衔接块未带入运镜延续');
   if (!cb.includes('禁止')) errs.push('衔接块缺少禁止重演/重置的硬约束');
   eq(api.shotContinuityBlock(a, { zh: true }), '', '首段不输出衔接块（无中生有）');
