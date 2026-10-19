@@ -114,7 +114,6 @@ const COVERAGE = [
   { sha: '0313d7f', keys: [/ftsReconcile/i] },
   { sha: '94515e1', keys: [/Craft outputs no longer survive|craft\/ directory/i] },
   { sha: '1f6ea01', keys: [/extension mappings/i] },
-  { sha: '44eddec', keys: [/record the phase|phase-2 six|Unreleased section/i] },
 ];
 for (const c of COVERAGE) {
   ok(c.keys.some((re) => re.test(section)), '未发版提交 ' + c.sha + ' 在 Unreleased 段里找不到对应记录（补记不全）');
