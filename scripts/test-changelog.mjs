@@ -17,7 +17,7 @@
  *
  * 运行：node scripts/test-changelog.mjs；退出码 0=通过 1=失败
  */
-import { readFileSync } from 'node:fs';
+import { readFileSync, existsSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -122,17 +122,38 @@ for (const c of COVERAGE) {
 }
 
 // ---------- 附加：数量相等 + 清单 sha 真实性（OBS-1 的"缺一必红"数量侧） ----------
-// 只有 git 可用时才做（QA 环境可能没有 .git 或没有该分支）。数量**必须相等**（不是"不少于"）：
-// 清单多列 = 指着不存在的提交要记录；清单少列 = 有提交零覆盖。两个方向都拦。
-const gitEnv = { ...process.env, GIT_CONFIG_GLOBAL: 'D:\\Code\\deepseek-plugin\\_gitconfig' };
+// 比较基线 = `main..dev~1`（排除 dev HEAD 自身）。原因：本脚本与它断言的 CHANGELOG 随
+// 「记录 CHANGELOG 的提交」一起进 dev——HEAD 上永远有一个"还没来得及记录自己"的提交，
+// 严格相等必须对齐到「HEAD 之前」才语义正确。这不是放宽门禁：以后任何新功能提交
+// （非纯 CHANGELOG/scripts 收尾）落地时，下一轮校验仍要求清单扩到它，缺一必红。
+// git 不可用时不允许静默假绿（OBS-1 同性质问题）：显式 SKIP 原因，--strict 下判失败。
+const gitEnv = { ...process.env };
+if (!gitEnv.GIT_CONFIG_GLOBAL) {
+  // 换机即失效的硬编码改为候选：环境变量已设则不覆盖；未设才尝试项目组侧的候选文件
+  const candidate = 'D:\\Code\\deepseek-plugin\\_gitconfig';
+  if (existsSync(candidate)) gitEnv.GIT_CONFIG_GLOBAL = candidate;
+}
 const git = (args) => {
   try { return execFileSync('git', args, { cwd: ROOT, env: gitEnv, encoding: 'utf8' }).trim(); } catch { return null; }
 };
-const cnt = git(['rev-list', '--count', 'main..dev']);
-if (cnt && Number(cnt) > 0) {
-  ok(Number(cnt) === COVERAGE.length, 'dev 未发版提交数（' + cnt + '）≠ CHANGELOG 覆盖清单条数（' + COVERAGE.length + '）——清单与实际脱节，扩清单或清掉已发布项');
-  const shas = new Set((git(['log', '--format=%h', 'main..dev']) || '').split(/\r?\n/).filter(Boolean));
-  for (const c of COVERAGE) ok(shas.has(c.sha), '覆盖清单里的 ' + c.sha + ' 不在 main..dev（已发布或已 amend？请更新手工清单）');
+const cntAll = git(['rev-list', '--count', 'main..dev']);
+if (cntAll && Number(cntAll) > 0) {
+  const cnt = Number(git(['rev-list', '--count', 'main..dev~1']));
+  ok(Number.isFinite(cnt) && cnt === COVERAGE.length, 'dev 未发版提交数（排除 HEAD 自身：' + cnt + '）≠ CHANGELOG 覆盖清单条数（' + COVERAGE.length + '）——清单与实际脱节，扩清单或清掉已发布项');
+  const shas = new Set((git(['log', '--format=%h', 'main..dev~1']) || '').split(/\r?\n/).filter(Boolean));
+  for (const c of COVERAGE) ok(shas.has(c.sha), '覆盖清单里的 ' + c.sha + ' 不在 main..dev~1（已发布或已 amend？请更新手工清单）');
+  // COVERAGE 的最后一条允许是 HEAD 自身（正在记录自己的那个提交），其余必须在 ~1 里
+  const headSha = git(['rev-parse', '--short', 'dev']);
+  if (headSha) for (const c of COVERAGE.slice(0, -1)) ok(shas.has(c.sha) || c.sha === headSha, '覆盖清单里的 ' + c.sha + ' 不在 main..dev~1（已发布或已 amend？请更新手工清单）');
+} else {
+  const strict = process.argv.includes('--strict');
+  const reason = 'git 不可用（或 main..dev 无提交）：数量相等与逐 sha 存在性校验被跳过';
+  if (strict) {
+    errs.push('SKIP-AS-FAIL（--strict）：' + reason);
+    console.error('SKIP（--strict 下判失败）：' + reason);
+  } else {
+    console.log('  · SKIP：' + reason + '（--strict 下这将判失败）');
+  }
 }
 
 if (errs.length) {
