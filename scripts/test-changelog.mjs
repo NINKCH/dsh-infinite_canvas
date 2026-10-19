@@ -89,6 +89,8 @@ for (const g of ['Added', 'Fixed', 'Changed', 'Internal']) {
 
 // ---------- 7) dev 上未发版的提交主题被覆盖到（防补一半） ----------
 // 每个未发版提交必须能在 Unreleased 段里找到对应的关键词组之一（任一命中即算覆盖）。
+// OBS-1 硬要求（QA 判据）：清单**手工维护**，绝不从 `git log` 动态生成——动态清单会自证
+// （脚本生成的清单当然自己全中，"缺一必红"退化成摆设）。数量相等 + 逐 sha 关键词命中，两条都拦。
 const COVERAGE = [
   { sha: 'a732f5b', keys: [/character.sheet/i] },
   { sha: 'a20ee16', keys: [/canvas_update_node|canvas_generate_node/i] },
@@ -104,23 +106,33 @@ const COVERAGE = [
   { sha: '8bffade', keys: [/absolute `base`|ArtCraft calls/i] },
   { sha: '454b934', keys: [/disk mirror/i] },
   { sha: '67bfee4', keys: [/regress\.mjs|regression entry point/i] },
+  { sha: 'bb7a36b', keys: [/coverage assertion|Unreleased section itself is kept/i] },
+  { sha: 'c409e6a', keys: [/write path is retired|read path is kept|content-addressed/i] },
+  { sha: 'b705887', keys: [/hard-codes the regression item count|--list.*live source/i] },
+  { sha: 'ed3713f', keys: [/reference-upload trio|magic-byte sniffing/i] },
+  { sha: 'c578311', keys: [/EXIF rotation is reported|dimension measurement/i] },
+  { sha: '7367b00', keys: [/Unknown video vendors degrade/i] },
+  { sha: '0313d7f', keys: [/ftsReconcile/i] },
+  { sha: '94515e1', keys: [/Craft outputs no longer survive|craft\/ directory/i] },
+  { sha: '1f6ea01', keys: [/extension mappings/i] },
+  { sha: '44eddec', keys: [/record the phase|phase-2 six|Unreleased section/i] },
 ];
 for (const c of COVERAGE) {
   ok(c.keys.some((re) => re.test(section)), '未发版提交 ' + c.sha + ' 在 Unreleased 段里找不到对应记录（补记不全）');
 }
 
-// ---------- 附加：确认这些 sha 确实在 dev 上、且不在 main 上（防止清单过期） ----------
+// ---------- 附加：数量相等 + 清单 sha 真实性（OBS-1 的"缺一必红"数量侧） ----------
+// 只有 git 可用时才做（QA 环境可能没有 .git 或没有该分支）。数量**必须相等**（不是"不少于"）：
+// 清单多列 = 指着不存在的提交要记录；清单少列 = 有提交零覆盖。两个方向都拦。
 const gitEnv = { ...process.env, GIT_CONFIG_GLOBAL: 'D:\\Code\\deepseek-plugin\\_gitconfig' };
 const git = (args) => {
   try { return execFileSync('git', args, { cwd: ROOT, env: gitEnv, encoding: 'utf8' }).trim(); } catch { return null; }
 };
-const inDev = git(['merge-base', '--is-ancestor', '16f20fe', 'dev']);
-if (inDev !== null) {
-  // 只有 git 可用时才做这条（QA 环境可能没有 .git 或没有该分支）
-  const cnt = git(['rev-list', '--count', 'main..dev']);
-  if (cnt && Number(cnt) > 0) {
-    ok(Number(cnt) >= COVERAGE.length, 'dev 上未发版提交数（' + cnt + '）少于 CHANGELOG 覆盖清单（' + COVERAGE.length + '）——清单需要更新');
-  }
+const cnt = git(['rev-list', '--count', 'main..dev']);
+if (cnt && Number(cnt) > 0) {
+  ok(Number(cnt) === COVERAGE.length, 'dev 未发版提交数（' + cnt + '）≠ CHANGELOG 覆盖清单条数（' + COVERAGE.length + '）——清单与实际脱节，扩清单或清掉已发布项');
+  const shas = new Set((git(['log', '--format=%h', 'main..dev']) || '').split(/\r?\n/).filter(Boolean));
+  for (const c of COVERAGE) ok(shas.has(c.sha), '覆盖清单里的 ' + c.sha + ' 不在 main..dev（已发布或已 amend？请更新手工清单）');
 }
 
 if (errs.length) {

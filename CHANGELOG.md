@@ -37,6 +37,7 @@ GitHub Releases carry the same notes in English; maintainer-facing runbooks live
 - The reference-upload trio (magic-byte sniffing, raw-dimension parsing, rejected-dims registration retry) is extracted as testable pure functions and pinned by `test-image-upload.mjs` **before** any further hardening (it was patched five times in ten days with zero coverage); vendor detection, gateway-prefix normalization and the unknown-vendor fallback are pinned by `test-vendor-detect.mjs` (18 model-name + 9 URL cases).
 - A one-shot `ftsReconcile` maintenance RPC removes `assets_fts` rows whose asset is gone and repairs the inverse (direct SQL inserts skip FTS), idempotent with explicit counts — stock orphans from the 0.18.0 rewrite (58 vs 56 on the live library) converge on first run.
 - The three extension mappings are pinned by `test-ext-mapping.mjs` (per-surface binding, dangerous-suffix rejection) and the craft-directory cleanup by `test-craft-cleanup.mjs`. The regression gate grows from 24 to 29 items.
+- The release runbook no longer hard-codes the regression item count (both spots defer to `node scripts/regress.mjs --list` as the live source of truth), and this Unreleased section itself is kept complete by a coverage assertion — every unreferenced commit must be recorded here before the gate passes.
 
 ## [0.18.4] — 2026-10-18
 

@@ -77,28 +77,31 @@ const r3 = await rpc().projectCraftRemove({ projectId: 'p_a' });
 ok(r3.ok === true, '项目删除后清理应成功（meta 条目已清，回退按 id）');
 console.log('  ✓ 与 BLK-01 删除流程衔接');
 
-// ---------- 4) 无数据根 → 明确失败（CONFIG_PATH 是模块加载期常量 → 换子进程验证） ----------
+// ---------- 4) 无数据根 → 明确失败（OBS-2：进程内重载，不硬依赖子进程） ----------
+// 关键：必须在**设置 env 之前**（即 import 之前）就为第二个实例准备好空配置——CONFIG_PATH
+// 是模块加载期常量，所以用「带唯一查询串的 URL」加载同一文件的全新实例，
+// 实例化前把 process.env 指到空配置，实例内 dataRoot() 即读到无 dataRoot 的配置。
+// spawn 受限的环境（QA 实测）因此不再假红；子进程只是曾经的实现手段，不是语义本身。
 {
-  const { execFileSync } = await import('node:child_process');
-  const probe = path.join(SANDBOX, 'probe-no-root.mjs');
-  fs.writeFileSync(probe, `
-import process from 'node:process';
-process.env.DSH_IC_PROJECTS_DIR = ${JSON.stringify(path.join(SANDBOX, 'projects'))};
-process.env.DSH_IC_CONFIG_PATH = ${JSON.stringify(path.join(SANDBOX, 'config-empty.json'))};
-import fs from 'node:fs';
-fs.writeFileSync(process.env.DSH_IC_CONFIG_PATH, JSON.stringify({}), 'utf8');
-const mod = await import(${JSON.stringify(pathToFileURL(path.join(ROOT, 'index.js')))});
-mod.apply({ effect(fn) { fn(); return () => {}; }, get: () => undefined, webServer: { register: () => () => {} }, tools: { register: () => () => {} } });
-const r = await mod._internals.rpcMethods().projectCraftRemove({ projectId: 'p_b' });
-console.log('PROBE:' + JSON.stringify(r));
-`, 'utf8');
-  const out = execFileSync(process.execPath, [probe], { encoding: 'utf8' });
-  const line = String(out).split('\n').find((l) => l.startsWith('PROBE:')) || '';
-  let r4 = {};
-  try { r4 = JSON.parse(line.slice(6)); } catch { /* 解析失败按失败处理 */ }
-  ok(r4.ok === false && /未设置数据根目录/.test(r4.error || ''), '无数据根应明确失败：' + line);
+  const emptyCfg = path.join(SANDBOX, 'config-empty.json');
+  fs.writeFileSync(emptyCfg, JSON.stringify({}), 'utf8');
+  const savedEnv = { DSH_IC_PROJECTS_DIR: process.env.DSH_IC_PROJECTS_DIR, DSH_IC_CONFIG_PATH: process.env.DSH_IC_CONFIG_PATH };
+  process.env.DSH_IC_PROJECTS_DIR = path.join(SANDBOX, 'projects');
+  process.env.DSH_IC_CONFIG_PATH = emptyCfg;
+  let r4 = null;
+  try {
+    const probeUrl = pathToFileURL(path.join(ROOT, 'index.js')).href + '?no-root-probe=' + Date.now();
+    const mod2 = await import(probeUrl); // env 已指向空配置 → 实例内 CONFIG_PATH = 空配置
+    mod2.apply({ effect(fn) { fn(); return () => {}; }, get: () => undefined, webServer: { register: () => () => {} }, tools: { register: () => () => {} } });
+    r4 = await mod2._internals.rpcMethods().projectCraftRemove({ projectId: 'p_b' });
+  } catch (e) {
+    r4 = { ok: false, error: String((e && e.message) || e) };
+  } finally {
+    Object.assign(process.env, savedEnv); // 还原主进程 env（后续无用例，防御性还原）
+  }
+  ok(r4 && r4.ok === false && /未设置数据根目录/.test(r4.error || ''), '无数据根应明确失败：' + JSON.stringify(r4));
 }
-console.log('  ✓ 无数据根明确失败（子进程验证）');
+console.log('  ✓ 无数据根明确失败（进程内重载，受限环境不假红）');
 
 // ---------- 汇总 ----------
 try { fs.rmSync(SANDBOX, { recursive: true, force: true }); } catch { /* Windows 偶发占用 */ }
