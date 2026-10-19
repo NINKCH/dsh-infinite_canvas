@@ -1921,6 +1921,23 @@ function canvasUpdateNode(args) {
       try { arr = JSON.parse(arr); } catch { throw new Error('shots 需要 JSON 数组或 JSON 字符串'); }
     }
     if (!Array.isArray(arr)) throw new Error('shots 需要 JSON 数组');
+    // shots 是**整表替换**：只改一镜也必须先把全量读出来再传回（否则其它镜的 tail/cam 会被冲掉）。
+    // 这里做两层兜底：① 合法的 seg 取值归一化 ② 旧表里有衔接字段而新值没给时，按镜序保留旧值。
+    const oldShots = Array.isArray(n.data.shots) ? n.data.shots : [];
+    const SEG_OK = new Set(['opening', 'continuation', 'new_character', 'scene_change', 'closeup', 'cut', '']);
+    const SEG_NORM = { cut: 'closeup', close: 'closeup', insert: 'closeup', cont: 'continuation', open: 'opening', scene: 'scene_change' };
+    arr = arr.map((sh, i) => {
+      if (!sh || typeof sh !== 'object') return sh;
+      const out = { ...sh };
+      const segRaw = String(out.seg || '').trim().toLowerCase();
+      out.seg = SEG_NORM[segRaw] || (SEG_OK.has(segRaw) ? segRaw : '');
+      const old = oldShots[i] || {};
+      // 只补「本来是空的 + 旧值有」的衔接字段，绝不覆盖调用方明确给的新值
+      for (const k2 of ['tail', 'cam', 'start', 'seg']) {
+        if (!out[k2] && old[k2]) out[k2] = old[k2];
+      }
+      return out;
+    });
     n.data.shots = arr;
     applied.push('shots');
   }
@@ -1980,9 +1997,9 @@ const PORT_TABLE = {
   'script': { inputs: [], outputs: [{ id: 'out', kind: 'text' }] },
   'storyboard': { inputs: [{ id: 'prev', kind: 'text' }, { id: 'script', kind: 'text' }], outputs: [{ id: 'out', kind: 'text' }, { id: 'tail', kind: 'text' }] },
   'image-gen': { inputs: [{ id: 'prompt', kind: 'text' }, { id: 'ref', kind: 'image' }], outputs: [{ id: 'out', kind: 'image' }] },
-  'video-gen': { inputs: [{ id: 'prompt', kind: 'text' }, { id: 'frame', kind: 'image' }, { id: 'ref', kind: 'image' }], outputs: [{ id: 'out', kind: 'video' }, { id: 'last', kind: 'image' }] },
+  'video-gen': { inputs: [{ id: 'prompt', kind: 'text' }, { id: 'frame', kind: 'image' }, { id: 'ref', kind: 'image' }], outputs: [{ id: 'out', kind: 'video' }, { id: 'tailpick', kind: 'image' }, { id: 'last', kind: 'image' }] },
   'image-asset': { inputs: [{ id: 'in', kind: 'image' }], outputs: [{ id: 'out', kind: 'image' }] },
-  'video-asset': { inputs: [{ id: 'in', kind: 'video' }], outputs: [{ id: 'out', kind: 'video' }, { id: 'last', kind: 'image' }] },
+  'video-asset': { inputs: [{ id: 'in', kind: 'video' }], outputs: [{ id: 'out', kind: 'video' }, { id: 'tailpick', kind: 'image' }, { id: 'last', kind: 'image' }] },
   'finalcut': { inputs: [{ id: 'in', kind: 'video' }], outputs: [] },
   'group': { inputs: [], outputs: [] },
 };
@@ -2740,7 +2757,7 @@ export function apply(ctx) {
         });
         reg({
           name: 'canvas_update_node',
-          description: '修改无限画布上**已有节点**的字段（改提示词、改比例/清晰度/时长/分辨率等参数）——"改节点"的唯一入口，改完不必删节点重建。可改字段：prompt（图片/视频节点的对话框提示词）、idea/output（剧本节点）、text（文本节点的正文）、script/requirement（分镜表的剧本来源与额外要求）、shots（分镜镜头清单，JSON 数组）、label（节点名）、ratio、size、duration、resolution、frameMode、count、imageModel、videoModel、model。结构字段（id/type/坐标/宽高）不可改。改完用 canvas_generate_node 触发生成。**前提**：先用 canvas_node_status 读到当前内容，再只传要改的字段。',
+          description: '修改无限画布上**已有节点**的字段（改提示词、改比例/清晰度/时长/分辨率等参数）——"改节点"的唯一入口，改完不必删节点重建。可改字段：prompt（图片/视频节点的对话框提示词）、idea/output（剧本节点）、text（文本节点的正文）、script/requirement（分镜表的剧本来源与额外要求）、shots（分镜镜头清单，JSON 数组）、label（节点名）、ratio、size、duration、resolution、frameMode、count、imageModel、videoModel、model、cont（分镜表「分镜衔接」开关，默认 true；关掉后拆镜不写衔接字段、视频不自动续帧）。结构字段（id/type/坐标/宽高）不可改。改完用 canvas_generate_node 触发生成。**前提**：先用 canvas_node_status 读到当前内容，再只传要改的字段。**注意 shots 是整表替换**：只改一镜也要先把 canvas_node_status 返回的全部 shots 取回、改完再整体传回；否则其它镜的 tail/cam/seg 会被冲掉（服务端会按镜序兜底保留，但不要依赖它）。',
           parameters: {
             type: 'object',
             properties: {

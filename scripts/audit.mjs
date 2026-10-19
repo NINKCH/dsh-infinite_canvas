@@ -133,6 +133,59 @@ for (const m of skill.matchAll(/`?(canvas_[a-z_]+)`?/g)) {
 }
 notes.push(`工具 ${toolNames.size} 个：${[...toolNames].join(', ')}`);
 
+// ---------- 5b) 端口表两侧一致性 + 技能引用的端口必须真实存在 ----------
+// 背景：曾经客户端用 'tailpick' 端口建边、技能也教 Agent 这么连，但两张端口表里都没有这个端口——
+// 静态审计当时抓不到，运行期表现为"连线位置错乱/被当成文本边"。
+{
+  const extract = (src, anchor) => {
+    const i = src.indexOf(anchor);
+    if (i < 0) return null;
+    const seg = src.slice(i, i + 4000);
+    const end = seg.indexOf('\n};');
+    return new Set([...seg.slice(0, end > 0 ? end : seg.length).matchAll(/id: '([a-z]+)'/g)].map((m) => m[1]));
+  };
+  const hostPorts = extract(host, 'const PORT_TABLE = {');
+  const clientSrc = readFileSync(path.join(root, 'client.js'), 'utf8');
+  const clientPorts = extract(clientSrc, 'const PORTS = {');
+  if (hostPorts && clientPorts) {
+    const onlyHost = [...hostPorts].filter((p) => !clientPorts.has(p));
+    const onlyClient = [...clientPorts].filter((p) => !hostPorts.has(p));
+    for (const p of onlyHost) add(problems, `端口 '${p}' 只在 Host 端口表里有，客户端没有`);
+    for (const p of onlyClient) add(problems, `端口 '${p}' 只在客户端端口表里有，Host 没有`);
+    // 技能里教的 fromPort / toPort 必须真实存在
+    const docs = [
+      ['canvas-studio', skill],
+      ['canvas-craft', readFileSync(path.join(root, 'assets', 'canvas-craft', 'SKILL.md'), 'utf8')],
+    ];
+    for (const [name, doc] of docs) {
+      for (const m of doc.matchAll(/fromPort:\s*'([a-z]+)'/g)) {
+        if (!clientPorts.has(m[1])) add(problems, `技能 ${name} 教了不存在的输出端口 '${m[1]}'（fromPort）`);
+      }
+      for (const m of doc.matchAll(/toPort:\s*'([a-z]+)'/g)) {
+        if (!clientPorts.has(m[1])) add(problems, `技能 ${name} 教了不存在的输入端口 '${m[1]}'（toPort）`);
+      }
+    }
+    notes.push(`端口：两侧各 ${clientPorts.size} 个 id（一致）`);
+  }
+}
+
+// ---------- 5c) 分镜段落类型（seg）取值闭环 ----------
+// 背景：规划器曾产出 'cut'、别名表却把规范值定为 'closeup'、UI 又去拼 T('segCut') —— 同一概念三套写法。
+{
+  const clientSrc = readFileSync(path.join(root, 'client.js'), 'utf8');
+  const SEG_CANON = ['opening', 'continuation', 'scene_change', 'new_character', 'closeup'];
+  // 规划器里 `seg = 'xxx'` 的赋值必须是规范值
+  for (const m of clientSrc.matchAll(/\bseg\s*=\s*'([a-z_]+)'/g)) {
+    if (!SEG_CANON.includes(m[1])) add(problems, `分镜段落类型产出非规范值 '${m[1]}'（规范：${SEG_CANON.join(' / ')}）`);
+  }
+  // UI 拼 T('seg' + Capitalize(seg)) 时，每个规范值都要有 i18n 键
+  for (const v of SEG_CANON) {
+    const key = 'seg' + v.charAt(0).toUpperCase() + v.slice(1);
+    if (!clientSrc.includes(`'${key}'`)) add(problems, `缺 i18n 键 ${key}（分镜列表会显示原始 key）`);
+  }
+  notes.push(`分镜段落类型：${SEG_CANON.length} 个规范值（取值 + i18n 已闭环）`);
+}
+
 // ---------- 6) 说明：不做"未声明函数"扫描 ----------
 // 试过基于正则的调用点扫描，但剥离注释/字符串时会被正则字面量里的引号破坏（例如 `/'"]/`），
 // 产生大量误报，不能作为门禁。这类问题改由 smoke-render（真实执行组件树）与 test-tools（真实

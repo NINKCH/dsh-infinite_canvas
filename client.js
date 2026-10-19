@@ -45,10 +45,11 @@ window.__ModuleLoader__.load({
       },
       'video-gen': {
         inputs: [{ id: 'prompt', kind: 'text' }, { id: 'frame', kind: 'image' }, { id: 'ref', kind: 'image' }],
-        outputs: [{ id: 'out', kind: 'video' }, { id: 'last', kind: 'image' }],
+        // last = 真·最后一帧（画面结尾）；tailpick = 续帧接力的最佳选帧（动作进行中/清晰/不抖）
+        outputs: [{ id: 'out', kind: 'video' }, { id: 'tailpick', kind: 'image' }, { id: 'last', kind: 'image' }],
       },
       'image-asset': { inputs: [{ id: 'in', kind: 'image' }], outputs: [{ id: 'out', kind: 'image' }] },
-      'video-asset': { inputs: [{ id: 'in', kind: 'video' }], outputs: [{ id: 'out', kind: 'video' }, { id: 'last', kind: 'image' }] },
+      'video-asset': { inputs: [{ id: 'in', kind: 'video' }], outputs: [{ id: 'out', kind: 'video' }, { id: 'tailpick', kind: 'image' }, { id: 'last', kind: 'image' }] },
       'finalcut': { inputs: [{ id: 'in', kind: 'video' }], outputs: [] },
       'group': { inputs: [], outputs: [] },
     };
@@ -545,6 +546,7 @@ window.__ModuleLoader__.load({
       'segNew_character': '新角色入场',
       'segScene_change': '换场',
       'segCloseup': '特写插入',
+      'segCut': '特写插入',
       'seamOk': '接缝通过',
       'seamFail': '接缝偏跳',
       'seamHint': '接缝校验：本段首帧与上一段尾帧的画面相似度',
@@ -969,6 +971,7 @@ window.__ModuleLoader__.load({
       'segNew_character': 'New character',
       'segScene_change': 'Scene change',
       'segCloseup': 'Insert',
+      'segCut': 'Insert',
       'seamOk': 'Seam OK',
       'seamFail': 'Seam jump',
       'seamHint': 'Seam check: similarity between this segment first frame and the previous tail frame',
@@ -1741,15 +1744,17 @@ window.__ModuleLoader__.load({
         if (!prevShot) seg = 'opening';
         else if (/换场|场景切换|转场|另一处|另一场景|切至|切到|次日|翌日|与此同时|数日后|[Cc]ut to/.test(shotVisualText(s))) seg = 'scene_change';
         else if (/新角色|首次出场|走进来|入镜|入场|冒出|推门进|[Ee]nters?/.test(shotVisualText(s))) seg = 'new_character';
-        else if (Number(s.duration) > 0 && Number(s.duration) < 1.5 && !(s.dialogue || []).length) seg = 'cut';
+        else if (Number(s.duration) > 0 && Number(s.duration) < 1.5 && !(s.dialogue || []).length) seg = 'closeup';
         else seg = 'continuation';
       }
       if (seg === 'opening' && prevShot) seg = 'continuation'; // 首段只能在第 1 镜；后面标"开场"视为续帧
-      const join = seg === 'scene_change' ? 'loose' : seg === 'cut' ? 'cut' : seg === 'new_character' ? 'loose' : 'strict';
+      // 接缝档位：换场/新角色入场都放宽（新角色段本就不承接上段画面），特写插入允许跳切
+      const join = (seg === 'scene_change' || seg === 'new_character') ? 'loose' : seg === 'closeup' ? 'cut' : 'strict';
+      // 只有真正需要画面承接的段落才接力尾帧；新角色入场首帧若来自上一段，新角色反而无从进入
+      const chain = seg === 'continuation' && !!prevShot;
       const tail = boxed('tail') || (prevShot ? shotVisualText(s).slice(0, 80) : '');
       const start = boxed('start') || (prevShot ? ('承接上一镜结尾：' + (boxed('tail') || shotVisualText(prevShot).slice(0, 80))) : '');
       const cam = boxed('cam');
-      const chain = (seg === 'continuation' || seg === 'new_character') && !!prevShot;
       return {
         idx: i, seg, join, fromTail: i > 0, fromShot: i > 0, chain,
         name: String(s.title || '').trim(),
@@ -4031,24 +4036,55 @@ window.__ModuleLoader__.load({
         URL.revokeObjectURL(url);
       }
     }
-    /** 续帧链：找到"上一个视频生成节点"。
-     *  优先 ① frame 口连线的来源视频 ② 同一上游分镜表被连出的其它视频节点中已生成、且位置最靠上的那个。 */
+    /** 续帧链：找到「上一个视频生成节点」。按可靠性依次尝试：
+     *  ① frame 口连线的来源视频（用户显式指定；也支持从视频资产节点回溯）；
+     *  ② 同一上游分镜表连出的其它视频节点里、已生成且位置更靠上的那一个（一个分镜表铺多个视频段）；
+     *  ③ **沿分镜表的 prev 承接链向上游找**：上游分镜表所连的视频节点。
+     *     标准短剧布局是「一场一个分镜表 + 一场一个视频」，此时每个视频节点的上游分镜表都不同，
+     *     ①②永远找不到——这是主用法，必须支持。逐级向上并防环。 */
     function autoPrevVideoNode(n) {
       const frameEdge = S.graph.edges.find((x) => x.toNode === n.id && x.toPort === 'frame');
       if (frameEdge) {
         const src = S.graph.nodes[frameEdge.fromNode];
         if (src && src.type === 'video-gen' && src.data.assetId) return src;
+        if (src && src.type === 'video-asset') {
+          const up = S.graph.edges.find((e) => e.toNode === src.id && e.toPort === 'in');
+          const pv = up && S.graph.nodes[up.fromNode];
+          if (pv && pv.type === 'video-gen' && pv.data.assetId) return pv;
+        }
       }
       const promptEdge = S.graph.edges.find((x) => x.toNode === n.id && x.toPort === 'prompt');
       if (!promptEdge) return null;
       const sbId = promptEdge.fromNode;
+      const sb = S.graph.nodes[sbId];
+      // ② 同一分镜表内的兄弟视频段
       const sibs = S.graph.edges
-        .filter((x) => x.fromNode === sbId && x.toNode !== n.id)
+        .filter((x) => x.fromNode === sbId && x.toPort === 'prompt')
         .map((x) => S.graph.nodes[x.toNode])
-        .filter((v) => v && v.type === 'video-gen' && v.data.assetId && (v.y < n.y || (v.y === n.y && v.x < n.x)));
-      if (!sibs.length) return null;
-      sibs.sort((a, b) => (b.y - a.y) || (b.x - a.x)); // 最近的一段（同列/同排里最靠近的上一段）
-      return sibs[0];
+        .filter((v) => v && v.id !== n.id && v.type === 'video-gen' && v.data.assetId && (v.y < n.y || (v.y === n.y && v.x < n.x)));
+      if (sibs.length) {
+        sibs.sort((a, b) => (b.y - a.y) || (b.x - a.x)); // 最近的一段（同列/同排里最靠近的上一段）
+        return sibs[0];
+      }
+      // ③ 沿 prev 链向上游分镜表找它连出的视频段（跨分镜表续帧 = 标准用法）
+      let curSb = sb;
+      const seen = new Set([sbId]);
+      for (let hop = 0; hop < 32 && curSb; hop++) {
+        const prevEdge = S.graph.edges.find((x) => x.toNode === curSb.id && x.toPort === 'prev');
+        const upSb = prevEdge && S.graph.nodes[prevEdge.fromNode];
+        if (!upSb || upSb.type !== 'storyboard' || seen.has(upSb.id)) break;
+        seen.add(upSb.id);
+        const vids = S.graph.edges
+          .filter((x) => x.fromNode === upSb.id && x.toPort === 'prompt')
+          .map((x) => S.graph.nodes[x.toNode])
+          .filter((v) => v && v.type === 'video-gen' && v.data.assetId);
+        if (vids.length) {
+          vids.sort((a, b) => (b.y - a.y) || (b.x - a.x));
+          return vids[0];
+        }
+        curSb = upSb; // 上一场还没生成则继续向上找更早的已成片段
+      }
+      return null;
     }
     /** 链式下一镜：以本镜尾帧为首帧，克隆一个视频生成节点并自动连线。 */
     function chainNext(n) {
@@ -4062,7 +4098,9 @@ window.__ModuleLoader__.load({
           nd2.data.resolution = n.data.resolution || '720P';
           nd2.data.ratio = n.data.ratio || '16:9';
           nd2.data.videoModel = nodeVideoModelRef(n);
-          nd2.data.frameMode = 'hard'; // 链式下一镜：画面绝对承接 → 默认硬首帧
+          // 与自动续帧保持同一默认（auto = 尾帧降级为首张参考图，保留实体参考图，衔接为软约束）。
+          // 硬首帧会放弃角色/场景参考图，不该作为默认——用户需要绝对承接时自己在下拉里选。
+          nd2.data.frameMode = 'auto';
         }
         // 尾帧接力：优先「最佳选帧」（动作进行中/清晰），退到真·尾帧
         s.graph.edges.push({ id: uid('e'), fromNode: n.id, fromPort: (n.data.lastPickAssetId ? 'tailpick' : 'last'), toNode: nn.id, toPort: 'frame' });
@@ -6227,6 +6265,8 @@ window.__ModuleLoader__.load({
           const plan = (() => {
             if (!shotList.length) return { first: null, chain: false, join: 'loose', seg: 'opening', fromShot: false };
             const first = shotContinuityPlan(shotList[0], null, 0);
+            // 分镜衔接总开关（分镜表 cont）：关掉 = 不做跨段承接、不自动取尾帧、不写衔接块
+            const contOn = sbUp ? sbUp.data.cont !== false : true;
             // 跨分镜表承接：上游分镜表「衔接上一镜」输入口 ← 上一个分镜表「尾镜」输出口
             const prevSb = (() => {
               const e2 = S.graph.edges.find((x) => x.toNode === (sbUp && sbUp.id) && x.toPort === 'prev');
@@ -6237,8 +6277,10 @@ window.__ModuleLoader__.load({
             let seg = first.seg;
             // 第 1 镜没有表内上一镜时，可承接上一个分镜表 → 实质是续帧
             if (seg === 'opening' && prevNote) seg = 'continuation';
-            const join = seg === 'scene_change' ? 'loose' : seg === 'cut' ? 'cut' : seg === 'new_character' ? 'loose' : 'strict';
-            return { first, chain: seg === 'continuation', seg, join, fromShot: !!prevNote };
+            const join = (seg === 'scene_change' || seg === 'new_character') ? 'loose' : seg === 'closeup' ? 'cut' : 'strict';
+            // 只有续帧段才自动取上一段尾帧；其余段落没有可承接的画面
+            const chain = contOn && seg === 'continuation';
+            return { first, chain, seg, join, fromShot: contOn && !!prevNote, contOn };
           })();
           // 首帧来源：① frame 口连线（用户显式）② 续帧链自动取「上一个视频」的尾帧
           let frameBlob = await resolveAssetBlob(n.id, 'frame');
@@ -7170,7 +7212,7 @@ window.__ModuleLoader__.load({
     function portLabel(pid) {
       const map = {
         prompt: T('portPrompt'), ref: T('portRef'), frame: T('portFrame'),
-        in: T('portIn'), out: T('portOut'), last: T('lastFrame'),
+        in: T('portIn'), out: T('portOut'), last: T('lastFrame'), tailpick: T('tailPick'),
         char: T('portChar'), scene: T('portScene'), prop: T('portProp'),
         visual: T('portVisual'), motion: T('portMotion'), script: T('portScript'),
         prev: T('portPrev'), tail: T('portTail'),
@@ -7620,7 +7662,9 @@ window.__ModuleLoader__.load({
           ? h('div', { key: 'ref', className: 'dshic-hint' },
               T('portFrame') + ' × ' + refEdges.length + ' · ' + T('connected'))
           : null,
-        kind === 'video' && S.graph.edges.some((x) => x.toNode === n.id && x.toPort === 'frame')
+        // 「衔接」下拉：视频节点**始终**显示——自动续帧（无 frame 线）也需要它来关闭接力或改硬首帧。
+        // 若有 frame 连线则额外说明连线数量。
+        kind === 'video'
           ? h('div', { key: 'fmode', className: 'dshic-node-row' },
               h('span', { className: 'dshic-shot-label', style: { flex: 'none' } }, T('frameModeLabel')),
               h('select', {
@@ -8399,6 +8443,14 @@ window.__ModuleLoader__.load({
         });
         linkRaw(n, 'out', videoGen, 'prompt'); // 多镜头提示词来自上游分镜表（不复制文本）
         linkRaw(videoGen, 'out', videoAsset, 'in');
+        // 把「上一段视频」的尾帧接到本段的 frame：铺开时就建好，用户按顺序生成即可自动接力。
+        // 找上一段的规则与 autoPrevVideoNode 一致（同分镜表兄弟段 / 沿 prev 链上溯的上游分镜表所连视频）。
+        (() => {
+          const prevVid = autoPrevVideoNode(videoGen);
+          if (!prevVid || !prevVid.id) return;
+          const fromPort = prevVid.data && prevVid.data.lastPickAssetId ? 'tailpick' : 'last';
+          linkRaw(prevVid, fromPort, videoGen, 'frame');
+        })();
         s.sel = new Set([videoGen.id]);
       });
       pushHistory();

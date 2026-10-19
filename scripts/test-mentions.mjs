@@ -159,7 +159,7 @@ eq(api.bibleNames({ characters: [{ name: '林晚' }], scenes: [{ name: '楼道' 
   eq(d.seg, 'new_character', '新角色入场识别');
 
   const e = api.shotContinuityPlan({ title: '快切', visual: '刀光', duration: 0.5 }, { visual: '院子' }, 1);
-  eq(e.seg, 'cut', '极短镜头视作特写插入');
+  eq(e.seg, 'closeup', '极短镜头视作特写插入（规范值与别名表一致）');
   eq(e.join, 'cut', '插入镜头不要求画面连续');
 
   // 显式字段优先（AI 写出的 seg 不被画面文本覆盖）
@@ -215,6 +215,45 @@ eq(api.bibleNames({ characters: [{ name: '林晚' }], scenes: [{ name: '楼道' 
   if (!note || !note.text.includes('还没碰到信')) errs.push('跨分镜承接未带出接点尾态');
   if (!note.text.includes('下俯跟进')) errs.push('跨分镜承接未带出运镜');
   eq(api.storyboardContinuityNote([], '第一场', true), null, '无尾镜时不造承接约束');
+}
+
+// 11) 段落类型闭环：seg 取值 / join 档位 / 尾帧接力开关必须自洽
+{
+  // 触发值集合必须与别名表的规范值一致（曾经规划器产出 'cut' 而别名表规范值是 'closeup'）
+  const all = [];
+  const mk = (o, prev, i) => api.shotContinuityPlan(o, prev, i);
+  const prevShot = { visual: '远景' };
+  all.push(mk({ visual: '远景 院子', duration: 3 }, null, 0).seg);
+  all.push(mk({ visual: '近景', duration: 2 }, prevShot, 1).seg);
+  all.push(mk({ visual: '次日 切至 天台', duration: 3 }, prevShot, 1).seg);
+  all.push(mk({ visual: '反派推门走进来', duration: 3 }, prevShot, 1).seg);
+  all.push(mk({ visual: '刀光', duration: 0.5 }, prevShot, 1).seg); // 极短 > 归一为 closeup
+  for (const v of all) {
+    if (!['opening', 'continuation', 'new_character', 'scene_change', 'closeup'].includes(v)) {
+      errs.push('段落类型取值越界：' + v + '（应为 opening/continuation/scene_change/new_character/closeup）');
+    }
+  }
+  eq(mk({ visual: '刀光', duration: 0.5 }, prevShot, 1).seg, 'closeup', '极短镜头归一为 closeup');
+  eq(mk({ visual: '刀光', duration: 0.5 }, prevShot, 1).join, 'cut', '特写插入的接缝档位必须是 cut（0.15 阈值）');
+  eq(mk({ seg: 'cut', visual: '刀光', duration: 0.5 }, prevShot, 1).seg, 'closeup', '别名 cut → closeup');
+
+  // 接缝档位：换场与新角色入场都放宽；续帧严格
+  eq(mk({ visual: '次日 切至 天台' }, prevShot, 1).join, 'loose', '换场接缝档位 loose');
+  eq(mk({ visual: '反派推门走进来' }, prevShot, 1).join, 'loose', '新角色入场接缝档位 loose');
+  eq(mk({ visual: '近景' }, prevShot, 1).join, 'strict', '续帧接缝档位 strict');
+
+  // 只有 continuation 才接力尾帧（新角色入场若接过上段画面，新角色无从进入）
+  eq(mk({ visual: '近景' }, prevShot, 1).chain, true, '续帧段接力尾帧');
+  eq(mk({ visual: '反派推门走进来' }, prevShot, 1).chain, false, '新角色入场段不接力尾帧');
+  eq(mk({ visual: '次日 切至 天台' }, prevShot, 1).chain, false, '换场段不接力尾帧');
+  eq(mk({ visual: '刀光', duration: 0.5 }, prevShot, 1).chain, false, '特写插入段不接力尾帧');
+  eq(mk({ visual: '远景 院子' }, null, 0).chain, false, '首段无上游不接力');
+
+  // 接缝阈值必须真的按 join 分档（0.55 / 0.35 / 0.15）
+  const met = { sim: 0.3 };
+  eq(api.seamVerdict(met, 'strict').thr, 0.55, 'strict 阈值 0.55');
+  eq(api.seamVerdict(met, 'loose').thr, 0.35, 'loose 阈值 0.35');
+  eq(api.seamVerdict(met, 'cut').thr, 0.15, 'cut 阈值 0.15');
 }
 
 if (errs.length) {
