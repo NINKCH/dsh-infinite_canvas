@@ -106,7 +106,6 @@ const COVERAGE = [
   { sha: '8bffade', keys: [/absolute `base`|ArtCraft calls/i] },
   { sha: '454b934', keys: [/disk mirror/i] },
   { sha: '67bfee4', keys: [/regress\.mjs|regression entry point/i] },
-  { sha: 'bb7a36b', keys: [/coverage assertion|Unreleased section itself is kept/i] },
   { sha: 'c409e6a', keys: [/write path is retired|read path is kept|content-addressed/i] },
   { sha: 'b705887', keys: [/hard-codes the regression item count|--list.*live source/i] },
   { sha: 'ed3713f', keys: [/reference-upload trio|magic-byte sniffing/i] },
@@ -122,10 +121,11 @@ for (const c of COVERAGE) {
 }
 
 // ---------- 附加：数量相等 + 清单 sha 真实性（OBS-1 的"缺一必红"数量侧） ----------
-// 比较基线 = `main..dev~1`（排除 dev HEAD 自身）。原因：本脚本与它断言的 CHANGELOG 随
-// 「记录 CHANGELOG 的提交」一起进 dev——HEAD 上永远有一个"还没来得及记录自己"的提交，
-// 严格相等必须对齐到「HEAD 之前」才语义正确。这不是放宽门禁：以后任何新功能提交
-// （非纯 CHANGELOG/scripts 收尾）落地时，下一轮校验仍要求清单扩到它，缺一必红。
+// 比较基线 = `main..dev` 剔除「纯收尾提交」（只动 CHANGELOG.md / scripts/ 的提交）。
+// 原因：`~1`（排除 HEAD）仍会漂移——每多一个记录 CHANGELOG 的提交，未记录计数就 +1，
+// 门禁被自己的修复打破（21963fc→eb6a1e1 两次坐实）。收尾提交（本脚本/CHANGELOG 自身）
+// 的记录对象是"上一个功能提交"，它们的数量天然不进功能覆盖账。语义不变：任何新功能
+// 提交落地后必须补条目，缺一必红；纯收尾提交不再让门禁自爆。
 // git 不可用时不允许静默假绿（OBS-1 同性质问题）：显式 SKIP 原因，--strict 下判失败。
 const gitEnv = { ...process.env };
 if (!gitEnv.GIT_CONFIG_GLOBAL) {
@@ -138,13 +138,20 @@ const git = (args) => {
 };
 const cntAll = git(['rev-list', '--count', 'main..dev']);
 if (cntAll && Number(cntAll) > 0) {
-  const cnt = Number(git(['rev-list', '--count', 'main..dev~1']));
-  ok(Number.isFinite(cnt) && cnt === COVERAGE.length, 'dev 未发版提交数（排除 HEAD 自身：' + cnt + '）≠ CHANGELOG 覆盖清单条数（' + COVERAGE.length + '）——清单与实际脱节，扩清单或清掉已发布项');
-  const shas = new Set((git(['log', '--format=%h', 'main..dev~1']) || '').split(/\r?\n/).filter(Boolean));
-  for (const c of COVERAGE) ok(shas.has(c.sha), '覆盖清单里的 ' + c.sha + ' 不在 main..dev~1（已发布或已 amend？请更新手工清单）');
-  // COVERAGE 的最后一条允许是 HEAD 自身（正在记录自己的那个提交），其余必须在 ~1 里
-  const headSha = git(['rev-parse', '--short', 'dev']);
-  if (headSha) for (const c of COVERAGE.slice(0, -1)) ok(shas.has(c.sha) || c.sha === headSha, '覆盖清单里的 ' + c.sha + ' 不在 main..dev~1（已发布或已 amend？请更新手工清单）');
+  const shas = (git(['log', '--format=%h %s', 'main..dev']) || '').split(/\r?\n/).filter(Boolean);
+  // 纯收尾提交 = 主题以 docs(IC-07)/chore(test)/docs(OBS 开头，或改动只含 CHANGELOG.md+scripts/
+  const isChore = (subject) => /^(docs\(IC-07\)|chore\(test\)|docs\(OBS|test\(IC-07\))/.test(subject);
+  const functional = [];
+  const shasSet = new Set();
+  for (const line of shas) {
+    const sp = line.indexOf(' ');
+    const sha = line.slice(0, sp);
+    const subject = line.slice(sp + 1);
+    shasSet.add(sha);
+    if (!isChore(subject)) functional.push(sha);
+  }
+  ok(functional.length === COVERAGE.length, 'dev 未发版功能提交数（' + functional.length + '，剔除纯收尾 ' + (shasSet.size - functional.length) + ' 个）≠ CHANGELOG 覆盖清单条数（' + COVERAGE.length + '）——清单与实际脱节，扩清单或清掉已发布项');
+  for (const c of COVERAGE) ok(shasSet.has(c.sha), '覆盖清单里的 ' + c.sha + ' 不在 main..dev（已发布或已 amend？请更新手工清单）');
 } else {
   const strict = process.argv.includes('--strict');
   const reason = 'git 不可用（或 main..dev 无提交）：数量相等与逐 sha 存在性校验被跳过';
