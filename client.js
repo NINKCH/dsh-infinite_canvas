@@ -4119,15 +4119,31 @@ window.__ModuleLoader__.load({
       for (const seg of segments) {
         const v = document.createElement('video');
         v.src = seg.url; v.preload = 'auto'; v.playsInline = true;
-        await new Promise((res, rej) => {
-          v.onloadedmetadata = () => res();
-          v.onerror = () => rej(new Error('视频加载失败: ' + seg.name));
-          setTimeout(res, 15000);
+        // 加载失败必须留下来而不是静默丢弃：静默丢弃 = 用户以为全片都合进去了
+        let loadErr = null;
+        await new Promise((res) => {
+          let settled = false;
+          const fin = () => { if (!settled) { settled = true; res(); } };
+          v.onloadedmetadata = fin;
+          v.onerror = () => { loadErr = '视频解码失败（格式不支持或文件损坏）'; fin(); };
+          setTimeout(fin, 15000); // 超时也继续：时长拿不到时按 8s 兜底
         });
-        const trimSec = seg.dur && seg.dur > 0 ? Math.min(seg.dur, (isFinite(v.duration) && v.duration > 0 ? v.duration : seg.dur)) : 0;
-        totalMs += trimSec * 1000 || (isFinite(v.duration) && v.duration > 0 ? v.duration * 1000 : 8000);
-        vids.push({ v, name: seg.name, sub: seg.sub || '', withAudio: seg.withAudio !== false, ttsUrl: seg.ttsUrl || null, ttsEl: null, ttsSrc: null, started: false, srcNode: null, dur: seg.dur || null, startAt: 0 });
+        if (loadErr && !(isFinite(v.duration) && v.duration > 0)) {
+          throw new Error((seg.name || '片段') + '：' + loadErr + '——请确认该段视频能正常播放（可在节点上预览）');
+        }
+        const clipDur = isFinite(v.duration) && v.duration > 0 ? v.duration : 0;
+        // 编辑时长（分镜时长）用于裁剪：不能超过真实素材时长
+        const trimSec = seg.dur && seg.dur > 0 ? Math.min(seg.dur, clipDur || seg.dur) : 0;
+        totalMs += (trimSec || clipDur || 8) * 1000;
+        vids.push({
+          v, name: seg.name, sub: seg.sub || '', withAudio: seg.withAudio !== false,
+          ttsUrl: seg.ttsUrl || null, ttsEl: null, ttsSrc: null, started: false, srcNode: null,
+          trim: trimSec || null, // 裁剪到该秒数（0/null = 用完整片段）
+          clipDur, // 素材真实时长（可能为 0：元数据没拿到）
+          startAt: 0,
+        });
       }
+      if (!vids.length) throw new Error('没有可合成的片段');
       const cv = document.createElement('canvas'); cv.width = W; cv.height = H;
       const g = cv.getContext('2d');
       // mp4 优先（含音轨：H.264 + AAC）：webm 只是兜底，保证成片统一为 mp4
@@ -4193,67 +4209,102 @@ window.__ModuleLoader__.load({
       }
       let idx = 0;
       let done = false;
+      let failed = null;
       let blackUntil = 0;
       let lastProgressIdx = -1;
+      let lastTickAt = 0;
+      // 看门狗：即使某段 video 元素永远不触发 ended/timeupdate（解码卡住、seek 失效），
+      // 也按"本段应有时长"强制推进——否则用户只看到"运行中"永远不结束。
+      const startedAt = performance.now();
       startPlayback(vids[0]);
       await new Promise((resolve) => {
+        function finish(err) {
+          if (done) return;
+          done = true;
+          failed = err || null;
+          resolve();
+        }
         function frame() {
-          if (done) return resolve();
-          const now = performance.now();
-          const item = vids[idx];
-          const v = item.v;
-          // 黑场过渡窗口
-          if (blackUntil && now < blackUntil) {
-            g.fillStyle = '#000'; g.fillRect(0, 0, W, H);
-            requestAnimationFrame(frame);
-            return;
-          }
-          blackUntil = 0;
-          startPlayback(item);
-          if (lastProgressIdx !== idx) { lastProgressIdx = idx; if (onProgress) onProgress(idx / Math.max(1, vids.length), item.name); }
-          const clipDur = isFinite(v.duration) && v.duration > 0 ? v.duration : 0;
-          const effDur = item.dur && item.dur > 0 ? Math.min(item.dur, clipDur || item.dur) : clipDur;
-          const elapsed = item.startAt ? (now - item.startAt) / 1000 : 0;
-          const remainMs = dur ? (dur - v.currentTime) * 1000 : Infinity;
-          // 叠化：临近结束时提前启动下一片段
-          let next = null;
-          if (transition === 'fade' && idx < vids.length - 1 && remainMs <= td) {
-            next = vids[idx + 1];
-            startPlayback(next);
-          }
-          // 绘制当前片段
-          g.fillStyle = '#000'; g.fillRect(0, 0, W, H);
-          letterbox(v);
-          let fadeT = 0;
-          if (next && next.started) {
-            fadeT = clamp(1 - remainMs / td, 0, 1);
-            if (next.v.videoWidth) {
-              g.save(); g.globalAlpha = fadeT; letterbox(next.v); g.restore();
+          if (done) return;
+          try {
+            const now = performance.now();
+            const item = vids[idx];
+            if (!item) return finish();
+            const v = item.v;
+            // 每段超时保护：单段最多等到 应有+10s，超过即视为该段已结束（不卡死整片）
+            if (item.startAt && item.hardDeadline && now > item.hardDeadline) {
+              stopItem(item);
+              idx++;
+              if (idx >= vids.length) return finish();
+              if (transition === 'black') blackUntil = now + 350;
             }
+            // 黑场过渡窗口
+            if (blackUntil && now < blackUntil) {
+              g.fillStyle = '#000'; g.fillRect(0, 0, W, H);
+              requestAnimationFrame(frame);
+              return;
+            }
+            blackUntil = 0;
+            startPlayback(item);
+            if (lastProgressIdx !== idx) { lastProgressIdx = idx; if (onProgress) onProgress(idx / Math.max(1, vids.length), item.name); }
+            const clipDur = isFinite(v.duration) && v.duration > 0 ? v.duration : item.clipDur;
+            // 有效时长 = 裁剪时长（若有）与素材真实时长的较小值
+            const effDur = item.trim && item.trim > 0 ? Math.min(item.trim, clipDur || item.trim) : clipDur;
+            if (!item.hardDeadline && item.startAt) item.hardDeadline = item.startAt + (effDur > 0 ? effDur * 1000 : 8000) + 10000;
+            const elapsed = item.startAt ? (now - item.startAt) / 1000 : 0;
+            // 叠化窗口：距本段结束还剩多少毫秒（effDur 为 0 时视为无限，不会误触发）
+            const remainMs = effDur > 0 ? (effDur - (v.currentTime || 0)) * 1000 : Infinity;
+            // 叠化：临近结束时提前启动下一片段
+            let next = null;
+            if (transition === 'fade' && idx < vids.length - 1 && remainMs <= td && Number.isFinite(remainMs)) {
+              next = vids[idx + 1];
+              startPlayback(next);
+            }
+            // 绘制当前片段
+            g.fillStyle = '#000'; g.fillRect(0, 0, W, H);
+            letterbox(v);
+            let fadeT = 0;
+            if (next && next.started) {
+              fadeT = clamp(1 - remainMs / td, 0, 1);
+              if (next.v.videoWidth) {
+                g.save(); g.globalAlpha = fadeT; letterbox(next.v); g.restore();
+              }
+            }
+            // 字幕随叠化淡出/淡入
+            if (next && fadeT > 0.5) {
+              g.save(); g.globalAlpha = fadeT; drawSubtitle(g, W, H, next.sub); g.restore();
+            } else {
+              g.save(); g.globalAlpha = 1 - fadeT; drawSubtitle(g, W, H, item.sub); g.restore();
+            }
+            // 推进（三判据：播放器自报结束 / 到达有效时长 / 墙钟超时）
+            const ended = v.ended || (effDur > 0 && elapsed >= effDur - 0.03);
+            if (ended) {
+              stopItem(item);
+              idx++;
+              if (idx >= vids.length) return finish();
+              if (transition === 'black') blackUntil = now + 350;
+            }
+            lastTickAt = now;
+            requestAnimationFrame(frame);
+          } catch (e) {
+            // 帧循环内异常必须转成 reject：静默卡住比报错更糟
+            try { stopItem(vids[idx] || {}); } catch { /* 忽略 */ }
+            if (lastTickAt) void lastTickAt;
+            finish(e);
           }
-          // 字幕随叠化淡出/淡入
-          if (next && fadeT > 0.5) {
-            g.save(); g.globalAlpha = fadeT; drawSubtitle(g, W, H, next.sub); g.restore();
-          } else {
-            g.save(); g.globalAlpha = 1 - fadeT; drawSubtitle(g, W, H, item.sub); g.restore();
-          }
-          // 推进
-          const ended = v.ended || (effDur > 0 && elapsed >= effDur - 0.03);
-          if (ended) {
-            stopItem(item);
-            idx++;
-            if (idx >= vids.length) { done = true; resolve(); return; }
-            if (transition === 'black') blackUntil = now + 350;
-          }
-          requestAnimationFrame(frame);
         }
         requestAnimationFrame(frame);
-        setTimeout(() => { done = true; resolve(); }, totalMs + 30000);
+        // 全局兜底：总时长 + 30s（含看门狗余量）后强制收尾，并明确报告超时而不是假装成功
+        setTimeout(() => {
+          if (!done) finish(new Error('成片合成超时（已等待 ' + Math.round((performance.now() - startedAt) / 1000) + 's）：请检查所选片段是否都能正常播放'));
+        }, totalMs + 30000);
       });
       vids.forEach(stopItem);
       rec.stop();
       await stopped;
       if (audio) { try { audio.ac.close(); } catch { /* 忽略 */ } }
+      if (failed) throw failed;
+      if (!chunks.length) throw new Error('成片录制未产出数据（浏览器录制失败，请重试或降低分辨率）');
       return new Blob(chunks, { type: mime.split(';')[0] });
     }
 
@@ -6044,21 +6095,36 @@ window.__ModuleLoader__.load({
         return v != null ? v : defSub;
       };
       const metas = [];
+      const skipped = []; // 被跳过的片段必须让用户看见：静默少段 = 用户以为全片都合进去了
       for (const x of segs) {
-        if (!x.nd.data.assetId) continue;
+        const segName = String((x.nd.data && x.nd.data.label) || TYPE_LABEL()[x.nd.type] || '片段');
+        if (!x.nd.data.assetId) { skipped.push(segName + '（还没有生成结果）'); continue; }
         try {
           const rec = await idbGet(x.nd.data.assetId);
           const blob = await assetBlob(x.nd.data.assetId);
-          if (blob) {
-            const ttsId = n.data.tts && n.data.tts[x.e.id] && n.data.tts[x.e.id].assetId;
-            const ttsUrl = ttsId ? await assetUrl(ttsId) : null;
-            // 分镜的编辑时长（1-3s 级）作为成片裁剪依据：API 生成的片段偏长，成片时裁到分镜时长
-            const editDur = Number(x.nd.data.editDuration) || null;
-            metas.push({ url: URL.createObjectURL(blob), name: (rec && rec.name) || 'seg', sub: getSub(x), ttsUrl, dur: editDur || undefined });
-          }
-        } catch { /* 跳过加载失败的片段 */ }
+          if (!blob) { skipped.push(segName + '（资产读不到，可能是文件已被删除）'); continue; }
+          if (!blob.size) { skipped.push(segName + '（资产为空文件）'); continue; }
+          const ttsId = n.data.tts && n.data.tts[x.e.id] && n.data.tts[x.e.id].assetId;
+          const ttsUrl = ttsId ? await assetUrl(ttsId) : null;
+          // 分镜的编辑时长（1-3s 级）作为成片裁剪依据：API 生成的片段偏长，成片时裁到分镜时长
+          const editDur = Number(x.nd.data.editDuration) || null;
+          metas.push({ url: URL.createObjectURL(blob), name: (rec && rec.name) || 'seg', sub: getSub(x), ttsUrl, dur: editDur || undefined });
+        } catch (e) {
+          skipped.push(segName + '（读取失败：' + String((e && e.message) || e) + '）');
+        }
       }
-      if (!metas.length) throw new Error(T('noSegments'));
+      if (!metas.length) {
+        throw new Error(skipped.length
+          ? ('没有可合成的片段——' + skipped.join('；'))
+          : T('noSegments'));
+      }
+      if (skipped.length) {
+        // 不阻断合成，但必须在节点上留痕（否则"少了一段"会被当成 bug 却查不到原因）
+        update((s) => {
+          const nd = s.graph.nodes[n.id];
+          if (nd) nd.data.genWarn = '已跳过 ' + skipped.length + ' 个片段：' + skipped.join('；');
+        });
+      }
       update((s) => { const nd = s.graph.nodes[n.id]; if (nd) { nd.data.status = 'running'; nd.data.error = null; nd.data.progress = '0%'; } });
       flushSave();
       try {
@@ -10648,6 +10714,19 @@ window.__ModuleLoader__.load({
         // 直接暴露各页签组件与同步入口，让测试能逐个渲染/驱动，抓白屏与同步断链问题
         if (typeof window !== 'undefined' && window.__DSH_IC_SMOKE__) {
           window.__DSH_IC_TABS__ = { ProjectsTab, AssetsTab, BibleTab, SettingsTab, CanvasPage };
+          // 成片合成（composeFinalCut）纯函数级出口：浏览器录制链路无法在 Node 端跑，
+          // 但合成主循环（分段推进/裁剪/转场/字幕）可以用假的 video/MediaRecorder 真实执行——
+          // 这正是历史上一处 "dur is not defined" 在真机上才炸的漏洞所在。
+          window.__DSH_IC_COMPOSE__ = {
+            composeFinalCut,
+            videoDimsFor,
+            drawSubtitle,
+            extractTailFrames,
+            grayThumb,
+            frameSeamMetrics,
+            seamVerdict,
+            tailFrameScore,
+          };
           window.__DSH_IC_SYNC__ = {
             hostSyncTick, mergeHostDoc, loadBible, loadGraphDoc,
             removeNodes, ungroupNode, undo, redo, pushHistory,
