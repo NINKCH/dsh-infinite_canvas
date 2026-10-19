@@ -2394,6 +2394,9 @@ window.__ModuleLoader__.load({
     const assetUrlCache = new Map();
     const assetNameCache = new Map(); // assetId -> name（连线绑定的同步名称查询）
     function fileUrlFor(rel) { return '/' + NS + '/api/file?rel=' + encodeURIComponent(rel); }
+    /** 磁盘落盘扩展名（IC-B3 统一后唯一保留的 mime→ext 映射）：mime 子类型直取，
+     *  非法子类型回退 .bin。与 extForDownload 的区别：落盘时 mime 已由生成链路给出
+     *  （mp4-first 录制 / png 编码），不存在"从文件名猜"的场景——这里没有任何名字兜底。 */
     function extFromMime(mime) {
       const sub = String(mime || '').split(';')[0].split('/')[1] || 'bin';
       return /^[a-z0-9]{1,8}$/i.test(sub) ? sub : 'bin';
@@ -4577,6 +4580,10 @@ window.__ModuleLoader__.load({
     function craftMapLoad(pid) { return lsGet('dsh-ic:craftmap:' + pid, {}) || {}; }
     function craftMapSave(pid, map) { lsSet('dsh-ic:craftmap:' + pid, map); }
     function craftMapSet(pid, assetId, rel) { const m = craftMapLoad(pid); m[assetId] = rel; craftMapSave(pid, m); }
+    /** Craft 落盘/产物路径的扩展名（IC-B3 统一）：**文件名优先**——Craft 侧复用资产的
+     *  既有名字与扩展名（已登记的 media/graded 文件靠名字对回 ArtCraft 工程），mime 只兜底。
+     *  与 extForDownload（mime 优先）方向相反是有意的：下载侧扩展名必须反映真实容器，
+     *  落盘侧名字才是资产在 ArtCraft 工程里的稳定标识。 */
     function extForMime(mime, name) {
       const fromName = String(name || '').match(/(\.[a-z0-9]{2,5})$/i);
       if (fromName) return fromName[1].toLowerCase();
@@ -4590,9 +4597,12 @@ window.__ModuleLoader__.load({
       if (m.includes('wav')) return '.wav';
       return '.bin';
     }
-    /** IC-01：下载侧扩展名判定（**mime 优先** → 文件名白名单兜底 → kind 兜底）。
-     *  与 extForMime 的差别是关键：extForMime 是「文件名优先」，下载侧若照搬会让
-     *  `final.2026` 这类带点号的资产名得到 `.2026`；下载到的文件扩展名必须反映真实容器。 */
+    /** IC-01/IC-B3：下载侧扩展名判定（**mime 优先** → 文件名白名单兜底 → kind 兜底）。
+     *  三套映射的分工（IC-B3 统一结论，各自单一职责）：
+     *  - extFromMime：磁盘落盘（mime 子类型直取，无名字兜底——落盘时 mime 由生成链路给出）
+     *  - extForMime：Craft 落盘/产物路径（文件名优先——名字是 ArtCraft 工程里的稳定标识）
+     *  - extForDownload：用户下载（mime 优先——扩展名必须反映真实容器，`final.2026`
+     *    这类带点号的资产名绝不能得到 `.2026`，所以名字兜底只认白名单） */
     const DOWNLOAD_EXT_BY_MIME = [
       [/^image\/png$/, '.png'], [/^image\/jpe?g$/, '.jpg'], [/^image\/webp$/, '.webp'], [/^image\/gif$/, '.gif'],
       [/^video\/mp4$/, '.mp4'], [/^video\/quicktime$/, '.mov'], [/^video\/webm$/, '.webm'], [/^video\/x-matroska$/, '.mkv'],
