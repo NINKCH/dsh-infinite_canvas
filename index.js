@@ -555,6 +555,28 @@ function jsonAssetsList(args) {
   const nextCursor = start + limit < total ? Buffer.from(String(start + limit)).toString('base64') : null;
   return Promise.resolve({ ok: true, total, items: page, nextCursor });
 }
+/** IC-B4：FTS 存量孤儿清理（一次性维护，幂等）。assets_fts 里 id 不在 assets 表的行 = 孤儿
+ *  （0.18.0 存储重写期 DELETE FROM assets 绕过 dbAssetDelete 留下的，QA 实测 58 vs 56）。
+ *  只读判断 + 显式计数返回；顺带把"在 assets 却不在 fts"的漏登行补齐（反向孤儿，同样幂等）。 */
+function ftsReconcile(db) {
+  const orphans = db.prepare('SELECT f.id AS id FROM assets_fts f LEFT JOIN assets a ON a.id = f.id WHERE a.id IS NULL').all().map((r) => r.id);
+  const missing = db.prepare('SELECT a.id AS id FROM assets a LEFT JOIN assets_fts f ON f.id = a.id WHERE f.id IS NULL').all().map((r) => r.id);
+  const del = db.prepare('DELETE FROM assets_fts WHERE id = ?');
+  let removed = 0;
+  const errors = [];
+  for (const id of orphans) {
+    try { del.run(id); removed++; } catch (e) { errors.push(id + ': ' + String((e && e.message) || e)); }
+  }
+  let repaired = 0;
+  if (missing.length) {
+    const rows = db.prepare('SELECT id, name, prompt FROM assets WHERE id IN (' + missing.map(() => '?').join(',') + ')').all(...missing);
+    for (const r of rows) {
+      try { syncFts(db, r.id, r.name, r.prompt); repaired++; } catch (e) { errors.push(r.id + ': ' + String((e && e.message) || e)); }
+    }
+  }
+  return { ok: errors.length === 0, removed, repaired, fts: db.prepare('SELECT COUNT(*) AS n FROM assets_fts').get().n, assets: db.prepare('SELECT COUNT(*) AS n FROM assets').get().n, errors };
+}
+
 /** 确保项目的物理文件夹（按项目名）与清单条目存在；改名时尽力重命名目录（被占用/冲突则保留旧文件夹）。返回文件夹名。 */
 function ensureProjectFolder(pid, name) {
   const root = dataRoot();
@@ -2210,7 +2232,7 @@ async function updateInstall() {
 export const inject = ['webServer', 'tools'];
 
 // 仅供诊断 / 自动化测试（不属于 RPC 面，运行时行为不受影响）
-export const _internals = { updateCheck, updateInstall, npmLatestVersion, cmpVer, findPnpm, getProfileDir: () => PROFILE_DIR, getVersion: () => VERSION, dataRoot, setDataRoot, dataRootMigrate, dataRootImport, ensureProjectFolder, physicalRel, mirrorProjectToDataRoot, writeAssetIndex, removeAssetIndexEntry, readDataRootMeta, removeDataRootProject, sqlDeleteProjectRows, deletedProjectIds, addDeletedProjectId, clearDeletedProjectId, fetchProxyForward, storyboardConsistencyWarnings, readAssetIndexNames, safeJoin, mimeOf, pipeFile, getIcConfigPath: () => CONFIG_PATH, canvasCreateProject, canvasWriteNode, canvasConnect, canvasDeleteProject, canvasDeleteNode, canvasRunNode, canvasNodeStatus, canvasGetBible, canvasUpdateBible, canvasCreateNode, canvasOpen, projectsList, projectsPut, projectsGet, projectsDelete, projectsSync, sqliteAvailable: () => !!SQLITE, getDb, closeDb, dbAssetsList, dbAssetsGet, dbAssetNames, dbAssetCreate, dbAssetUpdate, dbAssetDelete, objectAbsFor, readDocOrNull, docExists, sqlActive, rpcMethods: () => _rpcMethods, canvasUpdateNode, canvasGenerateNode };
+export const _internals = { updateCheck, updateInstall, npmLatestVersion, cmpVer, findPnpm, getProfileDir: () => PROFILE_DIR, getVersion: () => VERSION, dataRoot, setDataRoot, dataRootMigrate, dataRootImport, ensureProjectFolder, physicalRel, mirrorProjectToDataRoot, writeAssetIndex, removeAssetIndexEntry, readDataRootMeta, removeDataRootProject, sqlDeleteProjectRows, deletedProjectIds, addDeletedProjectId, clearDeletedProjectId, fetchProxyForward, storyboardConsistencyWarnings, readAssetIndexNames, safeJoin, mimeOf, pipeFile, getIcConfigPath: () => CONFIG_PATH, canvasCreateProject, canvasWriteNode, canvasConnect, canvasDeleteProject, canvasDeleteNode, canvasRunNode, canvasNodeStatus, canvasGetBible, canvasUpdateBible, canvasCreateNode, canvasOpen, projectsList, projectsPut, projectsGet, projectsDelete, projectsSync, sqliteAvailable: () => !!SQLITE, getDb, closeDb, dbAssetsList, dbAssetsGet, dbAssetNames, dbAssetCreate, dbAssetUpdate, dbAssetDelete, objectAbsFor, ftsReconcile, readDocOrNull, docExists, sqlActive, rpcMethods: () => _rpcMethods, canvasUpdateNode, canvasGenerateNode };
 
 function resolveModel(providers, want) {
   const byProvider = want && want.provider
@@ -2386,6 +2408,11 @@ export function apply(ctx) {
         const abs = path.join(root, 'projects', folder);
         try { mkdirSync(abs, { recursive: true }); } catch { /* 目录建不出来交给调用方报错 */ }
         return { ok: true, projectId: pid, folder, abs, dataRoot: root, legacy: !entry };
+      },
+      // IC-B4：FTS 存量孤儿一次性清理（幂等，可重复调；无 SQLite 时明确说不适用）
+      async ftsReconcile() {
+        if (!sqlActive()) return { ok: false, error: '当前不是 SQLite 存储模式，无 FTS 需要清理', applicable: false };
+        return ftsReconcile(getDb());
       },
       // 存储实况：一眼看清"是否真在用 SQLite 库、库在哪、多少数据"（客户端设置页显示）
       async dbStats() {
