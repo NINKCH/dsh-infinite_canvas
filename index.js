@@ -1527,6 +1527,9 @@ function writeIcDoc(id, doc) {
         id, String(doc.name || id).slice(0, 80), doc.createdAt || Date.now(), doc.updatedAt || Date.now(),
         doc.bibleUpdatedAt || 0, JSON.stringify(docSummary(doc)), JSON.stringify(doc.tombstones || []), JSON.stringify(doc),
       );
+    // SQL 模式也要保证数据目录里有 meta 映射（craft 清理/物理落盘按 folder 定位）：
+    // 目录与 project.json 镜像不再是主存储，但 folder 登记是 /api/asset 落盘与 ArtCraft 基准的前提。
+    try { ensureProjectFolder(id, (doc && doc.name) || id); } catch { /* meta 写失败不阻塞主存储 */ }
     return;
   }
   const f = projectFile(id);
@@ -2413,6 +2416,32 @@ export function apply(ctx) {
       async ftsReconcile() {
         if (!sqlActive()) return { ok: false, error: '当前不是 SQLite 存储模式，无 FTS 需要清理', applicable: false };
         return ftsReconcile(getDb());
+      },
+      /** IC-B2：删除项目时清理其目录下的 craft/（ArtCraft 后期产物）。
+       *  客户端知道自己要删哪个项目，Host 按项目物理文件夹定位（与 projectDirGet 同一基准），
+       *  只删 projects/<folder>/craft 这一个子目录——绝不碰项目镜像、其他项目、数据根其他内容。
+       *  幂等：目录不存在也是成功；失败可见（removed=false + reason），不静默吞。 */
+      async projectCraftRemove(args) {
+        const root = dataRoot();
+        const pid = String((args && args.projectId) || '');
+        if (!root) return { ok: false, error: '未设置数据根目录', projectId: pid };
+        if (!pid) return { ok: false, error: '缺少 projectId', projectId: pid };
+        const meta = readDataRootMeta();
+        const entry = meta.projects.find((p) => p.id === pid) || null;
+        const folder = entry ? entry.folder : sanitizeFolderName(pid);
+        const craftDir = path.join(root, 'projects', folder, 'craft');
+        // 防御：拼出来的必须是 <root>/projects/<folder>/craft，任何异常形态都拒绝执行
+        if (path.resolve(craftDir).toLowerCase() !== craftDir.toLowerCase() || !craftDir.toLowerCase().includes((path.join(root, 'projects')).toLowerCase())) {
+          return { ok: false, error: '拒绝执行：目标目录形态异常', projectId: pid, craftDir };
+        }
+        if (!existsSync(craftDir)) return { ok: true, removed: false, existed: false, craftDir, projectId: pid };
+        try {
+          rmrf(craftDir);
+          const gone = !existsSync(craftDir);
+          return { ok: gone, removed: gone, existed: true, craftDir, projectId: pid, error: gone ? null : '目录仍存在（可能被占用）' };
+        } catch (e) {
+          return { ok: false, removed: false, existed: true, craftDir, projectId: pid, error: String((e && e.message) || e) };
+        }
       },
       // 存储实况：一眼看清"是否真在用 SQLite 库、库在哪、多少数据"（客户端设置页显示）
       async dbStats() {

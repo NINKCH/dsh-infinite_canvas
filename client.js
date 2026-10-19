@@ -4552,6 +4552,13 @@ window.__ModuleLoader__.load({
       if (!abs) throw new Error('未设置画布数据根目录：ArtCraft 调用需要绝对的项目目录作为基准（设置 → 数据根目录）');
       return abs;
     }
+    /** IC-B2：项目删除时清掉其 craft/ 后期目录（Host RPC projectCraftRemove，幂等、失败可见）。 */
+    async function craftProjectCleanup(pid) {
+      try {
+        const r = await hostRpc('projectCraftRemove', { projectId: pid });
+        if (r && r.ok === false && r.error) toast('Craft 目录清理未完成：' + r.error);
+      } catch { /* 旧 Host 无该 RPC → 静默（目录残留不影响功能） */ }
+    }
     /** 项目目录下的相对路径 → 本机绝对路径（ArtCraft 的 args/FCP7 XML 都用它）。 */
     function joinLocal(absDir, rel) {
       const s = String(absDir || '').replace(/\//g, '\\').replace(/\\+$/, '');
@@ -9122,6 +9129,9 @@ window.__ModuleLoader__.load({
         lsSet(LS_PROJECTS, S.projects);
         lsSet(LS_ACTIVE, S.activeId);
         try { hostRpc('projectsDelete', { id: pid }).catch(() => { /* 静默 */ }); } catch { /* 忽略 */ }
+        // IC-B2：清掉该项目的 ArtCraft 后期目录（<数据根>\projects\<folder>\craft）——
+        // BLK-01 只管资产镜像与 FTS，craft 产物不在其中；失败只 toast 不阻断删除（目录残留可手动清）。
+        craftProjectCleanup(pid);
         if (!S.store) {
           // IndexedDB 模式（未设数据目录）：本地逐个清理
           try {
