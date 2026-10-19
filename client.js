@@ -3727,6 +3727,7 @@ window.__ModuleLoader__.load({
       if (o.frameMode === 'hard' && frameBlob) o.hardFrame = true;
       // 厂商预设层：显式选择了厂商格式（或旧配置自动识别）→ 走该厂商的官方协议适配器
       const vendor = detectVideoVendor(s);
+      let vendorDowngraded = false; // IC-03：识别到厂商但无适配器 → 降级走 OpenAI 兼容通用链（节点上可见）
       // 参考素材上限检查：超出即告警（截断发生在各 runner 内，这里先把事实说清楚）
       if (o.warn) {
         const caps = VIDEO_REF_CAPS[vendor] || { img: 1 };
@@ -3737,8 +3738,14 @@ window.__ModuleLoader__.load({
       }
       if (vendor !== 'openai' && vendor !== 'seedance') {
         const run = VIDEO_VENDOR_RUNNERS[vendor];
-        if (!run) throw new Error('暂未适配的视频厂商格式：' + vendor);
-        return await run(prompt, frameBlob, s, o);
+        if (!run) {
+          // IC-03：识别到的厂商没有官方适配器 → 不再硬失败（历史：`暂未适配的视频厂商格式：X` 直接炸），
+          // 降级走下方 OpenAI 兼容通用链，并把降级事实放节点上（绝不静默换协议）。
+          if (o.warn) o.warn('未识别到「' + vendor + '」的官方适配器，本次按 OpenAI 兼容格式发送（/v1/video/generations，失败自动降级 Seedance content[] / Sora /videos）——若该厂商协议不同，请在供应商设置里显式选择厂商');
+          vendorDowngraded = true;
+        } else {
+          return await run(prompt, frameBlob, s, o);
+        }
       }
       // OpenAI 风格视频接口（JUAI 等：/v1/video/generations）优先识别——
       // 即使误把协议设成 seedance 也不走火山官方协议（两者状态/结果字段不同）
@@ -11082,6 +11089,8 @@ window.__ModuleLoader__.load({
           window.__DSH_IC_MEDIA__ = { extForDownload };
           // IC-04：参考图上传三件套的纯函数出口（供 scripts/test-image-upload.mjs 直接断言）
           window.__DSH_IC_IMGREF__ = { rawImageDims, sniffImageEncoding, registerReferenceAsset };
+          // IC-03：视频厂商识别/前缀归一化的纯函数出口（供 scripts/test-vendor-detect.mjs 直接断言）
+          window.__DSH_IC_VENDOR__ = { detectVideoVendor, gatewayPrefixFor, wanEndpoints, vendorBase, VIDEO_REF_CAPS };
           // BLK-02：ArtCraft 目录基准相关的纯函数出口（供 scripts/test-craft-base.mjs 断言）
           window.__DSH_IC_CRAFT__ = { craftBaseDir, craftBaseDirRequired, joinLocal, craftFolderOf, craft };
         }

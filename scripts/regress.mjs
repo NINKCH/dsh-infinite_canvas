@@ -54,6 +54,8 @@ const SUITE = [
   { name: 'test-drag-alt.mjs', desc: '拖动推挤 / Alt 自由摆放 / 快捷键面板' },
   { name: 'test-download-ext.mjs', desc: 'IC-01 下载扩展名按容器判定' },
   { name: 'test-craft-base.mjs', desc: 'BLK-02 画布→ArtCraft base+path 契约' },
+  { name: 'test-image-upload.mjs', desc: 'IC-04 参考图上传三件套（嗅探/原始尺寸/登记重试）' },
+  { name: 'test-vendor-detect.mjs', desc: 'IC-03 视频厂商识别/前缀归一化/未知厂商降级' },
   // --- 核心链路（历史事故区）---
   { name: 'test-compose.mjs', desc: '成片合成主循环（dur is not defined 事故的网兜）' },
   { name: 'test-tools.mjs', desc: '对话工具 schema 与返回值契约' },
