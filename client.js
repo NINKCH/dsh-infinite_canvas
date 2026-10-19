@@ -2802,21 +2802,49 @@ window.__ModuleLoader__.load({
       } catch { /* 解析失败返回 null */ }
       return null;
     }
+    /** 魔数嗅探真实编码（IC-04 抽出的纯函数）：只认 PNG/JPEG/WebP 三类平台可收的字节签名。
+     *  返回 { mime, ext, kind }；不匹配（改后缀的 AVIF/HEIC 等）返回 null，调用方给出可执行报错。 */
+    function sniffImageEncoding(u8) {
+      const isPng = u8 && u8[0] === 0x89 && u8[1] === 0x50 && u8[2] === 0x4e && u8[3] === 0x47;
+      const isJpg = u8 && u8[0] === 0xff && u8[1] === 0xd8 && u8[2] === 0xff;
+      const isWebp = u8 && u8[0] === 0x52 && u8[1] === 0x49 && u8[2] === 0x46 && u8[3] === 0x46
+        && u8[8] === 0x57 && u8[9] === 0x45 && u8[10] === 0x42 && u8[11] === 0x50;
+      if (isPng) return { mime: 'image/png', ext: 'png', kind: 'png' };
+      if (isJpg) return { mime: 'image/jpeg', ext: 'jpg', kind: 'jpeg' };
+      if (isWebp) return { mime: 'image/webp', ext: 'webp', kind: 'webp' };
+      return null;
+    }
+    /** 参考图登记（IC-04 抽出的纯流程）：先用解码尺寸登记，被平台以 width/height
+     *  口径拒绝（EXIF 旋转图：浏览器解码会交换宽高，平台读原始文件）时用文件原始尺寸重试一次。
+     *  api = async (method, path, body) => 响应；两次都失败时抛出带两次原因的错误。 */
+    async function registerReferenceAsset(api, regPayload, meta) {
+      try {
+        return await api('POST', '/image/v1/assets', regPayload(meta.width, meta.height));
+      } catch (e) {
+        const msg = String((e && e.message) || e);
+        const alt = meta.rawWidth && meta.rawHeight && (meta.rawWidth !== meta.width || meta.rawHeight !== meta.height);
+        if (!/width\/?height/i.test(msg) || !alt) throw e;
+        try {
+          const reg = await api('POST', '/image/v1/assets', regPayload(meta.rawWidth, meta.rawHeight));
+          console.info('[infinite-canvas] 参考图登记改用文件原始尺寸成功：' + meta.rawWidth + '×' + meta.rawHeight);
+          return reg;
+        } catch (e2) {
+          throw new Error(msg + '；改用文件原始尺寸 ' + meta.rawWidth + '×' + meta.rawHeight + ' 重试仍失败：' + ((e2 && e2.message) || e2));
+        }
+      }
+    }
     /** 参考图上传前置：魔数嗅探真实编码（平台仅收 JPG/PNG/WebP，且校验声明 MIME 与实际字节一致——
      *  改后缀的 AVIF/HEIC 会在登记时报 "Params [Width/Height] not available"）+ 测像素尺寸
      *  （同时给出解码尺寸与文件原始尺寸，登记不一致时用原始尺寸重试）。 */
     async function imageBlobMeta(input) {
       const blob = input.blob || input;
       const head = new Uint8Array(await blob.slice(0, 16).arrayBuffer());
-      const isPng = head[0] === 0x89 && head[1] === 0x50 && head[2] === 0x4e && head[3] === 0x47;
-      const isJpg = head[0] === 0xff && head[1] === 0xd8 && head[2] === 0xff;
-      const isWebp = head[0] === 0x52 && head[1] === 0x49 && head[2] === 0x46 && head[3] === 0x46
-        && head[8] === 0x57 && head[9] === 0x45 && head[10] === 0x42 && head[11] === 0x50;
-      if (!isPng && !isJpg && !isWebp) {
+      const sniffed = sniffImageEncoding(head);
+      if (!sniffed) {
         throw new Error('参考图编码不受支持：平台仅接受 JPG/PNG/WebP 原生编码（当前文件的实际字节不是这三类，常见于改后缀的 AVIF/HEIC）——请转成 JPG/PNG 后重新挂参考图');
       }
-      const mime = isPng ? 'image/png' : isJpg ? 'image/jpeg' : 'image/webp';
-      const ext = isPng ? 'png' : isJpg ? 'jpg' : 'webp';
+      const mime = sniffed.mime;
+      const ext = sniffed.ext;
       let raw = null;
       try { raw = rawImageDims(new Uint8Array(await blob.slice(0, 262144).arrayBuffer())); } catch { /* 忽略 */ }
       let width = 0;
@@ -2885,20 +2913,7 @@ window.__ModuleLoader__.load({
         // 登记：宽高必须与平台解析出的文件尺寸一致。浏览器解码尺寸与文件原始尺寸在
         // EXIF 旋转图上不同 → 先用解码尺寸，被拒（Params [Width/Height] not available）时用原始尺寸重试一次
         const regPayload = (w, h) => ({ object_key: up.object_key, file_name: fileName, content_type: meta.mime, file_size: meta.blob.size, width: w, height: h });
-        let reg = null;
-        try {
-          reg = await api('POST', '/image/v1/assets', regPayload(meta.width, meta.height));
-        } catch (e) {
-          const msg = String((e && e.message) || e);
-          const alt = meta.rawWidth && meta.rawHeight && (meta.rawWidth !== meta.width || meta.rawHeight !== meta.height);
-          if (!/width\/?height/i.test(msg) || !alt) throw e;
-          try {
-            reg = await api('POST', '/image/v1/assets', regPayload(meta.rawWidth, meta.rawHeight));
-            console.info('[infinite-canvas] 参考图登记改用文件原始尺寸成功：' + meta.rawWidth + '×' + meta.rawHeight);
-          } catch (e2) {
-            throw new Error(msg + '；改用文件原始尺寸 ' + meta.rawWidth + '×' + meta.rawHeight + ' 重试仍失败：' + ((e2 && e2.message) || e2));
-          }
-        }
+        const reg = await registerReferenceAsset(api, regPayload, meta);
         const aid = reg && reg.reference && reg.reference.asset_id;
         if (!aid) throw new Error('参考图登记失败：响应中没有 reference.asset_id');
         if (ref.assetId) compAssetIdCache.set(ref.assetId, aid);
@@ -11059,6 +11074,8 @@ window.__ModuleLoader__.load({
           };
           // IC-01：下载侧扩展名判定的纯函数出口（供 scripts/test-download-ext.mjs 直接断言）
           window.__DSH_IC_MEDIA__ = { extForDownload };
+          // IC-04：参考图上传三件套的纯函数出口（供 scripts/test-image-upload.mjs 直接断言）
+          window.__DSH_IC_IMGREF__ = { rawImageDims, sniffImageEncoding, registerReferenceAsset };
           // BLK-02：ArtCraft 目录基准相关的纯函数出口（供 scripts/test-craft-base.mjs 断言）
           window.__DSH_IC_CRAFT__ = { craftBaseDir, craftBaseDirRequired, joinLocal, craftFolderOf, craft };
         }
