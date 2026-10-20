@@ -152,6 +152,7 @@ if (cntAll && Number(cntAll) > 0) {
     'test(IC-07)',
     'fix(OBS-1)',
     'fix(OBS-2)',
+    'fix(IC-B5)',
   ];
   const isChore = (subject) => CHORE_SUBJECTS.some((p) => subject === p || subject.startsWith(p + ':') || subject.startsWith(p + ' '));
   const functional = [];
