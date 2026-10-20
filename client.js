@@ -191,6 +191,7 @@ window.__ModuleLoader__.load({
       'duplicate': '复制节点 (Ctrl+D)',
       'confirmDel': '确认删除?',
       'newProject': '新建项目',
+      'emptyProjectHint': '还没有项目。点上方「新建项目」创建第一个项目，或直接在对话里说「创建一个项目叫…」。',
       'projectName': '项目名称',
       'renameHint': '双击名称重命名',
       'delProjectHint': '删除项目及其资产',
@@ -638,6 +639,7 @@ window.__ModuleLoader__.load({
       'duplicate': 'Duplicate (Ctrl+D)',
       'confirmDel': 'Confirm delete?',
       'newProject': 'New project',
+      'emptyProjectHint': 'No projects yet. Click "New project" above to create the first one, or just say "create a project called…" in the chat.',
       'projectName': 'Project name',
       'renameHint': 'Double-click to rename',
       'delProjectHint': 'Delete project and its assets',
@@ -819,6 +821,7 @@ window.__ModuleLoader__.load({
       'scriptAssetPrefix': 'Script-',
       'storyboardAssetPrefix': 'Shots-',
       'defaultProject': 'My Canvas',
+      'emptyProjectHint': 'No projects yet. Click "New Project" above to create your first one, or just ask the assistant: "create a project called …".',
       'shotPrefix': 'Shot ',
       'shotsUnit': 'shots',
       'savedOk': 'Saved as asset',
@@ -4928,9 +4931,8 @@ window.__ModuleLoader__.load({
             s.projects = s.projects.filter((p) => !gone.has(p.id));
             if (gone.has(s.activeId)) {
               if (s.projects.length === 0) {
-                const p = { id: uid('p'), name: T('defaultProject'), createdAt: Date.now(), updatedAt: Date.now() };
-                s.projects.push(p);
-                s.activeId = p.id;
+                // OBS-UI-1：删光后进入空态，不再自动建「我的画布」占位（同 initStore 口径）
+                s.activeId = null;
                 s.graph = emptyGraph();
               } else {
                 s.activeId = s.projects[0].id;
@@ -5072,6 +5074,8 @@ window.__ModuleLoader__.load({
     /** 启动时把本地全部项目推给 Host：让对话能看到并操作画布上已有的项目（客户端为内容权威）。 */
     async function pushAllProjectsToHost() {
       if (hostSyncStopped) return;
+      // OBS-UI-1：空态（用户还没建任何项目）不推送——否则空态下的占位也会写进 canvas.db
+      if (!S.projects.length) return;
       for (const p of [...S.projects]) {
         try {
           const doc = loadGraphDoc(p.id) || emptyGraph();
@@ -5728,9 +5732,16 @@ window.__ModuleLoader__.load({
     }
     function initStore() {
       S.projects = lsGet(LS_PROJECTS, []);
-      if (!Array.isArray(S.projects) || S.projects.length === 0) {
-        S.projects = [{ id: uid('p'), name: T('defaultProject'), createdAt: Date.now(), updatedAt: Date.now() }];
-        lsSet(LS_PROJECTS, S.projects);
+      if (!Array.isArray(S.projects)) S.projects = [];
+      // OBS-UI-1：不再自动创建「我的画布」空项目——干净客户端每次打开面板都会
+      // 经 pushAllProjectsToHost 把它写进 canvas.db（QA 实测 13→14 持续累积）。
+      // 空列表 = 空态：画布显示"新建项目"引导，用户显式点击才真正建项目。
+      if (S.projects.length === 0) {
+        S.activeId = null;
+        S.graph = emptyGraph();
+        V.x = 60; V.y = 40; V.scale = 1;
+        S.ready = true;
+        return;
       }
       const active = lsGet(LS_ACTIVE, null);
       S.activeId = S.projects.some((p) => p.id === active) ? active : S.projects[0].id;
@@ -9121,9 +9132,8 @@ window.__ModuleLoader__.load({
           try { localStorage.removeItem(LS_BIBLE + pid); } catch { /* 忽略 */ }
           if (s.activeId === pid) {
             if (s.projects.length === 0) {
-              const p = { id: uid('p'), name: T('defaultProject'), createdAt: Date.now(), updatedAt: Date.now() };
-              s.projects.push(p);
-              s.activeId = p.id;
+              // OBS-UI-1：删光后进入空态，不再自动建「我的画布」占位（同 initStore 口径）
+              s.activeId = null;
               s.graph = emptyGraph();
             } else {
               s.activeId = s.projects[0].id;
@@ -9172,6 +9182,10 @@ window.__ModuleLoader__.load({
               h('button', { type: 'button', className: 'dshic-mini is-ghost', title: T('cancel'), onClick: () => setCreating(false) }, '✕'),
             )
           : h('button', { key: 'newbtn', type: 'button', className: 'dshic-mini', style: { alignSelf: 'flex-start' }, onClick: () => { setCreating(true); setName(''); } }, Ic('plus', 11), T('newProject')),
+        !S.projects.length && !creating
+          ? h('div', { key: 'emptystate', className: 'dshic-hint', style: { alignSelf: 'flex-start', padding: '6px 2px', maxWidth: 260 } },
+              T('emptyProjectHint'))
+          : null,
         ...S.projects.map((p) => {
           const editing = editId === p.id;
           return h('div', {
