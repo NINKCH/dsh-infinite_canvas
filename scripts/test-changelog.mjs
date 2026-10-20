@@ -156,6 +156,9 @@ if (cntAll && Number(cntAll) > 0) {
     'fix(OBS-1)',
     'fix(OBS-2)',
     'fix(IC-B5)',
+    // revert-of-chore：撤销一条收尾/探针提交也是收尾操作（记录对象仍是那个功能提交）
+    'Revert "fix(OBS-1)',
+    'Revert "chore(test)',
   ];
   const isChore = (subject) => CHORE_SUBJECTS.some((p) => subject === p || subject.startsWith(p + ':') || subject.startsWith(p + ' '));
   /** IC-B5 文件面断言（subject 白名单的第二道锁）：收尾提交只许触碰
