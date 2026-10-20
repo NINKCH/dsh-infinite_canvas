@@ -146,6 +146,9 @@ if (cntAll && Number(cntAll) > 0) {
   // CHANGELOG 零命中而门禁照绿，即 QA 实证的"假绿"活样本）。
   // 白名单只收确定修门禁自身/记录 CHANGELOG 的主题；新收尾类型出现时**显式加一行**，
   // 加错会被下面的功能账数量相等断言拦住（收尾项多算 → 功能数 ≠ 清单数）。
+  // 【治理规则】新增 CHORE_SUBJECTS 条目必须经 PM 批准——每加一条等于放宽一次门禁的
+  // 执行面；条目必须能自证「只修门禁自身（scripts/）或只记 CHANGELOG/docs」。
+  // 文件面由 isChoreFileAllowed 双重兜底：subject 骗过、文件面也骗不过。
   const CHORE_SUBJECTS = [
     'docs(IC-07)',
     'chore(test)',
@@ -155,6 +158,13 @@ if (cntAll && Number(cntAll) > 0) {
     'fix(IC-B5)',
   ];
   const isChore = (subject) => CHORE_SUBJECTS.some((p) => subject === p || subject.startsWith(p + ':') || subject.startsWith(p + ' '));
+  /** IC-B5 文件面断言（subject 白名单的第二道锁）：收尾提交只许触碰
+   *  CHANGELOG.md / scripts/（门禁与测试）/ docs/（文档）。client.js、index.js、
+   *  locale/、assets/ 等任何用户可见面越界 → false（调用方报红指名提交与文件）。 */
+  const isChoreFileAllowed = (paths) => (paths || []).every((p) => {
+    const f = String(p || '').replace(/\\/g, '/');
+    return f === 'CHANGELOG.md' || f.startsWith('scripts/') || f.startsWith('docs/');
+  });
   const functional = [];
   const shasSet = new Set();
   for (const line of shas) {
@@ -162,7 +172,15 @@ if (cntAll && Number(cntAll) > 0) {
     const sha = line.slice(0, sp);
     const subject = line.slice(sp + 1);
     shasSet.add(sha);
-    if (!isChore(subject)) functional.push(sha);
+    if (!isChore(subject)) { functional.push(sha); continue; }
+    // 文件面双重锁：subject 判成收尾的提交，改动文件越界 = 不是收尾（subject 冒名），
+    // 并入功能账并报红——「真改 client.js 的提交只要标题写成 fix(OBS-1) 就能逃账」的
+    // 最后一条通道由此关闭。
+    const files = (git(['diff-tree', '--no-commit-id', '--name-only', '-r', sha]) || '').split(/\r?\n/).filter(Boolean);
+    if (!isChoreFileAllowed(files)) {
+      errs.push('提交 ' + sha + '（' + subject + '）主题在收尾白名单内，但触碰了越界文件：' + files.join(', ') + ' —— 收尾提交只许改 CHANGELOG.md/scripts/docs，功能改动请改主题并进功能账');
+      functional.push(sha);
+    }
   }
   ok(functional.length === COVERAGE.length, 'dev 未发版功能提交数（' + functional.length + '，剔除纯收尾 ' + (shasSet.size - functional.length) + ' 个）≠ CHANGELOG 覆盖清单条数（' + COVERAGE.length + '）——清单与实际脱节，扩清单或清掉已发布项');
   for (const c of COVERAGE) ok(shasSet.has(c.sha), '覆盖清单里的 ' + c.sha + ' 不在 main..dev（已发布或已 amend？请更新手工清单）');
@@ -176,6 +194,24 @@ if (cntAll && Number(cntAll) > 0) {
     console.log('  · SKIP：' + reason + '（--strict 下这将判失败）');
   }
 }
+
+// ---------- 8) 文件面断言的纯函数反例（IC-B5 补完，不依赖 git） ----------
+// 白名单目录/文件规则独立可测：越界（client.js/index.js/locale/assets）必 false，
+// 收尾面（CHANGELOG/scripts/docs）必 true，混入一个越界文件即整体 false。
+const isChoreFileAllowedPure = (paths) => (paths || []).every((p) => {
+  const f = String(p || '').replace(/\\/g, '/');
+  return f === 'CHANGELOG.md' || f.startsWith('scripts/') || f.startsWith('docs/');
+});
+ok(isChoreFileAllowedPure(['client.js']) === false, 'isChoreFileAllowed(client.js) 应为 false（关键反例：功能面冒名收尾）');
+ok(isChoreFileAllowedPure(['index.js']) === false, 'isChoreFileAllowed(index.js) 应为 false（Host 侧越界）');
+ok(isChoreFileAllowedPure(['locale/zh.json']) === false, 'isChoreFileAllowed(locale/zh.json) 应为 false（用户可见文案面）');
+ok(isChoreFileAllowedPure(['assets/support/x.png']) === false, 'isChoreFileAllowed(assets/…) 应为 false（打包面）');
+ok(isChoreFileAllowedPure(['CHANGELOG.md']) === true, 'isChoreFileAllowed(CHANGELOG.md) 应为 true');
+ok(isChoreFileAllowedPure(['scripts/test-x.mjs']) === true, 'isChoreFileAllowed(scripts/test-x.mjs) 应为 true');
+ok(isChoreFileAllowedPure(['docs/x.md']) === true, 'isChoreFileAllowed(docs/x.md) 应为 true');
+ok(isChoreFileAllowedPure(['CHANGELOG.md', 'scripts/regress.mjs']) === true, '混合合法文件应为 true');
+ok(isChoreFileAllowedPure(['CHANGELOG.md', 'client.js']) === false, '合法文件混入一个越界文件即 false');
+ok(isChoreFileAllowedPure([]) === true, '空文件列表视为合法（空提交不冒名）');
 
 if (errs.length) {
   console.error('✗ IC-07 验证未通过（' + errs.length + '）：');
