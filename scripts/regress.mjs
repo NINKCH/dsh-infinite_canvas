@@ -59,6 +59,7 @@ const SUITE = [
   { name: 'test-fts-reconcile.mjs', desc: 'IC-B4 FTS 存量孤儿清理（幂等/双向）' },
   { name: 'test-craft-cleanup.mjs', desc: 'IC-B2 删项目清 craft 后期目录（幂等/失败可见）' },
   { name: 'test-ext-mapping.mjs', desc: 'IC-B3 三套扩展名映射分工（单一职责/零混用）' },
+  { name: 'test-empty-project.mjs', desc: 'OBS-UI-1 空态不建占位项目、不推送 Host、显式创建完好' },
   // --- 核心链路（历史事故区）---
   { name: 'test-compose.mjs', desc: '成片合成主循环（dur is not defined 事故的网兜）' },
   { name: 'test-tools.mjs', desc: '对话工具 schema 与返回值契约' },
