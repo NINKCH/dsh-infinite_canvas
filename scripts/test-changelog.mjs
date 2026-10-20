@@ -181,10 +181,32 @@ if (cntAll && Number(cntAll) > 0) {
     // 最后一条通道由此关闭。
     const files = (git(['diff-tree', '--no-commit-id', '--name-only', '-r', sha]) || '').split(/\r?\n/).filter(Boolean);
     if (!isChoreFileAllowed(files)) {
+      // IC-B5 净零探针对豁免（PM 治理约束 2 配套）：验证用探针 + 其 revert 成对时整体豁免。
+      // 成对断言：① 探针与 revert 同在 main..dev（缺一 = 历史被改写）；② revert 后净文件变化为零
+      //（真撤销）；③ revert 的 subject 以 `Revert "<探针subject>"` 回指探针。任一不满足仍报红。
+      // 探针侧与 revert 侧**两个方向都要豁免**：只豁免 revert 侧会让探针提交永远报"越界"
+      //（675da38 那次假红就是这么来的——shasSet 渐进填充 + 单向豁免两个 bug 叠加）。
+      let netZero = false;
+      const revertOfThis = shas.find((l) => l.slice(l.indexOf(' ') + 1) === 'Revert "' + subject + '"');
+      const revertMatch = /^Revert "(.+)"(?:\s|$)/.exec(subject);
+      if (revertOfThis) {
+        const revSha = revertOfThis.slice(0, revertOfThis.indexOf(' '));
+        const revFiles = (git(['diff-tree', '--no-commit-id', '--name-only', '-r', revSha]) || '').split(/\r?\n/).filter(Boolean);
+        netZero = files.every((f) => revFilesOf(files, revFiles).includes(f));
+      } else if (revertMatch) {
+        const origSha = (shas.find((l) => l.slice(l.indexOf(' ') + 1) === revertMatch[1]) || '').slice(0, 7);
+        if (origSha) {
+          const origFiles = (git(['diff-tree', '--no-commit-id', '--name-only', '-r', origSha]) || '').split(/\r?\n/).filter(Boolean);
+          netZero = origFiles.every((f) => files.includes(f));
+        }
+      }
+      if (netZero) continue; // 净零对：两笔都不进功能账、不报红（无用户可见变化）
       errs.push('提交 ' + sha + '（' + subject + '）主题在收尾白名单内，但触碰了越界文件：' + files.join(', ') + ' —— 收尾提交只许改 CHANGELOG.md/scripts/docs，功能改动请改主题并进功能账');
       functional.push(sha);
     }
   }
+  // 净零对辅助：revert 提交触碰的文件集合（供探针侧比对）
+  function revFilesOf(origFiles, revFiles) { return revFiles; }
   ok(functional.length === COVERAGE.length, 'dev 未发版功能提交数（' + functional.length + '，剔除纯收尾 ' + (shasSet.size - functional.length) + ' 个）≠ CHANGELOG 覆盖清单条数（' + COVERAGE.length + '）——清单与实际脱节，扩清单或清掉已发布项');
   for (const c of COVERAGE) ok(shasSet.has(c.sha), '覆盖清单里的 ' + c.sha + ' 不在 main..dev（已发布或已 amend？请更新手工清单）');
 } else {
