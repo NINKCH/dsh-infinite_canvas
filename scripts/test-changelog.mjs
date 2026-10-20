@@ -117,6 +117,8 @@ const COVERAGE = [
   { sha: 'ff5e82e', keys: [/placeholder project|我的画布|empty state/i] },
   { sha: '95e6a87', keys: [/placeholder project|我的画布|empty state/i] },
   { sha: '1ab7b66', keys: [/no-models hint|no models configured|runs will ask you to configure/i] },
+  { sha: '37959ed', keys: [/Path traversal in project deletion/i] },
+  { sha: '192a377', keys: [/wrong reference images|previous run as this run|disk-cleanup failures|shortcuts panel now shows|go back to auto|overwritten mid-run|misreport it|keeps voice references/i] },
 ];
 for (const c of COVERAGE) {
   ok(c.keys.some((re) => re.test(section)), '未发版提交 ' + c.sha + ' 在 Unreleased 段里找不到对应记录（补记不全）');
