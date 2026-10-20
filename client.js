@@ -265,6 +265,10 @@ window.__ModuleLoader__.load({
       // 快捷键面板（左上角浮层）
       'keysBtn': '快捷键',
       'keysTitle': '快捷键与操作',
+      'guideDesc': '在对话旁直接分镜、生成视频与成片',
+      'hostTakenTitle': '画布已在另一侧打开',
+      'hostTakenHint': '同一时刻画布只能在一处运行（共享同一份节点与生成状态），点击下方按钮把画布切换到这里。',
+      'hostTakeOver': '把画布切换到这里',
       'keysHint': '点击按钮收起；Esc 也可关闭',
       'keysDrag': '画布操作',
       'keysEdit': '编辑',
@@ -714,6 +718,10 @@ window.__ModuleLoader__.load({
       // Shortcuts panel (floating, top-left of the canvas)
       'keysBtn': 'Shortcuts',
       'keysTitle': 'Shortcuts & gestures',
+      'guideDesc': 'Storyboard, generate and cut right beside the chat',
+      'hostTakenTitle': 'The canvas is open elsewhere',
+      'hostTakenHint': 'The canvas runs in one place at a time (one shared node graph and generation state). Move it here with the button below.',
+      'hostTakeOver': 'Move the canvas here',
       'keysHint': 'Click the button again to collapse; Esc also closes',
       'keysDrag': 'Canvas',
       'keysEdit': 'Editing',
@@ -1361,6 +1369,27 @@ window.__ModuleLoader__.load({
   font-size:11px;color:var(--dsw-alias-label-secondary);opacity:.75;}
 /* Alt 自由摆放（不推挤）时的节点轮廓：虚线 + 轻微透明，明确"现在可以覆盖穿过" */
 .dshic-node.is-free-drag{outline:2px dashed var(--dsw-alias-brand-primary);outline-offset:2px;opacity:.92;}
+/* 会话右栏：画布页签（引导卡 / 占位卡 / 标题 chip） */
+.dshic-guide-card{display:flex;align-items:center;gap:12px;width:100%;min-height:56px;padding:12px 16px;
+  box-sizing:border-box;border:.5px solid var(--dsw-alias-border-l3);border-radius:var(--dsl-guide-entry-radius,10px);
+  background:var(--dsw-alias-bg-layer-1);cursor:pointer;font:inherit;color:var(--dsw-alias-label-primary);
+  position:relative;overflow:hidden;text-align:left;}
+.dshic-guide-card:hover{border-color:var(--dsw-alias-border-l2);background:color-mix(in srgb,var(--dsw-alias-label-primary) 4%,transparent);}
+.dshic-guide-icon{width:26px;height:26px;color:var(--dsw-alias-label-secondary);pointer-events:none;flex:none;
+  justify-content:center;align-items:center;display:flex;}
+.dshic-guide-text{flex:1;min-width:0;display:flex;flex-direction:column;gap:1px;pointer-events:none;}
+.dshic-guide-title{font-size:13px;font-weight:500;line-height:18px;}
+.dshic-guide-desc{font-size:12px;line-height:16px;color:var(--dsw-alias-label-secondary);
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.dshic-guide-arrow{color:var(--dsw-alias-label-secondary);flex:none;font-size:16px;line-height:1;}
+.dshic-pane-tab-title{font-size:12px;font-weight:500;}
+.dshic-host-taken{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+  background:var(--dsw-alias-bg-base);z-index:5;}
+.dshic-host-taken-card{max-width:320px;display:flex;flex-direction:column;align-items:center;gap:10px;
+  padding:20px 22px;border:1px solid var(--dsw-alias-border-l2);border-radius:12px;
+  background:var(--dsw-alias-bg-layer-1);text-align:center;}
+.dshic-host-taken-title{font-size:13px;font-weight:600;}
+.dshic-host-taken-hint{font-size:12px;line-height:18px;color:var(--dsw-alias-label-secondary);}
 /* 小地图 */
 .dshic-minimap{position:absolute;right:12px;bottom:12px;width:160px;height:100px;background:var(--dsw-alias-bg-overlay);
   border:1px solid var(--dsw-alias-border-l2);border-radius:8px;z-index:15;overflow:hidden;cursor:pointer;box-sizing:border-box;
@@ -5699,6 +5728,7 @@ window.__ModuleLoader__.load({
       updateMsg: null,
       updateDismissed: false,
       keysOpen: false,       // 左上角快捷键面板是否展开（纯 UI 状态，不持久化）
+      canvasHost: null,      // 画布当前宿主：'main'（全屏面板）| 'pane'（会话右栏页签）| null——同一时刻只允许一处实例
     };
     const listeners = new Set();
     let saveTimer = null;
@@ -11121,17 +11151,81 @@ window.__ModuleLoader__.load({
         // 面板根：包一层错误边界——任何渲染期崩溃都不再白屏，而是显示可复制的错误卡片
         PanelErrorBoundary.__dshicClass = true; // 冒烟 walker 标记
     function PanelRoot() {
-          return h(PanelErrorBoundary, null, h(CanvasPage));
+          return h(CanvasHostedApp, { host: 'main' });
         }
         ctx.slots.inject('main', () => ctx.slots.register({
           name: 'main',
           key: PANEL_ID,
           locale: NS,
         }, PanelRoot));
+        // —— 会话右侧面板：画布作为右栏页签（对话与画布同屏工作）——
+        // 契约与 dsh-client-ui-sidebar-terminal（「新建终端」卡片）完全同构：
+        //   guide.entry 卡片（key=页签 kind）→ 卡片 onClick tab.actions.openTab(kind, {replaceTab:true})
+        //   pane.tab 页签体 + pane.tab.title 标题 chip，key 同为该 kind。
+        // 同一时刻画布只允许一个实例（S.canvasHost 声明制，后打开者接管，另一侧降级为占位卡）——
+        // 否则两份 PanelRoot 共享同一个 S store 与 nodeEls 映射，拖拽/生成状态会互相打架。
+        const CANVAS_TAB_KIND = 'infinite-canvas';
+        function CanvasHostedApp({ host }) {
+          useApp();
+          useEffect(() => {
+            // 挂载即声明宿主（后开者接管）：在窄栏宿主里顺手收起画布自带的右侧栏（宽度不够）
+            const takeover = S.canvasHost !== host;
+            S.canvasHost = host;
+            if (takeover && host === 'pane' && S.rightOpen) S.rightOpen = false;
+            notify();
+            return () => { if (S.canvasHost === host) S.canvasHost = null; };
+          }, [host]);
+          if (S.canvasHost && S.canvasHost !== host) {
+            return h('div', { className: 'dshic-host-taken' },
+              h('div', { className: 'dshic-host-taken-card' },
+                h('div', { className: 'dshic-host-taken-title' }, T('hostTakenTitle')),
+                h('div', { className: 'dshic-host-taken-hint' }, T('hostTakenHint')),
+                h('button', {
+                  type: 'button', className: 'dshic-mini',
+                  onPointerDown: (e) => e.stopPropagation(),
+                  onClick: () => update((s) => { s.canvasHost = host; if (host === 'pane' && s.rightOpen) s.rightOpen = false; }),
+                }, T('hostTakeOver')),
+              ));
+          }
+          return h(PanelErrorBoundary, null, h(CanvasPage, { host }));
+        }
+        function CanvasPaneTitle() {
+          return h('span', { className: 'dshic-pane-tab-title' }, T('panel'));
+        }
+        function CanvasGuideCard(props) {
+          const tab = props && props.tab;
+          return h('button', {
+            type: 'button', className: 'dshic-guide-card',
+            'aria-label': T('guideDesc'),
+            onPointerDown: (e) => e.stopPropagation(),
+            onClick: () => { try { tab && tab.actions && tab.actions.openTab(CANVAS_TAB_KIND, { replaceTab: true }); } catch { /* 宿主未就绪时忽略 */ } },
+          },
+            h('span', { className: 'dshic-guide-icon' }, h(PanelIcon, { size: 22 })),
+            h('span', { className: 'dshic-guide-text' },
+              h('span', { className: 'dshic-guide-title' }, T('panel')),
+              h('span', { className: 'dshic-guide-desc' }, T('guideDesc'))),
+            h('span', { className: 'dshic-guide-arrow' }, '›'),
+          );
+        }
+        ctx.slots.inject('sidebar.right.pane.tab', () => ctx.slots.register({
+          name: 'sidebar.right.pane.tab',
+          key: CANVAS_TAB_KIND,
+          locale: NS,
+        }, () => h(CanvasHostedApp, { host: 'pane' })));
+        ctx.slots.inject('sidebar.right.pane.tab.title', () => ctx.slots.register({
+          name: 'sidebar.right.pane.tab.title',
+          key: CANVAS_TAB_KIND,
+          locale: NS,
+        }, CanvasPaneTitle));
+        ctx.slots.inject('sidebar.right.tab.guide.entry', () => ctx.slots.register({
+          name: 'sidebar.right.tab.guide.entry',
+          key: CANVAS_TAB_KIND,
+          locale: NS,
+        }, CanvasGuideCard));
         // 冒烟测试专用缝隙（仅在 smoke-render.mjs 设置了该标记时存在）：
         // 直接暴露各页签组件与同步入口，让测试能逐个渲染/驱动，抓白屏与同步断链问题
         if (typeof window !== 'undefined' && window.__DSH_IC_SMOKE__) {
-          window.__DSH_IC_TABS__ = { ProjectsTab, AssetsTab, BibleTab, SettingsTab, CanvasPage, ShortcutsPanel };
+          window.__DSH_IC_TABS__ = { ProjectsTab, AssetsTab, BibleTab, SettingsTab, CanvasPage, ShortcutsPanel, CanvasHostedApp, CanvasGuideCard };
           // 成片合成（composeFinalCut）纯函数级出口：浏览器录制链路无法在 Node 端跑，
           // 但合成主循环（分段推进/裁剪/转场/字幕）可以用假的 video/MediaRecorder 真实执行——
           // 这正是历史上一处 "dur is not defined" 在真机上才炸的漏洞所在。
