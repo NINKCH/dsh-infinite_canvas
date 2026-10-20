@@ -202,6 +202,7 @@ try {
 if (!plugin || typeof plugin.apply !== 'function') { console.error('✗ factory 返回缺少 apply(ctx)'); process.exit(1); }
 
 const roots = [];
+const walkedTabTypes = []; // sidebarRightTabs.register 桩的注册记录（开始页卡片来源）
 const ctx = {
   effect(fn) { fn(); },
   locale: { register: noop, subscribe: () => () => {} },
@@ -209,6 +210,9 @@ const ctx = {
     inject(name, cb) { cb(); },
     register(meta, Comp) { roots.push({ meta: meta || {}, Comp }); return Comp; },
   },
+  // 右栏页签注册表桩：真实 runner 由 ctx.reflect.provide('sidebarRightTabs') 提供；
+  // 旧 runner 没有该服务 → 插件须守卫跳过（这里记录注册事实，不产生渲染根）
+  sidebarRightTabs: { register: (def) => { walkedTabTypes.push(def); return () => {}; } },
 };
 try {
   plugin.apply(ctx);
@@ -244,6 +248,14 @@ if (windowStub.__DSH_IC_TABS__) {
 } else {
   console.error('✗ 未找到 __DSH_IC_TABS__（冒烟缝隙被移除？）');
   process.exit(1);
+}
+
+// 右栏页签 kind 必须已注册（开始页卡片的真正来源）——曾漏注册导致页签体存在但开始页无入口
+{
+  const def = walkedTabTypes.find((d) => d && d.kind === 'infinite-canvas');
+  if (!def) { console.error('✗ sidebarRightTabs.register 未注册 infinite-canvas kind（开始页不会出现画布入口）'); process.exit(1); }
+  if (!Array.isArray(def.guide) || !def.guide.length) { console.error('✗ 页签 kind 未带 guide 数组（开始页标准卡渲染不出来）'); process.exit(1); }
+  console.log('右栏页签 kind 注册：' + def.kind + '（guide 条目 ' + def.guide.length + ' 个，multiple=' + def.multiple + '）');
 }
 
 console.log(`组件遍历：${walkedCount} 个（根组件 ${roots.length} 个：${roots.map((r) => r.meta.id || r.meta.key || '?').join(', ')}）`);

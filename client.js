@@ -419,6 +419,8 @@ window.__ModuleLoader__.load({
       'errNoImageModel': '未指定图片模型：请在设置里配置图片模型并星标默认模型，或在节点上选择模型',
       'errNoVideoModel': '未指定视频模型：请在设置里配置视频模型并星标默认模型，或在节点上选择模型',
       'consistencyTitle': '一致性检查',
+      'refreshCheck': '刷新',
+      'refreshCheckHint': '按当前设定集重新校验（生成后补全的设定集条目不会让旧告警自动消失）',
       'restartHint': '插件后台尚未加载最新版本：请重启一次 DeepSeek Harness 后重试（仅首次更新需要）',
       'rpcFail': '请求失败',
       'skillEnhance': '技能增强（用已安装技能替代内置专家方法论）',
@@ -872,6 +874,8 @@ window.__ModuleLoader__.load({
       'errNoImageModel': 'No image model selected: configure image models in Settings and star a default, or pick one on the node',
       'errNoVideoModel': 'No video model selected: configure video models in Settings and star a default, or pick one on the node',
       'consistencyTitle': 'Consistency check',
+      'refreshCheck': 'Refresh',
+      'refreshCheckHint': 'Re-check against the current series bible (entries added after generation do not clear stale warnings automatically)',
       'restartHint': 'The plugin backend is not loaded yet: restart DeepSeek Harness once and retry (first update only)',
       'rpcFail': 'Request failed',
       'skillEnhance': 'Skill boost (use installed Harness skills instead of built-in experts)',
@@ -1369,20 +1373,7 @@ window.__ModuleLoader__.load({
   font-size:11px;color:var(--dsw-alias-label-secondary);opacity:.75;}
 /* Alt 自由摆放（不推挤）时的节点轮廓：虚线 + 轻微透明，明确"现在可以覆盖穿过" */
 .dshic-node.is-free-drag{outline:2px dashed var(--dsw-alias-brand-primary);outline-offset:2px;opacity:.92;}
-/* 会话右栏：画布页签（引导卡 / 占位卡 / 标题 chip） */
-.dshic-guide-card{display:flex;align-items:center;gap:12px;width:100%;min-height:56px;padding:12px 16px;
-  box-sizing:border-box;border:.5px solid var(--dsw-alias-border-l3);border-radius:var(--dsl-guide-entry-radius,10px);
-  background:var(--dsw-alias-bg-layer-1);cursor:pointer;font:inherit;color:var(--dsw-alias-label-primary);
-  position:relative;overflow:hidden;text-align:left;}
-.dshic-guide-card:hover{border-color:var(--dsw-alias-border-l2);background:color-mix(in srgb,var(--dsw-alias-label-primary) 4%,transparent);}
-.dshic-guide-icon{width:26px;height:26px;color:var(--dsw-alias-label-secondary);pointer-events:none;flex:none;
-  justify-content:center;align-items:center;display:flex;}
-.dshic-guide-text{flex:1;min-width:0;display:flex;flex-direction:column;gap:1px;pointer-events:none;}
-.dshic-guide-title{font-size:13px;font-weight:500;line-height:18px;}
-.dshic-guide-desc{font-size:12px;line-height:16px;color:var(--dsw-alias-label-secondary);
-  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
-.dshic-guide-arrow{color:var(--dsw-alias-label-secondary);flex:none;font-size:16px;line-height:1;}
-.dshic-pane-tab-title{font-size:12px;font-weight:500;}
+/* 会话右栏：画布页签（占位卡） */
 .dshic-host-taken{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
   background:var(--dsw-alias-bg-base);z-index:5;}
 .dshic-host-taken-card{max-width:320px;display:flex;flex-direction:column;align-items:center;gap:10px;
@@ -8565,6 +8556,18 @@ window.__ModuleLoader__.load({
         try { await genStoryboardNode(n); } catch (e) { toast(String((e && e.message) || e)); }
       };
       const shots = n.data.shots || [];
+      // 一致性告警的手动重校验：告警是**生成时刻**算的，之后补全设定集不会让它们自动消失——
+      // 点刷新按当前设定集重算（checkShotConsistency 读的是实时 bible/资产名索引）
+      const [wvChecking, setWvChecking] = useState(false);
+      const revalidate = async () => {
+        if (wvChecking || !shots.length) return;
+        setWvChecking(true);
+        try {
+          const warnings = await checkShotConsistency(shots);
+          update((s) => { const nd = s.graph.nodes[n.id]; if (nd) nd.data.warnings = warnings; });
+        } catch { /* 校验失败保留旧告警 */ }
+        setWvChecking(false);
+      };
       return [
         h('div', { key: 'mrow', className: 'dshic-node-row' },
           h(ModelSelect, { value: n.data.model, title: T('llmLabel'), onChange: (v) => update((s) => { const nd = s.graph.nodes[n.id]; if (nd) nd.data.model = v; }) }),
@@ -8611,7 +8614,16 @@ window.__ModuleLoader__.load({
         n.data.aiError ? h('div', { key: 'err', className: 'dshic-err' }, n.data.aiError) : null,
         (n.data.warnings || []).length
           ? h('div', { key: 'warn', className: 'dshic-card', style: { padding: 6, gap: 3 } },
-              h('div', { className: 'dshic-shot-label' }, T('consistencyTitle')),
+              h('div', { key: 'thead', className: 'dshic-node-row', style: { gap: 6 } },
+                h('div', { className: 'dshic-shot-label', style: { flex: 1, minWidth: 0 } }, T('consistencyTitle')),
+                // 手动重校验：生成时刻的告警在设定集补全后不会自动变绿——点一下按**当前**设定集重算
+                h('button', {
+                  type: 'button', className: 'dshic-mini is-ghost', title: T('refreshCheckHint'),
+                  disabled: wvChecking,
+                  onPointerDown: (e) => e.stopPropagation(),
+                  onClick: revalidate,
+                }, wvChecking ? h('span', { className: 'dshic-spin' }) : '↻', T('refreshCheck')),
+              ),
               n.data.warnings.map((w, i) => h('div', { key: i, className: 'dshic-err', style: { color: 'var(--dsw-alias-state-warn-primary)' } }, '· ' + w)),
             )
           : null,
@@ -11108,7 +11120,7 @@ window.__ModuleLoader__.load({
     // 插件入口
     // ============================================================
     return {
-      inject: ['slots', 'locale', 'layout'],
+      inject: ['slots', 'locale', 'layout', 'sidebarRightTabs'],
       apply(ctx) {
         CTX = ctx;
         ctx.effect(() => ctx.locale.register(NS, { zh: DICT_ZH, en: DICT_EN }), 'infinite-canvas: dictionaries');
@@ -11189,43 +11201,35 @@ window.__ModuleLoader__.load({
           }
           return h(PanelErrorBoundary, null, h(CanvasPage, { host }));
         }
-        function CanvasPaneTitle() {
-          return h('span', { className: 'dshic-pane-tab-title' }, T('panel'));
-        }
-        function CanvasGuideCard(props) {
-          const tab = props && props.tab;
-          return h('button', {
-            type: 'button', className: 'dshic-guide-card',
-            'aria-label': T('guideDesc'),
-            onPointerDown: (e) => e.stopPropagation(),
-            onClick: () => { try { tab && tab.actions && tab.actions.openTab(CANVAS_TAB_KIND, { replaceTab: true }); } catch { /* 宿主未就绪时忽略 */ } },
-          },
-            h('span', { className: 'dshic-guide-icon' }, h(PanelIcon, { size: 22 })),
-            h('span', { className: 'dshic-guide-text' },
-              h('span', { className: 'dshic-guide-title' }, T('panel')),
-              h('span', { className: 'dshic-guide-desc' }, T('guideDesc'))),
-            h('span', { className: 'dshic-guide-arrow' }, '›'),
-          );
+        // 页签 kind 注册（**开始页卡片的真正来源**）：壳的 GuideBody 遍历注册表里每个 kind 的
+        // guide 数组渲染标准卡——只注册槽位不进注册表时，页签体存在但开始页永远不显示入口
+        //（首次上线时漏了这一步，卡片不出现）。DEFAULT_BAND='extension'：插件默认档，与
+        // builtin 一次性配对共存，无需显式 priority。
+        // 守卫：旧 runner 未提供 sidebarRightTabs 服务时跳过（保持全屏面板可用，不让整个插件挂掉）。
+        if (ctx.sidebarRightTabs && typeof ctx.sidebarRightTabs.register === 'function') {
+          ctx.effect(() => ctx.sidebarRightTabs.register({
+            id: '@ninkch/dsh-infinite-canvas',
+            kind: CANVAS_TAB_KIND,
+            multiple: false, // 一个页签足够（同 kind 再开 = 聚焦已有页签，壳的 page uniqueness 语义）
+            title: () => T('panel'), // chip 文本（未注册 title 槽位时的兜底口径）
+            guide: [{
+              id: 'open',
+              order: 30,
+              title: () => T('panel'),
+              description: () => T('guideDesc'),
+              icon: PanelIcon,
+            }],
+          }), 'infinite-canvas: tab type');
         }
         ctx.slots.inject('sidebar.right.pane.tab', () => ctx.slots.register({
           name: 'sidebar.right.pane.tab',
           key: CANVAS_TAB_KIND,
           locale: NS,
         }, () => h(CanvasHostedApp, { host: 'pane' })));
-        ctx.slots.inject('sidebar.right.pane.tab.title', () => ctx.slots.register({
-          name: 'sidebar.right.pane.tab.title',
-          key: CANVAS_TAB_KIND,
-          locale: NS,
-        }, CanvasPaneTitle));
-        ctx.slots.inject('sidebar.right.tab.guide.entry', () => ctx.slots.register({
-          name: 'sidebar.right.tab.guide.entry',
-          key: CANVAS_TAB_KIND,
-          locale: NS,
-        }, CanvasGuideCard));
         // 冒烟测试专用缝隙（仅在 smoke-render.mjs 设置了该标记时存在）：
         // 直接暴露各页签组件与同步入口，让测试能逐个渲染/驱动，抓白屏与同步断链问题
         if (typeof window !== 'undefined' && window.__DSH_IC_SMOKE__) {
-          window.__DSH_IC_TABS__ = { ProjectsTab, AssetsTab, BibleTab, SettingsTab, CanvasPage, ShortcutsPanel, CanvasHostedApp, CanvasGuideCard };
+          window.__DSH_IC_TABS__ = { ProjectsTab, AssetsTab, BibleTab, SettingsTab, CanvasPage, ShortcutsPanel, CanvasHostedApp };
           // 成片合成（composeFinalCut）纯函数级出口：浏览器录制链路无法在 Node 端跑，
           // 但合成主循环（分段推进/裁剪/转场/字幕）可以用假的 video/MediaRecorder 真实执行——
           // 这正是历史上一处 "dur is not defined" 在真机上才炸的漏洞所在。
