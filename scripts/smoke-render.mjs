@@ -256,6 +256,21 @@ if (windowStub.__DSH_IC_TABS__) {
   if (!def) { console.error('✗ sidebarRightTabs.register 未注册 infinite-canvas kind（开始页不会出现画布入口）'); process.exit(1); }
   if (!Array.isArray(def.guide) || !def.guide.length) { console.error('✗ 页签 kind 未带 guide 数组（开始页标准卡渲染不出来）'); process.exit(1); }
   console.log('右栏页签 kind 注册：' + def.kind + '（guide 条目 ' + def.guide.length + ' 个，multiple=' + def.multiple + '）');
+  // 关键契约：壳的 TabSlot 用 `entryKey: definition?.id ?? tab.kind` 调度插槽——
+  // 页签体槽位的 key 必须是注册 id，写成 kind 会永远命中 fallback
+  // （实测现象：「这类内容还没有可用的查看方式」，卡片在但点开是空壳）。
+  const body = roots.find((r) => r.meta && r.meta.name === 'sidebar.right.pane.tab');
+  if (!body) { console.error('✗ 未注册 sidebar.right.pane.tab 页签体'); process.exit(1); }
+  if (body.meta.key !== def.id) {
+    console.error('✗ 页签体槽位 key（' + body.meta.key + '）必须等于注册 id（' + def.id + '），否则壳调不到 body 而显示 fallback');
+    process.exit(1);
+  }
+  const title = roots.find((r) => r.meta && r.meta.name === 'sidebar.right.pane.tab.title');
+  if (title && title.meta.key !== def.id) {
+    console.error('✗ 标题槽位 key（' + title.meta.key + '）必须等于注册 id（' + def.id + '）');
+    process.exit(1);
+  }
+  console.log('页签槽位 key 与注册 id 一致：' + def.id);
 }
 
 console.log(`组件遍历：${walkedCount} 个（根组件 ${roots.length} 个：${roots.map((r) => r.meta.id || r.meta.key || '?').join(', ')}）`);

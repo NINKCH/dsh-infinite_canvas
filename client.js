@@ -1381,6 +1381,7 @@ window.__ModuleLoader__.load({
   background:var(--dsw-alias-bg-layer-1);text-align:center;}
 .dshic-host-taken-title{font-size:13px;font-weight:600;}
 .dshic-host-taken-hint{font-size:12px;line-height:18px;color:var(--dsw-alias-label-secondary);}
+.dshic-pane-tab-title{font-size:12px;font-weight:500;}
 /* 小地图 */
 .dshic-minimap{position:absolute;right:12px;bottom:12px;width:160px;height:100px;background:var(--dsw-alias-bg-overlay);
   border:1px solid var(--dsw-alias-border-l2);border-radius:8px;z-index:15;overflow:hidden;cursor:pointer;box-sizing:border-box;
@@ -11171,12 +11172,13 @@ window.__ModuleLoader__.load({
           locale: NS,
         }, PanelRoot));
         // —— 会话右侧面板：画布作为右栏页签（对话与画布同屏工作）——
-        // 契约与 dsh-client-ui-sidebar-terminal（「新建终端」卡片）完全同构：
-        //   guide.entry 卡片（key=页签 kind）→ 卡片 onClick tab.actions.openTab(kind, {replaceTab:true})
-        //   pane.tab 页签体 + pane.tab.title 标题 chip，key 同为该 kind。
-        // 同一时刻画布只允许一个实例（S.canvasHost 声明制，后打开者接管，另一侧降级为占位卡）——
-        // 否则两份 PanelRoot 共享同一个 S store 与 nodeEls 映射，拖拽/生成状态会互相打架。
+        // 契约照抄 dsh-client-ui-sidebar-terminal：**注册 id、三个槽位的 key、guide 条目 id 全部同一口径**。
+        // 关键在壳的 TabSlot：`renderSlot(seat, {}, { entryKey: definition?.id ?? tab.kind })` ——
+        // 插槽调度用的是注册表里的 definition.id，只有 kind 没进注册表时才回退到 kind。
+        // 上一次 body 槽位 key 写的是 kind（'infinite-canvas'）而注册 id 是包名，
+        // 于是永远命中 fallback：「这类内容还没有可用的查看方式」。
         const CANVAS_TAB_KIND = 'infinite-canvas';
+        const CANVAS_TAB_ID = '@ninkch/dsh-infinite-canvas'; // = 注册 id = 槽位 key
         function CanvasHostedApp({ host }) {
           useApp();
           useEffect(() => {
@@ -11208,7 +11210,7 @@ window.__ModuleLoader__.load({
         // 守卫：旧 runner 未提供 sidebarRightTabs 服务时跳过（保持全屏面板可用，不让整个插件挂掉）。
         if (ctx.sidebarRightTabs && typeof ctx.sidebarRightTabs.register === 'function') {
           ctx.effect(() => ctx.sidebarRightTabs.register({
-            id: '@ninkch/dsh-infinite-canvas',
+            id: CANVAS_TAB_ID, // ← 壳用这个 id 作为 slot entryKey 调度 body/title
             kind: CANVAS_TAB_KIND,
             multiple: false, // 一个页签足够（同 kind 再开 = 聚焦已有页签，壳的 page uniqueness 语义）
             title: () => T('panel'), // chip 文本（未注册 title 槽位时的兜底口径）
@@ -11221,11 +11223,20 @@ window.__ModuleLoader__.load({
             }],
           }), 'infinite-canvas: tab type');
         }
+        // 槽位 key = 注册 id（不是 kind）：与 TabSlot 的 entryKey 口径一致，否则永远落到 fallback
         ctx.slots.inject('sidebar.right.pane.tab', () => ctx.slots.register({
           name: 'sidebar.right.pane.tab',
-          key: CANVAS_TAB_KIND,
+          key: CANVAS_TAB_ID,
           locale: NS,
         }, () => h(CanvasHostedApp, { host: 'pane' })));
+        // 标题槽位同样用注册 id；缺了它 chip 显示注册表 title(address) 抓到的开页标题（也够用）
+        ctx.slots.inject('sidebar.right.pane.tab.title', () => ctx.slots.register({
+          name: 'sidebar.right.pane.tab.title',
+          key: CANVAS_TAB_ID,
+          locale: NS,
+        }, function CanvasPaneTitle() {
+          return h('span', { className: 'dshic-pane-tab-title' }, T('panel'));
+        }));
         // 冒烟测试专用缝隙（仅在 smoke-render.mjs 设置了该标记时存在）：
         // 直接暴露各页签组件与同步入口，让测试能逐个渲染/驱动，抓白屏与同步断链问题
         if (typeof window !== 'undefined' && window.__DSH_IC_SMOKE__) {
