@@ -47,6 +47,18 @@ The Settings panel — data root, Craft status (12/12 ready), skills, text model
 
 ![Settings (EN UI)](./docs/images/panel-settings-en.png)
 
+## Work beside the chat
+
+The canvas is not a separate window you have to switch to. It opens as a **tab in the Harness right pane**, so you can talk to the agent on the left and storyboard on the right **at the same time** — ask for a change in chat and watch the nodes update in place.
+
+1. Open the right pane (**开始 / Start**) and click the **无限画布 / Infinite Canvas** card.
+2. The canvas opens as a tab beside the conversation; the same projects, nodes and assets as the full-page panel.
+3. Drag the pane wider, or use the pane's fullscreen button, when you need more room.
+
+![Infinite Canvas as a right-pane tab](./docs/images/harness-right-pane.png)
+
+> One live canvas at a time (shared node graph and generation state): opening it in the pane while the full-page panel is also open **moves** the canvas rather than duplicating it — the other side shows a "move the canvas here" button.
+
 ## How it works
 
 ```mermaid

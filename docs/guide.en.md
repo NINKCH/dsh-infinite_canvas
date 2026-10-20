@@ -28,6 +28,18 @@ Two ways to drive it, best combined:
 
 3. First time: finish the basics in the **Settings** tab (see section 5), then start from the chat.
 
+### 2.1 Keep the canvas beside the chat (right-pane tab)
+
+You don't have to flip between the **Chat** and **Canvas** views: the canvas also opens as a tab in the **Harness right pane**, so you can talk on the left and storyboard on the right at the same time.
+
+1. Open the right pane (titled **开始 / Start**).
+2. Click the **无限画布 / Infinite Canvas** card — the canvas opens as a tab beside the conversation, sharing the same projects, nodes and assets as the full-page panel.
+3. Drag the pane wider, or use the pane's fullscreen button, for more canvas room.
+
+![Infinite Canvas as a right-pane tab](./images/harness-right-pane.png)
+
+> **One live canvas at a time** (shared node graph and generation state). If the full-page panel is also open, opening it in the pane **moves** the canvas there instead of duplicating it — the other side shows a "move the canvas here" button to bring it back.
+
 ---
 
 ## 3. The core: driving the canvas from chat (a full episode)
