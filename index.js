@@ -1909,6 +1909,8 @@ async function canvasNodeStatus(args) {
     projectId: pid, nodeId, type: n.type, label: d.label || '',
     status: d.status || 'idle',
     aiStatus: d.aiStatus || 'idle',
+    // 文档级时间戳：canvas_generate_node 的等待循环用它区分「本轮真的跑过」与「上一次的残留终态」
+    docUpdatedAt: Number(doc.updatedAt) || 0,
     error: d.error || d.aiError || null,
     output: String(d.output || '').slice(0, 6000),
     idea: String(d.idea || '').slice(0, 2000),
@@ -1966,7 +1968,10 @@ function canvasUpdateNode(args) {
     let v = patch[k];
     if (k === 'duration' || k === 'count') {
       const num = Number(v);
-      if (!Number.isFinite(num) || num <= 0) throw new Error(k + ' 需要正数，收到：' + JSON.stringify(v));
+      // count 允许 0（=自动按内容节拍，与 canvasCreateNode 的语义一致）；duration 必须正数
+      if (!Number.isFinite(num) || num < 0 || (k === 'duration' && num <= 0)) {
+        throw new Error(k + (k === 'count' ? ' 需要非负数（0=自动按内容节拍）' : ' 需要正数') + '，收到：' + JSON.stringify(v));
+      }
       v = k === 'count' ? Math.round(num) : num;
     } else if (k === 'label') {
       v = String(v == null ? '' : v).slice(0, 40);
@@ -2018,17 +2023,29 @@ async function canvasGenerateNode(args) {
   const pid = String((args && args.projectId) || '');
   const nodeId = String((args && args.nodeId) || '');
   const waitSec = Math.max(0, Math.min(600, Number((args && args.waitSeconds) || 0)));
+  // 触发前快照：canvasRunNode 只写一次性 runRequest，真正的执行要等画布下一个 3s 同步 tick
+  // 才开始（状态才翻成 running）；而下面的首轮轮询在 2.5s 就发生——对**曾经跑过**的节点，
+  // 首轮会读到上一次的 done/error 并误当本次结果（页面关闭 100%、页开约 17% 触发）。
+  // 因此终态只有在「本轮确实跑过」时才可信：轮询中见过 running，或文档在触发后被写过
+  //（快进完成的短任务可能整体落在两次轮询之间，用文档时间戳兜底）。
+  const baseline = await canvasNodeStatus({ projectId: pid, nodeId }).catch(() => null);
+  const baseUpdatedAt = Number(baseline && baseline.docUpdatedAt) || 0;
   const run = await canvasRunNode({ projectId: pid, nodeId });
   if (!waitSec) {
     return { ok: true, triggered: true, finished: false, projectId: pid, nodeId, type: run.type, label: run.label, status: 'running', note: '已触发执行；画布需处于打开状态才会真正执行，可用 canvas_node_status 查询进度' };
   }
   const deadline = Date.now() + waitSec * 1000;
   let last = null;
+  let sawRunning = false;
   while (Date.now() < deadline) {
     await new Promise((r) => setTimeout(r, 2500));
     try { last = await canvasNodeStatus({ projectId: pid, nodeId }); } catch { continue; }
     const st = String(last.status || '');
     const ai = String(last.aiStatus || '');
+    if (st === 'running' || ai === 'running') { sawRunning = true; continue; }
+    // 终态可信门：没见过 running 且文档也没动过 → 这是触发前就挂着的旧终态，继续等
+    const confirmed = sawRunning || (baseUpdatedAt > 0 && (Number(last.docUpdatedAt) || 0) > baseUpdatedAt);
+    if (!confirmed) continue;
     const isAiNode = last.type === 'script' || last.type === 'storyboard';
     if (isAiNode) {
       if (ai === 'error') return { ok: false, triggered: true, finished: true, projectId: pid, nodeId, type: last.type, label: last.label, status: 'error', error: last.error || 'AI 生成失败' };
@@ -2039,7 +2056,9 @@ async function canvasGenerateNode(args) {
       return { ok: st === 'done', triggered: true, finished: true, projectId: pid, nodeId, type: last.type, label: last.label, status: st, assetId: last.assetId || null, error: last.error || null };
     }
   }
-  return { ok: true, triggered: true, finished: false, projectId: pid, nodeId, type: last ? last.type : run.type, label: last ? last.label : run.label, status: last ? last.status : 'running', note: '等待超时，任务仍在进行；可继续用 canvas_node_status 查询' };
+  const started = sawRunning || (last && (Number(last.docUpdatedAt) || 0) > baseUpdatedAt && baseUpdatedAt > 0);
+  return { ok: true, triggered: true, finished: false, projectId: pid, nodeId, type: last ? last.type : run.type, label: last ? last.label : run.label, status: last ? last.status : 'running',
+    note: started ? '等待超时，任务仍在进行；可继续用 canvas_node_status 查询' : '等待超时且未见本轮开始执行——画布页面很可能未打开（运行请求未被消费）；打开画布后会自动继续' };
 }
 async function canvasOpen(args) {
   const pid = String((args && args.projectId) || '');
@@ -2972,7 +2991,10 @@ export function apply(ctx) {
           timeoutMs: 30000,
           async execute(args) {
             const r = await canvasDeleteProject(args);
-            return { ok: true, projectId: r.projectId, text: '🗑 已删除项目「' + r.name + '」（id=' + r.projectId + '）。' };
+            // 磁盘清理失败必须可见：rmrf 部分失败（文件锁）时目录残留，同名重建会继承旧文件
+            const diskErrs = r.disk && Array.isArray(r.disk.errors) ? r.disk.errors : [];
+            const warn = diskErrs.length ? '⚠ 磁盘清理有 ' + diskErrs.length + ' 项失败：' + diskErrs.join('；') : '';
+            return { ok: diskErrs.length === 0, warning: diskErrs.length ? diskErrs : undefined, projectId: r.projectId, text: '🗑 已删除项目「' + r.name + '」（id=' + r.projectId + '）。' + (warn ? '\n' + warn : '') };
           },
         });
         reg({

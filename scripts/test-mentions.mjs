@@ -224,6 +224,23 @@ eq(api.bibleNames({ characters: [{ name: '林晚' }], scenes: [{ name: '楼道' 
   eq(api.storyboardContinuityNote([], '第一场', true), null, '无尾镜时不造承接约束');
 }
 
+// 10.5) 续帧降级模式的 <Picture N> 偏移：请求里图1=上一段尾帧 → 实体参考图是图2..N+1。
+// 曾经三处编号（<Picture N> 从 1 起 / [图N] 尾帧占图1）互相矛盾，主体-素材绑定错位一位。
+{
+  const oneShot = [{ title: '续', duration: 2, visual: '近景，糯糯 抬头', motion: '镜头固定' }];
+  const oneRef = [{ entity: '糯糯', name: '角色-糯糯', category: 'character' }];
+  const bib2 = { characters: [{ name: '糯糯', desc: '外观：橘色博美' }] };
+  const subjectLine = (p) => (String(p).split('\n').find((l) => l.includes('<Subject 1> 是')) || '');
+
+  const shifted = api.buildStructuredVideoPrompt(oneShot, oneRef, bib2, { zh: true, hasFrame: true, frameRole: 'reference_image' });
+  if (!subjectLine(shifted).includes('<Picture 2>')) errs.push('续帧降级时实体参考图应绑 <Picture 2>（图1=尾帧）：' + subjectLine(shifted));
+  const plain = api.buildStructuredVideoPrompt(oneShot, oneRef, bib2, { zh: true });
+  if (!subjectLine(plain).includes('<Picture 1>')) errs.push('无首帧时实体参考图应绑 <Picture 1>（不得偏移）：' + subjectLine(plain));
+  // 硬首帧模式（first_frame 走专用字段，不占参考图序位）也不偏移
+  const hard = api.buildStructuredVideoPrompt(oneShot, oneRef, bib2, { zh: true, hasFrame: true, frameRole: 'first_frame' });
+  if (!subjectLine(hard).includes('<Picture 1>')) errs.push('硬首帧模式 <Picture> 不应偏移：' + subjectLine(hard));
+}
+
 // 11) 段落类型闭环：seg 取值 / join 档位 / 尾帧接力开关必须自洽
 {
   // 触发值集合必须与别名表的规范值一致（曾经规划器产出 'cut' 而别名表规范值是 'closeup'）

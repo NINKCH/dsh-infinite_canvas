@@ -143,8 +143,12 @@ if (V) {
 
   // ---------------- VIDEO_REF_CAPS 全覆盖厂商 ----------------
   const capsVendors = ['wan', 'minimaxv2', 'openai', 'seedance', 'kling', 'vidu', 'runway', 'veo', 'luma', 'pixverse', 'minimax', 'stability'];
-  for (const v of capsVendors) ok(VIDEO_REF_CAPS[v] && VIDEO_REF_CAPS[v].img > 0, 'VIDEO_REF_CAPS 缺厂商 ' + v);
-  console.log('  ✓ vendorBase + VIDEO_REF_CAPS（' + capsVendors.length + ' 家全覆盖）');
+  for (const v of capsVendors) ok(VIDEO_REF_CAPS[v] && Number.isInteger(VIDEO_REF_CAPS[v].img) && VIDEO_REF_CAPS[v].img >= 0, 'VIDEO_REF_CAPS 缺厂商 ' + v);
+  // img:0 厂商 = 协议无实体参考图入口（kling/vidu/… 各 runner 只收首帧+提示词）——
+  // 曾误标 img:1：恰 1 张时静默弃用不告警、≥2 张时谎报"只使用前 1 张"实际 0 张
+  const zeroVendors = Object.keys(VIDEO_REF_CAPS).filter((v) => VIDEO_REF_CAPS[v].img === 0);
+  ok(zeroVendors.length === 8, 'img:0 厂商数量异常（应为 8 家，实际 ' + zeroVendors.length + '：' + zeroVendors.join(',') + '）');
+  console.log('  ✓ vendorBase + VIDEO_REF_CAPS（' + capsVendors.length + ' 家全覆盖，其中 img:0 ' + zeroVendors.length + ' 家）');
 }
 
 // ---------------- 4) apiVideo 降级：源码级契约 ----------------

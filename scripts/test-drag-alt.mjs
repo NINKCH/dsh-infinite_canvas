@@ -159,6 +159,10 @@ ok(/\.dshic-keys-pop\{position:absolute;right:0;top:calc\(100% \+ 6px\)/.test(sr
 // 面板关闭行为：Esc + 点击面板外（捕获阶段，避免被画布的 stopPropagation 吞掉）
 ok(/window\.addEventListener\('pointerdown', onDown, true\)/.test(src), '缺少点击面板外关闭（或未用捕获阶段）');
 ok(/el\.contains\(e\.target\)/.test(src), '面板外判定未用 contains（会把面板内点击也当成外部）');
+// 行渲染契约：row 必须收 (id, keyLabel, text) 三参——历史上误收两参导致第三参（说明文案）被丢弃，
+// 键位栏渲染成 "Alt + 拖动|0"、说明栏重复键名，15 条说明文案全部失效
+ok(/const row = \(id, keyLabel, text\) =>/.test(src), '快捷键面板 row 未按 (id, keyLabel, text) 三参渲染');
+ok(/row\(k \+ '\|' \+ i, k, v\)/.test(src), '面板行未把说明文案（v）传入 row');
 ok(/keysOpen: false/.test(src), '缺少 keysOpen 状态');
 ok(/'keysBtn'/.test(src) && /'keysTitle'/.test(src), '缺少快捷键面板文案键');
 // 面板里列出的每一项都必须对应代码里真实存在的快捷键

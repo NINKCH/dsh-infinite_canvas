@@ -1720,15 +1720,17 @@ window.__ModuleLoader__.load({
      *  light=true（图片生成专用）：只保留风格行与 [图N] 名称绑定——参考图本身就是外观事实源，
      *  内联设定全文会稀释参考图约束，且文字渲染型模型（Qwen-Image）会把追加文本直接画进画面（用户实测：
      *  设定集全文被渲染成画面右下角的乱码文字块、剧情词凭空生成道具）。视频路径不用 light（不渲染文字，上下文有益）。 */
-    function buildEffectivePrompt(prompt, refs, entities, bible, light) {
+    function buildEffectivePrompt(prompt, refs, entities, bible, light, opts) {
       const zh = effLang() !== 'en';
+      // 续帧降级模式（图1=尾帧）下实体参考图实际是图2..N+1 —— 与请求侧 videoRefNote 统一口径
+      const picOffset = (opts && opts.picOffset) || 0;
       const bind = refs.map((r, i) => {
         if (r.entity) {
           const ent = matchBibleEntity(r.entity, bible);
           const desc = light ? '' : ((ent && ent.desc) || '');
-          return `[图${i + 1}] ${entityLabelOf((ent || {}).kind || 'prop')} ${r.entity}${desc ? '（' + desc + '）' : ''}`;
+          return `[图${i + 1 + picOffset}] ${entityLabelOf((ent || {}).kind || 'prop')} ${r.entity}${desc ? '（' + desc + '）' : ''}`;
         }
-        return `[图${i + 1}] ${catLabel(r.category)}：${r.name}`;
+        return `[图${i + 1 + picOffset}] ${catLabel(r.category)}：${r.name}`;
       }).join('；');
       const entLines = light ? [] : entities.map((e) => `${entityLabelOf(e.kind)} ${e.name}：${e.desc}`);
       return [
@@ -1885,7 +1887,7 @@ window.__ModuleLoader__.load({
       // 段类型：本分镜表内续帧 / 承接上一个分镜表 / 不接（换场·特写插入）
       let kindLine = '';
       if (p.seg === 'scene_change') kindLine = zh ? '段落类型：换场（不承接上一镜画面，直接建立新空间；环境声可延续）' : 'Segment type: scene change (do not continue the previous frame; establish the new space; ambience may carry over)';
-      else if (p.seg === 'cut') kindLine = zh ? '段落类型：特写/细节插入（可与上一镜跳切，不要求画面连续）' : 'Segment type: insert close-up (jump cut allowed, no frame continuity required)';
+      else if (p.seg === 'closeup') kindLine = zh ? '段落类型：特写/细节插入（可与上一镜跳切，不要求画面连续）' : 'Segment type: insert close-up (jump cut allowed, no frame continuity required)';
       else if (p.seg === 'new_character') kindLine = zh ? '段落类型：新角色入场（新角色须在画面中自然进入，不得凭空出现）' : 'Segment type: new character enters (must enter naturally, never pop in)';
       else if (p.seg === 'continuation') kindLine = zh
         ? (isFirst ? '段落类型：承接上一个分镜表（本分镜第 1 镜从上一镜结尾继续，不重演、不重新建立场景）' : '段落类型：续帧（从上一镜结尾继续，不重演）')
@@ -2056,6 +2058,10 @@ window.__ModuleLoader__.load({
       // 主体分配：一个实体一个 Subject，可对应多张 Picture；顺序 = 参考图中首次出现
       const subjects = [];
       const byKey = new Map();
+      // 续帧降级模式（图1=上一段尾帧）：请求侧 videoRefNote/frameAnchorText 都把尾帧编号为 [图1]、
+      // 实体参考图为 [图2..N+1] —— <Picture N> 绑定必须整体偏移一位，否则同一提示词里
+      // <Picture 1> 说实体、[图2] 才是实体，主体-素材绑定自相矛盾（参考生成格式赖以工作的锚点）。
+      const picOffset = (o.hasFrame && o.frameRole === 'reference_image') ? 1 : 0;
       (refs || []).forEach((r, i) => {
         const info = subjectInfoFromRef(r, bible);
         if (!info || !info.name) return;
@@ -2066,7 +2072,7 @@ window.__ModuleLoader__.load({
           subjects.push(sub);
           byKey.set(key, sub);
         }
-        if (!sub.pics.includes(i + 1)) sub.pics.push(i + 1);
+        if (!sub.pics.includes(i + 1 + picOffset)) sub.pics.push(i + 1 + picOffset);
       });
       if (!subjects.length) return '';
       const sid = (sub) => subjects.indexOf(sub) + 1;
@@ -2176,7 +2182,10 @@ window.__ModuleLoader__.load({
             if (useVoice) spk.voiced = true;
             const who = sub ? ('<Subject ' + sid(sub) + '>（' + sp + '）') : (d.role ? d.role + '（' + sp + '）' : sp);
             const lang = /[\u4e00-\u9fa5]/.test(d.line) ? 'Chinese' : 'English';
-            return who + (useVoice ? ' 用' + sub.voice + '说' : ' 说') + '：<d>[' + lang + '] ' + d.line + '</d>';
+            const said = useVoice
+              ? (zh ? ' 用' + sub.voice + '说' : ' says (voice: ' + sub.voice + ')')
+              : (zh ? ' 说' : ' says');
+            return who + said + '：<d>[' + lang + '] ' + d.line + '</d>';
           }).join('；');
           parts.push((zh ? '台词：' : 'Dialogue: ') + txt);
         }
@@ -3109,6 +3118,8 @@ window.__ModuleLoader__.load({
       const body = {
         model: s.model,
         content,
+        // 声音参考与首次提交保持同一口径：降级换格式不能静默丢掉音色对齐（否则无任何告警）
+        ...((o.audioRefs || []).length ? { audios: await Promise.all((o.audioRefs || []).slice(0, 3).map((b) => blobToDataUrl(b))) } : {}),
         metadata: {
           duration: Math.round(Number(o.duration)) || 5,
           ratio: o.ratio || '16:9',
@@ -3714,8 +3725,10 @@ window.__ModuleLoader__.load({
       minimaxv2: { img: 9, audio: 3 },
       openai: { img: 8 },
       seedance: { img: 8 },
-      kling: { img: 1 }, vidu: { img: 1 }, runway: { img: 1 }, veo: { img: 1 },
-      luma: { img: 1 }, pixverse: { img: 1 }, minimax: { img: 1 }, stability: { img: 1 },
+      // img:0 = 该厂商的协议**没有任何实体参考图入口**（已核对各自 runner：只收首帧/提示词）——
+      // 曾误标 img:1：恰 1 张时静默弃用不告警，≥2 张时告警"用前 1 张"实际 0 张，全部误导
+      kling: { img: 0 }, vidu: { img: 0 }, runway: { img: 0 }, veo: { img: 0 },
+      luma: { img: 0 }, pixverse: { img: 0 }, minimax: { img: 0 }, stability: { img: 0 },
     };
     async function apiVideo(prompt, frameBlob, s, opts) {
       const o = opts || {};
@@ -3734,11 +3747,16 @@ window.__ModuleLoader__.load({
       // 厂商预设层：显式选择了厂商格式（或旧配置自动识别）→ 走该厂商的官方协议适配器
       const vendor = detectVideoVendor(s);
       let vendorDowngraded = false; // IC-03：识别到厂商但无适配器 → 降级走 OpenAI 兼容通用链（节点上可见）
-      // 参考素材上限检查：超出即告警（截断发生在各 runner 内，这里先把事实说清楚）
+      // 参考素材上限检查：超出即告警（截断发生在各 runner 内，这里先把事实说清楚）。
+      // 未知厂商兜底 8 = IC-03 降级后的 OpenAI 兼容链实际发送上限。
       if (o.warn) {
-        const caps = VIDEO_REF_CAPS[vendor] || { img: 1 };
+        const caps = VIDEO_REF_CAPS[vendor] || { img: 8 };
         const refCount = o.hardFrame ? 0 : (Array.isArray(o.refs) ? o.refs.length : 0);
-        if (refCount > (caps.img || 0)) o.warn('参考图 ' + refCount + ' 张超过该厂商上限 ' + caps.img + ' 张，本次只使用前 ' + caps.img + ' 张');
+        if (refCount > (caps.img || 0)) {
+          o.warn(caps.img
+            ? ('参考图 ' + refCount + ' 张超过该厂商上限 ' + caps.img + ' 张，本次只使用前 ' + caps.img + ' 张')
+            : ('该厂商不支持实体参考图，本次将忽略 ' + refCount + ' 张参考图（仅保留首帧与提示词；角色/场景一致性请改用支持参考图的厂商）'));
+        }
         const audCount = Array.isArray(o.audioRefs) ? o.audioRefs.length : 0;
         if (audCount > (caps.audio || 0)) o.warn('参考音频 ' + audCount + ' 条超过该厂商上限 ' + (caps.audio || 0) + ' 条，本次只使用前 ' + (caps.audio || 0) + ' 条');
       }
@@ -4640,11 +4658,16 @@ window.__ModuleLoader__.load({
     }
     async function syncAssetToDisk(rec, opts = {}) {
       const pid = S.activeId;
+      const base = await craftBaseDirRequired(pid);
       const map = craftMapLoad(pid);
-      if (!opts.force && map[rec.id]) return map[rec.id];
+      // 陈旧映射防护（旧版本升级边界）：映射存的是写入时刻的逻辑路径
+      // 'projects/<当时的物理文件夹>/craft/…'。BLK-02 后物理文件夹名来自数据根 meta，
+      // 旧版 slug-era 的映射前缀几乎必然 ≠ 现文件夹——直接复用会让 FilmCraft 导出/
+      // PhotoCraft 调色引用到不存在的媒体（"文件不存在"）。前缀不符 = 过期，强制重写。
+      const curPrefix = 'projects/' + craftFolderOf(base) + '/';
+      if (!opts.force && map[rec.id] && String(map[rec.id]).startsWith(curPrefix)) return map[rec.id];
       // BLK-02：写入基准 = 项目绝对目录（base），路径只用 craft/ 下的相对段。
       // ArtCraft 侧解析后落点 = <数据根>/projects/<物理文件夹>/craft/media/…；不再依赖 slug 与它的 cwd。
-      const base = await craftBaseDirRequired(pid);
       const rel = 'craft/media/' + assetFileBase(rec) + extForMime(rec.mime, rec.name);
       const blob = rec.blob || await assetBlob(rec.id);
       if (!blob) throw new Error('资产内容不可用: ' + rec.id);
@@ -6543,15 +6566,17 @@ window.__ModuleLoader__.load({
             return bits.join(zh ? '；' : '; ');
           })();
           let p;
+          // 图1=尾帧（降级模式）时实体参考图为图2..N+1：两条提示词组装路径都要同步偏移
+          const effOpts = { picOffset: (useFrame && anchorRole === 'reference_image') ? 1 : 0 };
           if (handWritten.includes('subject_definitions')) {
             p = handWritten; // 高级用法：手写结构化提示词，原样发送
           } else if (shotList.length) {
             p = buildStructuredVideoPrompt(shotList, refs, bible, {
               zh, prompt: handWritten, music, hasFrame: useFrame, frameRole: anchorRole, continuity,
             });
-            if (!p) p = buildEffectivePrompt(prompt, refs, entities, bible); // 无参考图时回退
+            if (!p) p = buildEffectivePrompt(prompt, refs, entities, bible, false, effOpts); // 无参考图时回退
           } else {
-            p = buildEffectivePrompt(prompt, refs, entities, bible);
+            p = buildEffectivePrompt(prompt, refs, entities, bible, false, effOpts);
           }
           // 非结构化路径（无参考图/手写提示词）也要有首帧锚定与承接说明
           if (!shotList.length || !p.includes('subject_definitions')) {
@@ -6603,7 +6628,7 @@ window.__ModuleLoader__.load({
               else if (wantRatio === '9:16' && gotLandscape) notes.push('厂商返回 ' + meta.w + '×' + meta.h + '（横屏），与设置的 9:16 不符');
               const wantDur = Number(n.data && n.data.duration) || 0;
               if (wantDur && meta.d && Math.abs(meta.d - wantDur) > 1.5) notes.push('实际时长 ' + meta.d.toFixed(1) + 's ≠ 设置 ' + wantDur + 's（厂商单次上限或已钳制）');
-              if (notes.length) update((s) => { const nd = s.graph.nodes[n.id]; if (nd) nd.data.genWarn = notes.join('；'); });
+              if (notes.length) addWarn(notes.join('；')); // 追加而非覆盖：本轮更早的告警（自动续帧/参考图超限/厂商降级）不能被抹掉
             }
           } catch { /* 探测失败不影响生成 */ }
           // 尾帧抽取（续帧接力的关键）：末段多帧候选里选「动作进行中/清晰/不抖」的一帧，
@@ -9148,10 +9173,17 @@ window.__ModuleLoader__.load({
         });
         lsSet(LS_PROJECTS, S.projects);
         lsSet(LS_ACTIVE, S.activeId);
-        try { hostRpc('projectsDelete', { id: pid }).catch(() => { /* 静默 */ }); } catch { /* 忽略 */ }
-        // IC-B2：清掉该项目的 ArtCraft 后期目录（<数据根>\projects\<folder>\craft）——
-        // BLK-01 只管资产镜像与 FTS，craft 产物不在其中；失败只 toast 不阻断删除（目录残留可手动清）。
-        craftProjectCleanup(pid);
+        // IC-B2：先清 ArtCraft 后期目录**再**删项目——projectCraftRemove 靠 meta 条目解析物理文件夹，
+        // 若先删项目（meta 条目随之被清），清理会解析不到目录而"伪成功"，craft 残留无人知晓。
+        // 失败只 toast 不阻断删除（目录残留可手动清）。
+        await craftProjectCleanup(pid);
+        try {
+          const del = await hostRpc('projectsDelete', { id: pid });
+          // BLK-01 的清理结果必须可见：rmrf 部分失败（Windows 文件锁）时残留在盘上，
+          // 同名重建的项目会继承旧 assets.json 条目——用户至少要知道发生过什么。
+          const diskErrs = del && del.disk && Array.isArray(del.disk.errors) ? del.disk.errors : [];
+          if (diskErrs.length) toast('项目已删除，但磁盘清理有 ' + diskErrs.length + ' 项失败：' + diskErrs.join('；'));
+        } catch (e) { toast('删除请求失败（本地已移除，刷新后可能复现）：' + String((e && e.message) || e)); }
         if (!S.store) {
           // IndexedDB 模式（未设数据目录）：本地逐个清理
           try {
@@ -10930,8 +10962,10 @@ window.__ModuleLoader__.load({
           window.removeEventListener('pointerdown', onDown, true);
         };
       }, [open]);
-      const row = (key, text) => h('div', { className: 'dshic-keys-row', key },
-        h('span', { className: 'dshic-keys-key' }, key),
+      // row(id, keyLabel, text)：id 仅作 React key；此前误收两参导致第三参（说明文案）被丢弃，
+      // 键位栏渲染成 "Alt + 拖动|0"、说明栏重复键名——整张面板的描述全部失效。
+      const row = (id, keyLabel, text) => h('div', { className: 'dshic-keys-row', key: id },
+        h('span', { className: 'dshic-keys-key' }, keyLabel),
         h('span', { className: 'dshic-keys-text' }, text));
       const group = (title, items) => h('div', { className: 'dshic-keys-group', key: title },
         h('div', { className: 'dshic-keys-group-title' }, title),
