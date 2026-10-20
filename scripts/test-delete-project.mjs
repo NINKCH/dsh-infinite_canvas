@@ -182,6 +182,38 @@ ok(ftsCount() === assetCount(), '判据10（终态）：assets_fts(' + ftsCount(
 ok(!!(await I.projectsGet({ id: 'p_keep' })), '旁观项目被误删');
 ok(fs.existsSync(bystander.dir), '旁观项目目录被误删');
 
+// ---------- 判据 11 路径逃逸防护（删除入口的 projectId 是外部输入） ----------
+// removeDataRootProject 的候选目录 = meta.folder / 原始 pid，旧实现 path.join(root,'projects',x) 后
+// 直接 rmrf：projectId 含 .. 时会删掉数据根之外的目录。守卫：resolve 后必须仍在 <dataRoot>/projects 内。
+{
+  const decoy = path.join(SANDBOX, 'decoy-witness');
+  fs.mkdirSync(decoy, { recursive: true });
+  fs.writeFileSync(path.join(decoy, 'keep.txt'), 'do not delete');
+  const outside = path.join(SANDBOX, 'outside-target');
+  fs.mkdirSync(outside, { recursive: true });
+  fs.writeFileSync(path.join(outside, 'victim.txt'), 'must survive');
+  // 数据根 = <SANDBOX>/data；projects/<pid>/../.. 解析回 <SANDBOX>，outside-target 正好在逃逸路径上
+  const r1 = I.removeDataRootProject('../outside-target');
+  ok(fs.existsSync(path.join(outside, 'victim.txt')), '判据11a：.. 穿越把数据根外的文件删了（路径逃逸）');
+  ok((r1.errors || []).some((e) => /拒绝|数据根/.test(e)), '判据11b：拒绝时应有可读错误：' + JSON.stringify(r1.errors));
+  // 绝对路径注入同样拒绝
+  const r2 = I.removeDataRootProject(outside);
+  ok(fs.existsSync(path.join(outside, 'victim.txt')), '判据11c：绝对路径注入未得逞');
+  // pid='.'：resolve(projects/.) 恰等于 projects 本身 → 绝不能把整个 projects 目录当删除目标
+  const projectsRoot = path.join(DATA, 'projects');
+  ok(fs.existsSync(bystander.dir), '判据11f 前置：旁观项目目录在删除尝试前存在');
+  const r4 = I.removeDataRootProject('.');
+  ok(fs.existsSync(projectsRoot), "判据11f：pid='.' 不得清空整个 projects 目录");
+  ok(fs.existsSync(bystander.dir), "判据11g：pid='.' 后旁观项目目录仍健在（未被连带删除）");
+  ok((r4.errors || []).some((e) => /拒绝|数据根/.test(e)), "判据11h：pid='.' 应被拒绝并给出可读错误：" + JSON.stringify(r4.errors));
+  // 守卫不能误伤正常删除
+  fs.mkdirSync(path.join(DATA, 'projects', 'p_trav', 'image'), { recursive: true });
+  fs.writeFileSync(path.join(DATA, 'projects', 'p_trav', 'image', 'a.png'), Buffer.alloc(64, 1));
+  const r3 = I.removeDataRootProject('p_trav');
+  ok(r3.removed === true && !fs.existsSync(path.join(DATA, 'projects', 'p_trav')), '判据11d：守卫未误伤正常目录删除');
+  ok(fs.existsSync(path.join(decoy, 'keep.txt')), '判据11e：前置有效性——无关目录始终健在');
+}
+
 I.closeDb();
 try { fs.rmSync(SANDBOX, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }); } catch { /* 清理失败不影响结论 */ }
 if (errs.length) {

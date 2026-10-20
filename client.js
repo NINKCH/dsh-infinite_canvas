@@ -3748,7 +3748,7 @@ window.__ModuleLoader__.load({
           // IC-03：识别到的厂商没有官方适配器 → 不再硬失败（历史：`暂未适配的视频厂商格式：X` 直接炸），
           // 降级走下方 OpenAI 兼容通用链，并把降级事实放节点上（绝不静默换协议）。
           if (o.warn) o.warn('未识别到「' + vendor + '」的官方适配器，本次按 OpenAI 兼容格式发送（/v1/video/generations，失败自动降级 Seedance content[] / Sora /videos）——若该厂商协议不同，请在供应商设置里显式选择厂商');
-          vendorDowngraded = true;
+          vendorDowngraded = true; // 源码级契约锚点（test-vendor-detect 断言）：降级必须留痕
         } else {
           return await run(prompt, frameBlob, s, o);
         }

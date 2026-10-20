@@ -139,6 +139,36 @@ const git = (args) => {
   try { return execFileSync('git', args, { cwd: ROOT, env: gitEnv, encoding: 'utf8' }).trim(); } catch { return null; }
 };
 const cntAll = git(['rev-list', '--count', 'main..dev']);
+/** 净零对判定（纯函数，git 可注入；定义在模块顶层——主流程与第 9 节单测共用，
+ *  此前误放在 if (cntAll) 块内，块级作用域让第 9 节单测 ReferenceError）：
+ *  - subject 恰为 `Revert "<X>"` 且 X 在 shas 内 → 本提交是 revert：取 X 触及的文件做
+ *    内容级净 diff（`git diff <X>^ <本提交> -- <文件>`），输出为空 = 真撤销（netZero=true）；
+ *    非空 = 假撤销（netZero=false + why）。
+ *  - subject 非 revert 但存在 `Revert "<subject>"` → 本提交是探针：同样做内容级净 diff。
+ *  - revert 回指的 X 不在 shas（悬空）→ netZero=false 且 why 为空（调用方按越界处理）。 */
+const isNetZeroPair = (git, sha, subject, shas) => {
+  let netZero = false;
+  let why = '';
+  const revertOfThis = shas.find((l) => l.slice(l.indexOf(' ') + 1) === 'Revert "' + subject + '"');
+  const revertMatch = /^Revert "(.+)"(?:\s|$)/.exec(subject);
+  if (revertOfThis) {
+    const revSha = revertOfThis.slice(0, revertOfThis.indexOf(' '));
+    const files = (git(['diff-tree', '--no-commit-id', '--name-only', '-r', sha]) || '').split(/\r?\n/).filter(Boolean);
+    const empty = ((git(['diff', sha + '^', revSha, '--'].concat(files)) || '').trim() === '');
+    netZero = empty;
+    if (!empty) why = '限定文件净 diff 非空（' + files.join(', ') + '，' + sha + '^→' + revSha + '）—— revert 未把内容真正恢复原状';
+  } else if (revertMatch) {
+    const origLine = shas.find((l) => l.slice(l.indexOf(' ') + 1) === revertMatch[1]);
+    if (origLine) {
+      const origSha = origLine.slice(0, origLine.indexOf(' '));
+      const files = (git(['diff-tree', '--no-commit-id', '--name-only', '-r', sha]) || '').split(/\r?\n/).filter(Boolean);
+      const empty = ((git(['diff', origSha + '^', sha, '--'].concat(files)) || '').trim() === '');
+      netZero = empty;
+      if (!empty) why = '限定文件净 diff 非空（' + files.join(', ') + '，' + origSha + '^→' + sha + '）—— revert 未把内容真正恢复原状';
+    }
+  }
+  return { netZero, why };
+};
 if (cntAll && Number(cntAll) > 0) {
   const shas = (git(['log', '--format=%h %s', 'main..dev']) || '').split(/\r?\n/).filter(Boolean);
   // 纯收尾提交 = **精确白名单**（IC-B5：禁止 fix(OBS)/docs(OBS) 这类泛前缀——
@@ -230,6 +260,50 @@ ok(isChoreFileAllowedPure(['docs/x.md']) === true, 'isChoreFileAllowed(docs/x.md
 ok(isChoreFileAllowedPure(['CHANGELOG.md', 'scripts/regress.mjs']) === true, '混合合法文件应为 true');
 ok(isChoreFileAllowedPure(['CHANGELOG.md', 'client.js']) === false, '合法文件混入一个越界文件即 false');
 ok(isChoreFileAllowedPure([]) === true, '空文件列表视为合法（空提交不冒名）');
+
+// ---------- 9) 净零对判定的纯函数反例（IC-B5 D 方案：git 输出可注入，不依赖 git/不碰历史） ----------
+// isNetZeroPair(git, sha, subject, shas) 从主流程抽出；这里注入假 git 断言四个方向：
+//   A. 真撤销（限定文件净 diff 空）→ netZero=true（豁免）
+//   B. 假撤销（同文件、不同改法，diff 非空）→ netZero=false 且带原因（必须报红）
+//   C. revert 无回指原提交（悬空）→ 不豁免、按越界处理
+//   D. 探针侧对称：subject 非 revert 但存在回指它的 revert → 同 A 判定
+/** 净零对判定（纯函数，git 可注入）：
+ *  - subject 恰为 `Revert "<X>"` 且 X 在 shas 内 → 本提交是 revert：取 X 触及的文件做
+ *    内容级净 diff（`git diff <X>^ <本提交> -- <文件>`），输出为空 = 真撤销（netZero=true）；
+ *    非空 = 假撤销（netZero=false + why）。
+ *  - subject 非 revert 但存在 `Revert "<subject>"` → 本提交是探针：同样做内容级净 diff。
+ *  - revert 回指的 X 不在 shas（悬空）→ netZero=false 且 why 为空（调用方按越界处理）。 */
+
+// A) 真撤销：revert 侧，diff 输出为空
+{
+  const gitA = (args) => (args[0] === 'diff' ? '' : 'client.js');
+  const r = isNetZeroPair(gitA, '675da38', 'fix(OBS-1): probe', ['3961c22 Revert "fix(OBS-1): probe"', '675da38 fix(OBS-1): probe']);
+  ok(r.netZero === true && r.why === '', '净零对 A（真撤销）应豁免：' + JSON.stringify(r));
+}
+// B) 假撤销：revert 侧，diff 输出非空（同文件、不同改法）→ 必须不豁免且带原因
+{
+  const gitB = (args) => (args[0] === 'diff' ? 'diff --git a/client.js b/client.js\n@@ -1 +1 @@\n-x\n+y' : 'client.js');
+  const r = isNetZeroPair(gitB, '675da38', 'fix(OBS-1): probe', ['3961c22 Revert "fix(OBS-1): probe"', '675da38 fix(OBS-1): probe']);
+  ok(r.netZero === false && /净 diff 非空/.test(r.why), '净零对 B（假撤销）必须报红并说明：' + JSON.stringify(r));
+}
+// C) 悬空 revert：revert 回指的原提交不在 shas 里 → 不豁免（走越界报红路径）
+{
+  const gitC = () => '';
+  const r = isNetZeroPair(gitC, '9999999', 'Revert "ghost subject"', ['3961c22 Revert "ghost subject"']);
+  ok(r.netZero === false && r.why === '', '净零对 C（悬空 revert）不豁免：' + JSON.stringify(r));
+}
+// D) 探针侧对称：subject 非 revert、存在回指它的 revert、diff 空 → 豁免
+{
+  const gitD = (args) => (args[0] === 'diff' ? '' : 'client.js');
+  const r = isNetZeroPair(gitD, '675da38', 'fix(OBS-1): probe', ['675da38 fix(OBS-1): probe', '3961c22 Revert "fix(OBS-1): probe"']);
+  ok(r.netZero === true && r.why === '', '净零对 D（探针侧对称）应豁免：' + JSON.stringify(r));
+}
+// B2) 探针侧假撤销：diff 非空 → 报红
+{
+  const gitB2 = (args) => (args[0] === 'diff' ? 'diff --git a/client.js b/client.js' : 'client.js');
+  const r = isNetZeroPair(gitB2, '3961c22', 'Revert "fix(OBS-1): probe"', ['675da38 fix(OBS-1): probe', '3961c22 Revert "fix(OBS-1): probe"']);
+  ok(r.netZero === false && /净 diff 非空/.test(r.why), '净零对 B2（探针侧假撤销）必须报红：' + JSON.stringify(r));
+}
 
 if (errs.length) {
   console.error('✗ IC-07 验证未通过（' + errs.length + '）：');

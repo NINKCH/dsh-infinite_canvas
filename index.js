@@ -178,8 +178,9 @@ function writeDataRootMeta(meta) {
   } catch { /* 清单写失败不影响主存储 */ }
 }
 function sanitizeFolderName(name) {
-  const s = String(name || '').replace(/[\\/:*?"<>|\u0000-\u001f]/g, '_').replace(/\s+/g, ' ').trim().slice(0, 60);
-  return s || '未命名项目';
+  const s = String(name || '').replace(/[\\/:*?"<>|\u0000-\u001f]/g, '_').replace(/\s+/g, ' ').trim().slice(0, 60)
+    .replace(/[.\s]+$/, ''); // Windows 尾随点/空格会被文件系统吞掉；纯 ".." 会让 path.join 上跳一级
+  return (!s || s === '.' || s === '..') ? '未命名项目' : s;
 }
 
 // ============================================================
@@ -693,7 +694,10 @@ function writeAssetIndex(pid, projectName, assets, opts) {
 /** 删除项目的数据目录镜像（项目被删除时调用）。
  *  BLK-01：SQL 模式下目录名可能没有 meta 条目（实测就是项目 id），旧实现此时静默 return、
  *  永远删不掉目录。现在：优先用 meta 的 folder；没有条目就回退 <pid>；两个候选都尝试删；
- *  删除失败不再吞掉，返回值里带 removed/errors 供调用方暴露。 */
+ *  删除失败不再吞掉，返回值里带 removed/errors 供调用方暴露。
+ *  路径安全：folder/pid 可能来自调用方（canvas_delete_project 的 projectId 是外部输入），
+ *  含 `..` 或绝对路径时 path.join 会逃出数据根 → rmrf 删掉无关目录。与 IC-B2 的 craft 清理
+ *  同一防护：resolve 后必须仍落在 <dataRoot>/projects 之内，否则拒绝并记录。 */
 function removeDataRootProject(pid) {
   const out = { removed: false, dirs: [], errors: [] };
   const root = dataRoot();
@@ -705,8 +709,19 @@ function removeDataRootProject(pid) {
   if (!candidates.includes(pid)) candidates.push(pid);
   meta.projects = meta.projects.filter((p) => p.id !== pid);
   try { writeDataRootMeta(meta); } catch (e) { out.errors.push('meta: ' + String((e && e.message) || e)); }
+  const projectsBase = path.resolve(path.join(root, 'projects'));
   for (const folder of candidates) {
-    const dir = path.join(root, 'projects', folder);
+    let dir = null;
+    try {
+      const cand = path.resolve(path.join(root, 'projects', String(folder)));
+      // 必须是 projects 的**子目录**（含 projects 本身在内的任何异常形态都拒绝：
+      // cand === projectsBase 时 rmrf 会清掉全部项目的媒体，比越界删除更糟）
+      if (cand === projectsBase || !cand.startsWith(projectsBase + path.sep)) {
+        out.errors.push('拒绝删除数据根之外的目录: ' + folder);
+        continue;
+      }
+      dir = cand;
+    } catch (e) { out.errors.push('路径异常: ' + String((e && e.message) || e)); continue; }
     if (!existsSync(dir)) { out.dirs.push({ dir, existed: false }); continue; }
     try { rmrf(dir); out.dirs.push({ dir, existed: true, removed: !existsSync(dir) }); if (!existsSync(dir)) out.removed = true; }
     catch (e) { out.dirs.push({ dir, existed: true, removed: false }); out.errors.push(dir + ': ' + String((e && e.message) || e)); }
