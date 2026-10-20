@@ -114,6 +114,9 @@ const COVERAGE = [
   { sha: '0313d7f', keys: [/ftsReconcile/i] },
   { sha: '94515e1', keys: [/Craft outputs no longer survive|craft\/ directory/i] },
   { sha: '1f6ea01', keys: [/extension mappings/i] },
+  { sha: 'ff5e82e', keys: [/placeholder project|我的画布|empty state/i] },
+  { sha: '95e6a87', keys: [/placeholder project|我的画布|empty state/i] },
+  { sha: '1ab7b66', keys: [/no-models hint|no models configured|runs will ask you to configure/i] },
 ];
 for (const c of COVERAGE) {
   ok(c.keys.some((re) => re.test(section)), '未发版提交 ' + c.sha + ' 在 Unreleased 段里找不到对应记录（补记不全）');
@@ -138,10 +141,19 @@ const git = (args) => {
 const cntAll = git(['rev-list', '--count', 'main..dev']);
 if (cntAll && Number(cntAll) > 0) {
   const shas = (git(['log', '--format=%h %s', 'main..dev']) || '').split(/\r?\n/).filter(Boolean);
-  // 纯收尾提交 = 主题以 docs(IC-07)/chore(test)/fix(OBS) 开头——它修的是门禁自身
-  // （test-changelog/test-craft-cleanup）或记录 CHANGELOG，"记录对象"都是上一个功能
-  // 提交，不进功能覆盖账（否则每次收尾都会让门禁自爆，21963fc→140df84 两次坐实）。
-  const isChore = (subject) => /^(docs\(IC-07\)|chore\(test\)|fix\(OBS|docs\(OBS|test\(IC-07\))/.test(subject);
+  // 纯收尾提交 = **精确白名单**（IC-B5：禁止 fix(OBS)/docs(OBS) 这类泛前缀——
+  // 泛匹配曾把 fix(OBS-UI-1)「不再自动建占位项目」这条真实功能修复放进收尾账，
+  // CHANGELOG 零命中而门禁照绿，即 QA 实证的"假绿"活样本）。
+  // 白名单只收确定修门禁自身/记录 CHANGELOG 的主题；新收尾类型出现时**显式加一行**，
+  // 加错会被下面的功能账数量相等断言拦住（收尾项多算 → 功能数 ≠ 清单数）。
+  const CHORE_SUBJECTS = [
+    'docs(IC-07)',
+    'chore(test)',
+    'test(IC-07)',
+    'fix(OBS-1)',
+    'fix(OBS-2)',
+  ];
+  const isChore = (subject) => CHORE_SUBJECTS.some((p) => subject === p || subject.startsWith(p + ':') || subject.startsWith(p + ' '));
   const functional = [];
   const shasSet = new Set();
   for (const line of shas) {
