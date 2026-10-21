@@ -338,6 +338,8 @@ window.__ModuleLoader__.load({
       'allProjects': '全部项目',
       'currentProject': '当前项目',
       'expandDone': '已铺开为一次多镜头生成：{n} 镜合成为一条视频（时长 = 各镜之和）',
+      'expandGenCreated': '已为 {n} 个缺失资产新建图片生成节点（设定图提示词已按技能规范写好）——先生成资产图，再生成视频',
+      'expandAssetReused': '{n} 个直接复用资产库已有图片',
       'multiShotHint': '多镜头模式：提示词由上游分镜表组合（全部镜头按顺序+时长合成一条提示词），一次性生成整段视频',
       'aiNeedScript': '分镜节点还没有剧本来源：连线上游剧本节点，或在节点里粘贴剧本',
       'upstreamStillRunning': '上游剧本节点还没生成完成（有连线时内容只从连线取）；等它完成后再生成分镜',
@@ -792,6 +794,8 @@ window.__ModuleLoader__.load({
       'allProjects': 'All projects',
       'currentProject': 'Current project',
       'expandDone': 'Expanded to one multi-shot generation: {n} shots composed into a single video',
+      'expandGenCreated': 'Created {n} image-generation node(s) for assets that had no image yet, with sheet prompts already written — generate the asset images first, then the video',
+      'expandAssetReused': '{n} reused from the asset library',
       'multiShotHint': 'Multi-shot mode: the prompt is composed from the upstream storyboard (all shots, in order, with durations) and generated as one clip',
       'aiNeedScript': 'The storyboard has no script source: connect an upstream script node, or paste a script into the node',
       'upstreamStillRunning': 'The upstream script node is still generating (with a wire, content comes only from the wire); wait for it before splitting shots',
@@ -2233,6 +2237,108 @@ window.__ModuleLoader__.load({
         outs.push(contLine);
       }
       return outs.join('\n');
+    }
+    /**
+     * 资产设定图提示词生成器（纯函数）：按 canvas-craft「资产设定图版式」的规范，从设定集条目
+     * 组装专业设定集排版提示词——角色走「六段式」，场景走「主图 + 环绕补充小图」，道具走
+     * 「标题 + 斜 45° 主图 + 细节特写 + 侧视图 + 圆形色卡」。
+     * 共同铁律（技能实测结论）：版面里绝不渲染成段文字（文字型模型画长文本必乱码），
+     * 只允许 ≤4 字短标签；同一资产在所有分格中外观完全一致。
+     * @param kind 'character' | 'scene' | 'prop'
+     * @param name 资产名（设定集条目名）
+     * @param desc 设定集描述（含「外观：…」时只取该片段作为外观事实）
+     * @param bible 设定集（style 提供风格基调）
+     * @param zh 中文提示词（false → 英文）
+     */
+    function buildAssetSheetPrompt(kind, name, desc, bible, zh) {
+      const nm = String(name || '').trim() || (zh ? '未命名资产' : 'Unnamed asset');
+      const raw = String(desc || '').trim();
+      // 外观要点：优先「外观：…」片段（技能的写法约定），否则整段描述；去掉「声音：…」（画图用不到）
+      const look = (() => {
+        const ap = /外观[：:]\s*([^。；\n]+)/.exec(raw);
+        const seg = ap ? ap[1] : raw.replace(/声音[：:][^。；\n]*/g, '').trim();
+        return seg.replace(/\s+/g, ' ').trim();
+      })();
+      const style = String((bible && bible.style) || '').trim() || (zh ? '写实电影感' : 'realistic cinematic');
+      const lookLine = look ? look : (zh ? '（设定集未提供外观描述：按名称与常识绘制，保持朴素克制）' : '(no appearance notes in the bible: keep it plain and coherent)');
+      if (kind === 'scene') {
+        return zh
+          ? [
+            '【总起】' + style + ' 的场景设定图：一张主场景大图占画面主体，周围环绕补充小图；所有格子的光线方向、天气与色调统一，等大长条格一律不要。',
+            '【主体·主场景】全景建立镜头，交代空间结构、纵深与光线方向（主光来自哪一侧要能看出来）：' + lookLine + '。',
+            '【环绕补充小图（3–6 张，位置与数量不拘）】右侧一列：多角度图（俯瞰／贴地／第一人称视线等其他机位）+ 其他时间图（夜景／雨雾／逆光等同一场景的不同时段天气）；底部一排：细节格（标志物／入口／材质纹理／关键道具在场景中的位置）。',
+            '【标注】每张小图下方一行短标注，不超过 6 字（如「入口·夜」「雨中·逆光」）。',
+            '【文字规则】图内只允许上述短标注：黑色细体、笔画清楚；不写大标题、不写说明段或长句。',
+            '【画面白名单】画面内容只来自该场景与它的固有陈设；不出现剧情人物的面部特写、不出现与该场景无关的器物、没有文字水印。',
+          ].join('\n')
+          : [
+            '[Overall] A ' + style + ' location sheet: one large establishing image dominates the frame, ringed by supporting detail images; every panel shares the same light direction, weather and colour grade. No equal-width strip panels.',
+            '[Main image] A wide establishing shot that explains the space, its depth and where the key light comes from: ' + lookLine + '.',
+            '[Supporting images (3-6, placement free)] Right column: alternative angles (overhead / ground level / first-person sightline) plus other times of day (night / rain / backlit); bottom row: detail panels (landmark, entrance, material texture, where the key prop sits).',
+            '[Captions] One short caption under each small image, 6 characters max (e.g. "entrance·night").',
+            '[Text rules] Only those short captions: thin dark strokes, clearly drawn; no headline, no paragraph, no long sentence.',
+            '[Whitelist] Everything in frame comes from this location and its fixed dressing; no character close-ups, no unrelated objects, no watermark.',
+          ].join('\n');
+      }
+      if (kind === 'prop') {
+        return zh
+          ? [
+            '【总起】' + style + ' 的道具设定图：深色简洁背景，同一道具在所有分格中的材质、比例与配色完全一致。',
+            '【标题】顶部道具名大标题（不超过 6 字）：' + nm + '。',
+            '【中央主图】道具斜 45° 悬浮展示，带氛围光与细微粒子，占画面主体：' + lookLine + '。',
+            '【细节特写 2–3 格】材质纹理、关键部件，格内不写字。',
+            '【侧栏侧视图】同一道具的正侧面完整形态（交代厚度与结构）。',
+            '【底部颜色参考】3–5 个圆形色卡，每个下方标注颜色名（不超过 3 字，如「赤红」「熔金」）。',
+            '【文字规则】图内文字只有标题、颜色名与短标签：黑色细体、笔画清楚、字要写大；禁止铭文、短诗、说明文字（必然乱码）。',
+            '【画面白名单】画面中只有该道具本体与上述分格内容；不出现人物、动物、场景陈设、其他道具、文字水印。',
+          ].join('\n')
+          : [
+            '[Overall] A ' + style + ' prop sheet: dark plain background, identical material, scale and palette in every panel.',
+            '[Title] One large prop-name heading at the top (6 characters max): ' + nm + '.',
+            '[Main image] The prop floating at a 45 degree angle with ambient light and fine particles, filling the frame: ' + lookLine + '.',
+            '[Detail close-ups, 2-3 panels] Material texture and key components, no text inside them.',
+            '[Side view] A clean front/side view of the same prop (thickness and construction visible).',
+            '[Colour reference] 3-5 round swatches along the bottom, each labelled with a colour name (3 characters max).',
+            '[Text rules] Only the heading, colour names and short labels: thin dark strokes, clearly drawn, large enough; no inscriptions, no verse, no paragraphs.',
+            '[Whitelist] Only this prop and the panels above; no people, no animals, no set dressing, no other props, no watermark.',
+          ].join('\n');
+      }
+      // 角色（默认）：六段式
+      return zh
+        ? [
+          '【总起】16:9 横版专业角色设定集排版：深色简洁背景，' + style + '，同一角色在所有分格中外观完全一致。',
+          '【身份锚】本图没有参考照片：以下外观描述是唯一形象事实，所有分格严格按它绘制，不得自行换装、改体型或改变配色。',
+          '【主体】中央大幅全身立绘（正面自然站姿）：' + lookLine + '。姿态为自然空手站立——四肢自然着地或下垂，口部闭合或自然吐舌，不抱、不拿、不叼、不踩、不坐任何外物。',
+          '【主图下方·三视图（必须项）】正面／侧面／背面三格全身站姿——同一角色只换角度，交代侧背形态（后续视频一致性靠它）。',
+          '【右侧窄栏·自上而下分块，每块内容全图只出现一次】① 脸部特写一格 + 一行不超过 12 字的五官短标注；② 表情格：6 个头部小头像分两行（每行 3 个），每个下方只标两字表情名。',
+          '【文字规则】图内文字极少：只保留两三个字的短标签，黑色细体、笔画清楚、字要写大；不写大标题、说明段或长句。',
+          '【画面白名单】画面中只有该角色本体与它的固定配饰（如项圈／挂牌），以及上述分格内容；没有任何被抱、被拿、被叼、被踩或被坐着的物品——纸箱、包裹、篮子、玩具、食物、乐器、器材、道具、家具一律不出现；没有其他人物、没有其他动物、没有场景陈设、没有文字水印。',
+        ].join('\n')
+        : [
+          '[Overall] A 16:9 landscape professional character sheet: dark plain background, ' + style + ', the same character looking identical in every panel.',
+          '[Identity anchor] There is no reference photo: the appearance description below is the only source of truth - every panel follows it exactly; no wardrobe change, no body change, no palette drift.',
+          '[Main figure] A large full-body standing figure in the centre (front, natural stance): ' + lookLine + '. Empty-handed stance - limbs resting naturally, mouth closed or tongue relaxed; nothing held, carried, bitten, stood on or sat on.',
+          '[Turnaround, required] Front / side / back full-body panels below the main figure - same character, only the angle changes (this carries video consistency later).',
+          '[Right column, stacked, each block drawn only once in the whole sheet] (1) one face close-up with a short feature note (12 characters max); (2) six small head icons for expressions in two rows of three, each labelled with a two-character expression name.',
+          '[Text rules] Very little text: two or three character labels only, thin dark strokes, clearly drawn and large; no headline, no paragraph, no long sentence.',
+          '[Whitelist] Only this character and its fixed accessories (collar, tag), plus the panels above; nothing is being held, carried, bitten, stood on or sat on - no boxes, parcels, baskets, toys, food, instruments, equipment, props or furniture; no other people, no other animals, no set dressing, no watermark.',
+        ].join('\n');
+    }
+    /** 资产设定图节点的规格：命名走技能约定（角色-<名> 设定图）、画幅/清晰度按版式（设定集排版需要细节）。
+     *  标签前缀恒用中文「角色-/场景-/道具-」——这是**数据契约**而非界面文案：categoryFromName 与
+     *  assetNameFor 都靠它把生成出来的资产自动归到正确品类（英文界面同样如此）。 */
+    function assetSheetNodeSpec(kind, name, bible, zh) {
+      const k = String(kind || '');
+      const label = entityLabelOf(k) + '-' + String(name || '').trim() + ' 设定图';
+      const ent = matchBibleEntity(name, bible);
+      const desc = (ent && ent.desc) || '';
+      return {
+        kind: k,
+        label,
+        prompt: buildAssetSheetPrompt(k, name, desc, bible, zh),
+        size: '2K',
+        ratio: '16:9', // 设定集排版（角色三视图 + 侧栏）横版信息量最大
+      };
     }
 // <<<MENTION_PURE_END>>>
 
@@ -8699,26 +8805,46 @@ window.__ModuleLoader__.load({
       // 项目资产名称索引（用于把角色/场景/道具连接到已有资产节点）
       const recs = await idbByProject(S.activeId).catch(() => []);
       const norm = (s) => String(s || '').trim().toLowerCase();
-      const nameIndex = recs.filter((r) => r.kind === 'image').map((r) => ({ id: r.id, name: norm(r.name), category: r.category }));
-      // 跨镜去重的实体清单：所有镜头共用的角色/场景/道具各一个参考图节点
-      const entityNames = [];
-      const pushName = (nm) => {
+      const nameIndex = recs.filter((r) => r.kind === 'image').map((r) => ({ id: r.id, name: norm(r.name), raw: String(r.name || ''), category: r.category }));
+      // 跨镜去重的实体清单：所有镜头共用的角色/场景/道具各一个参考节点（带品类——决定用哪种设定图版式）
+      const entities = [];
+      const pushEntity = (nm, kind) => {
         const q = String(nm || '').trim();
-        if (q && !entityNames.some((x) => x.toLowerCase() === q.toLowerCase())) entityNames.push(q);
+        if (!q) return;
+        if (entities.some((x) => x.name.toLowerCase() === q.toLowerCase())) return;
+        entities.push({ name: q, kind: kind || 'character' });
       };
       for (const sh of shots) {
-        (sh.characters || []).forEach(pushName);
-        if (sh.scene) pushName(sh.scene);
-        (sh.props || []).forEach(pushName);
+        (sh.characters || []).forEach((nm) => pushEntity(nm, 'character'));
+        pushEntity(sh.scene, 'scene');
+        (sh.props || []).forEach((nm) => pushEntity(nm, 'prop'));
       }
+      const zh = effLang() !== 'en';
+      const bible = loadBible(S.activeId);
+      let reuseAssets = 0; // 资产库已有 → 只挂节点
+      let newGens = 0;     // 库中没有 → 新建带提示词的图片生成节点
       update((s) => {
-        const findAssetNode = (name) => {
+        // 资产库命中（名称相等优先，其次包含匹配）——有图就直接挂资产节点，绝不重复生成
+        const findLibraryAsset = (name) => {
           const q = norm(name);
           if (!q) return null;
-          const hit = nameIndex.find((x) => x.name === q) || nameIndex.find((x) => x.name.includes(q) || q.includes(x.name));
-          if (!hit) return null;
+          return nameIndex.find((x) => x.name === q)
+            || nameIndex.find((x) => x.name.includes(q) || q.includes(x.name))
+            || null;
+        };
+        const findAssetNodeById = (assetId) => {
+          if (!assetId) return null;
           for (const nd of Object.values(s.graph.nodes)) {
-            if (nd.type === 'image-asset' && nd.data.assetId === hit.id) return nd;
+            if (nd.type === 'image-asset' && nd.data.assetId === assetId) return nd;
+          }
+          return null;
+        };
+        // 同标签的图片生成节点（上次铺开已建过）→ 复用，避免每点一次铺开又叠一层
+        const findGenNodeByLabel = (label) => {
+          const q = norm(label);
+          if (!q) return null;
+          for (const nd of Object.values(s.graph.nodes)) {
+            if (nd.type === 'image-gen' && norm(nd.data && nd.data.label) === q) return nd;
           }
           return null;
         };
@@ -8742,10 +8868,25 @@ window.__ModuleLoader__.load({
         const total = shots.reduce((a, sh) => a + Math.max(1, Number(sh.duration) || 3), 0);
         const videoGen = mk('video-gen', baseX + 360, baseY + 20, { prompt: '', duration: Math.max(1, Math.round(total)) });
         const videoAsset = mk('video-asset', baseX + 720, baseY + 20);
-        entityNames.forEach((nm, i) => {
-          let an = findAssetNode(nm);
-          if (!an) an = mk('image-asset', baseX, baseY + i * 130, { placeholderName: nm });
-          linkRaw(an, 'out', videoGen, 'ref');
+        entities.forEach((ent, i) => {
+          const y = baseY + i * 150;
+          const hit = findLibraryAsset(ent.name);
+          if (hit) {
+            let an = findAssetNodeById(hit.id);
+            if (!an) an = mk('image-asset', baseX, y, { assetId: hit.id }, hit.raw || hit.name);
+            linkRaw(an, 'out', videoGen, 'ref');
+            reuseAssets++;
+            return;
+          }
+          // 资产库没有该实体的图：建「图片生成」节点，并按 canvas-craft 资产设定图版式写好提示词
+          //（角色六段式 / 场景主图+环绕小图 / 道具标题+45°主图+细节+侧视+色卡）——生成后自动成为本段参考图
+          const spec = assetSheetNodeSpec(ent.kind, ent.name, bible, zh);
+          let gn = findGenNodeByLabel(spec.label);
+          if (!gn) {
+            gn = mk('image-gen', baseX, y, { prompt: spec.prompt, size: spec.size, ratio: spec.ratio }, spec.label);
+            newGens++;
+          }
+          linkRaw(gn, 'out', videoGen, 'ref');
         });
         linkRaw(n, 'out', videoGen, 'prompt'); // 多镜头提示词来自上游分镜表（不复制文本）
         linkRaw(videoGen, 'out', videoAsset, 'in');
@@ -8762,6 +8903,11 @@ window.__ModuleLoader__.load({
       pushHistory();
       flushSave(); // 批量铺开立即推送，Host 侧立即可见
       toast(T('expandDone').replace('{n}', String(shots.length)));
+      // 铺开结果如实告知：哪些实体资产库已有、哪些新建了待生成的资产节点（提示词已写好）
+      if (newGens) {
+        setTimeout(() => toast(T('expandGenCreated').replace('{n}', String(newGens))
+          + (reuseAssets ? ' · ' + T('expandAssetReused').replace('{n}', String(reuseAssets)) : '')), 400);
+      }
       setTimeout(() => fitView(), 60);
     }
 
@@ -11261,6 +11407,10 @@ window.__ModuleLoader__.load({
             // 冒烟测试用：切换「快捷键面板」展开态，让展开后的列表也走一次真实渲染
             setKeysOpen: (v) => { S.keysOpen = !!v; },
             state: () => ({ stopped: hostSyncStopped, busy: hostSyncBusy, projects: S.projects.map((p) => p.id), activeId: S.activeId, ready: S.ready }),
+            // 铺开到画布（缺资产 → 建带设定图提示词的图片生成节点）供 test-expand-assets 驱动
+            expandStoryboard,
+            // 纯函数出口：资产设定图提示词生成器（不依赖 DOM，可直接断言）
+            buildAssetSheetPrompt, assetSheetNodeSpec,
           };
           // IC-01：下载侧扩展名判定的纯函数出口（供 scripts/test-download-ext.mjs 直接断言）
           window.__DSH_IC_MEDIA__ = { extForDownload };

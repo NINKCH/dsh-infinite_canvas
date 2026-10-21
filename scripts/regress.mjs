@@ -63,7 +63,8 @@ const SUITE = [
   // --- 核心链路（历史事故区）---
   { name: 'test-compose.mjs', desc: '成片合成主循环（dur is not defined 事故的网兜）' },
   { name: 'test-tools.mjs', desc: '对话工具 schema 与返回值契约' },
-  { name: 'test-mentions.mjs', desc: '@引用解析（设定集匹配 / [图N] 绑定）' },
+  { name: 'test-mentions.mjs', desc: '@引用解析（设定集匹配 / [图N] 绑定 / 资产设定图提示词）' },
+  { name: 'test-expand-assets.mjs', desc: '铺开到画布：缺资产→带设定图提示词的图片生成节点' },
   { name: 'test-llm-stream.mjs', desc: 'LLM 流式与推理重试' },
   { name: 'test-sync-bible.mjs', desc: '设定集同步合并 / 边墓碑防复活' },
   { name: 'test-user-scenarios.mjs', desc: '用户实测场景定向复验' },

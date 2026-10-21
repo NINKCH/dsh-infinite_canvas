@@ -14,7 +14,7 @@ const body = m[1];
 const catLabel = (c) => ({ character: '角色', scene: '场景', prop: '道具', general: '通用' }[c] || '通用');
 const effLang = () => 'zh';
 const factory = new Function('catLabel', 'effLang', body + `
-  return { parseMentions, highlightMentions, stripMentionMarks, matchBibleEntity, assetBelongsToEntity, entityLabelOf, entityCategoryOf, buildEffectivePrompt, assetNameFor, nowStamp, repairUnclosedMentions, bibleNames, subjectInfoFromRef, condenseDesc, voiceFromDesc, buildStructuredVideoPrompt, shotContinuityPlan, shotContinuityBlock, storyboardContinuityNote, frameAnchorText, tailFrameScore, frameSeamMetrics, seamVerdict };
+  return { parseMentions, highlightMentions, stripMentionMarks, matchBibleEntity, assetBelongsToEntity, entityLabelOf, entityCategoryOf, buildEffectivePrompt, assetNameFor, nowStamp, repairUnclosedMentions, bibleNames, subjectInfoFromRef, condenseDesc, voiceFromDesc, buildStructuredVideoPrompt, shotContinuityPlan, shotContinuityBlock, storyboardContinuityNote, frameAnchorText, tailFrameScore, frameSeamMetrics, seamVerdict, buildAssetSheetPrompt, assetSheetNodeSpec, categoryFromName };
 `);
 const api = factory(catLabel, effLang);
 
@@ -280,9 +280,67 @@ eq(api.bibleNames({ characters: [{ name: '林晚' }], scenes: [{ name: '楼道' 
   eq(api.seamVerdict(met, 'cut').thr, 0.15, 'cut 阈值 0.15');
 }
 
+// 12) 资产设定图提示词生成器：铺开时缺资产要用「按技能版式写好提示词的图片生成节点」
+//    规范来源 = canvas-craft「资产设定图版式」：角色六段式 / 场景主图+环绕小图 / 道具标题+45°主图+色卡；
+//    铁律：版面里不许成段文字（只允许 ≤4 字短标签），同一资产所有分格外观一致。
+{
+  const b2 = {
+    style: '写实电影感，冷色调',
+    characters: [{ name: '陈拾', desc: '邮差。外观：深灰风衣、旧帆布邮包、短发。声音：低沉沙哑。' }],
+    scenes: [{ name: '褶皱巷', desc: '外观：雨夜窄巷、青石地面反光、铁皮围挡。' }],
+    props: [{ name: '火漆信', desc: '外观：泛黄牛皮纸、暗红火漆封蜡、边角磨破。' }],
+  };
+
+  // —— 角色：六段式齐全 + 设定集外观进正文 + 空手姿态声明 + 短标签铁律 ——
+  const cp = api.buildAssetSheetPrompt('character', '陈拾', b2.characters[0].desc, b2, true);
+  for (const blk of ['【总起】', '【身份锚】', '【主体】', '【主图下方·三视图', '【右侧窄栏', '【文字规则】', '【画面白名单】']) {
+    if (!cp.includes(blk)) errs.push('角色设定图提示词缺少段名 ' + blk);
+  }
+  if (!cp.includes('深灰风衣、旧帆布邮包、短发')) errs.push('角色设定图未把设定集「外观：」写进主体');
+  if (cp.includes('低沉沙哑')) errs.push('角色设定图不应把「声音：」写进画面提示词');
+  if (!cp.includes('写实电影感，冷色调')) errs.push('角色设定图未注入设定集风格基调');
+  if (!cp.includes('不抱、不拿、不叼、不踩、不坐')) errs.push('角色设定图缺少空手姿态声明（外物乱入的最常见来源）');
+  if (!cp.includes('一律不出现')) errs.push('角色设定图缺少白名单逐类排除');
+
+  // —— 场景：主图占主体 + 环绕补充小图 + ≤6 字短标注 ——
+  const sp = api.buildAssetSheetPrompt('scene', '褶皱巷', b2.scenes[0].desc, b2, true);
+  if (!sp.includes('主场景大图占画面主体')) errs.push('场景设定图未声明主图占主体');
+  if (!sp.includes('环绕补充小图')) errs.push('场景设定图缺少环绕补充小图');
+  if (!sp.includes('不超过 6 字')) errs.push('场景设定图缺少短标注长度约束');
+  if (!sp.includes('雨夜窄巷')) errs.push('场景设定图未带入设定集外观');
+  if (sp.includes('【身份锚】')) errs.push('场景设定图不应套用角色的六段式身份锚');
+
+  // —— 道具：标题 + 45° 主图 + 细节 + 侧视 + 圆形色卡 ——
+  const pp = api.buildAssetSheetPrompt('prop', '火漆信', b2.props[0].desc, b2, true);
+  if (!pp.includes('45°')) errs.push('道具设定图缺少 45° 悬浮主图');
+  if (!pp.includes('圆形色卡')) errs.push('道具设定图缺少底部色卡');
+  if (!pp.includes('侧视图')) errs.push('道具设定图缺少侧视图');
+  if (!pp.includes('火漆信')) errs.push('道具设定图缺少道具名标题');
+  if (!pp.includes('泛黄牛皮纸')) errs.push('道具设定图未带入设定集外观');
+
+  // —— 英文模式：不残留中文段名，结构改为 [Overall] 等英文段 ——
+  const en = api.buildAssetSheetPrompt('character', 'Chen', b2.characters[0].desc, b2, false);
+  if (/【/.test(en)) errs.push('英文模式仍残留中文方括号段名');
+  if (!en.includes('[Overall]') || !en.includes('[Main figure]')) errs.push('英文模式缺少英文段结构');
+  if (!en.includes('realistic cinematic') && !en.includes('写实电影感')) errs.push('英文模式缺少风格基调');
+
+  // —— 节点规格：标签走命名规范（品类前缀供 categoryFromName 识别）、2K 横版 ——
+  const spec = api.assetSheetNodeSpec('character', '陈拾', b2, true);
+  eq(spec.label, '角色-陈拾 设定图', '资产设定图节点标签走命名规范');
+  eq(spec.size, '2K', '资产设定图清晰度 2K');
+  eq(spec.ratio, '16:9', '资产设定图横版 16:9');
+  eq(api.categoryFromName(spec.label), 'character', '标签前缀能被 categoryFromName 识别为角色');
+  eq(api.assetSheetNodeSpec('scene', '褶皱巷', b2, true).label, '场景-褶皱巷 设定图', '场景标签前缀');
+  eq(api.assetSheetNodeSpec('prop', '火漆信', b2, true).label, '道具-火漆信 设定图', '道具标签前缀');
+  // 设定集里查不到该实体时也不能崩：用名称兜底，提示词给出「按名称与常识绘制」
+  const orphan = api.assetSheetNodeSpec('prop', '未登记物件', b2, true);
+  if (!orphan.prompt.includes('未登记物件')) errs.push('未登记资产的提示词应带上名称兜底');
+  if (!orphan.prompt.includes('按名称与常识绘制')) errs.push('未登记资产应明确告知无外观描述');
+}
+
 if (errs.length) {
   console.error('✗ @引用解析测试未通过（' + errs.length + ' 项）：');
   for (const e of errs) console.error('  - ' + e);
   process.exit(1);
 }
-console.log('✓ @引用解析测试全部通过（解析/高亮转义/设定集匹配/资产归属/[图N]绑定/命名/结构化视频提示词）');
+console.log('✓ @引用解析测试全部通过（解析/高亮转义/设定集匹配/资产归属/[图N]绑定/命名/结构化视频提示词/资产设定图提示词）');
