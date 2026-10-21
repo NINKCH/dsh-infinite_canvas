@@ -6,8 +6,29 @@ GitHub Releases carry the same notes in English; maintainer-facing runbooks live
 
 ## [Unreleased]
 
-> Nothing yet. Add entries here (Added / Fixed / Changed / Internal) as `dev` moves; the release
-> gate requires the section to exist above the newest released version.
+### Added
+- **Image and video generation nodes are merged with their asset counterparts**: `image` replaces the old `image-gen` + `image-asset` pair and `video` replaces `video-gen` + `video-asset`. One node now covers both states — it is an asset when it has a result (`assetId`) and a generator when it has a prompt — so expanding a storyboard builds one video node instead of a generator-plus-asset chain, and the canvas no longer grows two columns for the same content.
+- **A single generation composer replaces the in-node input areas**: clicking any node opens one floating panel anchored just below it (flipped above when there is no room, clamped to the viewport, with a caret pointing at the node). It carries the reference row, the prompt, the controls and the send button, and it follows the node while panning, zooming, resizing the window or resizing the node.
+- **Model pickers list only configured models**: text uses the models available to the current Harness session; image and video use the providers/models configured in the plugin settings. The picker has a fixed width (~172px), ellipsizes long names, shows the full provider · model on hover and opens a searchable list with the provider name on the right.
+- **Per-type controls in the panel**: text/script/storyboard get the text model only; image gets image model + ratio + quality (1K/2K/4K) + count (1–4); video gets video model + ratio + resolution (480P/720P/1080P) + duration; final cut gets ratio/resolution only. Controls never mix between node kinds.
+- **Storyboard predecessor picker**: the shot count shows just 「N 镜」 and continuity is now chosen from a storyboard dropdown (or 「不衔接」) instead of a toggle; selecting a predecessor draws the bottom-center → top-center continuation wire and keeps the existing `prev` semantics (one predecessor per storyboard).
+- **Single-point ports with automatic semantic routing**: every node has one input dot at the left edge center and one output dot at the right edge center (plus the storyboard's top/bottom continuation dots). When a wire is dropped, the system decides the internal semantic port from the upstream node kind (text → prompt/script, image → ref/frame, video → frame or final-cut `in`), so users no longer have to aim at tiny per-port dots.
+
+### Fixed
+- **Existing projects keep loading after the type merge**: every document entry point normalizes legacy node types (`image-gen`/`image-asset` → `image`, `video-gen`/`video-asset` → `video`) while leaving node data untouched, so old projects keep their results (`assetId`), prompts, sizes and every edge endpoint; migration is idempotent. The Host read path and project summaries apply the same normalization, so `canvas_list_projects` / `canvas_node_status` report the merged type.
+- **The old "generator → asset" wiring no longer overwrites reference images**: result propagation to a downstream node only follows the legacy `out → in` link, so a downstream image node wired as a reference no longer inherits the upstream video's `assetId`.
+- **Legacy names keep working in the agent tools**: `canvas_create_node` still accepts `image-gen` / `image-asset` / `video-gen` / `video-asset`, maps them to the merged type and says so in the response, while `canvas_connect` picks the target port by semantics (script/prev/prompt/ref/frame/in).
+
+### Changed
+- **Nodes show results only**: image/video nodes render the preview (or a dashed empty state saying 「点击描述画面生成图片/视频」) with a status badge at the top-left and a reference badge (thumbnail + count) at the top-right; empty media nodes carry no generate button at all. Result actions (download / regenerate / refs) sit at the node's bottom-left. Script and storyboard nodes show the script body / shot summary instead of input areas; text nodes show a read-only preview.
+- **Every node defaults to 360×360 and persists `w`/`h`**: generated image/video nodes grow in exactly one direction to match the frame ratio (16:9 widens, 9:16 heightens) with a long-edge cap of 800; text/script/storyboard keep their 360×360 size until the user drags an edge (content scrolls inside).
+- **Port positions changed**: input/output wires now attach at the left/right edge centers, and the storyboard continuation wire runs from the bottom-center of the predecessor to the top-center of the next storyboard.
+- **Canvas skills describe the merged nodes**: the studio/layout/craft docs now talk about 「图片节点」/「视频节点」, state that a node with a result is the asset itself and that an empty node is generated from its panel, and stop teaching the old generator/asset split.
+
+### Internal
+- `scripts/test-node-merge.mjs` loads a legacy document (four old node types, five wires, `assetId` and prompts) and asserts the type normalization, preserved wires/endpoints/data and idempotency of repeated migration; it is registered in the regression gate.
+- `test-tools` now covers `image`/`video` creation, the legacy-name mapping and the merged `type` reported by `canvas_node_status`; `test-expand-assets` asserts expansion creates `image` nodes and a single merged `video` node; `test-node-actions` pins the result actions of the merged media node and the empty state (no generate button), and renders the composer for every node kind; `smoke-render` walks `MediaNodeBody` and `GenComposer` for all node kinds.
+- `scripts/audit.mjs` knows the merged runnable types and the two-sided port table keeps both sides in sync.
 
 ## [0.18.6] — 2026-10-21
 

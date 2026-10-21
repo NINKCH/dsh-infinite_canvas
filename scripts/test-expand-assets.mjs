@@ -1,5 +1,6 @@
-// 铺开到画布：资产库没有的实体必须建「图片生成」节点（并按 canvas-craft 设定图版式写好提示词），
-// 不再放空壳占位。同时验证：重复铺开不叠加重复节点、没有资产库数据时不凭空产生资产节点。
+// 铺开到画布：资产库没有的实体必须建「图片节点」（合并类型 image，按 canvas-craft 设定图版式写好提示词），
+// 不再放空壳占位。同时验证：重复铺开不叠加重复节点、没有资产库数据时不凭空产生资产图、
+// 视频也只建一个合并节点（旧的 video-gen + video-asset 两节点链路已合并）。
 // 运行：node scripts/test-expand-assets.mjs（退出码 0=通过）
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
@@ -107,40 +108,44 @@ const nodesOfType = (t) => Object.values(sync.graph().nodes).filter((n) => n.typ
 const edgesTo = (id, port) => sync.graph().edges.filter((e) => e.toNode === id && e.toPort === port);
 
 async function main() {
-  // ---------------- 1) 铺开：缺资产 → 图片生成节点（带提示词） ----------------
+  // ---------------- 1) 铺开：缺资产 → 图片节点（带提示词） ----------------
   await withTimeout(sync.expandStoryboard(sbNode()), 8000, 'expandStoryboard #1');
-  const gens = nodesOfType('image-gen');
-  const placeholders = nodesOfType('image-asset').filter((n) => n.data && n.data.placeholderName);
-  ok(gens.length === 3, '铺开后应有 3 个图片生成节点（陈拾/褶皱巷/火漆信），实际 ' + gens.length);
-  ok(placeholders.length === 0, '不应再产生空壳占位资产节点（placeholderName），实际 ' + placeholders.length);
+  // 合并后的图片节点只有一种类型：有 prompt = 待生成的图片节点；有 assetId = 资产图
+  const gens = nodesOfType('image').filter((n) => String(n.data && n.data.prompt || '').trim());
+  const placeholders = nodesOfType('image').filter((n) => !n.data.assetId && !String(n.data.prompt || '').trim());
+  ok(gens.length === 3, '铺开后应有 3 个图片节点（陈拾/褶皱巷/火漆信），实际 ' + gens.length);
+  ok(placeholders.length === 0, '不应再产生空壳占位图片节点，实际 ' + placeholders.length);
   const labels = gens.map((n) => String(n.data.label || ''));
   for (const want of ['角色-陈拾 设定图', '场景-褶皱巷 设定图', '道具-火漆信 设定图']) {
-    ok(labels.includes(want), '缺少图片生成节点「' + want + '」，实际：' + labels.join(' / '));
+    ok(labels.includes(want), '缺少图片节点「' + want + '」，实际：' + labels.join(' / '));
   }
   for (const n of gens) {
     const p = String(n.data.prompt || '');
-    ok(p.length > 80, '图片生成节点「' + n.data.label + '」提示词过短（' + p.length + ' 字），没有按设定图版式写');
-    ok(p.includes('【') && p.includes('】'), '图片生成节点「' + n.data.label + '」提示词缺少分段结构');
-    ok(String(n.data.size) === '2K' && String(n.data.ratio) === '16:9', '图片生成节点「' + n.data.label + '」清晰度/画幅不对');
+    ok(p.length > 80, '图片节点「' + n.data.label + '」提示词过短（' + p.length + ' 字），没有按设定图版式写');
+    ok(p.includes('【') && p.includes('】'), '图片节点「' + n.data.label + '」提示词缺少分段结构');
+    ok(String(n.data.size) === '2K' && String(n.data.ratio) === '16:9', '图片节点「' + n.data.label + '」清晰度/画幅不对');
   }
   const chen = gens.find((n) => String(n.data.label).includes('陈拾'));
   ok(chen && chen.data.prompt.includes('深灰风衣'), '角色提示词未带入设定集「外观：」');
   ok(chen && !chen.data.prompt.includes('低沉沙哑'), '角色提示词不应带入「声音：」');
-  const vgens = nodesOfType('video-gen');
-  ok(vgens.length === 1, '铺开应产生 1 个视频生成节点，实际 ' + vgens.length);
+  const vgens = nodesOfType('video');
+  ok(vgens.length === 1, '铺开应产生 1 个视频节点，实际 ' + vgens.length);
   const refEdges = edgesTo(vgens[0].id, 'ref');
   ok(refEdges.length === 3, '视频节点应有 3 条参考图连线，实际 ' + refEdges.length);
-  ok(refEdges.every((e) => gens.some((g) => g.id === e.fromNode)), '参考图连线应来自新建的图片生成节点');
+  ok(refEdges.every((e) => gens.some((g) => g.id === e.fromNode)), '参考图连线应来自新建的图片节点');
+  // 合并节点：生成器与资产同属一个节点，不应再出现「生成 → 资产」两个视频节点
+  ok(nodesOfType('video').every((n) => !n.data.assetId), '刚铺开的视频节点还没有结果（assetId 应为空）');
 
   // ---------------- 2) 重复铺开：复用同标签节点，不叠加重复 ----------------
-  const gensBefore = nodesOfType('image-gen').length;
+  const gensBefore = nodesOfType('image').filter((n) => String(n.data && n.data.prompt || '').trim()).length;
   await withTimeout(sync.expandStoryboard(sbNode()), 8000, 'expandStoryboard #2');
-  const gensAfter = nodesOfType('image-gen').length;
-  ok(gensAfter === gensBefore, '重复铺开不应叠加图片生成节点（前 ' + gensBefore + ' → 后 ' + gensAfter + '）');
-  ok(nodesOfType('video-gen').length === 2, '重复铺开会新建视频节点（每段一个），实际 ' + nodesOfType('video-gen').length);
+  const gensAfter = nodesOfType('image').filter((n) => String(n.data && n.data.prompt || '').trim()).length;
+  ok(gensAfter === gensBefore, '重复铺开不应叠加图片节点（前 ' + gensBefore + ' → 后 ' + gensAfter + '）');
+  ok(nodesOfType('video').length === 2, '重复铺开会新建视频节点（每段一个），实际 ' + nodesOfType('video').length);
 
-  // ---------------- 3) 没有资产库数据 → 不凭空产生资产节点 ----------------
-  ok(nodesOfType('image-asset').length === 0, '无资产库数据时不应凭空产生 image-asset 节点，实际 ' + nodesOfType('image-asset').length);
+  // ---------------- 3) 没有资产库数据 → 不凭空产生资产图 ----------------
+  const assetImgs = nodesOfType('image').filter((n) => n.data && n.data.assetId);
+  ok(assetImgs.length === 0, '无资产库数据时不应凭空产生带 assetId 的图片节点，实际 ' + assetImgs.length);
 }
 
 main().then(() => {
@@ -149,7 +154,7 @@ main().then(() => {
     for (const e of errs) console.error('  - ' + e);
     process.exit(1);
   }
-  console.log('✓ 铺开资产测试通过（缺资产→带设定图提示词的图片生成节点、设定集外观入词、参考图连线、重复铺开不叠加）');
+  console.log('✓ 铺开资产测试通过（缺资产→带设定图提示词的图片节点、设定集外观入词、参考图连线、重复铺开不叠加、视频单节点合并）');
   process.exit(0);
 }).catch((e) => {
   console.error('✗ 铺开资产测试异常：' + (e && e.message));

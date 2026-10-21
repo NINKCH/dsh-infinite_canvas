@@ -71,7 +71,9 @@ for (const [id, n] of sbs) {
 
 // ---------- 4) 关键验证：autoPrevVideoNode 能否跨分镜表找到上一段视频 ----------
 console.log('\n=== 自动续帧「找上一段视频」（核心修复点）===');
-const videoNodes = Object.entries(graph.nodes).filter(([, n]) => n.type === 'video-gen');
+// 合并后的视频节点类型是 video（真实数据可能仍是旧名 video-gen/video-asset，一并接受）
+const isVidType = (t) => t === 'video' || t === 'video-gen' || t === 'video-asset';
+const videoNodes = Object.entries(graph.nodes).filter(([, n]) => isVidType(n.type));
 const byLabel = new Map(videoNodes.map(([id, n]) => [n.data.label || id, { ...n, id }]));
 console.log('  已存在的视频节点:', videoNodes.map(([id, n]) => `${n.data.label}(asset=${n.data.assetId ? '有' : '无'})`).join(', '));
 
@@ -92,7 +94,7 @@ if (v2) {
 // ---------- 5) 模拟【场3视频】节点：只有 prev 链、没有 frame 线时的表现 ----------
 console.log('\n=== 模拟场3视频（真实 prev 链，无 frame 线）===');
 const sb3Id = sbs.find(([, n]) => (n.data.label || '').includes('场3'))?.[0];
-const fake3 = { id: 'fake_v3', type: 'video-gen', x: 1000, y: 1000, data: { label: '第一节-场3视频', assetId: null } };
+const fake3 = { id: 'fake_v3', type: 'video', x: 1000, y: 1000, data: { label: '第一节-场3视频', assetId: null } };
 graph.nodes[fake3.id] = fake3;
 graph.edges.push({ id: 'fake_e1', fromNode: sb3Id, fromPort: 'out', toNode: fake3.id, toPort: 'prompt' });
 const p3 = api.autoPrevVideoNode(fake3);
@@ -102,7 +104,7 @@ ok(p3name === '第一节-场2视频', '场3视频应沿 prev 链找到场2视频
 
 // 再模拟场4（场3还没生成 → 应继续上溯到场2）
 const sb4Id = sbs.find(([, n]) => (n.data.label || '').includes('场4'))?.[0];
-const fake4 = { id: 'fake_v4', type: 'video-gen', x: 1000, y: 1200, data: { label: '第一节-场4视频' } };
+const fake4 = { id: 'fake_v4', type: 'video', x: 1000, y: 1200, data: { label: '第一节-场4视频' } };
 graph.nodes[fake4.id] = fake4;
 graph.edges.push({ id: 'fake_e2', fromNode: sb4Id, fromPort: 'out', toNode: fake4.id, toPort: 'prompt' });
 const p4 = api.autoPrevVideoNode(fake4);

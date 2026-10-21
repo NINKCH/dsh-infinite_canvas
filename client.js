@@ -17,7 +17,10 @@ window.__ModuleLoader__.load({
     const DB_NAME = 'dsh-infinite-canvas';
     const GENERAL_PID = 'general'; // 通用项目：多项目共用的资产挂在这里
     const DB_STORE = 'assets';
-    const NODE_W = 240;
+    // 所有节点默认 360×360；图片/视频节点有结果后按画面比例只在一个方向变长（长边上限 800）
+    const NODE_W = 360;
+    const NODE_H = 360;
+    const MEDIA_MAX_LONG = 800;
     const CRAFT_SKILL = 'canvas-craft'; // 内置创作方法论技能（未选技能时默认注入）
 
     // 节点类型的唯一事实源是 TYPE_LABEL / TYPE_KIND / PORTS（见下方）：历史上这里还有一个
@@ -41,20 +44,56 @@ window.__ModuleLoader__.load({
         inputs: [{ id: 'prev', kind: 'text' }, { id: 'script', kind: 'text' }],
         outputs: [{ id: 'out', kind: 'text' }, { id: 'tail', kind: 'text' }],
       },
-      'image-gen': {
+      'image': {
+        // 合并类型：旧的「图片生成」与「图片资产」两种节点归一到这里。
+        // 有 assetId 就是已有图（资产），有 prompt 就是待生成的提示词——同一个节点两种状态。
         inputs: [{ id: 'prompt', kind: 'text' }, { id: 'ref', kind: 'image' }],
         outputs: [{ id: 'out', kind: 'image' }],
       },
-      'video-gen': {
+      'video': {
+        // 合并类型：旧的「视频生成」与「视频资产」两种节点归一到这里。
         inputs: [{ id: 'prompt', kind: 'text' }, { id: 'frame', kind: 'image' }, { id: 'ref', kind: 'image' }],
         // last = 真·最后一帧（画面结尾）；tailpick = 续帧接力的最佳选帧（动作进行中/清晰/不抖）
         outputs: [{ id: 'out', kind: 'video' }, { id: 'tailpick', kind: 'image' }, { id: 'last', kind: 'image' }],
       },
-      'image-asset': { inputs: [{ id: 'in', kind: 'image' }], outputs: [{ id: 'out', kind: 'image' }] },
-      'video-asset': { inputs: [{ id: 'in', kind: 'video' }], outputs: [{ id: 'out', kind: 'video' }, { id: 'tailpick', kind: 'image' }, { id: 'last', kind: 'image' }] },
       'finalcut': { inputs: [{ id: 'in', kind: 'video' }], outputs: [] },
       'group': { inputs: [], outputs: [] },
     };
+    // 旧节点类型 → 合并类型。旧项目文档在读入时统一归一（loadGraphDoc / mergeHostDoc / importHostProject），
+    // 节点 data 一律原样保留：有 assetId 就是"已有图/视频"，有 prompt 就是"有提示词"。
+    const LEGACY_NODE_TYPES = { 'image-gen': 'image', 'image-asset': 'image', 'video-gen': 'video', 'video-asset': 'video' };
+    function normalizeNodeType(type) { return LEGACY_NODE_TYPES[type] || type; }
+    function normalizeNode(n) {
+      if (n && typeof n === 'object') {
+        const t = normalizeNodeType(n.type);
+        if (t !== n.type) n.type = t;
+      }
+      return n;
+    }
+    /** 文档级归一（幂等）：迁移两次结果一致。只改 type，不动 data / edges / 坐标 / 尺寸。 */
+    function normalizeGraphDoc(doc) {
+      if (!doc || typeof doc !== 'object') return doc;
+      for (const n of Object.values(doc.nodes || {})) normalizeNode(n);
+      return doc;
+    }
+    const isImageNode = (n) => !!n && n.type === 'image';
+    const isVideoNode = (n) => !!n && n.type === 'video';
+    /** 抽取的纯函数（test-real-project-graph）可能拿到未归一的旧文档，这里兼容旧名。 */
+    const isVideoLike = (n) => !!n && (n.type === 'video' || n.type === 'video-gen' || n.type === 'video-asset');
+    const isImageLike = (n) => !!n && (n.type === 'image' || n.type === 'image-gen' || n.type === 'image-asset');
+    // 有生成面板的节点类型（点击节点弹出 GenComposer）
+    const COMPOSER_TYPES = new Set(['text', 'script', 'storyboard', 'image', 'video', 'finalcut']);
+    /** 画面比例 → 节点尺寸：短边固定 360，长边按比例放大；长边超过 800 则整体缩到 800。 */
+    function sizeForRatio(ratio) {
+      const [rw, rh] = String(ratio || '16:9').split(':').map(Number);
+      if (!rw || !rh) return { w: NODE_W, h: NODE_H };
+      let w; let h;
+      if (rw >= rh) { h = NODE_H; w = Math.round(NODE_H * rw / rh); }
+      else { w = NODE_W; h = Math.round(NODE_W * rh / rw); }
+      const long = Math.max(w, h);
+      if (long > MEDIA_MAX_LONG) { const k = MEDIA_MAX_LONG / long; w = Math.round(w * k); h = Math.round(h * k); }
+      return { w, h };
+    }
     // 允许多条入线的输入端口（参考图类），其余输入端口保持单线
     const MULTI_INPUT_PORTS = new Set(['ref', 'char', 'scene', 'prop']);
     // 分镜端口期望的资产分类（仅用于连接时的非阻断提示）
@@ -173,10 +212,41 @@ window.__ModuleLoader__.load({
       'settings': '设置',
       'toggleRight': '切换侧栏',
       'nText': '文本',
-      'nImageGen': '图片生成',
-      'nVideoGen': '视频生成',
-      'nImageAsset': '图片资产',
-      'nVideoAsset': '视频资产',
+      'nImage': '图片',
+      'nVideo': '视频',
+      'tagText': '文本节点',
+      'tagScript': '剧本节点',
+      'tagStoryboard': '分镜表',
+      'tagImage': '图片节点',
+      'tagVideo': '视频节点',
+      'tagFinalCut': '成片节点',
+      'genRunning': '生成中…',
+      'generated': '已生成',
+      'genFailed': '生成失败',
+      'clickToGenImage': '点击描述画面生成图片',
+      'clickToGenVideo': '点击描述画面生成视频',
+      'emptyTextHint': '点击节点输入文本内容',
+      'emptyScriptHint': '点击节点填写创作意图并生成剧本',
+      'noShotsYet': '尚未拆解镜头',
+      'multiShotOnce': '多镜头一次生成',
+      'videoPromptPlaceholder': '描述镜头与动作；来自上游分镜表时可留空',
+      'finalNotePlaceholder': '成片说明（可选）：转场、字幕与配音设置在各片段节点上',
+      'refBadgeTitle': '已连接参考图',
+      'refCount': '参考图 {n}',
+      'refConnectedHint': '已连接 {n} 张参考图（来自上游连线）',
+      'refNoneHint': '暂无参考图：把图片节点连到本节点的参考图输入，或在提示词里 @资产',
+      'refUploadTitle': '上传参考图（新增一个上游图片节点并自动连线）',
+      'countLabel': '张数',
+      'contNone': '不衔接',
+      'contPickTitle': '衔接上一个分镜（下边缘中部 → 上边缘中部）',
+      'moreActions': '更多',
+      'searchModelPh': '搜索模型…',
+      'noModelMatch': '没有匹配的模型',
+      'noBibleEntities': '设定集里还没有角色/场景/道具',
+      'atInsertTip': '插入 @实体 引用',
+      'composerTextNoGen': '文本节点：内容即时保存，无需生成',
+      'extraParamsPh': '扩展参数 JSON，如 {"use_context_ir":true}',
+      'extraParamsHint': '节点级扩展参数：合并进供应商扩展参数，节点值优先',
       'portPrompt': '提示词',
       'portRef': '参考图',
       'portFrame': '首帧',
@@ -236,7 +306,6 @@ window.__ModuleLoader__.load({
       'motionLabel': '动作 / 运镜（驱动视频）',
       'shotVisualPlaceholder': '这一帧长什么样：人物穿什么、在什么场景、什么构图…',
       'shotMotionPlaceholder': '接下来怎么动：动作、镜头运动、节奏…',
-      'refCount': '参考图',
       'catAll': '全部',
       'catCharacter': '角色',
       'catScene': '场景',
@@ -338,7 +407,7 @@ window.__ModuleLoader__.load({
       'allProjects': '全部项目',
       'currentProject': '当前项目',
       'expandDone': '已铺开为一次多镜头生成：{n} 镜合成为一条视频（时长 = 各镜之和）',
-      'expandGenCreated': '已为 {n} 个缺失资产新建图片生成节点（设定图提示词已按技能规范写好）——先生成资产图，再生成视频',
+      'expandGenCreated': '已为 {n} 个缺失资产新建图片节点（设定图提示词已按技能规范写好）——先生成资产图，再生成视频',
       'expandAssetReused': '{n} 个直接复用资产库已有图片',
       'multiShotHint': '多镜头模式：提示词由上游分镜表组合（全部镜头按顺序+时长合成一条提示词），一次性生成整段视频',
       'aiNeedScript': '分镜节点还没有剧本来源：连线上游剧本节点，或在节点里粘贴剧本',
@@ -629,10 +698,41 @@ window.__ModuleLoader__.load({
       'settings': 'Settings',
       'toggleRight': 'Toggle sidebar',
       'nText': 'Text',
-      'nImageGen': 'Image Gen',
-      'nVideoGen': 'Video Gen',
-      'nImageAsset': 'Image Asset',
-      'nVideoAsset': 'Video Asset',
+      'nImage': 'Image',
+      'nVideo': 'Video',
+      'tagText': 'Text node',
+      'tagScript': 'Script node',
+      'tagStoryboard': 'Storyboard',
+      'tagImage': 'Image node',
+      'tagVideo': 'Video node',
+      'tagFinalCut': 'Final cut node',
+      'genRunning': 'Generating…',
+      'generated': 'Generated',
+      'genFailed': 'Generation failed',
+      'clickToGenImage': 'Click to describe the picture and generate',
+      'clickToGenVideo': 'Click to describe the shot and generate',
+      'emptyTextHint': 'Click the node to write text',
+      'emptyScriptHint': 'Click the node to write the idea and generate the script',
+      'noShotsYet': 'No shots yet',
+      'multiShotOnce': 'one multi-shot generation',
+      'videoPromptPlaceholder': 'Describe the shot and action; leave empty when driven by an upstream storyboard',
+      'finalNotePlaceholder': 'Final-cut note (optional): transitions, subtitles and voice live on the segment nodes',
+      'refBadgeTitle': 'Connected reference images',
+      'refCount': 'Refs {n}',
+      'refConnectedHint': '{n} reference image(s) connected (from upstream wires)',
+      'refNoneHint': 'No reference images yet: wire an image node into the reference input, or mention @asset in the prompt',
+      'refUploadTitle': 'Upload a reference image (creates an upstream image node and wires it)',
+      'countLabel': 'Count',
+      'contNone': 'No predecessor',
+      'contPickTitle': 'Continue from a storyboard (bottom-center → top-center wire)',
+      'moreActions': 'More',
+      'searchModelPh': 'Search models…',
+      'noModelMatch': 'No matching model',
+      'noBibleEntities': 'No characters/scenes/props in the series bible yet',
+      'atInsertTip': 'Insert an @entity mention',
+      'composerTextNoGen': 'Text node: content saves live, nothing to generate',
+      'extraParamsPh': 'Extra params JSON, e.g. {"use_context_ir":true}',
+      'extraParamsHint': 'Node-level extra params merged into the provider payload; node value wins',
       'portPrompt': 'prompt',
       'portRef': 'ref',
       'portFrame': 'first frame',
@@ -692,7 +792,6 @@ window.__ModuleLoader__.load({
       'motionLabel': 'Action / camera (drives video)',
       'shotVisualPlaceholder': 'What this frame looks like: wardrobe, location, framing…',
       'shotMotionPlaceholder': 'What happens next: actions, camera move, pacing…',
-      'refCount': 'refs',
       'catAll': 'All',
       'catCharacter': 'Character',
       'catScene': 'Scene',
@@ -794,7 +893,7 @@ window.__ModuleLoader__.load({
       'allProjects': 'All projects',
       'currentProject': 'Current project',
       'expandDone': 'Expanded to one multi-shot generation: {n} shots composed into a single video',
-      'expandGenCreated': 'Created {n} image-generation node(s) for assets that had no image yet, with sheet prompts already written — generate the asset images first, then the video',
+      'expandGenCreated': 'Created {n} image node(s) for assets that had no image yet, with sheet prompts already written — generate the asset images first, then the video',
       'expandAssetReused': '{n} reused from the asset library',
       'multiShotHint': 'Multi-shot mode: the prompt is composed from the upstream storyboard (all shots, in order, with durations) and generated as one clip',
       'aiNeedScript': 'The storyboard has no script source: connect an upstream script node, or paste a script into the node',
@@ -1310,8 +1409,8 @@ window.__ModuleLoader__.load({
 .dshic-node.type-text{--acc:var(--dsw-alias-label-secondary);}
 .dshic-node.type-script{--acc:var(--dsw-alias-brand-primary);}
 .dshic-node.type-shot, .dshic-node.type-storyboard{--acc:var(--dsw-alias-state-warn-primary);}
-.dshic-node.type-image-gen, .dshic-node.type-image-asset{--acc:var(--dsw-alias-brand-primary);}
-.dshic-node.type-video-gen, .dshic-node.type-video-asset{--acc:var(--dsw-alias-state-success-primary);}
+.dshic-node.type-image{--acc:var(--dsw-alias-brand-primary);}
+.dshic-node.type-video{--acc:var(--dsw-alias-state-success-primary);}
 .dshic-node-head .dshic-head-ic{color:var(--acc);}
 /* 主操作按钮 */
 .dshic-gen{width:100%;height:30px;border-radius:8px;border:none;background:var(--dsw-alias-brand-primary);
@@ -1431,6 +1530,68 @@ window.__ModuleLoader__.load({
 .dshic-toolbar{backdrop-filter:blur(6px);}
 .dshic-node .dshic-textarea,.dshic-node .dshic-input{border-radius:8px;}
 .dshic-preview{border-radius:10px;}
+/* ── 统一媒体节点（节点内只显示结果）────────────────────────────── */
+.dshic-node-body.is-media{padding:0;gap:0;overflow:hidden;}
+.dshic-node-body.is-media > .dshic-node-row{padding:0 8px 8px;flex:none;box-sizing:border-box;}
+.dshic-media-wrap{position:relative;flex:1;min-height:0;display:flex;flex-direction:column;background:var(--dsw-alias-bg-layer-2);}
+.dshic-media-fill{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;background:var(--dsw-alias-bg-layer-2);display:block;}
+.dshic-media-empty{position:absolute;inset:10px;border:1.5px dashed var(--dsw-alias-border-l2);border-radius:10px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:7px;color:var(--dsw-alias-label-secondary);cursor:pointer;background:color-mix(in srgb,var(--dsw-alias-bg-layer-1) 70%,transparent);}
+.dshic-media-empty:hover{border-color:var(--dsw-alias-brand-primary);color:var(--dsw-alias-label-primary);}
+.dshic-media-empty-ic{width:32px;height:32px;border-radius:9px;display:flex;align-items:center;justify-content:center;background:color-mix(in srgb,var(--dsw-alias-label-primary) 8%,transparent);}
+.dshic-media-empty-t{font-size:11.5px;line-height:16px;text-align:center;padding:0 10px;}
+.dshic-media-err{position:absolute;left:0;right:0;bottom:0;padding:4px 8px;font-size:10.5px;line-height:14px;color:var(--dsw-alias-state-error-primary);background:color-mix(in srgb,var(--dsw-alias-bg-overlay) 85%,transparent);max-height:42px;overflow:hidden;text-overflow:ellipsis;}
+.dshic-status-badge{position:absolute;left:8px;top:8px;z-index:3;display:inline-flex;align-items:center;gap:5px;background:rgba(255,255,255,.92);border:1px solid var(--dsw-alias-border-l1);border-radius:999px;padding:2px 8px 2px 6px;font-size:10.5px;color:var(--dsw-alias-label-secondary);backdrop-filter:blur(6px);}
+.dshic-status-dot{width:6px;height:6px;border-radius:50%;background:var(--dsw-alias-label-secondary);flex:none;}
+.dshic-status-badge.is-done .dshic-status-dot{background:var(--dsw-alias-state-success-primary);}
+.dshic-status-badge.is-err .dshic-status-dot{background:var(--dsw-alias-state-error-primary);}
+.dshic-status-badge.is-run .dshic-status-dot{background:var(--dsw-alias-brand-primary);animation:dshic-pulse 1s infinite;}
+@keyframes dshic-pulse{0%,100%{opacity:.35}50%{opacity:1}}
+.dshic-refbadge{position:absolute;right:8px;top:8px;z-index:3;display:inline-flex;align-items:center;gap:3px;background:rgba(20,22,26,.66);color:#fff;border:0;border-radius:999px;padding:2px 6px 2px 3px;font-size:10.5px;cursor:pointer;backdrop-filter:blur(6px);}
+.dshic-refbadge:hover{background:rgba(20,22,26,.82);}
+.dshic-refbadge-thumb{width:16px;height:16px;border-radius:5px;object-fit:cover;border:1px solid rgba(255,255,255,.5);background:linear-gradient(135deg,#9aa4b2,#6b7686);display:block;}
+.dshic-refbadge-thumb.is-empty{display:inline-block;}
+/* ── 纯结果文本节点（文本/剧本）──────────────────────────────── */
+.dshic-scroll-preview{flex:1;min-height:0;overflow:auto;font-size:12px;line-height:1.65;color:var(--dsw-alias-label-primary);white-space:pre-wrap;word-break:break-word;}
+.dshic-scroll-preview.is-empty{display:flex;align-items:center;justify-content:center;border:1.5px dashed var(--dsw-alias-border-l2);border-radius:10px;color:var(--dsw-alias-label-secondary);}
+.dshic-shot-summary{padding:2px 0;font-size:12px;color:var(--dsw-alias-label-secondary);flex:none;}
+.dshic-shot-summary b{color:var(--dsw-alias-label-primary);font-size:13px;}
+/* ── 生成面板（浮层单例；紧贴选中节点下方）──────────────────── */
+.dshic-composer{position:fixed;z-index:200;left:0;top:0;background:var(--dsw-alias-bg-overlay);border:1px solid var(--dsw-alias-border-l2);border-radius:16px;box-shadow:0 12px 40px rgba(0,0,0,.16),0 2px 6px rgba(0,0,0,.08);display:flex;flex-direction:column;max-height:calc(100vh - 24px);box-sizing:border-box;}
+.dshic-composer-caret{position:absolute;top:-6px;width:11px;height:11px;background:var(--dsw-alias-bg-overlay);border-left:1px solid var(--dsw-alias-border-l2);border-top:1px solid var(--dsw-alias-border-l2);transform:rotate(45deg);border-radius:2px 0 0 0;z-index:1;}
+.dshic-composer-head{display:flex;align-items:center;gap:8px;padding:10px 12px 4px;flex:none;}
+.dshic-composer-title{font-size:12.5px;font-weight:600;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.dshic-composer-tag{font-size:10px;color:var(--dsw-alias-label-secondary);border:1px solid var(--dsw-alias-border-l2);border-radius:5px;padding:0 5px;flex:none;}
+.dshic-composer-head .dshic-iconbtn{margin-left:auto;}
+.dshic-composer-body{flex:1 1 auto;min-height:0;overflow-y:auto;display:flex;flex-direction:column;gap:7px;padding:4px 12px 6px;}
+.dshic-composer-refs{display:flex;align-items:center;gap:7px;overflow-x:auto;flex:none;min-height:36px;}
+.dshic-ref-add{flex:none;width:34px;height:34px;border-radius:9px;border:1.5px dashed var(--dsw-alias-border-l2);background:color-mix(in srgb,var(--dsw-alias-label-primary) 4%,transparent);color:var(--dsw-alias-label-secondary);cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:17px;line-height:1;}
+.dshic-ref-add:hover{border-color:var(--dsw-alias-brand-primary);color:var(--dsw-alias-brand-primary);}
+.dshic-ref-thumb{flex:none;width:34px;height:34px;border-radius:9px;overflow:hidden;border:1px solid var(--dsw-alias-border-l1);}
+.dshic-ref-thumb .dshic-hist-thumb{width:100%;height:100%;border:none;margin:0;}
+.dshic-composer-refhint{font-size:10px;color:var(--dsw-alias-label-secondary);line-height:14px;}
+.dshic-composer-prompt{flex:none;}
+.dshic-composer-extra{display:flex;flex-direction:column;gap:6px;}
+.dshic-composer-controls{display:flex;align-items:center;gap:6px;flex-wrap:wrap;padding:6px 12px 11px;flex:none;border-top:1px solid var(--dsw-alias-border-l1);}
+.dshic-pick-wrap{display:inline-flex;flex:none;}
+.dshic-pick{display:inline-flex;align-items:center;gap:5px;height:28px;padding:0 8px;border-radius:8px;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font:inherit;font-size:11.5px;cursor:pointer;box-sizing:border-box;justify-content:space-between;}
+.dshic-pick:hover,.dshic-pick.is-open{background:color-mix(in srgb,var(--dsw-alias-label-primary) 7%,transparent);}
+.dshic-pick-val{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;}
+.dshic-pick-car{color:var(--dsw-alias-label-secondary);font-size:9px;flex:none;}
+.dshic-pick-menu{position:fixed;z-index:240;background:var(--dsw-alias-bg-overlay);border:1px solid var(--dsw-alias-border-l2);border-radius:12px;box-shadow:0 12px 40px rgba(0,0,0,.18);display:flex;flex-direction:column;max-height:280px;overflow:hidden;box-sizing:border-box;}
+.dshic-pick-search{padding:7px;border-bottom:1px solid var(--dsw-alias-border-l1);flex:none;}
+.dshic-pick-search .dshic-input{height:26px;font-size:12px;}
+.dshic-pick-list{overflow-y:auto;padding:5px;flex:1;}
+.dshic-pick-item{display:flex;align-items:center;gap:8px;width:100%;padding:6px 8px;border:0;border-radius:7px;background:transparent;color:var(--dsw-alias-label-primary);font:inherit;font-size:12px;cursor:pointer;text-align:left;box-sizing:border-box;}
+.dshic-pick-item:hover{background:color-mix(in srgb,var(--dsw-alias-label-primary) 7%,transparent);}
+.dshic-pick-item.is-on{background:color-mix(in srgb,var(--dsw-alias-brand-primary) 14%,transparent);color:var(--dsw-alias-brand-primary);font-weight:600;}
+.dshic-pick-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.dshic-pick-sub{margin-left:auto;color:var(--dsw-alias-label-secondary);font-size:10px;flex:none;max-width:45%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.dshic-pick-item.is-on .dshic-pick-sub{color:color-mix(in srgb,var(--dsw-alias-brand-primary) 70%,var(--dsw-alias-label-secondary));}
+.dshic-pick-empty{padding:14px 10px;font-size:11.5px;color:var(--dsw-alias-label-secondary);text-align:center;}
+.dshic-pick.dshic-at{padding:0 9px;justify-content:center;font-weight:600;}
+.dshic-send{width:34px;height:34px;border-radius:50%;border:0;background:var(--dsw-alias-label-primary);color:var(--dsw-alias-bg-base);cursor:pointer;display:flex;align-items:center;justify-content:center;flex:none;}
+.dshic-send:hover{filter:brightness(1.2);}
+.dshic-send:disabled{background:var(--dsw-alias-border-l2);cursor:default;filter:none;}
 `;
 
     // ============================================================
@@ -1569,7 +1730,11 @@ window.__ModuleLoader__.load({
     }
 
     function emptyGraph() { return { nodes: {}, edges: [], view: { x: 60, y: 40, scale: 1 } }; }
-    function loadGraphDoc(pid) { return lsGet(LS_GRAPH + pid, null); }
+    /** 统一文档入口：读出来即归一旧节点类型（image-gen/image-asset → image，video-gen/video-asset → video）。 */
+    function loadGraphDoc(pid) {
+      const doc = lsGet(LS_GRAPH + pid, null);
+      return doc ? normalizeGraphDoc(doc) : doc;
+    }
     function saveGraphDoc(pid, graph) { lsSet(LS_GRAPH + pid, graph); }
 
     // ============================================================
@@ -4318,21 +4483,24 @@ window.__ModuleLoader__.load({
         URL.revokeObjectURL(url);
       }
     }
-    /** 续帧链：找到「上一个视频生成节点」。按可靠性依次尝试：
-     *  ① frame 口连线的来源视频（用户显式指定；也支持从视频资产节点回溯）；
+    /** 续帧链：找到「上一个视频节点」。按可靠性依次尝试：
+     *  ① frame 口连线的来源视频（用户显式指定；也支持沿旧视频资产节点的 in 线回溯）；
      *  ② 同一上游分镜表连出的其它视频节点里、已生成且位置更靠上的那一个（一个分镜表铺多个视频段）；
      *  ③ **沿分镜表的 prev 承接链向上游找**：上游分镜表所连的视频节点。
      *     标准短剧布局是「一场一个分镜表 + 一场一个视频」，此时每个视频节点的上游分镜表都不同，
      *     ①②永远找不到——这是主用法，必须支持。逐级向上并防环。 */
     function autoPrevVideoNode(n) {
+      // 自包含的"视频节点"判定（函数会被 scripts/test-real-project-graph.mjs 单独抽取执行，
+      // 且真实旧项目数据里可能仍是 video-gen / video-asset 类型名）
+      const isVid = (v) => !!v && (v.type === 'video' || v.type === 'video-gen' || v.type === 'video-asset');
       const frameEdge = S.graph.edges.find((x) => x.toNode === n.id && x.toPort === 'frame');
       if (frameEdge) {
         const src = S.graph.nodes[frameEdge.fromNode];
-        if (src && src.type === 'video-gen' && src.data.assetId) return src;
-        if (src && src.type === 'video-asset') {
+        if (isVid(src) && src.data.assetId) return src;
+        if (isVid(src)) {
           const up = S.graph.edges.find((e) => e.toNode === src.id && e.toPort === 'in');
           const pv = up && S.graph.nodes[up.fromNode];
-          if (pv && pv.type === 'video-gen' && pv.data.assetId) return pv;
+          if (isVid(pv) && pv.data.assetId) return pv;
         }
       }
       const promptEdge = S.graph.edges.find((x) => x.toNode === n.id && x.toPort === 'prompt');
@@ -4343,7 +4511,7 @@ window.__ModuleLoader__.load({
       const sibs = S.graph.edges
         .filter((x) => x.fromNode === sbId && x.toPort === 'prompt')
         .map((x) => S.graph.nodes[x.toNode])
-        .filter((v) => v && v.id !== n.id && v.type === 'video-gen' && v.data.assetId && (v.y < n.y || (v.y === n.y && v.x < n.x)));
+        .filter((v) => v && v.id !== n.id && isVid(v) && v.data.assetId && (v.y < n.y || (v.y === n.y && v.x < n.x)));
       if (sibs.length) {
         sibs.sort((a, b) => (b.y - a.y) || (b.x - a.x)); // 最近的一段（同列/同排里最靠近的上一段）
         return sibs[0];
@@ -4359,7 +4527,7 @@ window.__ModuleLoader__.load({
         const vids = S.graph.edges
           .filter((x) => x.fromNode === upSb.id && x.toPort === 'prompt')
           .map((x) => S.graph.nodes[x.toNode])
-          .filter((v) => v && v.type === 'video-gen' && v.data.assetId);
+          .filter((v) => isVid(v) && v.data.assetId);
         if (vids.length) {
           vids.sort((a, b) => (b.y - a.y) || (b.x - a.x));
           return vids[0];
@@ -4368,10 +4536,10 @@ window.__ModuleLoader__.load({
       }
       return null;
     }
-    /** 链式下一镜：以本镜尾帧为首帧，克隆一个视频生成节点并自动连线。 */
+    /** 链式下一镜：以本镜尾帧为首帧，克隆一个视频节点并自动连线。 */
     function chainNext(n) {
-      const c = { x: n.x + 320, y: n.y + 60 };
-      const nn = addNodeAt('video-gen', c);
+      const c = { x: n.x + 380, y: n.y + 60 };
+      const nn = addNodeAt('video', c);
       update((s) => {
         const nd2 = s.graph.nodes[nn.id];
         if (nd2) {
@@ -5012,7 +5180,7 @@ window.__ModuleLoader__.load({
     // 对话侧/Host 删除的节点不在此列，必须照常本地清除（否则旧内存副本会把对话侧刚删的节点复活）
     const userDeletedNodes = new Map();
     async function importHostProject(hp) {
-      const full = await hostRpc('projectsGet', { id: hp.id });
+      const full = normalizeGraphDoc(await hostRpc('projectsGet', { id: hp.id }));
       update((s) => {
         if (!s.projects.some((p) => p.id === hp.id)) {
           s.projects.push({ id: hp.id, name: hp.name || hp.id, createdAt: full.createdAt || Date.now(), updatedAt: full.updatedAt || Date.now() });
@@ -5029,6 +5197,8 @@ window.__ModuleLoader__.load({
     /** Host 侧改动了项目文档（Agent 建节点/连线/写内容/补设定集）→ 拉回并合并到本地画布。 */
     function mergeHostDoc(pid, full) {
       if (!full) return;
+      // Host 侧（对话 Agent）可能写入了旧类型节点：先把整份文档归一，再做合并（类型迁移与旧项目兼容）
+      normalizeGraphDoc(full);
       const local = loadGraphDoc(pid) || emptyGraph();
       // 节点墓碑：本地已删除的节点，绝不允许从 Host 拉回复活（删除后 3 秒内的同步拉取曾把节点又带回来）。
       // 墓碑以**内存中的当前画布**为准（可能还没落盘），否则 450ms 防抖窗口内的拉取会复活节点。
@@ -5170,7 +5340,7 @@ window.__ModuleLoader__.load({
             const missing = (hp.nodeIds || []).filter((nid) => (!doc || !doc.nodes[nid]) && !localDead.has(nid));
             if (!known) await importHostProject(hp);
             else if (missing.length && doc) {
-              const full = await hostRpc('projectsGet', { id: hp.id });
+              const full = normalizeGraphDoc(await hostRpc('projectsGet', { id: hp.id }));
               for (const nid of missing) { if (full.nodes && full.nodes[nid]) doc.nodes[nid] = full.nodes[nid]; }
               saveGraphDoc(hp.id, doc);
               if (hp.id === S.activeId) update((s) => { for (const nid of missing) { if (full.nodes && full.nodes[nid]) s.graph.nodes[nid] = full.nodes[nid]; } s.assetsTick++; });
@@ -5530,7 +5700,7 @@ window.__ModuleLoader__.load({
       })();
       const jsonContract = zh
         ? [
-            '把剧本拆解为「多镜头一次性视频生成」的分镜脚本：铺开后由**一个视频生成节点**把全部镜头按顺序与时长写进同一条提示词，由视频模型一次性生成整段视频（镜头间由模型直接硬切，不是一镜一视频再拼接）。',
+            '把剧本拆解为「多镜头一次性视频生成」的分镜脚本：铺开后由**一个视频节点**把全部镜头按顺序与时长写进同一条提示词，由视频模型一次性生成整段视频（镜头间由模型直接硬切，不是一镜一视频再拼接）。',
             '只输出一个 JSON 对象：{"shots":[' + contFields + ']}。',
             '规则：',
             '- visual 是本镜画面描述（景别、人物外观与站位、场景、光线、构图，60 字内）；',
@@ -5560,7 +5730,7 @@ window.__ModuleLoader__.load({
             '- **轴线一致**：两人对话，同一轴线关系（如男左女右）在相邻镜必须保持一致，不得越轴。',
           ] : []).join('\n')
         : [
-            'Break the script into shots for ONE multi-shot video generation: after expansion, a single video-gen node composes ALL shots (in order, with durations) into one prompt, and the video model generates the whole clip in one call (hard cuts inside the model — not one video per shot stitched together).',
+            'Break the script into shots for ONE multi-shot video generation: after expansion, a single video node composes ALL shots (in order, with durations) into one prompt, and the video model generates the whole clip in one call (hard cuts inside the model — not one video per shot stitched together).',
             'Output only one JSON object: {"shots":[' + contFields + ']}.',
             'Rules:',
             '- visual = the shot\'s frame description (shot size, wardrobe, staging, light, framing, <=60 words);',
@@ -5813,6 +5983,7 @@ window.__ModuleLoader__.load({
       rightOpen: true,
       rightTab: 'projects',
       menu: null,          // {x, y, kind:'add'}
+      composerId: null,    // 生成面板当前挂靠的节点 id（单例；纯 UI 状态，不持久化）
       assetsTick: 0,
       tick: 0,
       craftStatus: null, // {at, data} | {at, error}
@@ -5922,6 +6093,7 @@ window.__ModuleLoader__.load({
         s.activeId = pid;
         s.graph = { nodes: doc.nodes || {}, edges: doc.edges || [], view: doc.view || { x: 60, y: 40, scale: 1 } };
         s.sel = new Set(); s.selEdge = null;
+        s.composerId = null;
         // 注意：不复位 s.running —— 否则运行中切项目会让"运行工作流"重新可点，并发跑同一节点
         V.x = s.graph.view.x; V.y = s.graph.view.y; V.scale = s.graph.view.scale;
         applyViewToDom();
@@ -5989,6 +6161,8 @@ window.__ModuleLoader__.load({
     let marqueeEl = null;
     let vGuidEl = null;
     let hGuidEl = null;
+    // 生成面板的实时定位钩子（由 GenComposer 挂载时注册）：平移/缩放/尺寸变化时跟随选中节点
+    let composerReposition = null;
     function showGuides(vx, hy) {
       if (vGuidEl) { if (vx != null) { vGuidEl.style.display = 'block'; vGuidEl.style.left = vx + 'px'; } else vGuidEl.style.display = 'none'; }
       if (hGuidEl) { if (hy != null) { hGuidEl.style.display = 'block'; hGuidEl.style.top = hy + 'px'; } else hGuidEl.style.display = 'none'; }
@@ -6004,6 +6178,8 @@ window.__ModuleLoader__.load({
         canvasEl.style.backgroundSize = `${22 * V.scale}px ${22 * V.scale}px`;
         canvasEl.style.backgroundPosition = `${V.x}px ${V.y}px`;
       }
+      // 节点在屏幕上移动了：紧贴节点下方弹出的生成面板必须同步跟随（用节点真实 DOM 矩形计算）
+      try { if (composerReposition) composerReposition(); } catch { /* 定位失败不影响画布 */ }
     }
     function setView(x, y, scale, commit) {
       V.x = x; V.y = y; V.scale = scale;
@@ -6036,8 +6212,8 @@ window.__ModuleLoader__.load({
     // 图模型操作
     // ============================================================
     function newNode(type, pos) {
-      const inputs = PORTS[type].inputs, outputs = PORTS[type].outputs;
-      const portRows = Math.max(inputs.length, outputs.length);
+      type = normalizeNodeType(type);
+      if (!PORTS[type]) type = 'text';
       const data = { status: 'idle', error: null };
       if (type === 'text') data.text = '';
       if (type === 'shot') { data.visual = ''; data.motion = ''; }
@@ -6046,12 +6222,15 @@ window.__ModuleLoader__.load({
         data.script = ''; data.requirement = ''; data.count = 0; // 0 = 自动：镜头数按内容节拍，不锚定固定数量
         data.shots = []; data.aiStatus = 'idle'; data.aiError = null;
       }
-      if (type === 'image-gen' || type === 'video-gen') {
+      // 合并后的图片/视频节点：同一个节点既能"有提示词待生成"，也能"已有结果"（assetId）
+      if (type === 'image') {
         data.prompt = ''; data.assetId = null; data.demo = false;
-        if (type === 'image-gen') { data.size = '2K'; data.ratio = '16:9'; }
-        else { data.duration = 5; data.resolution = '720P'; data.ratio = '16:9'; }
+        data.size = '2K'; data.ratio = '16:9'; data.imageCount = 1;
       }
-      if (type === 'image-asset' || type === 'video-asset') data.assetId = null;
+      if (type === 'video') {
+        data.prompt = ''; data.assetId = null; data.demo = false;
+        data.duration = 5; data.resolution = '720P'; data.ratio = '16:9';
+      }
       if (type === 'finalcut') {
         data.resolution = '720P'; data.ratio = '16:9'; data.transition = 'none';
         data.status = 'idle'; data.error = null; data.progress = null; data.assetId = null;
@@ -6061,11 +6240,11 @@ window.__ModuleLoader__.load({
         data.members = []; data.collapsed = false; data.hidden = false;
         data.label = T('group');
       }
+      // 统一 360×360：尺寸持久化进文档（w/h）；内容再多也在节点内滚动，绝不随内容自动变化。
       return {
         id: uid('n'), type,
         x: Math.round(pos.x), y: Math.round(pos.y),
-        w: type === 'script' ? 340 : type === 'storyboard' ? 360 : type === 'text' ? 280 : NODE_W,
-        h: 96 + portRows * 4,
+        w: NODE_W, h: NODE_H,
         data,
       };
     }
@@ -6081,6 +6260,7 @@ window.__ModuleLoader__.load({
         s.graph.edges = s.graph.edges.filter((e) => !ids.includes(e.fromNode) && !ids.includes(e.toNode) && (!edgeId || e.id !== edgeId));
         s.sel = new Set([...s.sel].filter((x) => ids.includes(x) === false));
         if (s.selEdge && !s.graph.edges.some((e) => e.id === s.selEdge)) s.selEdge = null;
+        if (s.composerId && ids.includes(s.composerId)) s.composerId = null;
         // 本地删除也要留墓碑：Host 侧据此判定"真的被删了"，
         // 否则 Host 合并（保留对话新节点）会把用户刚删的节点又留下来
         if (ids.length) s.graph.tombstones = [...new Set([...(s.graph.tombstones || []), ...ids])].slice(-200);
@@ -6129,8 +6309,8 @@ window.__ModuleLoader__.load({
     }
     function canConnect(fromNode, fromPort, toNode, toPort) {
       if (fromNode.id === toNode.id) return '不能连接到自身';
-      const op = (PORTS[fromNode.type].outputs || []).find((p) => p.id === fromPort);
-      const ip = (PORTS[toNode.type].inputs || []).find((p) => p.id === toPort);
+      const op = ((PORTS[fromNode.type] && PORTS[fromNode.type].outputs) || []).find((p) => p.id === fromPort);
+      const ip = ((PORTS[toNode.type] && PORTS[toNode.type].inputs) || []).find((p) => p.id === toPort);
       if (!op || !ip) return '端口不存在';
       if (op.kind !== ip.kind) return '端口类型不匹配（' + op.kind + ' → ' + ip.kind + '）';
       const multi = MULTI_INPUT_PORTS.has(toPort) || (toNode.type === 'finalcut' && toPort === 'in');
@@ -6155,6 +6335,96 @@ window.__ModuleLoader__.load({
       }
       return true;
     }
+    /** 节点主输出语义（连线时用于自动选口）：文本类 → text；图片 → image；视频/成片 → video。 */
+    function primaryOutputKind(n) {
+      if (!n) return 'text';
+      if (n.type === 'image') return 'image';
+      if (n.type === 'video' || n.type === 'finalcut') return 'video';
+      return 'text';
+    }
+    /** 端口单点后的自动选口：左边一个点 / 右边一个点，具体连到内部哪个语义端口由系统按上游类型判定。
+     *  文本 → 分镜表 script / 图片/视频 prompt，图片 → ref，视频 → frame 或成片的 in，分镜表 → 分镜表 prev。
+     *  opts.fromPort / opts.toPort 是用户实际拖拽的那个点（拖的是专用角点时会带来明确端口 id）。 */
+    function resolveAutoPorts(fromNode, toNode, opts) {
+      if (!fromNode || !toNode) return { error: '节点不存在' };
+      if (fromNode.id === toNode.id) return { error: '不能连接到自身' };
+      const outs = (PORTS[fromNode.type] && PORTS[fromNode.type].outputs) || [];
+      const ins = (PORTS[toNode.type] && PORTS[toNode.type].inputs) || [];
+      if (!outs.length) return { error: '源节点没有输出端口' };
+      if (!ins.length) return { error: '该节点没有输入端口' };
+      const hintIn = String((opts && opts.toPort) || '');
+      const hintOut = String((opts && opts.fromPort) || '');
+      const fromKind = primaryOutputKind(fromNode);
+      const pickIn = (kind, prefer) => {
+        const list = ins.filter((p) => p.kind === kind);
+        if (!list.length) return null;
+        if (prefer) { const hit = list.find((p) => p.id === prefer); if (hit) return hit; }
+        if (hintIn && hintIn !== 'auto') { const hit = list.find((p) => p.id === hintIn); if (hit) return hit; }
+        return list[0];
+      };
+      let ip = null;
+      if (toNode.type === 'storyboard') {
+        // 文本/剧本 → 剧本来源；分镜表 → 承接上一镜（prev）
+        ip = fromNode.type === 'storyboard' ? pickIn('text', 'prev') : pickIn('text', 'script');
+      } else if (toNode.type === 'image') {
+        ip = fromKind === 'text' ? pickIn('text', 'prompt') : (isImageLike(fromNode) ? pickIn('image', 'ref') : null);
+      } else if (toNode.type === 'video') {
+        if (fromKind === 'text') ip = pickIn('text', 'prompt');
+        else if (isImageLike(fromNode)) ip = pickIn('image', 'ref');
+        else if (isVideoLike(fromNode)) ip = pickIn('image', 'frame');
+      } else if (toNode.type === 'finalcut') {
+        ip = isVideoLike(fromNode) ? pickIn('video', 'in') : null;
+      } else if (toNode.type === 'shot') {
+        ip = pickIn(fromKind);
+      }
+      if (!ip) return { error: '端口类型不匹配（' + fromKind + ' → ' + toNode.type + '）' };
+      const candidates = outs.filter((p) => p.kind === ip.kind);
+      if (!candidates.length) return { error: '端口类型不匹配（' + outs.map((p) => p.kind).join('/') + ' → ' + ip.kind + '）' };
+      let op = null;
+      if (hintOut && hintOut !== 'auto') op = candidates.find((p) => p.id === hintOut) || null;
+      if (!op && ip.id === 'prev') op = candidates.find((p) => p.id === 'tail') || null;
+      if (!op && isVideoLike(fromNode) && ip.kind === 'image') {
+        // 视频 → 视频的 frame：优先最佳选帧（动作进行中/清晰），退到真·最后帧
+        op = candidates.find((p) => p.id === 'tailpick' && fromNode.data && fromNode.data.lastPickAssetId) || candidates.find((p) => p.id === 'last');
+      }
+      if (!op && fromNode.type === 'shot') op = candidates.find((p) => p.id === 'visual');
+      if (!op) op = candidates[0];
+      return { fromPort: op.id, toPort: ip.id };
+    }
+    /** 系统自动选口的连线（拖拽 / 参考图上传 / 承接下拉共用）。 */
+    function connectAuto(fromId, toId, opts) {
+      const from = S.graph.nodes[fromId];
+      const to = S.graph.nodes[toId];
+      if (!from || !to) return null;
+      const r = resolveAutoPorts(from, to, opts);
+      if (r.error) { toast(r.error); return null; }
+      if (!connect(from, r.fromPort, to, r.toPort)) return null;
+      return { edgeId: S.graph.edges[S.graph.edges.length - 1].id, ...r };
+    }
+    /** 尺寸变化（出图后按比例变长 / 手动改比例）后，把相交的邻居推开一次，避免节点叠在一起。 */
+    function schedulePushFor(nodeId) {
+      setTimeout(() => {
+        try {
+          if (resolvePushNow(new Set([nodeId])).size > 1) { notify(); pushHistory(); flushSave(); }
+        } catch { /* 布局自愈失败不影响结果 */ }
+      }, 0);
+    }
+    /** 分镜承接（覆盖语义）：一个分镜只承接一个前序。fromId=null → 断开（不衔接）。 */
+    function setStoryboardPrev(nodeId, fromId) {
+      const nd = S.graph.nodes[nodeId];
+      if (!nd) return;
+      // 加边 fromId → nodeId：成环条件是 nodeId 已经能到达 fromId
+      if (fromId && fromId !== nodeId && reaches(nodeId, fromId)) { toast(T('errCycle')); return; }
+      update((s) => {
+        s.graph.edges = s.graph.edges.filter((e) => !(e.toNode === nodeId && e.toPort === 'prev'));
+        if (fromId) s.graph.edges.push({ id: uid('e'), fromNode: fromId, fromPort: 'tail', toNode: nodeId, toPort: 'prev' });
+        // 承接关系也是「分镜衔接」的 UI 入口：选了前序 = 开启衔接；不衔接 = 关闭（原 cont 开关语义不变）
+        const cur = s.graph.nodes[nodeId];
+        if (cur) cur.data.cont = !!fromId;
+      });
+      pushHistory();
+      flushSave();
+    }
     function catLabel(c) {
       const map = {
         character: T('catCharacter'), scene: T('catScene'), prop: T('catProp'),
@@ -6166,28 +6436,25 @@ window.__ModuleLoader__.load({
     function portWorldPos(nodeId, portId, dir) {
       const n = S.graph.nodes[nodeId];
       if (!n) return { x: 0, y: 0 };
-      // 分镜承接端口专属位置（用户设计）：tail=节点底部右侧（输出）、prev=节点顶部右侧（输入）
-      if (n.type === 'storyboard' && portId === 'tail') return { x: n.x + n.w - 48, y: n.y + n.h };
-      if (n.type === 'storyboard' && portId === 'prev') return { x: n.x + n.w - 48, y: n.y };
-      const list = dir === 'out' ? (PORTS[n.type].outputs || []) : (PORTS[n.type].inputs || []);
-      const i = list.findIndex((p) => p.id === portId);
-      const stack = (n.type === 'storyboard' && dir === 'in' && i > 0) ? i - 1 : i; // prev 是角点不占常规队列
-      const y = n.y + 38 + Math.max(0, stack) * 22;
-      return { x: dir === 'out' ? n.x + n.w : n.x, y };
+      // 端口单点渲染：每个节点左侧边缘中心一个输入点、右侧边缘中心一个输出点；
+      // 分镜承接另保留上下两个角点（下边缘中部 = tail 输出，上边缘中部 = prev 输入）。
+      if (n.type === 'storyboard' && portId === 'tail') return { x: n.x + n.w / 2, y: n.y + (n.h || NODE_H) };
+      if (n.type === 'storyboard' && portId === 'prev') return { x: n.x + n.w / 2, y: n.y };
+      return { x: dir === 'out' ? n.x + n.w : n.x, y: n.y + (n.h || NODE_H) / 2 };
     }
     function edgeGeom(e) {
       const a = portWorldPos(e.fromNode, e.fromPort, 'out');
       const b = portWorldPos(e.toNode, e.toPort, 'in');
-      const off = Math.abs(b.x - a.x);
-      // 端口横向对齐（同一列上下相接，如分镜承接链）：直接连直线，不再外扩控制点画弯线
-      if (off < 12 && Math.abs(b.y - a.y) > 24) {
+      // 端口纵向对齐（分镜承接链：上一分镜下边缘中部 → 下一分镜上边缘中部）：竖直贝塞尔
+      if (Math.abs(b.x - a.x) < 12 && Math.abs(b.y - a.y) > 24) {
+        const dy = Math.max(30, Math.abs(b.y - a.y) * 0.45) * (b.y > a.y ? 1 : -1);
         return {
-          d: `M ${a.x} ${a.y} L ${b.x} ${b.y}`,
+          d: `M ${a.x} ${a.y} C ${a.x} ${a.y + dy}, ${b.x} ${b.y - dy}, ${b.x} ${b.y}`,
           mx: (a.x + b.x) / 2,
           my: (a.y + b.y) / 2,
         };
       }
-      const dx = Math.max(42, off * 0.5);
+      const dx = Math.max(42, Math.abs(b.x - a.x) * 0.5);
       const c1x = a.x + dx, c2x = b.x - dx;
       return {
         d: `M ${a.x} ${a.y} C ${c1x} ${a.y}, ${c2x} ${b.y}, ${b.x} ${b.y}`,
@@ -6199,7 +6466,7 @@ window.__ModuleLoader__.load({
     function edgeKind(e) {
       const from = S.graph.nodes[e.fromNode];
       if (!from) return 'text';
-      const op = (PORTS[from.type].outputs || []).find((p) => p.id === e.fromPort);
+      const op = ((PORTS[from.type] && PORTS[from.type].outputs) || []).find((p) => p.id === e.fromPort);
       return op ? op.kind : 'text';
     }
     function topoOrder(graph) {
@@ -6490,7 +6757,7 @@ window.__ModuleLoader__.load({
         .sort((a, b) => (a.nd.y - b.nd.y) || (a.nd.x - b.nd.x));
       if (!segs.length) throw new Error(T('noSegments'));
       const getSub = (x) => {
-        const defSub = x.nd.type === 'video-gen' ? (x.nd.data.prompt || '') : (x.nd.data.label || TYPE_LABEL()[x.nd.type]);
+        const defSub = isVideoLike(x.nd) ? (x.nd.data.prompt || '') : (x.nd.data.label || TYPE_LABEL()[x.nd.type]);
         const v = n.data.subs && n.data.subs[x.e.id];
         return v != null ? v : defSub;
       };
@@ -6585,13 +6852,13 @@ window.__ModuleLoader__.load({
         if (type === 'script') { await genScriptNode(n); return true; }
         if (type === 'storyboard') { await genStoryboardNode(n); return true; }
         if (type === 'finalcut') { await genFinalCutNode(n); return true; }
-        if (type !== 'image-gen' && type !== 'video-gen') throw new Error(T('nodeNotRunnable'));
+        if (type !== 'image' && type !== 'video') throw new Error(T('nodeNotRunnable'));
         let prompt = resolvePrompt(n);
         const bible = loadBible(S.activeId);
         // 未闭合引用自愈：@糯糯。 → @糯糯@（按设定集名归一），修复结果回写节点让用户可见
         const _fixed = repairUnclosedMentions(prompt, bibleNames(bible));
         if (_fixed !== prompt) { prompt = _fixed; update((s) => { const nd = s.graph.nodes[n.id]; if (nd) nd.data.prompt = _fixed; }); }
-        if (type === 'image-gen') {
+        if (type === 'image') {
           // 参考图 = 连线（用户顺序）+ @引用命中的设定集资产（按出现顺序）
           const { refs, entities } = await collectRefs(n, prompt, bible);
           const metas = refs.map((r) => ({ blob: r.blob, name: r.name, category: r.category, assetId: r.assetId }));
@@ -6599,18 +6866,27 @@ window.__ModuleLoader__.load({
           // 模型解析：节点选择优先，未指定路由到星标默认模型；都没有 = 明确报错（不再静默走演示模式）
           const mcfg = resolveImageModelCfg(settings, nodeImageModelRef(n));
           if (!mcfg) throw new Error(T('errNoImageModel'));
-          const blob = await apiImage(p, metas, mcfg, { size: n.data.size, ratio: n.data.ratio, nodeExtra: n.data.imgExtra, warn: addWarn });
-          const rec = await saveAssetRecord(S.activeId, 'image', blob, {
-            name: assetNameFor(n, entities, 'image'),
-            prompt: stripMentionMarks(prompt), effectivePrompt: p,
-            source: 'api',
-            entity: entities.length ? entities[0].name : undefined,
-            entities: entities.map((e) => e.name),
-            nodeLabel: (n.data && n.data.label) || '',
-            // 分类：@引用命中的实体品类优先；无引用时按命名规范前缀（角色-/场景-/道具-）兜底
-            category: entities.length ? entityCategoryOf(entities[0].kind) : (categoryFromName(n.data.label) || 'general'),
-          });
-          commitGenResult(n.id, rec.id, false, 'image');
+          // 张数（1–4）：同一提示词一次生成多张；历史条保留全部结果，节点显示最后一张
+          const want = clamp(Number(n.data.imageCount) || 1, 1, 4);
+          const cases = [];
+          for (let i = 0; i < want; i++) {
+            if (want > 1) update((s) => { const nd = s.graph.nodes[n.id]; if (nd) nd.data.progress = (i + 1) + '/' + want; });
+            const blob = await apiImage(p, metas, mcfg, { size: n.data.size, ratio: n.data.ratio, nodeExtra: n.data.imgExtra, warn: addWarn });
+            const rec = await saveAssetRecord(S.activeId, 'image', blob, {
+              name: assetNameFor(n, entities, 'image'),
+              prompt: stripMentionMarks(prompt), effectivePrompt: p,
+              source: 'api',
+              entity: entities.length ? entities[0].name : undefined,
+              entities: entities.map((e) => e.name),
+              nodeLabel: (n.data && n.data.label) || '',
+              // 分类：@引用命中的实体品类优先；无引用时按命名规范前缀（角色-/场景-/道具-）兜底
+              category: entities.length ? entityCategoryOf(entities[0].kind) : (categoryFromName(n.data.label) || 'general'),
+            });
+            cases.push(rec.id);
+            commitGenResult(n.id, rec.id, false, 'image');
+          }
+          update((s) => { const nd = s.graph.nodes[n.id]; if (nd) nd.data.progress = null; });
+          if (!cases.length) throw new Error(T('noResult'));
         } else {
           const { refs, entities, audioBlobs } = await collectRefs(n, prompt, bible);
           // 上游是分镜表 → 走厂商「参考生成」结构化提示词（主体/分镜/台词/声音显式绑定，音画同步；
@@ -6841,13 +7117,21 @@ window.__ModuleLoader__.load({
           // 媒体历史：保留最近 8 次结果，可在节点内切换
           const h = [{ assetId, ts: Date.now() }].concat(nd.data.history || []);
           nd.data.history = h.filter((x, i, arr) => arr.findIndex((y) => y.assetId === x.assetId) === i).slice(0, 8);
+          // 生成的图片/视频节点按画面比例「只在一个方向变长」：16:9 → 变宽，9:16 → 变高，长边上限 800
+          if (nd.type === 'image' || nd.type === 'video') {
+            const sz = sizeForRatio(nd.data.ratio);
+            nd.w = sz.w; nd.h = sz.h;
+          }
         }
+        schedulePushFor(nodeId);
+        // 旧项目的「生成 → 资产」两节点链路（out → in）继续把结果同步给下游资产节点；
+        // 新画布的合并节点不再走 in 端口，因此不会误把下游参考图节点的 assetId 覆盖掉。
         for (const e of s.graph.edges) {
-          if (e.fromNode === nodeId && e.fromPort === 'out') downstream.push(e.toNode);
+          if (e.fromNode === nodeId && e.fromPort === 'out' && e.toPort === 'in') downstream.push(e.toNode);
         }
         for (const tid of downstream) {
           const tn = s.graph.nodes[tid];
-          if (tn && (tn.type === 'image-asset' || tn.type === 'video-asset')) {
+          if (tn && (isImageNode(tn) || isVideoNode(tn))) {
             tn.data.assetId = assetId;
             tn.data.status = 'done';
           }
@@ -6872,7 +7156,7 @@ window.__ModuleLoader__.load({
           if (!n) continue;
           // 已在生成中的节点跳过：避免与对话触发的 canvas_run_node 并发调用同一节点（重复计费/重复资产）
           if (n.data && n.data.status === 'running') continue;
-          if (n.type === 'image-gen' || n.type === 'video-gen' || n.type === 'script' || n.type === 'storyboard' || n.type === 'finalcut') {
+          if (n.type === 'image' || n.type === 'video' || n.type === 'script' || n.type === 'storyboard' || n.type === 'finalcut') {
             await runGenNode(n);
           }
         }
@@ -6904,8 +7188,19 @@ window.__ModuleLoader__.load({
     // 注意每次 pointermove 都重新读 e.altKey，所以拖动中途按下/松开 Alt 会实时切换。
     const drag = { mode: null, sx: 0, sy: 0, moved: false, nodeStarts: null, marquee: null, linkFrom: null, shift: false, altNoPush: false };
 
+    /** 生成面板单例：点击节点任意位置 → 打开（文本/剧本/分镜/图片/视频/成片各有自己的控件）。 */
+    function openComposerFor(nodeId) {
+      const nd = nodeId ? S.graph.nodes[nodeId] : null;
+      const next = nd && COMPOSER_TYPES.has(nd.type) ? nodeId : null;
+      if (S.composerId === next) return;
+      S.composerId = next;
+      notify();
+    }
+
     function onCanvasPointerDown(e) {
       const target = e.target;
+      // 生成面板是浮层（不在 world 内）：面板内的点击不能触发画布平移/清空选择
+      if (target.closest && target.closest('.dshic-composer')) return;
       const onBackground = !(target.closest && target.closest('[data-node-id]'));
       if (e.button === 1) {
         e.preventDefault();
@@ -6917,7 +7212,7 @@ window.__ModuleLoader__.load({
       closeMenu();
       if (e.shiftKey) startMarquee(e);
       else {
-        if (S.sel.size || S.selEdge) { update((s) => { s.sel = new Set(); s.selEdge = null; }); }
+        if (S.sel.size || S.selEdge) { update((s) => { s.sel = new Set(); s.selEdge = null; s.composerId = null; }); }
         startPan(e);
       }
     }
@@ -6954,6 +7249,7 @@ window.__ModuleLoader__.load({
       } else if (!S.sel.has(n.id)) {
         update((s) => { s.sel = new Set([n.id]); s.selEdge = null; });
       }
+      openComposerFor(n.id);
       drag.mode = 'node';
       drag.sx = e.clientX; drag.sy = e.clientY;
       drag.moved = false;
@@ -7073,6 +7369,8 @@ window.__ModuleLoader__.load({
             const p = edgePathEls.get(e2.id);
             if (p) p.setAttribute('d', edgePath(e2));
           }
+          // 选中的节点在拖动：紧贴它的生成面板同步跟随（否则会看起来与节点脱节）
+          try { if (composerReposition) composerReposition(); } catch { /* 定位失败不影响拖动 */ }
         }
       } else if (drag.mode === 'marquee') {
         const w = screenToWorld(e.clientX, e.clientY);
@@ -7121,14 +7419,22 @@ window.__ModuleLoader__.load({
         if (marqueeEl) marqueeEl.style.display = 'none';
       } else if (mode === 'link' && drag.linkFrom) {
         if (tempEdgeEl) tempEdgeEl.style.display = 'none';
-        const el = document.elementFromPoint(e.clientX, e.clientY);
-        const portEl = el && el.closest && el.closest('[data-port-in]');
-        if (portEl) {
-          const toNodeId = portEl.getAttribute('data-node-id');
-          const toPortId = portEl.getAttribute('data-port-in');
-          const toNode = S.graph.nodes[toNodeId];
-          if (toNode) {
-            connect(drag.linkFrom.node, drag.linkFrom.port, toNode, toPortId);
+        const hitEl = document.elementFromPoint(e.clientX, e.clientY);
+        // 落点可以是端口点，也可以是节点任意位置（单点端口很小，允许整块节点作为落点）
+        const portEl = hitEl && hitEl.closest && hitEl.closest('[data-port-in],[data-port-out]');
+        const nodeEl = hitEl && hitEl.closest && hitEl.closest('[data-node-id]');
+        const lf = drag.linkFrom;
+        if (lf.dir === 'out') {
+          const toNodeId = nodeEl && nodeEl.getAttribute('data-node-id');
+          const toNode = toNodeId ? S.graph.nodes[toNodeId] : null;
+          if (toNode && toNode.id !== lf.node.id) {
+            connectAuto(lf.node.id, toNode.id, { toPort: portEl && portEl.getAttribute('data-port-in') });
+          }
+        } else {
+          const fromNodeId = nodeEl && nodeEl.getAttribute('data-node-id');
+          const fromNode = fromNodeId ? S.graph.nodes[fromNodeId] : null;
+          if (fromNode && fromNode.id !== lf.node.id) {
+            connectAuto(fromNode.id, lf.node.id, { fromPort: portEl && portEl.getAttribute('data-port-out') });
           }
         }
       }
@@ -7139,7 +7445,7 @@ window.__ModuleLoader__.load({
       notify();
     }
     function onCanvasDoubleClick(e) {
-      if (e.target.closest && e.target.closest('[data-node-id]')) return;
+      if (e.target.closest && (e.target.closest('[data-node-id]') || e.target.closest('.dshic-composer'))) return;
       e.preventDefault();
       closeMenu();
       S.menu = { x: e.clientX, y: e.clientY, kind: 'add' };
@@ -7148,6 +7454,7 @@ window.__ModuleLoader__.load({
     function onCanvasContextMenu(e) {
       e.preventDefault();
       closeMenu();
+      if (e.target.closest && e.target.closest('.dshic-composer')) return;
       const nodeEl = e.target.closest && e.target.closest('[data-node-id]');
       if (nodeEl) {
         const nodeId = nodeEl.getAttribute('data-node-id');
@@ -7200,7 +7507,7 @@ window.__ModuleLoader__.load({
       const typing = ae && (ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA' || ae.isContentEditable);
       if (e.key === 'Escape') {
         if (S.menu) { closeMenu(); return; }
-        if (!typing) update((s) => { s.sel = new Set(); s.selEdge = null; });
+        if (!typing) update((s) => { s.sel = new Set(); s.selEdge = null; s.composerId = null; });
         return;
       }
       if (typing) return;
@@ -7278,14 +7585,18 @@ window.__ModuleLoader__.load({
       'shot': T('nShot'),
       'script': T('nScript'),
       'storyboard': T('nStoryboard'),
-      'image-gen': T('nImageGen'),
-      'video-gen': T('nVideoGen'),
-      'image-asset': T('nImageAsset'),
-      'video-asset': T('nVideoAsset'),
+      // 合并后的图片/视频节点：既是"生成器"也是"资产"（有结果就是资产）
+      'image': T('nImage'),
+      'video': T('nVideo'),
       'finalcut': T('nFinalCut'),
       'group': T('group'),
     });
-    const TYPE_KIND = { 'text': 'text', 'shot': 'shot', 'script': 'script', 'storyboard': 'shot', 'image-gen': 'image', 'video-gen': 'video', 'image-asset': 'image', 'video-asset': 'video', 'finalcut': 'video', 'group': 'text' };
+    // 生成面板标题行里的类型标签（比节点默认名更长一点，便于区分"节点"）
+    const TYPE_TAG = () => ({
+      'text': T('tagText'), 'script': T('tagScript'), 'storyboard': T('tagStoryboard'),
+      'image': T('tagImage'), 'video': T('tagVideo'), 'finalcut': T('tagFinalCut'),
+    });
+    const TYPE_KIND = { 'text': 'text', 'shot': 'shot', 'script': 'script', 'storyboard': 'shot', 'image': 'image', 'video': 'video', 'finalcut': 'video', 'group': 'text' };
 
     /** 节点框相交判定（含最小间距，默认 24px）。 */
     /** 实时碰撞推挤共享核心（拖动 / 节点尺寸变化共用）：与 movers 里节点相交的其他节点，
@@ -7373,26 +7684,26 @@ window.__ModuleLoader__.load({
       return () => { ro.disconnect(); if (raf) cancelAnimationFrame(raf); if (settleTimer) clearTimeout(settleTimer); };
     }
 
+    /** 端口单点渲染：每个节点左右边缘各一个圆点（内部语义端口由系统按上游类型自动判定）。
+     *  分镜承接另有两个角点：下边缘中部（tail 输出）/ 上边缘中部（prev 输入）。 */
     function PortEl({ n, port, dir, corner }) {
-      const isActive = drag.mode === 'link' && drag.linkFrom && drag.linkFrom.node.id === n.id && drag.linkFrom.port === port.id;
-      let compat = false;
       const link = drag.mode === 'link' ? drag.linkFrom : null;
-      if (link && dir === 'in' && link.node.id !== n.id) {
-        const op = (PORTS[link.node.type].outputs || []).find((p) => p.id === link.port);
-        compat = !!op && op.kind === port.kind;
-      }
+      const isActive = !!link && link.node.id === n.id && link.dir === dir
+        && (link.port === port.id || (corner && link.port === port.id));
+      // 单点端口：落点由系统自动选口——只要拖拽方向相反就视为潜在兼容（真正的类型校验在 connectAuto）
+      const compat = !!link && link.node.id !== n.id && link.dir !== dir;
       return h('button', {
         type: 'button',
         className: cls('dshic-port', 'k-' + port.kind, corner && 'is-corner', isActive && 'is-active', compat && 'is-compat'),
         'data-node-id': n.id,
         ...(dir === 'out' ? { 'data-port-out': port.id } : { 'data-port-in': port.id }),
         'data-kind': port.kind,
-        title: port.id,
+        title: port.id === 'auto' ? (dir === 'out' ? T('portOut') : T('portIn')) : portLabel(port.id),
         onPointerDown: (e) => onPortPointerDown(e, n, port, dir),
       });
     }
 
-    const TYPE_ICON = { 'text': 'text', 'shot': 'shot', 'script': 'script', 'storyboard': 'board', 'image-gen': 'spark', 'video-gen': 'video', 'image-asset': 'image', 'video-asset': 'video', 'finalcut': 'film', 'group': 'folder' };
+    const TYPE_ICON = { 'text': 'text', 'shot': 'shot', 'script': 'script', 'storyboard': 'board', 'image': 'image', 'video': 'video', 'finalcut': 'film', 'group': 'folder' };
 
     function ungroupNode(id) {
       update((s) => {
@@ -7462,7 +7773,7 @@ window.__ModuleLoader__.load({
       const startRename = () => { setNameVal(n.data.label || ''); setRenaming(true); };
       // 统一的尺寸拖拽：dir = 'e' | 'w' | 's' | 'n' | 'se'
       // 左右改宽（左边缘同时改 x，视觉上"从左边拉"），上下改高，右下角同时改宽高。
-      // 竖向一旦手动拖过 → 记 hManual（固定高度，内容超出则节点内滚动）；双击底边恢复自适应。
+      // 尺寸一律写进文档的 w/h（持久化；刷新/换设备后保留）。
       const startResize = (e, dir) => {
         e.stopPropagation();
         e.preventDefault();
@@ -7471,7 +7782,7 @@ window.__ModuleLoader__.load({
         const scale = V.scale || 1;
         const cur = S.graph.nodes[n.id] || n;
         const w0 = cur.w || NODE_W;
-        const h0 = cur.h || 120;
+        const h0 = cur.h || NODE_H;
         const x0 = cur.x;
         const y0 = cur.y;
         const move = (ev) => {
@@ -7486,10 +7797,10 @@ window.__ModuleLoader__.load({
               nd.w = w;
               nd.x = Math.round(x0 + (w0 - w));
             }
-            if (dir.includes('s')) nd.hManual = Math.round(Math.max(96, Math.min(2400, h0 + dy)));
+            if (dir.includes('s')) nd.h = Math.round(Math.max(120, Math.min(2400, h0 + dy)));
             if (dir.includes('n')) {
-              const h = Math.round(Math.max(96, Math.min(2400, h0 - dy)));
-              nd.hManual = h;
+              const h = Math.round(Math.max(120, Math.min(2400, h0 - dy)));
+              nd.h = h;
               nd.y = Math.round(y0 + (h0 - h));
             }
           });
@@ -7497,7 +7808,7 @@ window.__ModuleLoader__.load({
         const up = () => {
           window.removeEventListener('pointermove', move);
           window.removeEventListener('pointerup', up);
-          flushSave(); // 拖拽结束立即落盘：否则防抖期间切换页面会丢失 w/h/hManual
+          flushSave(); // 拖拽结束立即落盘：否则防抖期间切换页面会丢失 w/h
           try { if (resolvePushNow(new Set([n.id])).size > 1) notify(); } catch { /* 布局自愈失败不影响尺寸 */ }
           pushHistory();
         };
@@ -7506,22 +7817,27 @@ window.__ModuleLoader__.load({
       };
       const resetHeight = (e) => {
         e.stopPropagation();
-        update((s) => { const nd = s.graph.nodes[n.id]; if (nd) nd.hManual = null; });
+        // 双击底边：高度回到统一默认 360（尺寸仍然持久化，不会随内容自动变化）
+        update((s) => { const nd = s.graph.nodes[n.id]; if (nd) nd.h = NODE_H; });
         pushHistory();
       };
+      const isMedia = n.type === 'image' || n.type === 'video';
+      const nt = normalizeNodeType(n.type);
+      const inKind = (PORTS[nt] && PORTS[nt].inputs && PORTS[nt].inputs[0] && PORTS[nt].inputs[0].kind) || 'text';
+      const outKind = (PORTS[nt] && PORTS[nt].outputs && PORTS[nt].outputs[0] && PORTS[nt].outputs[0].kind) || 'text';
       return h('div', {
         'data-node-id': n.id,
-        className: cls('dshic-node', 'type-' + n.type, 'st-' + st, selected && 'is-selected', n.hManual && 'h-manual'),
-        style: { left: n.x, top: n.y, width: n.w, zIndex: Number(n.z) || 1, ...(n.hManual ? { height: n.hManual } : {}) },
+        className: cls('dshic-node', 'type-' + nt, 'st-' + st, selected && 'is-selected'),
+        style: { left: n.x, top: n.y, width: n.w || NODE_W, height: n.h || NODE_H, zIndex: Number(n.z) || 1 },
         ref: refCb,
         onPointerDown: (e) => onNodePointerDown(e, n),
       },
         h('div', { className: 'dshic-node-head' },
-          h('span', { className: 'dshic-head-ic' }, Ic(TYPE_ICON[n.type] || 'text', 12)),
+          h('span', { className: 'dshic-head-ic' }, Ic(TYPE_ICON[nt] || 'text', 12)),
           renaming
             ? h('input', {
                 className: 'dshic-input', style: { height: 22, flex: 1, minWidth: 0 }, autoFocus: true, value: nameVal,
-                placeholder: TYPE_LABEL()[n.type],
+                placeholder: TYPE_LABEL()[nt],
                 onChange: (e) => setNameVal(e.target.value),
                 onPointerDown: (e) => e.stopPropagation(),
                 onKeyDown: (e) => {
@@ -7533,8 +7849,8 @@ window.__ModuleLoader__.load({
             : h('span', {
                 className: 'dshic-node-title', title: T('renameHint'),
                 onDoubleClick: (e) => { e.stopPropagation(); startRename(); },
-              }, n.data.label || TYPE_LABEL()[n.type]),
-          (n.data.status === 'running') ? h('span', { className: 'dshic-spin' }) : null,
+              }, n.data.label || TYPE_LABEL()[nt]),
+          (n.data.status === 'running' || n.data.aiStatus === 'running') ? h('span', { className: 'dshic-spin' }) : null,
           h('button', {
             type: 'button', className: 'dshic-node-x', title: T('renameHint'),
             onPointerDown: (e) => e.stopPropagation(),
@@ -7545,26 +7861,27 @@ window.__ModuleLoader__.load({
             onPointerDown: (e) => e.stopPropagation(),
             onClick: () => removeNodes([n.id]),
           }, '✕')),
-        h('div', { className: 'dshic-node-body' }, nodeBody(n)),
-        // 尺寸把手：右/左/下/上四条边 + 右下角（双击底边恢复"随内容自适应"）
+        h('div', { className: cls('dshic-node-body', isMedia && 'is-media') }, nodeBody(n)),
+        // 尺寸把手：右/左/下/上四条边 + 右下角（双击底边回到默认 360 高）
         h('div', { className: 'dshic-rs dshic-rs-e', title: T('resizeHint'), onPointerDown: (e) => startResize(e, 'e') }),
         h('div', { className: 'dshic-rs dshic-rs-w', title: T('resizeHint'), onPointerDown: (e) => startResize(e, 'w') }),
         h('div', { className: 'dshic-rs dshic-rs-s', title: T('resizeHeightHint'), onPointerDown: (e) => startResize(e, 's'), onDoubleClick: resetHeight }),
         h('div', { className: 'dshic-rs dshic-rs-n', title: T('resizeHint'), onPointerDown: (e) => startResize(e, 'n') }),
         h('div', { className: 'dshic-rs dshic-rs-se', title: T('resizeHint'), onPointerDown: (e) => startResize(e, 'se') }),
-        ...(PORTS[n.type].inputs || []).map((p, i) => {
-          const isCorner = n.type === 'storyboard' && p.id === 'prev'; // 分镜承接：顶部右侧角点
-          const stack = (n.type === 'storyboard' && i > 0) ? i - 1 : i;
-          return h('div', { key: 'in-' + p.id, style: { position: 'absolute', left: isCorner ? undefined : -5.5, right: isCorner ? 48 : undefined, top: isCorner ? 0 : 32.5 + stack * 22 }, className: 'dshic-port-wrap' },
-            h(PortEl, { n, port: p, dir: 'in', corner: isCorner }),
-            h('span', { className: 'dshic-port-label', style: isCorner ? { right: -6, top: -22 } : { left: 14, top: 0 } }, portLabel(p.id)));
-        }),
-        ...(PORTS[n.type].outputs || []).map((p, i) => {
-          const isCorner = n.type === 'storyboard' && p.id === 'tail'; // 分镜尾镜：底部右侧角点
-          return h('div', { key: 'out-' + p.id, style: { position: 'absolute', right: isCorner ? 48 : -5.5, bottom: isCorner ? 0 : undefined, top: isCorner ? undefined : 32.5 + i * 22 }, className: 'dshic-port-wrap' },
-            h(PortEl, { n, port: p, dir: 'out', corner: isCorner }),
-            h('span', { className: 'dshic-port-label', style: isCorner ? { right: -6, top: 12 } : { right: 14, top: 0 } }, portLabel(p.id)));
-        }),
+        // 端口单点：左侧边缘中心 = 输入，右侧边缘中心 = 输出（语义端口由系统自动判定）
+        h('div', { key: 'in', style: { position: 'absolute', left: -5.5, top: '50%', marginTop: -5.5 }, className: 'dshic-port-wrap' },
+          h(PortEl, { n, port: { id: 'auto', kind: inKind }, dir: 'in' })),
+        h('div', { key: 'out', style: { position: 'absolute', right: -5.5, top: '50%', marginTop: -5.5 }, className: 'dshic-port-wrap' },
+          h(PortEl, { n, port: { id: 'auto', kind: outKind }, dir: 'out' })),
+        // 分镜承接：下边缘中部（tail 输出）→ 下一个分镜上边缘中部（prev 输入）
+        n.type === 'storyboard'
+          ? h('div', { key: 'out-tail', style: { position: 'absolute', left: '50%', bottom: 0, marginLeft: -5.5, marginBottom: -5.5 }, className: 'dshic-port-wrap' },
+              h(PortEl, { n, port: { id: 'tail', kind: 'text' }, dir: 'out', corner: true }))
+          : null,
+        n.type === 'storyboard'
+          ? h('div', { key: 'in-prev', style: { position: 'absolute', left: '50%', top: 0, marginLeft: -5.5, marginTop: -5.5 }, className: 'dshic-port-wrap' },
+              h(PortEl, { n, port: { id: 'prev', kind: 'text' }, dir: 'in', corner: true }))
+          : null,
       );
     }
 
@@ -7611,13 +7928,6 @@ window.__ModuleLoader__.load({
       return map[pid] || pid;
     }
 
-    function StatusTag({ n }) {
-      const st = n.data.status || 'idle';
-      if (st === 'idle') return null;
-      const label = st === 'running' ? T('statusRunning') : st === 'done' ? T('statusDone') : T('statusError');
-      return h('span', { className: 'dshic-tag st st-' + st }, st === 'running' ? h('span', { className: 'dshic-spin' }) : null, label);
-    }
-
     let LLM_CACHE = null;
     function useLlmOptions() {
       const [opts, setOpts] = useState(LLM_CACHE);
@@ -7630,14 +7940,6 @@ window.__ModuleLoader__.load({
       }, []);
       return opts;
     }
-    function ModelSelect({ value, onChange, title }) {
-      const opts = useLlmOptions();
-      const options = [{ value: '', label: T('followSettings') }];
-      for (const p of ((opts && opts.providers) || [])) {
-        for (const m of (p.models || [])) options.push({ value: p.id + '|' + m.id, label: `${p.name} · ${m.name}` });
-      }
-      return h(MiniSelect, { value: value || '', options, onChange, title, width: 118 });
-    }
 
     function MiniSelect({ value, options, onChange, title, width }) {
       return h('select', {
@@ -7646,86 +7948,6 @@ window.__ModuleLoader__.load({
         onChange: (e) => onChange(e.target.value),
         onPointerDown: (e) => e.stopPropagation(),
       }, options.map((o) => h('option', { key: String(o.value), value: String(o.value) }, o.label)));
-    }
-
-    function GenSettingsRow({ n, kind }) {
-      const settings = loadSettings();
-      const models = kind === 'image' ? flattenImageModels(settings) : flattenVideoModels(settings);
-      const star = kind === 'image' ? settings.imageStar : settings.videoStar;
-      const cur = kind === 'image' ? nodeImageModelRef(n) : nodeVideoModelRef(n);
-      // 当前选中模型的厂商：H3（V2 协议）分辨率档位扩展为 480P/768P/1080P/2K/4K（大小写敏感）
-      const videoModelName = (() => {
-        if (kind !== 'video') return '';
-        const [pid, mid] = String(cur || '').split('|');
-        const p = (settings.videoProviders || []).find((x) => x.id === pid);
-        const m = p && (p.models || []).find((x) => x.id === mid);
-        return (m && m.model) || '';
-      })();
-      const isH3 = kind === 'video' && /minimax-?h3|hailuo-?03/i.test(videoModelName);
-      const resos = (kind === 'video' && isH3)
-        ? (['480P', '768P', '1080P', '2K', '4K'].includes(String(n.data.resolution)) ? ['480P', '768P', '1080P', '2K', '4K'] : ['480P', '768P', '1080P', '2K', '4K'].concat([String(n.data.resolution || '')]))
-        : (VIDEO_RESOLUTIONS.includes(String(n.data.resolution)) ? VIDEO_RESOLUTIONS : VIDEO_RESOLUTIONS.concat([String(n.data.resolution || '')]));
-      const setModel = (v) => update((s) => {
-        const nd = s.graph.nodes[n.id];
-        if (!nd) return;
-        if (kind === 'image') { nd.data.imageModel = v; delete nd.data.imageApiId; }
-        else { nd.data.videoModel = v; delete nd.data.videoApiId; }
-      });
-      // 模型下拉：只列配置的模型（供应商 · 模型，星标者带 ★）；留空 = 路由到默认模型；没配置 = 空（运行报错）
-      return h('div', { key: 'set', style: { display: 'flex', flexDirection: 'column', gap: 5 } },
-        h('div', { className: 'dshic-node-row' },
-          h('div', { style: { flex: 1, minWidth: 0 } },
-            h(MiniSelect, {
-              value: cur, title: T('modelLabel'), width: '100%',
-              disabled: !models.length,
-              options: models.length
-                ? models.map((m) => ({ value: m.ref, label: (m.ref === star ? '★ ' : '') + m.providerName + ' · ' + m.model }))
-                : [{ value: '', label: T('noModelsCfg') }],
-              onChange: setModel,
-            })),
-          h(MiniSelect, {
-            value: n.data.ratio || '16:9', title: T('ratioLabel'), width: 64,
-            options: RATIOS.map((r) => ({ value: r, label: r })),
-            onChange: (v) => update((s) => { const nd = s.graph.nodes[n.id]; if (nd) nd.data.ratio = v; }),
-          }),
-        ),
-        h('div', { className: 'dshic-node-row' },
-          kind === 'image'
-            ? h(MiniSelect, {
-                value: n.data.size || '2K', title: T('sizeLabel'), width: 64,
-                options: IMAGE_SIZES.map((x) => ({ value: x, label: x })),
-                onChange: (v) => update((s) => { const nd = s.graph.nodes[n.id]; if (nd) nd.data.size = v; }),
-              })
-            : [
-                h(MiniSelect, {
-                  key: 'dur', value: String(n.data.duration || 5), title: T('durationLabel'), width: 60,
-                  // 当前值不在预设列表里（如分镜总时长 32s）也要能显示与保留：动态并入选项
-                  options: (VIDEO_DURATIONS.includes(Number(n.data.duration))
-                    ? VIDEO_DURATIONS
-                    : [...VIDEO_DURATIONS, Math.round(Number(n.data.duration) || 5)].sort((a, b) => a - b))
-                    .map((x) => ({ value: String(x), label: x + 's' })),
-                  onChange: (v) => update((s) => { const nd = s.graph.nodes[n.id]; if (nd) nd.data.duration = Number(v); }),
-                }),
-                h(MiniSelect, {
-                  key: 'res', value: n.data.resolution || '720P', title: T('resolutionLabel'), width: 68,
-                  options: resos.map((x) => ({ value: x, label: x })),
-                  onChange: (v) => update((s) => { const nd = s.graph.nodes[n.id]; if (nd) nd.data.resolution = v; }),
-                }),
-              ],
-          h('div', { className: 'dshic-flex' }),
-        ),
-        h('input', {
-          key: 'nextra', className: 'dshic-input', value: (kind === 'video' ? n.data.vidExtra : n.data.imgExtra) || '',
-          placeholder: '扩展参数 JSON，如 {"use_context_ir":true}',
-          title: '节点级扩展参数：合并进供应商扩展参数，节点值优先',
-          onChange: (e) => update((s) => {
-            const nd = s.graph.nodes[n.id];
-            if (!nd) return;
-            if (kind === 'video') nd.data.vidExtra = e.target.value; else nd.data.imgExtra = e.target.value;
-          }),
-          onPointerDown: (e) => e.stopPropagation(),
-        }),
-      );
     }
 
     /** 声音参考提取：输入**角色名** → 自动按分镜表 dialogue 定位该角色的全部台词时间窗，
@@ -7927,7 +8149,7 @@ window.__ModuleLoader__.load({
       };
       return h('div', { className: 'dshic-mask-overlay', onPointerDown: (e) => { if (e.target === e.currentTarget) onClose(); } },
         h('div', { className: 'dshic-mask-card' },
-          h('div', { className: 'dshic-modal-title' }, T('maskRedraw') + ' — ' + (n.data.label || T('nImageGen'))),
+          h('div', { className: 'dshic-modal-title' }, T('maskRedraw') + ' — ' + (n.data.label || T('nImage'))),
           h('div', { className: 'dshic-hint' }, T('maskHint')),
           h('div', { className: 'dshic-mask-stage' },
             h('img', { ref: imgEl, src: url || '', onLoad: initCanvases, draggable: false }),
@@ -7958,11 +8180,520 @@ window.__ModuleLoader__.load({
         ));
     }
 
-    function GenNodeBody({ n, kind }) {
-      const [showMask, setShowMask] = useState(false);
-      const [showCraft, setShowCraft] = useState(false);
-      const [voiceDlg, setVoiceDlg] = useState(false);
-      useEffect(() => { probeCraft(); }, []);
+    // ============================================================
+    // 生成面板（GenComposer，浮层单例）：紧贴选中节点下方弹出
+    // ============================================================
+    /** 通用下拉：固定宽度触发按钮 + 可搜索浮层列表（几十个模型也能快速定位）。 */
+    function PopupSelect({ value, options, onChange, width, title, className, searchable }) {
+      const [open, setOpen] = useState(false);
+      const [q, setQ] = useState('');
+      const [pos, setPos] = useState({ left: 0, top: 0, width: width || 160 });
+      const btnRef = useRef(null);
+      const menuRef = useRef(null);
+      const openMenu = () => {
+        const btn = btnRef.current;
+        if (btn && btn.getBoundingClientRect) {
+          const r = btn.getBoundingClientRect();
+          const mw = Math.max(Number(width) || 160, 200);
+          const vw = window.innerWidth || 1200;
+          const vh = window.innerHeight || 800;
+          const left = Math.max(8, Math.min(r.left, vw - mw - 8));
+          const below = r.bottom + 6;
+          const top = (below + 280 > vh - 8) ? Math.max(8, r.top - 286) : below;
+          setPos({ left, top, width: mw });
+        }
+        setQ('');
+        setOpen(true);
+      };
+      useEffect(() => {
+        if (!open) return undefined;
+        const onDown = (e) => {
+          const t = e && e.target;
+          if (menuRef.current && t && menuRef.current.contains && menuRef.current.contains(t)) return;
+          if (btnRef.current && t && btnRef.current.contains && btnRef.current.contains(t)) return;
+          setOpen(false);
+        };
+        document.addEventListener('pointerdown', onDown, true);
+        return () => document.removeEventListener('pointerdown', onDown, true);
+      }, [open]);
+      const cur = options.find((o) => String(o.value) === String(value));
+      const label = cur ? cur.label : (options[0] ? options[0].label : '');
+      const query = q.trim().toLowerCase();
+      const shown = (searchable && query)
+        ? options.filter((o) => (String(o.label) + ' ' + String(o.sub || '') + ' ' + String(o.value)).toLowerCase().includes(query))
+        : options;
+      return h('span', { className: cls('dshic-pick-wrap', className) },
+        h('button', {
+          type: 'button', ref: btnRef, className: cls('dshic-pick', open && 'is-open'),
+          style: width ? { width: width + 'px' } : undefined,
+          title: (cur && (cur.title || cur.sub ? ((cur.sub ? cur.sub + ' · ' : '') + cur.label) : '')) || title || '',
+          onPointerDown: (e) => e.stopPropagation(),
+          onClick: (e) => { e.stopPropagation(); if (open) setOpen(false); else openMenu(); },
+        },
+          h('span', { className: 'dshic-pick-val' }, label),
+          h('span', { className: 'dshic-pick-car' }, '▾')),
+        open
+          ? h('div', {
+              ref: menuRef, className: 'dshic-pick-menu',
+              style: { left: pos.left, top: pos.top, width: pos.width },
+              onPointerDown: (e) => e.stopPropagation(),
+            },
+              searchable
+                ? h('div', { className: 'dshic-pick-search' },
+                    h('input', {
+                      className: 'dshic-input', autoFocus: true, placeholder: T('searchModelPh'), value: q,
+                      onChange: (e) => setQ(e.target.value), onPointerDown: (e) => e.stopPropagation(),
+                    }))
+                : null,
+              h('div', { className: 'dshic-pick-list' },
+                shown.length
+                  ? shown.map((o) => h('button', {
+                      key: String(o.value), type: 'button',
+                      className: cls('dshic-pick-item', String(o.value) === String(value) && 'is-on'),
+                      title: o.title || o.label,
+                      onPointerDown: (e) => e.stopPropagation(),
+                      onClick: () => { onChange(o.value); setOpen(false); },
+                    },
+                      h('span', { className: 'dshic-pick-name' }, o.label),
+                      o.sub ? h('span', { className: 'dshic-pick-sub' }, o.sub) : null))
+                  : h('div', { className: 'dshic-pick-empty' }, T('noModelMatch'))))
+          : null,
+      );
+    }
+
+    /** 生成面板：控件严格按节点类型渲染（绝不混用）。
+     *  text/script/storyboard → 文本模型；image → 图片模型+比例+清晰度+张数；
+     *  video → 视频模型+比例+分辨率+时长；finalcut → 无模型，只有比例/分辨率。 */
+    function GenComposer({ nodeId, node }) {
+      const n = node || (nodeId ? S.graph.nodes[nodeId] : null);
+      const settings = loadSettings();
+      const llm = useLlmOptions();
+      const [maskOpen, setMaskOpen] = useState(false);
+      const [craftOpen, setCraftOpen] = useState(false);
+      const [voiceOpen, setVoiceOpen] = useState(false);
+      const [atOpen, setAtOpen] = useState(false);
+      const [atPos, setAtPos] = useState({ left: 0, top: 0 });
+      const boxRef = useRef(null);
+      const caretRef = useRef(null);
+      const atBtnRef = useRef(null);
+      const fileRef = useRef(null);
+      const taRef = useRef(null);
+      const flippedRef = useRef(false);
+      const nid = n && n.id;
+
+      /** 紧贴节点下方；下方放不下就翻到节点上方；始终夹在视口内；小三角指向节点。 */
+      const position = () => {
+        const box = boxRef.current;
+        const el = nid ? nodeEls.get(nid) : null;
+        if (!box || !el || !el.getBoundingClientRect) return;
+        const r = el.getBoundingClientRect();
+        const vw = window.innerWidth || 1200;
+        const vh = window.innerHeight || 800;
+        const pad = 12;
+        const gap = 9;
+        const pw = Math.min(Math.max(Math.min(r.width || NODE_W, 560), 460), Math.min(720, vw - pad * 2));
+        box.style.width = pw + 'px';
+        const ph = box.offsetHeight || 280;
+        let left = (r.left || 0) + (r.width || 0) / 2 - pw / 2;
+        left = Math.max(pad, Math.min(left, vw - pw - pad));
+        let top = (r.bottom || 0) + gap;
+        let flipped = false;
+        if (top + ph > vh - pad) {
+          const above = (r.top || 0) - ph - gap;
+          if (above >= pad) { top = above; flipped = true; }
+          else top = Math.max(pad, vh - ph - pad);
+        }
+        box.style.left = left + 'px';
+        box.style.top = top + 'px';
+        flippedRef.current = flipped;
+        const caret = caretRef.current;
+        if (caret) {
+          const cx = Math.max(18, Math.min(((r.left || 0) + (r.width || 0) / 2) - left, pw - 30));
+          caret.style.left = cx + 'px';
+          caret.style.top = flipped ? 'auto' : '-6px';
+          caret.style.bottom = flipped ? '-6px' : 'auto';
+          caret.style.transform = flipped ? 'rotate(225deg)' : 'rotate(45deg)';
+        }
+      };
+      useLayoutEffect(() => { position(); });
+      useEffect(() => {
+        composerReposition = () => position();
+        window.addEventListener('resize', position);
+        return () => {
+          if (composerReposition) composerReposition = null;
+          window.removeEventListener('resize', position);
+        };
+      }, [nid]);
+      // Ctrl/⌘+滚动写在画布上会缩放：面板内保持原生滚动（全局 wheel 处理器已排除 .dshic-composer）
+      if (!n) return null;
+      const kind = n.type;
+      const isImage = kind === 'image';
+      const isVideo = kind === 'video';
+      const isStoryboard = kind === 'storyboard';
+      const isFinalCut = kind === 'finalcut';
+      const isTextLike = kind === 'text' || kind === 'script' || kind === 'storyboard';
+      const running = isTextLike ? n.data.aiStatus === 'running' : n.data.status === 'running';
+
+      // —— 模型选项：只列已配置的模型（文本取 Harness 会话可用模型；图片/视频取插件设置里的供应商+模型）——
+      const modelOptions = (() => {
+        const opts = [{ value: '', label: T('followSettings'), sub: '' }];
+        if (isTextLike) {
+          for (const p of ((llm && llm.providers) || [])) {
+            for (const m of (p.models || [])) opts.push({ value: p.id + '|' + m.id, label: m.name, sub: p.name, title: p.name + ' · ' + m.name });
+          }
+        } else if (isImage) {
+          for (const m of flattenImageModels(settings)) opts.push({ value: m.ref, label: m.model, sub: m.providerName, title: m.providerName + ' · ' + m.model + (m.ref === settings.imageStar ? ' ★' : '') });
+        } else if (isVideo) {
+          for (const m of flattenVideoModels(settings)) opts.push({ value: m.ref, label: m.model, sub: m.providerName, title: m.providerName + ' · ' + m.model + (m.ref === settings.videoStar ? ' ★' : '') });
+        }
+        return opts;
+      })();
+      const modelRef = isImage ? nodeImageModelRef(n) : isVideo ? nodeVideoModelRef(n) : (n.data.model || '');
+      const setModel = (v) => update((s) => {
+        const nd = s.graph.nodes[n.id];
+        if (!nd) return;
+        if (isImage) { nd.data.imageModel = v; delete nd.data.imageApiId; }
+        else if (isVideo) { nd.data.videoModel = v; delete nd.data.videoApiId; }
+        else nd.data.model = v;
+      });
+      const setData = (key, v) => update((s) => { const nd = s.graph.nodes[n.id]; if (nd) nd.data[key] = v; });
+      // 比例变化：已有结果时立即按新比例重排节点尺寸（只在一个方向变长，长边上限 800）
+      const setRatio = (v) => update((s) => {
+        const nd = s.graph.nodes[n.id];
+        if (!nd) return;
+        nd.data.ratio = v;
+        if ((nd.type === 'image' || nd.type === 'video') && nd.data.assetId) {
+          const sz = sizeForRatio(v);
+          nd.w = sz.w; nd.h = sz.h;
+        }
+      });
+      const onRatio = (v) => { setRatio(v); schedulePushFor(n.id); };
+      const promptKey = kind === 'script' ? 'idea' : isStoryboard ? 'script' : kind === 'text' ? 'text' : 'prompt';
+      const promptVal = String(n.data[promptKey] || '');
+      const setPrompt = (v) => setData(promptKey, v);
+      const promptPlaceholder = () => {
+        if (kind === 'text') return T('textPlaceholder');
+        if (kind === 'script') return T('ideaPlaceholder');
+        if (isStoryboard) return T('storyboardScriptLabel');
+        if (isImage) return T('promptPlaceholder');
+        if (isVideo) return T('videoPromptPlaceholder');
+        return T('finalNotePlaceholder');
+      };
+      const wiredScript = isStoryboard && S.graph.edges.some((e) => e.toNode === n.id && e.toPort === 'script');
+      const prevEdge = isStoryboard ? S.graph.edges.find((e) => e.toNode === n.id && e.toPort === 'prev') : null;
+      const prevId = prevEdge ? prevEdge.fromNode : '';
+      const sbTargets = isStoryboard
+        ? Object.values(S.graph.nodes)
+          .filter((x) => x && x.type === 'storyboard' && x.id !== n.id)
+          .sort((a, b) => (a.y - b.y) || (a.x - b.x))
+        : [];
+      const refEdges = S.graph.edges.filter((e) => e.toNode === n.id && e.toPort === 'ref');
+      const refThumbs = refEdges.slice(0, 4).map((e) => {
+        const src = S.graph.nodes[e.fromNode];
+        return src ? servedAssetId(src, e.fromPort) : null;
+      }).filter(Boolean);
+      const send = () => {
+        if (running) { stopActiveGen(); toast(T('stoppedToast')); return; }
+        if (kind === 'text') return;
+        runGenNode(n);
+      };
+      const closeSelf = () => { S.composerId = null; notify(); };
+      // 参考图上传：存成资产 → 新建图片节点 → 自动连到本节点的参考图输入（图片/视频节点）
+      const onFile = async (e) => {
+        const f = e.target.files && e.target.files[0];
+        e.target.value = '';
+        if (!f) return;
+        if (!/^image\//.test(f.type || '')) { toast(T('pickImageFile')); return; }
+        const rec = await saveAssetRecord(S.activeId, 'image', f, { name: f.name, source: 'upload', category: 'general' }).catch((err) => {
+          toast(T('uploadFailed') + '：' + String((err && err.message) || err));
+          return null;
+        });
+        if (!rec) return;
+        const nn = addNodeAt('image', { x: n.x - 420, y: n.y });
+        update((s) => {
+          const nd = s.graph.nodes[nn.id];
+          if (nd) { nd.data.assetId = rec.id; nd.data.status = 'done'; nd.data.label = f.name; }
+          // 新建的参考图节点只作为上游素材：选择与面板仍留在当前节点上（否则面板会跟着新节点跳走）
+          s.sel = new Set([n.id]);
+          s.selEdge = null;
+          s.assetsTick++;
+        });
+        if (isImage || isVideo) connectAuto(nn.id, n.id, { toPort: 'ref' });
+        flushSave();
+      };
+      const openAt = () => {
+        const btn = atBtnRef.current;
+        if (btn && btn.getBoundingClientRect) {
+          const r = btn.getBoundingClientRect();
+          const vw = window.innerWidth || 1200;
+          const vh = window.innerHeight || 800;
+          setAtPos({ left: Math.max(8, Math.min(r.left, vw - 228)), top: (r.bottom + 6 + 240 > vh) ? Math.max(8, r.top - 246) : r.bottom + 6 });
+        }
+        setAtOpen((x) => !x);
+      };
+      const bible = loadBible(S.activeId);
+      const entityNames = [...(bible.characters || []), ...(bible.scenes || []), ...(bible.props || [])].map((x) => String((x && x.name) || '').trim()).filter(Boolean);
+      const insertMention = (name) => {
+        const ins = '@' + name + '@';
+        const ta = taRef.current;
+        let next = promptVal + ins;
+        let caretAt = next.length;
+        if (ta && typeof ta.selectionStart === 'number') {
+          const s0 = ta.selectionStart, e0 = ta.selectionEnd;
+          next = promptVal.slice(0, s0) + ins + promptVal.slice(e0);
+          caretAt = s0 + ins.length;
+        }
+        setPrompt(next);
+        setTimeout(() => {
+          try { if (ta) { ta.focus(); ta.selectionStart = ta.selectionEnd = caretAt; } } catch { /* 忽略 */ }
+        }, 0);
+      };
+      const ratioOpts = RATIOS.map((x) => ({ value: x, label: x }));
+      const sizeOpts = IMAGE_SIZES.map((x) => ({ value: x, label: x }));
+      const countOpts = [1, 2, 3, 4].map((x) => ({ value: String(x), label: String(x) }));
+      // 视频分辨率：H3（V2 协议）扩展档位 480P/768P/1080P/2K/4K（大小写敏感），其余用标准三档；
+      // 当前值不在列表里（历史数据/厂商自定义）也要能显示与保留。
+      const videoModelName = (() => {
+        if (!isVideo) return '';
+        const [pid, mid] = String(modelRef || '').split('|');
+        const p = (settings.videoProviders || []).find((x) => x.id === pid);
+        const m = p && (p.models || []).find((x) => x.id === mid);
+        return (m && m.model) || '';
+      })();
+      const isH3 = isVideo && /minimax-?h3|hailuo-?03/i.test(videoModelName);
+      const baseRes = isH3 ? ['480P', '768P', '1080P', '2K', '4K'] : VIDEO_RESOLUTIONS;
+      const resList = baseRes.includes(String(n.data.resolution))
+        ? baseRes
+        : baseRes.concat([String(n.data.resolution || '720P')]);
+      const resOpts = resList.map((x) => ({ value: x, label: x }));
+      const durOpts = (VIDEO_DURATIONS.includes(Number(n.data.duration))
+        ? VIDEO_DURATIONS
+        : [...VIDEO_DURATIONS, Math.round(Number(n.data.duration) || 5)].sort((a, b) => a - b))
+        .map((x) => ({ value: String(x), label: x + 's' }));
+      const canRun = kind !== 'text';
+      return h('div', {
+        ref: boxRef, className: 'dshic-composer',
+        onPointerDown: (e) => { e.stopPropagation(); if (atOpen) setAtOpen(false); },
+        onWheel: (e) => e.stopPropagation(),
+        onDoubleClick: (e) => e.stopPropagation(),
+      },
+        h('div', { ref: caretRef, className: 'dshic-composer-caret' }),
+        h('div', { className: 'dshic-composer-head' },
+          h('span', { className: 'dshic-composer-title', title: n.data.label || '' }, n.data.label || TYPE_LABEL()[kind]),
+          h('span', { className: 'dshic-composer-tag' }, TYPE_TAG()[kind] || ''),
+          h('button', {
+            type: 'button', className: 'dshic-iconbtn', title: T('cancel'),
+            onPointerDown: (e) => e.stopPropagation(), onClick: closeSelf,
+          }, '✕')),
+        h('div', { className: 'dshic-composer-body' },
+          (isImage || isVideo || isFinalCut)
+            ? h('div', { className: 'dshic-composer-refs' },
+                h('button', {
+                  type: 'button', className: 'dshic-ref-add', title: T('refUploadTitle'),
+                  onPointerDown: (e) => e.stopPropagation(),
+                  onClick: () => { if (fileRef.current) fileRef.current.click(); },
+                }, '+'),
+                refThumbs.map((aid, i) => h('span', { key: aid + '_' + i, className: 'dshic-ref-thumb' },
+                  h(HistThumb, { assetId: aid, active: false, onClick: () => {} }))),
+                h('span', { className: 'dshic-composer-refhint' },
+                  refEdges.length ? T('refConnectedHint').replace('{n}', String(refEdges.length)) : T('refNoneHint')))
+            : null,
+          h('input', { ref: fileRef, type: 'file', accept: 'image/*', style: { display: 'none' }, onChange: onFile }),
+          h('div', { className: 'dshic-composer-prompt' },
+            h(PromptArea, {
+              value: promptVal, minHeight: 66, readOnly: isStoryboard && wiredScript,
+              inputRef: taRef,
+              placeholder: (isStoryboard && wiredScript) ? T('connected') : promptPlaceholder(),
+              onChange: setPrompt,
+            })),
+          isStoryboard
+            ? h(PromptArea, {
+                value: n.data.requirement || '', minHeight: 40,
+                placeholder: T('storyboardReqLabel'),
+                onChange: (v) => setData('requirement', v),
+              })
+            : null,
+          // —— 高级操作（保留原有功能：蒙版重绘 / PhotoCraft / 续帧 / 声音参考 / 历史 / 参考图排序）——
+          h('div', { className: 'dshic-composer-extra' },
+            n.data.genWarn ? h('div', { className: 'dshic-hint', style: { color: 'var(--dsw-alias-state-warning-primary, #d08700)' } }, '⚠ ' + n.data.genWarn) : null,
+            n.data.stopNote ? h('div', { className: 'dshic-hint' }, '⏹ ' + n.data.stopNote) : null,
+            n.data.error ? h('div', { className: 'dshic-err' }, n.data.error) : null,
+            (n.data.chainFrom || n.data.seam)
+              ? h('div', { className: 'dshic-hint', style: { display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' } },
+                  n.data.chainFrom
+                    ? h('span', { title: T('chainInfo') }, '🔗 ' + (n.data.chainFrom === 'wired' ? T('chainManual') : T('chainAuto')))
+                    : null,
+                  n.data.seam
+                    ? h('span', {
+                        title: T('seamHint'),
+                        style: { color: n.data.seam.ok ? 'var(--dsw-alias-state-success-primary, #2f9e44)' : 'var(--dsw-alias-state-warning-primary, #d08700)' },
+                      }, (n.data.seam.ok ? '✓ ' : '⚠ ') + (n.data.seam.ok ? T('seamOk') : T('seamFail')) + (n.data.seam.sim != null ? ' ' + n.data.seam.sim : ''))
+                    : null,
+                  n.data.tailPickMeta
+                    ? h('span', { title: T('tailPickHint') }, '✂ ' + T('tailPick') + ' ' + Number(n.data.tailPickMeta.t || 0).toFixed(1) + 's')
+                    : null)
+              : null,
+            (isImage || isVideo)
+              ? h('div', { className: 'dshic-node-row' },
+                  h('span', { className: 'dshic-shot-label', style: { flex: 'none' } }, T('moreActions')),
+                  isVideo
+                    ? h('select', {
+                        className: 'dshic-select', style: { flex: 1, minWidth: 0, maxWidth: 150 }, title: T('frameModeHint'),
+                        value: n.data.frameMode || 'auto',
+                        onPointerDown: (e) => e.stopPropagation(),
+                        onChange: (e) => setData('frameMode', e.target.value),
+                      },
+                        h('option', { value: 'auto' }, T('frameModeAuto')),
+                        h('option', { value: 'hard' }, T('frameModeHard')),
+                        h('option', { value: 'off' }, T('frameModeOff')))
+                    : null,
+                  isImage
+                    ? h('button', {
+                        type: 'button', className: 'dshic-mini is-ghost', title: T('redraw'),
+                        onPointerDown: (e) => e.stopPropagation(),
+                        onClick: () => {
+                          const nn = addNodeAt('image', { x: n.x + 400, y: n.y });
+                          update((s) => {
+                            const nd2 = s.graph.nodes[nn.id];
+                            if (nd2) {
+                              nd2.data.prompt = n.data.prompt || '';
+                              nd2.data.imageModel = nodeImageModelRef(n);
+                              nd2.data.size = n.data.size || '2K';
+                              nd2.data.ratio = n.data.ratio || '16:9';
+                            }
+                            // 派生节点不抢选择/面板：面板仍挂在当前节点
+                            s.sel = new Set([n.id]);
+                            s.selEdge = null;
+                          });
+                          connectAuto(n.id, nn.id, { toPort: 'ref' });
+                          pushHistory();
+                        },
+                      }, Ic('pencil', 11), T('redraw'))
+                    : null,
+                  isImage
+                    ? h('button', {
+                        type: 'button', className: 'dshic-mini is-ghost', title: T('maskRedraw'),
+                        disabled: running || !n.data.assetId,
+                        onPointerDown: (e) => e.stopPropagation(),
+                        onClick: () => setMaskOpen(true),
+                      }, Ic('pencil', 11), T('maskRedraw'))
+                    : null,
+                  isImage
+                    ? h('button', {
+                        type: 'button', className: 'dshic-mini is-ghost', title: craftOkCached() ? T('photoCraft') : T('craftUnreachable'),
+                        disabled: !craftOkCached() || !n.data.assetId,
+                        onPointerDown: (e) => e.stopPropagation(),
+                        onClick: () => setCraftOpen(true),
+                      }, Ic('image', 11), T('photoCraft'))
+                    : null,
+                  isVideo && n.data.lastAssetId
+                    ? h('button', {
+                        type: 'button', className: 'dshic-mini is-ghost', title: T('chainNext') + '（' + T('lastFrame') + ' → ' + T('portFrame') + '）',
+                        onPointerDown: (e) => e.stopPropagation(),
+                        onClick: () => chainNext(n),
+                      }, Ic('film', 11), T('chainNext'))
+                    : null,
+                  isVideo && n.data.assetId
+                    ? h('button', {
+                        type: 'button', className: 'dshic-mini is-ghost', title: T('voiceExtractBtn'),
+                        onPointerDown: (e) => e.stopPropagation(),
+                        onClick: () => setVoiceOpen(true),
+                      }, Ic('audio', 11), T('voiceExtractBtn'))
+                    : null)
+              : null,
+            (isImage || isVideo)
+              ? h('input', {
+                  className: 'dshic-input', value: (isVideo ? n.data.vidExtra : n.data.imgExtra) || '',
+                  placeholder: T('extraParamsPh'),
+                  title: T('extraParamsHint'),
+                  onChange: (e) => setData(isVideo ? 'vidExtra' : 'imgExtra', e.target.value),
+                  onPointerDown: (e) => e.stopPropagation(),
+                })
+              : null,
+            (isImage || isVideo) ? h(RefRows, { n, portId: 'ref' }) : null,
+            (isImage || isVideo) ? h(MentionInfo, { n }) : null,
+            (n.data.history || []).length > 1
+              ? h('div', { className: 'dshic-hist' },
+                  (n.data.history || []).map((hh) => h(HistThumb, {
+                    key: hh.assetId, assetId: hh.assetId, active: hh.assetId === n.data.assetId,
+                    onClick: () => setData('assetId', hh.assetId),
+                  })))
+              : null)),
+        h('div', { className: 'dshic-composer-controls' },
+          // finalcut 无模型（只有比例/分辨率）；其余类型模型永远排在最前
+          !isFinalCut
+            ? h(PopupSelect, {
+                value: modelRef, options: modelOptions, onChange: setModel, width: 172,
+                title: T('modelLabel'), searchable: true, className: 'is-model',
+              })
+            : null,
+          isStoryboard
+            ? h(PopupSelect, {
+                value: String(n.data.count || 0), width: 70, title: T('storyboardCountLabel'),
+                options: [{ value: '0', label: T('autoShots') }].concat([3, 4, 6, 8, 10, 12, 16].map((x) => ({ value: String(x), label: x + ' ' + T('shotsUnit') }))),
+                onChange: (v) => setData('count', Number(v)),
+              })
+            : null,
+          isStoryboard
+            ? h(PopupSelect, {
+                value: prevId, width: 146, title: T('contPickTitle'), className: 'is-cont',
+                options: [{ value: '', label: T('contNone') }].concat(sbTargets.map((x) => ({ value: x.id, label: String(x.data.label || T('nStoryboard')) }))),
+                onChange: (v) => setStoryboardPrev(n.id, v || null),
+              })
+            : null,
+          (isImage || isVideo || isFinalCut)
+            ? h(PopupSelect, { value: n.data.ratio || '16:9', options: ratioOpts, onChange: onRatio, width: 74, title: T('ratioLabel') })
+            : null,
+          isImage
+            ? h(PopupSelect, { value: n.data.size || '2K', options: sizeOpts, onChange: (v) => setData('size', v), width: 64, title: T('sizeLabel') })
+            : null,
+          isVideo || isFinalCut
+            ? h(PopupSelect, { value: n.data.resolution || '720P', options: resOpts, onChange: (v) => setData('resolution', v), width: 76, title: T('resolutionLabel') })
+            : null,
+          isImage
+            ? h(PopupSelect, { value: String(n.data.imageCount || 1), options: countOpts, onChange: (v) => setData('imageCount', Number(v)), width: 54, title: T('countLabel') })
+            : null,
+          isVideo
+            ? h(PopupSelect, { value: String(n.data.duration || 5), options: durOpts, onChange: (v) => setData('duration', Number(v)), width: 62, title: T('durationLabel') })
+            : null,
+          h('button', {
+            type: 'button', ref: atBtnRef, className: 'dshic-pick dshic-at', title: T('atInsertTip'),
+            onPointerDown: (e) => e.stopPropagation(),
+            onClick: (e) => { e.stopPropagation(); openAt(); },
+          }, '@'),
+          h('div', { className: 'dshic-flex' }),
+          h('button', {
+            type: 'button', className: 'dshic-send',
+            title: kind === 'text' ? T('composerTextNoGen') : (running ? (isTextLike ? T('aiRunning') : T('stop')) : T('generate')),
+            disabled: !canRun || (running && isTextLike),
+            onPointerDown: (e) => e.stopPropagation(),
+            onClick: send,
+          }, running
+            ? (isTextLike ? h('span', { className: 'dshic-spin' }) : Ic('stop', 16))
+            : Ic(kind === 'finalcut' ? 'film' : 'spark', 16))),
+        atOpen
+          ? h('div', {
+              className: 'dshic-pick-menu', style: { left: atPos.left, top: atPos.top, width: 220 },
+              onPointerDown: (e) => e.stopPropagation(),
+            },
+              entityNames.length
+                ? entityNames.map((name) => h('button', {
+                    key: name, type: 'button', className: 'dshic-pick-item',
+                    onPointerDown: (e) => e.stopPropagation(),
+                    onClick: () => { insertMention(name); setAtOpen(false); },
+                  }, h('span', { className: 'dshic-pick-name' }, '@' + name + '@')))
+                : h('div', { className: 'dshic-pick-empty' }, T('noBibleEntities')))
+          : null,
+        maskOpen && n.data.assetId ? h(MaskEditor, { nodeId: n.id, onClose: () => setMaskOpen(false) }) : null,
+        craftOpen && n.data.assetId ? h(PhotoCraftDialog, { assetId: n.data.assetId, onClose: () => setCraftOpen(false) }) : null,
+        voiceOpen && n.data.assetId ? h(VoiceExtractDialog, { nodeId: n.id, onClose: () => setVoiceOpen(false) }) : null,
+      );
+    }
+
+    /** 统一媒体节点（图片/视频合并后唯一的结果节点）：节点内只显示结果。
+     *  有 assetId → 预览 + 左上状态徽标 + 右上参考图角标；无结果 → 虚线空态「点击描述画面生成…」；
+     *  空节点不放任何生成按钮（生成动作在 GenComposer 的发送按钮）。点击节点任意位置打开面板。 */
+    function MediaNodeBody({ n, kind }) {
       // 视频产物自动提取尾帧（含外部注入/导入的视频）：last 口与跨镜衔接不依赖"必须由本节点生成"
       useEffect(() => {
         if (kind !== 'video' || !n.data.assetId) return;
@@ -8017,165 +8748,74 @@ window.__ModuleLoader__.load({
         })();
         return () => { ok = false; };
       }, [n.id, S.assetsTick, S.store]);
-      const promptEdge = S.graph.edges.find((x) => x.toNode === n.id && x.toPort === 'prompt');
-      const promptSrc = promptEdge && S.graph.nodes[promptEdge.fromNode];
-      const fromStoryboard = !!(promptSrc && promptSrc.type === 'storyboard');
-      const refEdges = S.graph.edges.filter((x) => x.toNode === n.id && (kind === 'image' ? x.toPort === 'ref' : x.toPort === 'frame'));
-      const vrCount = S.graph.edges.filter((x) => x.toNode === n.id && x.toPort === 'ref').length;
       const assetUrlV = useAssetUrl(n.data.assetId);
+      const refEdges = S.graph.edges.filter((x) => x.toNode === n.id && x.toPort === 'ref');
+      const firstRefSrc = refEdges.length ? S.graph.nodes[refEdges[0].fromNode] : null;
+      const firstRefAid = firstRefSrc ? servedAssetId(firstRefSrc, refEdges[0].fromPort) : null;
+      const refThumbUrl = useAssetUrl(firstRefAid);
+      const running = n.data.status === 'running';
+      const done = !!n.data.assetId;
+      const statusLabel = running ? T('genRunning') : done ? T('generated') : (n.data.status === 'error' ? T('genFailed') : '');
+      const openPanel = () => { S.composerId = n.id; notify(); };
       return [
-        promptEdge
-          ? h(PromptArea, {
-              key: 'p', value: n.data.prompt || '', minHeight: 72, readOnly: true,
-              ...phBind(n, 'p'),
-              placeholder: fromStoryboard ? T('multiShotHint') : T('connected'),
-              onChange: () => { /* 只读展示：内容由上游连线组合 */ },
-            })
-          : h(PromptArea, {
-              key: 'p', value: n.data.prompt || '', minHeight: 72,
-              ...phBind(n, 'p'),
-              placeholder: T('promptPlaceholder'),
-              onChange: (v) => update((s) => { const nd = s.graph.nodes[n.id]; if (nd) nd.data.prompt = v; }),
-            }),
-        h(GenSettingsRow, { key: 'set', n, kind }),
-        h('button', {
-          key: 'gen', type: 'button', className: 'dshic-gen',
-          onPointerDown: (e) => e.stopPropagation(),
-          onClick: () => { if (n.data.status === 'running') { stopActiveGen(); toast(T('stoppedToast')); } else { runGenNode(n); } },
-        }, n.data.status === 'running' ? [Ic('stop', 12), T('stop')] : [Ic('play', 12), T('generate')]),
-        h('div', { key: 'r', className: 'dshic-node-row' },
-          h('div', { className: 'dshic-flex' }),
-          n.data.demo && n.data.assetId ? h('span', { className: 'dshic-tag demo' }, T('demoTag')) : null,
-          (!n.data.demo && n.data.assetId) ? h('span', { className: 'dshic-tag api' }, T('apiTag')) : null,
-          h(StatusTag, { n }),
-        ),
-        refEdges.length && kind === 'video'
-          ? h('div', { key: 'ref', className: 'dshic-hint' },
-              T('portFrame') + ' × ' + refEdges.length + ' · ' + T('connected'))
-          : null,
-        // 「衔接」下拉：视频节点**始终**显示——自动续帧（无 frame 线）也需要它来关闭接力或改硬首帧。
-        // 若有 frame 连线则额外说明连线数量。
-        kind === 'video'
-          ? h('div', { key: 'fmode', className: 'dshic-node-row' },
-              h('span', { className: 'dshic-shot-label', style: { flex: 'none' } }, T('frameModeLabel')),
-              h('select', {
-                className: 'dshic-select', style: { flex: 1, minWidth: 0 }, title: T('frameModeHint'),
-                value: n.data.frameMode || 'auto',
+        h('div', { key: 'media', className: cls('dshic-media-wrap', running && 'is-running') },
+          done && assetUrlV && kind === 'image'
+            ? h('img', {
+                key: 'img', className: 'dshic-media-fill', src: assetUrlV, draggable: false, 'data-no-drag': '1',
                 onPointerDown: (e) => e.stopPropagation(),
-                onChange: (e) => update((s) => { const nd = s.graph.nodes[n.id]; if (nd) nd.data.frameMode = e.target.value; }),
+                onClick: (e) => { e.stopPropagation(); openPanel(); },
+                onDoubleClick: (e) => { e.stopPropagation(); openLightbox('image', assetUrlV, n.data.label); },
+              })
+            : null,
+          done && assetUrlV && kind === 'video'
+            ? h('video', {
+                key: 'vid', className: 'dshic-media-fill', src: assetUrlV, controls: true, preload: 'metadata',
+                'data-no-drag': '1', onPointerDown: (e) => e.stopPropagation(),
+              })
+            : null,
+          !done
+            ? h('div', { key: 'empty', className: 'dshic-media-empty', onClick: openPanel },
+                h('span', { className: 'dshic-media-empty-ic' }, Ic(kind === 'video' ? 'video' : 'image', 18)),
+                h('span', { className: 'dshic-media-empty-t' }, T(kind === 'video' ? 'clickToGenVideo' : 'clickToGenImage')))
+            : (assetUrlV ? null : h('div', { key: 'ph', className: 'dshic-media-empty' }, h('span', { className: 'dshic-media-empty-t' }, '…'))),
+          statusLabel
+            ? h('div', { key: 'st', className: cls('dshic-status-badge', running ? 'is-run' : done ? 'is-done' : 'is-err') },
+                h('span', { className: 'dshic-status-dot' }),
+                statusLabel + ((running && n.data.progress) ? ' ' + n.data.progress : ''))
+            : null,
+          refEdges.length
+            ? h('button', {
+                key: 'ref', type: 'button', className: 'dshic-refbadge', title: T('refBadgeTitle'),
+                onClick: (e) => { e.stopPropagation(); openPanel(); },
               },
-                h('option', { value: 'auto' }, T('frameModeAuto')),
-                h('option', { value: 'hard' }, T('frameModeHard')),
-                h('option', { value: 'off' }, T('frameModeOff')),
-              ),
-            )
-          : null,
-        h(RefRows, { key: 'refrows', n, portId: 'ref' }),
-        h(MentionInfo, { key: 'mn', n }),
-        n.data.genWarn ? h('div', { key: 'gw', className: 'dshic-hint', style: { color: 'var(--dsw-alias-state-warning-primary, #d08700)' } }, '⚠ ' + n.data.genWarn) : null,
-        n.data.stopNote ? h('div', { key: 'sn', className: 'dshic-hint' }, '⏹ ' + n.data.stopNote) : null,
-        n.data.error ? h('div', { key: 'err', className: 'dshic-err' }, n.data.error) : null,
-        // 续帧状态：本段首帧来自哪里（上一段尾帧 / 连线）+ 接缝校验结果（不达标必须让人看见）
-        kind === 'video' && (n.data.chainFrom || n.data.seam)
-          ? h('div', { key: 'chain', className: 'dshic-hint', style: { display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' } },
-              n.data.chainFrom
-                ? h('span', { title: T('chainInfo') }, '🔗 ' + (n.data.chainFrom === 'wired' ? T('chainManual') : T('chainAuto')))
-                : null,
-              n.data.seam
-                ? h('span', {
-                    title: T('seamHint'),
-                    style: { color: n.data.seam.ok ? 'var(--dsw-alias-state-success-primary, #2f9e44)' : 'var(--dsw-alias-state-warning-primary, #d08700)' },
-                  }, (n.data.seam.ok ? '✓ ' : '⚠ ') + (n.data.seam.ok ? T('seamOk') : T('seamFail')) + (n.data.seam.sim != null ? ' ' + n.data.seam.sim : ''))
-                : null,
-              n.data.tailPickMeta
-                ? h('span', { title: T('tailPickHint') }, '✂ ' + T('tailPick') + ' ' + Number(n.data.tailPickMeta.t || 0).toFixed(1) + 's')
-                : null,
-            )
-          : null,
-        assetUrlV && kind === 'image'
-          ? h('img', { key: 'img', className: 'dshic-preview', src: assetUrlV, draggable: false, 'data-no-drag': '1', style: { cursor: 'zoom-in' }, onPointerDown: (e) => e.stopPropagation(), onClick: (e) => { e.stopPropagation(); openLightbox('image', assetUrlV, n.data.label); } })
-          : null,
-        assetUrlV && kind === 'video'
-          ? h('video', { key: 'vid', className: 'dshic-video', src: assetUrlV, controls: true, preload: 'metadata', 'data-no-drag': '1', onPointerDown: (e) => e.stopPropagation() })
-          : null,
-        assetUrlV
-          ? h('div', { key: 'acts', className: 'dshic-node-row' },
+                refThumbUrl
+                  ? h('img', { className: 'dshic-refbadge-thumb', src: refThumbUrl, draggable: false })
+                  : h('span', { className: 'dshic-refbadge-thumb is-empty' }),
+                h('span', {}, String(refEdges.length)))
+            : null,
+          n.data.error ? h('div', { key: 'err', className: 'dshic-media-err', title: n.data.error }, '⚠ ' + n.data.error) : null,
+        ),
+        // 结果操作：下载 / 重新生成 / 参考图 N（末尾左下角，作用于已生成结果）
+        done
+          ? h('div', { key: 'acts', className: 'dshic-node-row', style: { alignSelf: 'flex-start' } },
               h('button', {
-                type: 'button', className: 'dshic-mini is-ghost',
+                type: 'button', className: 'dshic-mini is-ghost', disabled: !assetUrlV,
                 onPointerDown: (e) => e.stopPropagation(),
                 onClick: async () => downloadBlobFromUrl(assetUrlV, await downloadNameForAsset(n.data.assetId, (kind === 'image' ? 'image' : 'video') + '-' + n.id.slice(-5), kind)),
               }, Ic('download', 11), T('download')),
               h('button', {
-                type: 'button', className: 'dshic-mini is-ghost', disabled: S.running || n.data.status === 'running',
+                type: 'button', className: 'dshic-mini is-ghost', disabled: running,
                 onPointerDown: (e) => e.stopPropagation(),
                 onClick: () => { runGenNode(n); },
               }, Ic('spark', 11), T('regen')),
-              kind === 'image'
-                ? h('button', {
-                    type: 'button', className: 'dshic-mini is-ghost', title: T('redraw'),
-                    onPointerDown: (e) => e.stopPropagation(),
-                    onClick: () => {
-                      const c = { x: n.x + 300, y: n.y };
-                      const nn = addNodeAt('image-gen', c);
-                      update((s) => {
-                        const nd2 = s.graph.nodes[nn.id];
-                        if (nd2) {
-                          nd2.data.prompt = n.data.prompt || '';
-                          nd2.data.imageModel = nodeImageModelRef(n);
-                          nd2.data.size = n.data.size || '2K';
-                          nd2.data.ratio = n.data.ratio || '16:9';
-                        }
-                        s.graph.edges.push({ id: uid('e'), fromNode: n.id, fromPort: 'out', toNode: nn.id, toPort: 'ref' });
-                      });
-                      pushHistory();
-                    },
-                  }, Ic('pencil', 11), T('redraw'))
-                : null,
-              kind === 'image'
-                ? h('button', {
-                    type: 'button', className: 'dshic-mini is-ghost', title: T('maskRedraw'),
-                    disabled: S.running || n.data.status === 'running',
-                    onPointerDown: (e) => e.stopPropagation(),
-                    onClick: () => setShowMask(true),
-                  }, Ic('pencil', 11), T('maskRedraw'))
-                : null,
-              kind === 'image'
-                ? h('button', {
-                    type: 'button', className: 'dshic-mini is-ghost', title: craftOkCached() ? T('photoCraft') : T('craftUnreachable'),
-                    disabled: !craftOkCached(),
-                    onPointerDown: (e) => e.stopPropagation(),
-                    onClick: () => setShowCraft(true),
-                  }, Ic('image', 11), T('photoCraft'))
-                : null,
-              kind === 'video' && n.data.lastAssetId
-                ? h('button', {
-                    type: 'button', className: 'dshic-mini is-ghost', title: T('chainNext') + '（' + T('lastFrame') + ' → ' + T('portFrame') + '）',
-                    onPointerDown: (e) => e.stopPropagation(),
-                    onClick: () => chainNext(n),
-                  }, Ic('film', 11), T('chainNext'))
-                : null,
-              kind === 'video' && assetUrlV
-                ? h('button', {
-                    type: 'button', className: 'dshic-mini is-ghost', title: T('voiceExtractBtn') + '（' + T('voiceTip') + '）',
-                    onPointerDown: (e) => e.stopPropagation(),
-                    onClick: () => setVoiceDlg(true),
-                  }, Ic('audio', 11), T('voiceExtractBtn'))
-                : null,
               h('div', { className: 'dshic-flex' }),
+              h('button', {
+                type: 'button', className: 'dshic-mini is-ghost', title: T('refBadgeTitle'),
+                onPointerDown: (e) => e.stopPropagation(),
+                onClick: openPanel,
+              }, Ic('image', 11), T('refCount').replace('{n}', String(refEdges.length))),
             )
           : null,
-        showMask && assetUrlV ? h(MaskEditor, { key: 'mask', nodeId: n.id, onClose: () => setShowMask(false) }) : null,
-        voiceDlg && assetUrlV ? h(VoiceExtractDialog, { key: 'voice', nodeId: n.id, onClose: () => setVoiceDlg(false) }) : null,
-        showCraft && n.data.assetId ? h(PhotoCraftDialog, { key: 'pccd', assetId: n.data.assetId, onClose: () => setShowCraft(false) }) : null,
-        (n.data.history || []).length > 1
-          ? h('div', { key: 'hist', className: 'dshic-hist' },
-              (n.data.history || []).map((hh) => h(HistThumb, {
-                key: hh.assetId, assetId: hh.assetId, active: hh.assetId === n.data.assetId,
-                onClick: () => update((s) => { const nd = s.graph.nodes[n.id]; if (nd) nd.data.assetId = hh.assetId; }),
-              })),
-            )
-          : null,
-        !assetUrlV && !n.data.error && n.data.status !== 'running' ? h('div', { key: 'none', className: 'dshic-hint' }, T('noResult')) : null,
       ];
     }
 
@@ -8288,87 +8928,14 @@ window.__ModuleLoader__.load({
       );
     }
 
-    function AssetNodeBody({ n, kind }) {
-      const assetUrlV = useAssetUrl(n.data.assetId);
-      const fileRef = useRef(null);
-      // 视频资产自动提取尾帧：外部导入的视频也能走 last → frame 跨镜衔接（生成后/换视频后触发一次）
-      useEffect(() => {
-        if (kind !== 'video' || !n.data.assetId) return;
-        if (n.data.lastAssetId && n.data.lastAssetVideo === n.data.assetId) return; // 已提取过当前视频
-        let cancelled = false;
-        (async () => {
-          try {
-            const blob = await assetBlob(n.data.assetId);
-            if (!blob || cancelled) return;
-            const fBlob = await extractLastFrame(blob);
-            if (!fBlob || cancelled) return;
-            const rec = await saveAssetRecord(S.activeId, 'image', fBlob, {
-              name: T('lastFrame') + '-' + (n.data.label || n.data.placeholderName || n.id.slice(-4)),
-              prompt: 'last frame of imported video', source: 'upload', category: 'image',
-            });
-            update((s) => {
-              const nd = s.graph.nodes[n.id];
-              if (nd && nd.data.assetId === n.data.assetId) { nd.data.lastAssetId = rec.id; nd.data.lastAssetVideo = n.data.assetId; }
-              s.assetsTick++;
-            });
-          } catch { /* 尾帧提取失败静默：不影响视频预览与 out 口输出 */ }
-        })();
-        return () => { cancelled = true; };
-      }, [kind, n.data.assetId, n.data.label, S.assetsTick]);
-      const onFiles = async (e) => {
-        const f = e.target.files && e.target.files[0];
-        e.target.value = '';
-        if (!f) return;
-        const isImg = f.type.startsWith('image/');
-        const isVid = f.type.startsWith('video/');
-        if (kind === 'image' ? !isImg : !isVid) { toast(kind === 'image' ? T('pickImageFile') : T('pickVideoFile')); return; }
-        const rec = await saveAssetRecord(S.activeId, kind, f, { name: f.name, source: 'upload', category: 'general' }).catch((err) => {
-          toast(T('uploadFailed') + '：' + String((err && err.message) || err));
-          return null;
-        });
-        if (!rec) return;
-        update((s) => {
-          const nd = s.graph.nodes[n.id];
-          if (nd) { nd.data.assetId = rec.id; nd.data.status = 'done'; nd.data.placeholderName = null; if (kind === 'video') { nd.data.lastAssetId = null; nd.data.lastAssetVideo = null; } }
-          s.assetsTick++;
-        });
-      };
-      return [
-        h('div', { key: 'row', className: 'dshic-node-row' },
-          h('button', {
-            type: 'button', className: 'dshic-mini is-ghost',
-            onPointerDown: (e) => e.stopPropagation(),
-            onClick: () => { if (fileRef.current) fileRef.current.click(); },
-          }, Ic('upload', 11), T('upload')),
-          n.data.assetId ? h('button', {
-            type: 'button', className: 'dshic-mini is-ghost',
-            onPointerDown: (e) => e.stopPropagation(),
-            onClick: () => update((s) => { const nd = s.graph.nodes[n.id]; if (nd) nd.data.assetId = null; }),
-          }, T('clearRef')) : null,
-          h('div', { className: 'dshic-flex' }),
-          h(StatusTag, { n }),
-        ),
-        h('input', { key: 'file', ref: fileRef, type: 'file', accept: kind === 'image' ? 'image/*' : 'video/*', style: { display: 'none' }, onChange: onFiles }),
-        assetUrlV && kind === 'image'
-          ? h('img', { key: 'img', className: 'dshic-preview', src: assetUrlV, draggable: false, 'data-no-drag': '1', style: { cursor: 'zoom-in' }, onPointerDown: (e) => e.stopPropagation(), onClick: (e) => { e.stopPropagation(); openLightbox('image', assetUrlV, n.data.label || n.data.placeholderName); } })
-          : null,
-        assetUrlV && kind === 'video'
-          ? h('video', { key: 'vid', className: 'dshic-video', src: assetUrlV, controls: true, preload: 'metadata', 'data-no-drag': '1', onPointerDown: (e) => e.stopPropagation() })
-          : null,
-        !assetUrlV ? h('div', { key: 'hint', className: 'dshic-hint' },
-          n.data.placeholderName ? `${T('placeholderAsset')}：${n.data.placeholderName}` : T('pickAsset')) : null,
-      ];
-    }
-
+    /** 文本节点：只显示正文结果（内容在生成面板里编辑；@资产名@ 仍高亮） */
     function TextNodeBody({ n }) {
-      // 文本节点同样走高亮输入层：输入 @资产名@ 自动显示为蓝色加粗（两个 @ 隐藏），与资产库强绑定
-      return h(PromptArea, {
-        value: n.data.text || '',
-        placeholder: T('textPlaceholder'),
-        minHeight: 96,
-        ...phBind(n, 'text'),
-        onChange: (v) => update((s) => { const nd = s.graph.nodes[n.id]; if (nd) nd.data.text = v; }),
-      });
+      const text = String(n.data.text || '');
+      if (!text.trim()) {
+        return h('div', { className: 'dshic-scroll-preview is-empty' },
+          h('span', { className: 'dshic-media-empty-t' }, T('emptyTextHint')));
+      }
+      return h('div', { className: 'dshic-scroll-preview', dangerouslySetInnerHTML: { __html: highlightMentions(text) } });
     }
 
     function ShotNodeBody({ n }) {
@@ -8435,7 +9002,7 @@ window.__ModuleLoader__.load({
      * 与主流工具同一做法——透明文字的 textarea 叠在同步滚动的背景层上，
      * 背景层渲染同一段文本并给 @名称 上色，光标/选区/中文输入法都不受影响。
      */
-    function PromptArea({ value, onChange, placeholder, minHeight, style, readOnly, phH, onPh, grow }) {
+    function PromptArea({ value, onChange, placeholder, minHeight, style, readOnly, phH, onPh, grow, inputRef }) {
       const taRef = useRef(null);
       const backRef = useRef(null);
       // 记忆高度的基准：React 上一次写进 textarea 的 height（null=未设置）。
@@ -8494,7 +9061,8 @@ window.__ModuleLoader__.load({
           dangerouslySetInnerHTML: { __html: html || ph },
         }),
         h('textarea', {
-          ref: taRef, className: 'dshic-textarea dshic-prompt-input', value: value || '',
+          ref: (el) => { taRef.current = el; if (inputRef) inputRef.current = el; },
+          className: 'dshic-textarea dshic-prompt-input', value: value || '',
           placeholder: html ? undefined : placeholder,
           readOnly: readOnly === true,
           style: { minHeight: minHeight || 72, height: phH || undefined, ...(style || {}) },
@@ -8556,40 +9124,22 @@ window.__ModuleLoader__.load({
       flushSave();
       toast(T('expandScenesDone').replace('{n}', String(scenes.length)));
     }
+    /** 剧本节点：节点内只显示结果（正文预览可滚动）；创作意图与生成动作在 GenComposer 面板里。 */
     function ScriptNodeBody({ n }) {
       const running = n.data.aiStatus === 'running';
-      const generate = async () => {
-        try { await genScriptNode(n); } catch (e) { toast(String((e && e.message) || e)); }
-      };
+      const output = String(n.data.output || '');
       return [
-        h('div', { key: 'mrow', className: 'dshic-node-row' },
-          h(ModelSelect, { value: n.data.model, title: T('llmLabel'), onChange: (v) => update((s) => { const nd = s.graph.nodes[n.id]; if (nd) nd.data.model = v; }) }),
-          h('div', { className: 'dshic-flex' }),
-        ),
-        h('span', { key: 'l1', className: 'dshic-shot-label' }, T('ideaLabel')),
-        h(PromptArea, {
-          key: 'idea', value: n.data.idea || '', minHeight: 72,
-          ...phBind(n, 'idea'),
-          placeholder: T('ideaPlaceholder'),
-          onChange: (v) => update((s) => { const nd = s.graph.nodes[n.id]; if (nd) nd.data.idea = v; }),
-        }),
-        h('button', { key: 'gen', type: 'button', className: 'dshic-gen', disabled: running, onClick: generate, onPointerDown: (e) => e.stopPropagation() },
-          running ? h('span', { className: 'dshic-spin' }) : Ic('spark', 12), running ? T('aiRunning') : T('aiScript')),
-        running && aiStreamLine(n.id)
-          ? h('div', { key: 'stream', className: 'dshic-stream', title: aiStreamLine(n.id) },
-              h('span', { className: 'dshic-stream-dot' }), aiStreamLine(n.id))
+        running
+          ? h('div', { key: 'run', className: 'dshic-node-row' },
+              h('span', { className: 'dshic-spin' }), h('span', { className: 'dshic-hint' }, T('aiRunning')))
           : null,
         n.data.aiError ? h('div', { key: 'err', className: 'dshic-err' }, n.data.aiError) : null,
-        h('span', { key: 'l2', className: 'dshic-shot-label' }, T('scriptOutputLabel')),
-        h(PromptArea, {
-          key: 'out', value: n.data.output || '', minHeight: 180,
-          ...phBind(n, 'out'),
-          placeholder: running ? T('aiRunning') : '',
-          onChange: (v) => update((s) => { const nd = s.graph.nodes[n.id]; if (nd) nd.data.output = v; }),
-        }),
-        // 结果相关操作放节点末尾左下角（与分镜节点同一规范：内容之后 + alignSelf:flex-start）——
-        // 这些按钮作用于「已经生成出来的剧本」，不该夹在生成按钮与输出正文之间。
-        n.data.output
+        output
+          ? h('div', { key: 'out', className: 'dshic-scroll-preview', dangerouslySetInnerHTML: { __html: highlightMentions(output) } })
+          : h('div', { key: 'none', className: 'dshic-scroll-preview is-empty' },
+              h('span', { className: 'dshic-media-empty-t' }, running ? T('aiRunning') : T('emptyScriptHint'))),
+        // 结果相关操作放节点末尾左下角（与分镜节点同一规范：内容之后 + alignSelf:flex-start）
+        output
           ? h('div', { key: 'acts', className: 'dshic-node-row', style: { alignSelf: 'flex-start' } },
               h('button', {
                 type: 'button', className: 'dshic-mini is-ghost', title: T('saveTextAsset'),
@@ -8610,62 +9160,11 @@ window.__ModuleLoader__.load({
       ];
     }
 
+    /** 分镜表节点：节点内只显示结果（N 镜 · 总时长 + 镜头清单）；镜头数/承接分镜/生成在 GenComposer 面板里。 */
     function StoryboardNodeBody({ n }) {
       const running = n.data.aiStatus === 'running';
-      // 分镜列表高度：右下角手柄拖拽调整（存进节点数据，随画布持久化）
-      const listH = Math.max(80, Math.min(1200, Number(n.data.shotsListH) || 180));
-      const startResize = (e) => {
-        e.stopPropagation(); e.preventDefault();
-        const startY = e.clientY; const startH = listH; const startNodeH = Number(n.h) || 0;
-        const startHManual = n.hManual ? Number(n.hManual) : 0;
-        const onMove = (ev) => {
-          const nh = Math.max(80, Math.min(1200, startH + (ev.clientY - startY)));
-          const dh = nh - startH;
-          update((s) => {
-            const nd = s.graph.nodes[n.id]; if (!nd) return;
-            nd.data.shotsListH = nh;
-            if (startHManual > 0) {
-              // 手动高度节点：列表加多高，节点就长多高（否则固定高度会把上方输入框挤扁）
-              nd.hManual = Math.max(120, startHManual + dh);
-              nd.h = nd.hManual;
-            } else if (startNodeH > 0) {
-              nd.h = Math.max(120, startNodeH + dh);
-            }
-          });
-        };
-        const onUp = () => {
-          window.removeEventListener('pointermove', onMove);
-          window.removeEventListener('pointerup', onUp);
-          try {
-            // 收尾对齐：手动高度若还截着内容（此前被挤压过的存量节点），按内容自然高度补齐一次
-            const el = nodeEls.get(n.id);
-            const body = el && el.querySelector('.dshic-node-body');
-            if (body && body.scrollHeight > body.clientHeight + 1) {
-              const deficit = body.scrollHeight - body.clientHeight;
-              update((s) => { const nd = s.graph.nodes[n.id]; if (nd && nd.hManual) nd.hManual = Math.round(nd.hManual + deficit); });
-            }
-          } catch { /* 布局自愈失败不影响功能 */ }
-          flushSave();
-        };
-        window.addEventListener('pointermove', onMove);
-        window.addEventListener('pointerup', onUp);
-      };
-      const scriptEdge = S.graph.edges.some((x) => x.toNode === n.id && x.toPort === 'script');
-      const scriptText = () => {
-        if (scriptEdge) {
-          const e = S.graph.edges.find((x) => x.toNode === n.id && x.toPort === 'script');
-          const src = e && S.graph.nodes[e.fromNode];
-          if (src && src.type === 'script' && (src.data.output || '').trim()) return src.data.output.trim();
-          if (src && src.type === 'text' && (src.data.text || '').trim()) return src.data.text.trim();
-        }
-        return String(n.data.script || '').trim();
-      };
-      const generate = async () => {
-        const st = scriptText();
-        if (!st) { toast(T('aiNeedScript')); return; }
-        try { await genStoryboardNode(n); } catch (e) { toast(String((e && e.message) || e)); }
-      };
       const shots = n.data.shots || [];
+      const totalDur = shots.reduce((a, sh) => a + Math.max(0, Number(sh.duration) || 0), 0);
       // 一致性告警的手动重校验：告警是**生成时刻**算的，之后补全设定集不会让它们自动消失——
       // 点刷新按当前设定集重算（checkShotConsistency 读的是实时 bible/资产名索引）
       const [wvChecking, setWvChecking] = useState(false);
@@ -8679,47 +9178,19 @@ window.__ModuleLoader__.load({
         setWvChecking(false);
       };
       return [
-        h('div', { key: 'mrow', className: 'dshic-node-row' },
-          h(ModelSelect, { value: n.data.model, title: T('llmLabel'), onChange: (v) => update((s) => { const nd = s.graph.nodes[n.id]; if (nd) nd.data.model = v; }) }),
-          h('div', { className: 'dshic-flex' }),
-        ),
-        h('span', { key: 'l1', className: 'dshic-shot-label' }, T('storyboardScriptLabel') + (scriptEdge ? ' · ' + T('connected') : '')),
-        h(PromptArea, {
-          key: 'script', value: n.data.script || '', minHeight: 56, readOnly: !!scriptEdge,
-          ...phBind(n, 'script'),
-          placeholder: scriptEdge ? T('connected') : T('storyboardScriptLabel'),
-          onChange: (v) => update((s) => { const nd = s.graph.nodes[n.id]; if (nd) nd.data.script = v; }),
-        }),
-        h(PromptArea, {
-          key: 'req', value: n.data.requirement || '', minHeight: 40,
-          ...phBind(n, 'req'),
-          placeholder: T('storyboardReqLabel'),
-          onChange: (v) => update((s) => { const nd = s.graph.nodes[n.id]; if (nd) nd.data.requirement = v; }),
-        }),
-        h('div', { key: 'row', className: 'dshic-node-row' },
-          h(MiniSelect, {
-            value: String(n.data.count || 0), title: T('storyboardCountLabel'), width: 88,
-            options: [{ value: '0', label: T('autoShots') }].concat([3, 4, 6, 8, 10, 12, 16].map((x) => ({ value: String(x), label: x + ' ' + T('shotsUnit') }))),
-            onChange: (v) => update((s) => { const nd = s.graph.nodes[n.id]; if (nd) nd.data.count = Number(v); }),
-          }),
-          // 分镜衔接：写作时强制每镜带「承接上镜尾态 / 接点尾态 / 运镜延续」，并可标记段落类型
-          h('button', {
-            key: 'cont', type: 'button',
-            className: 'dshic-mini' + (n.data.cont !== false ? '' : ' is-ghost'),
-            title: T('contToggleHint'),
-            onPointerDown: (e) => e.stopPropagation(),
-            onClick: () => update((s) => { const nd = s.graph.nodes[n.id]; if (nd) nd.data.cont = nd.data.cont === false; }),
-          }, (n.data.cont !== false ? '✓ ' : '') + T('contToggle')),
-          h('div', { className: 'dshic-flex' }),
-        ),
-        h('button', { key: 'gen', type: 'button', className: 'dshic-gen', disabled: running, onClick: generate, onPointerDown: (e) => e.stopPropagation() },
-          running ? h('span', { className: 'dshic-spin' }) : Ic('spark', 12), running ? T('aiRunning') : T('aiStoryboard')),
+        h('div', { key: 'sum', className: 'dshic-shot-summary' },
+          h('b', {}, shots.length ? (shots.length + ' ' + T('shotsUnit')) : T('noShotsYet')),
+          shots.length ? h('span', {}, ' · ' + totalDur + 's · ' + T('multiShotOnce')) : null),
+        n.data.contFrom
+          ? h('div', { key: 'cont', className: 'dshic-hint' }, '↩ ' + T('contFrom') + '：' + n.data.contFrom + ' ' + T('lastFrame'))
+          : null,
+        running
+          ? h('div', { key: 'run', className: 'dshic-node-row' },
+              h('span', { className: 'dshic-spin' }), h('span', { className: 'dshic-hint' }, T('aiRunning')))
+          : null,
         running && aiStreamLine(n.id)
           ? h('div', { key: 'stream', className: 'dshic-stream', title: aiStreamLine(n.id) },
               h('span', { className: 'dshic-stream-dot' }), aiStreamLine(n.id))
-          : null,
-        n.data.contFrom
-          ? h('div', { key: 'cont', className: 'dshic-hint' }, '↩ ' + T('contFrom') + '：' + n.data.contFrom + ' ' + T('lastFrame'))
           : null,
         n.data.aiError ? h('div', { key: 'err', className: 'dshic-err' }, n.data.aiError) : null,
         (n.data.warnings || []).length
@@ -8738,8 +9209,8 @@ window.__ModuleLoader__.load({
             )
           : null,
         shots.length
-          ? h('div', { key: 'listwrap', style: { position: 'relative', alignSelf: 'stretch' } },
-              h('div', { key: 'list', className: 'dshic-shot-list', style: { maxHeight: listH + 'px' } },
+          ? h('div', { key: 'listwrap', style: { alignSelf: 'stretch' } },
+              h('div', { key: 'list', className: 'dshic-shot-list', style: { maxHeight: 240 } },
                 shots.map((sh, i) => {
                   const pl = shotContinuityPlan(sh, shots[i - 1], i);
                   return h('div', { key: i, className: 'dshic-shot-item', onPointerDown: (e) => e.stopPropagation() },
@@ -8762,7 +9233,6 @@ window.__ModuleLoader__.load({
                 );
                 }),
               ),
-              h('div', { key: 'grip', className: 'dshic-shot-grip', title: T('resizeList'), onPointerDown: startResize }, '⌟'),
             )
           : null,
         shots.length
@@ -8838,16 +9308,16 @@ window.__ModuleLoader__.load({
         const findAssetNodeById = (assetId) => {
           if (!assetId) return null;
           for (const nd of Object.values(s.graph.nodes)) {
-            if (nd.type === 'image-asset' && nd.data.assetId === assetId) return nd;
+            if (isImageNode(nd) && nd.data.assetId === assetId) return nd;
           }
           return null;
         };
-        // 同标签的图片生成节点（上次铺开已建过）→ 复用，避免每点一次铺开又叠一层
+        // 同标签的图片节点（上次铺开已建过、且已写好提示词）→ 复用，避免每点一次铺开又叠一层
         const findGenNodeByLabel = (label) => {
           const q = norm(label);
           if (!q) return null;
           for (const nd of Object.values(s.graph.nodes)) {
-            if (nd.type === 'image-gen' && norm(nd.data && nd.data.label) === q) return nd;
+            if (isImageNode(nd) && String(nd.data && nd.data.prompt || '').trim() && norm(nd.data && nd.data.label) === q) return nd;
           }
           return null;
         };
@@ -8869,30 +9339,29 @@ window.__ModuleLoader__.load({
         const baseY = n.y - 40;
         // 生成时长 = 各镜时长之和（多镜头一次性生成的总时长），由视频模型内部切镜
         const total = shots.reduce((a, sh) => a + Math.max(1, Number(sh.duration) || 3), 0);
-        const videoGen = mk('video-gen', baseX + 360, baseY + 20, { prompt: '', duration: Math.max(1, Math.round(total)) });
-        const videoAsset = mk('video-asset', baseX + 720, baseY + 20);
+        // 合并后的视频节点：生成与结果同属一个节点（旧布局是 video-gen → video-asset 两个节点）
+        const videoGen = mk('video', baseX + 540, baseY + 20, { prompt: '', duration: Math.max(1, Math.round(total)) });
         entities.forEach((ent, i) => {
-          const y = baseY + i * 150;
+          const y = baseY + i * 380;
           const hit = findLibraryAsset(ent.name);
           if (hit) {
             let an = findAssetNodeById(hit.id);
-            if (!an) an = mk('image-asset', baseX, y, { assetId: hit.id }, hit.raw || hit.name);
+            if (!an) an = mk('image', baseX, y, { assetId: hit.id }, hit.raw || hit.name);
             linkRaw(an, 'out', videoGen, 'ref');
             reuseAssets++;
             return;
           }
-          // 资产库没有该实体的图：建「图片生成」节点，并按 canvas-craft 资产设定图版式写好提示词
+          // 资产库没有该实体的图：建「图片节点」，并按 canvas-craft 资产设定图版式写好提示词
           //（角色六段式 / 场景主图+环绕小图 / 道具标题+45°主图+细节+侧视+色卡）——生成后自动成为本段参考图
           const spec = assetSheetNodeSpec(ent.kind, ent.name, bible, zh);
           let gn = findGenNodeByLabel(spec.label);
           if (!gn) {
-            gn = mk('image-gen', baseX, y, { prompt: spec.prompt, size: spec.size, ratio: spec.ratio }, spec.label);
+            gn = mk('image', baseX, y, { prompt: spec.prompt, size: spec.size, ratio: spec.ratio }, spec.label);
             newGens++;
           }
           linkRaw(gn, 'out', videoGen, 'ref');
         });
         linkRaw(n, 'out', videoGen, 'prompt'); // 多镜头提示词来自上游分镜表（不复制文本）
-        linkRaw(videoGen, 'out', videoAsset, 'in');
         // 把「上一段视频」的尾帧接到本段的 frame：铺开时就建好，用户按顺序生成即可自动接力。
         // 找上一段的规则与 autoPrevVideoNode 一致（同分镜表兄弟段 / 沿 prev 链上溯的上游分镜表所连视频）。
         (() => {
@@ -8927,7 +9396,7 @@ window.__ModuleLoader__.load({
       const [voiceDlg, setVoiceDlg] = useState(false);
       useEffect(() => { probeCraft(); }, []);
       const getSub = (x) => {
-        const defSub = x.nd.type === 'video-gen' ? (x.nd.data.prompt || '') : (x.nd.data.label || TYPE_LABEL()[x.nd.type]);
+        const defSub = isVideoLike(x.nd) ? (x.nd.data.prompt || '') : (x.nd.data.label || TYPE_LABEL()[x.nd.type]);
         const v = n.data.subs && n.data.subs[x.e.id];
         return v != null ? v : defSub;
       };
@@ -9047,7 +9516,7 @@ window.__ModuleLoader__.load({
         h('div', { key: 'list', className: 'dshic-shot-list' },
           segs.length
             ? segs.map((x, i) => {
-                const defSub = x.nd.type === 'video-gen' ? (x.nd.data.prompt || '') : (x.nd.data.label || TYPE_LABEL()[x.nd.type]);
+                const defSub = isVideoLike(x.nd) ? (x.nd.data.prompt || '') : (x.nd.data.label || TYPE_LABEL()[x.nd.type]);
                 const val = (n.data.subs && n.data.subs[x.e.id] != null) ? n.data.subs[x.e.id] : defSub;
                 const tts = (n.data.tts && n.data.tts[x.e.id]) || {};
                 return h('div', { key: x.e.id, style: { display: 'flex', flexDirection: 'column', gap: 3 } },
@@ -9141,15 +9610,15 @@ window.__ModuleLoader__.load({
     }
 
     function nodeBody(n) {
-      if (n.type === 'text') return h(TextNodeBody, { n });
-      if (n.type === 'shot') return h(ShotNodeBody, { n });
-      if (n.type === 'script') return h(ScriptNodeBody, { n });
-      if (n.type === 'storyboard') return h(StoryboardNodeBody, { n });
-      if (n.type === 'image-gen') return h(GenNodeBody, { n, kind: 'image' });
-      if (n.type === 'video-gen') return h(GenNodeBody, { n, kind: 'video' });
-      if (n.type === 'image-asset') return h(AssetNodeBody, { n, kind: 'image' });
-      if (n.type === 'video-asset') return h(AssetNodeBody, { n, kind: 'video' });
-      if (n.type === 'finalcut') return h(FinalCutNodeBody, { n });
+      // 兜底：文档入口已归一，但历史上存进撤销快照/外部注入的节点类型仍可能是旧名
+      const type = normalizeNodeType(n.type);
+      if (type === 'text') return h(TextNodeBody, { n });
+      if (type === 'shot') return h(ShotNodeBody, { n });
+      if (type === 'script') return h(ScriptNodeBody, { n });
+      if (type === 'storyboard') return h(StoryboardNodeBody, { n });
+      if (type === 'image') return h(MediaNodeBody, { n, kind: 'image' });
+      if (type === 'video') return h(MediaNodeBody, { n, kind: 'video' });
+      if (type === 'finalcut') return h(FinalCutNodeBody, { n });
       return null;
     }
 
@@ -9196,7 +9665,7 @@ window.__ModuleLoader__.load({
       if (menu.kind === 'node') {
         const n = S.graph.nodes[menu.nodeId];
         if (!n) return null;
-        const canRun = n.type === 'image-gen' || n.type === 'video-gen';
+        const canRun = n.type === 'image' || n.type === 'video';
         const items = [
           { label: T('copyNode'), icon: 'plus', fn: () => { update((s) => { s.sel = new Set([n.id]); }); duplicateSelection(); } },
           ...(canRun ? [{ label: T('runNode'), icon: 'play', fn: () => { runGenNode(n); } }] : []),
@@ -9219,10 +9688,8 @@ window.__ModuleLoader__.load({
         { type: 'text', icon: 'text' },
         { type: 'script', icon: 'script' },
         { type: 'storyboard', icon: 'board' },
-        { type: 'image-gen', icon: 'spark' },
-        { type: 'video-gen', icon: 'video' },
-        { type: 'image-asset', icon: 'image' },
-        { type: 'video-asset', icon: 'video' },
+        { type: 'image', icon: 'image' },
+        { type: 'video', icon: 'video' },
         { type: 'finalcut', icon: 'film' },
       ];
       const add = (type) => {
@@ -9582,7 +10049,7 @@ window.__ModuleLoader__.load({
           return;
         }
         const c = worldCenter();
-        const type = a.kind === 'image' ? 'image-asset' : 'video-asset';
+        const type = a.kind === 'image' ? 'image' : 'video';
         const n = addNodeAt(type, { x: c.x + (Math.random() * 60 - 30), y: c.y + (Math.random() * 60 - 30) });
         update((s) => {
           const nd = s.graph.nodes[n.id];
@@ -10971,9 +11438,9 @@ window.__ModuleLoader__.load({
         const el = rootRef.current;
         if (!el) return;
         const fn = (e) => {
-          // 文本/下拉等交互区域保持原生滚动，不缩放画布
+          // 文本/下拉等交互区域与生成面板保持原生滚动，不缩放画布
           const t = e.target;
-          if (t && t.closest && t.closest('textarea, input, select, .dshic-shot-list')) return;
+          if (t && t.closest && t.closest('textarea, input, select, .dshic-shot-list, .dshic-composer')) return;
           e.preventDefault();
           const rect = el.getBoundingClientRect();
           const sx = e.clientX - rect.left, sy = e.clientY - rect.top;
@@ -11075,14 +11542,18 @@ window.__ModuleLoader__.load({
               h('div', { className: 'dshic-guide-h', style: { display: 'none', zIndex: 9999 }, ref: (el) => { hGuidEl = el; } }),
             ),
             h(Minimap),
+            // 生成面板（单例）：紧贴选中节点下方弹出；点节点任意位置打开
+            (S.composerId && S.sel.has(S.composerId) && S.graph.nodes[S.composerId])
+              ? h(GenComposer, { key: S.composerId, nodeId: S.composerId })
+              : null,
             nodes.length === 0 ? h('div', { className: 'dshic-empty' },              h('div', { className: 'dshic-empty-card' },
                 h('div', { className: 'dshic-empty-title' }, T('emptyNodeTitle')),
                 h('div', { className: 'dshic-hint', style: { maxWidth: 320 } }, T('emptyNodeHint')),
                 h('div', { className: 'dshic-empty-row' },
                   h('button', { type: 'button', className: 'dshic-mini', onClick: () => { const c = worldCenter(); addNodeAt('script', { x: c.x - 320, y: c.y }); } }, Ic('script', 11), T('nScript')),
                   h('button', { type: 'button', className: 'dshic-mini', onClick: () => { const c = worldCenter(); addNodeAt('storyboard', { x: c.x - 320, y: c.y + 180 }); } }, Ic('board', 11), T('nStoryboard')),
-                  h('button', { type: 'button', className: 'dshic-mini', onClick: () => { const c = worldCenter(); addNodeAt('image-gen', { x: c.x, y: c.y - 30 }); } }, Ic('spark', 11), T('nImageGen')),
-                  h('button', { type: 'button', className: 'dshic-mini', onClick: () => { const c = worldCenter(); addNodeAt('video-gen', { x: c.x, y: c.y + 30 }); } }, Ic('video', 11), T('nVideoGen')),
+                  h('button', { type: 'button', className: 'dshic-mini', onClick: () => { const c = worldCenter(); addNodeAt('image', { x: c.x, y: c.y - 30 }); } }, Ic('image', 11), T('nImage')),
+                  h('button', { type: 'button', className: 'dshic-mini', onClick: () => { const c = worldCenter(); addNodeAt('video', { x: c.x, y: c.y + 30 }); } }, Ic('video', 11), T('nVideo')),
                 ),
               ),
             ) : null,
@@ -11390,8 +11861,9 @@ window.__ModuleLoader__.load({
         // 直接暴露各页签组件与同步入口，让测试能逐个渲染/驱动，抓白屏与同步断链问题
         if (typeof window !== 'undefined' && window.__DSH_IC_SMOKE__) {
           window.__DSH_IC_TABS__ = { ProjectsTab, AssetsTab, BibleTab, SettingsTab, CanvasPage, ShortcutsPanel, CanvasHostedApp };
-          // 节点体组件出口：供 scripts/test-node-actions.mjs 断言「结果操作按钮必须在节点末尾左下角」的排版规范
-          window.__DSH_IC_NODES__ = { ScriptNodeBody, StoryboardNodeBody, GenNodeBody, FinalCutNodeBody, AssetNodeBody, TextNodeBody, ShotNodeBody };
+          // 节点体/生成面板组件出口：供 scripts/test-node-actions.mjs 断言「结果操作按钮必须在节点末尾左下角」，
+          // 并供 smoke-render 直接渲染新组件（MediaNodeBody / GenComposer）抓渲染期崩溃
+          window.__DSH_IC_NODES__ = { ScriptNodeBody, StoryboardNodeBody, MediaNodeBody, GenComposer, FinalCutNodeBody, TextNodeBody, ShotNodeBody };
           // 成片合成（composeFinalCut）纯函数级出口：浏览器录制链路无法在 Node 端跑，
           // 但合成主循环（分段推进/裁剪/转场/字幕）可以用假的 video/MediaRecorder 真实执行——
           // 这正是历史上一处 "dur is not defined" 在真机上才炸的漏洞所在。

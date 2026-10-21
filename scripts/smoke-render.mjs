@@ -183,6 +183,14 @@ function walk(comp, props, label, depth) {
   walkEl(out, label, depth);
 }
 
+/** 同一个组件用不同 props 直渲染多次（不走 walked 去重）：用于「按节点类型切换控件」的组件。 */
+function renderDirect(comp, props, label) {
+  walkedCount++;
+  let out;
+  try { out = comp(props || {}); } catch (e) { errors.push(label + ' → ' + (e && e.stack ? e.stack.split('\n').slice(0, 3).join(' | ') : String(e))); return; }
+  walkEl(out, label, 0);
+}
+
 // ---------------- 执行 ----------------
 let mod = null;
 sandbox.window.__ModuleLoader__ = { load(def) { mod = def; } };
@@ -247,6 +255,46 @@ if (windowStub.__DSH_IC_TABS__) {
   }
 } else {
   console.error('✗ 未找到 __DSH_IC_TABS__（冒烟缝隙被移除？）');
+  process.exit(1);
+}
+
+// 节点体 / 生成面板直渲染：MediaNodeBody 与 GenComposer 是本次改版的核心新组件，
+// 必须真实走一遍各节点类型分支（控件按类型渲染，绝不混用）
+if (windowStub.__DSH_IC_NODES__) {
+  const base = {
+    id: 'n_smoke', type: 'image', x: 0, y: 0, w: 360, h: 360,
+    data: { label: 'smoke', prompt: 'x', assetId: 'a1', ratio: '16:9', size: '2K', status: 'done', imageCount: 1 },
+  };
+  const shot = { title: '镜1', duration: 2, visual: '@陈拾@ 站着', motion: '固定', characters: [], scene: '', props: [], dialogue: [], sfx: '' };
+  const samples = {
+    ScriptNodeBody: { ...base, type: 'script', data: { label: 's', idea: 'i', output: '剧本正文', status: 'done' } },
+    StoryboardNodeBody: { ...base, type: 'storyboard', data: { label: 'sb', shots: [shot], status: 'done' } },
+    MediaNodeBody: base,
+    GenComposer: base,
+    FinalCutNodeBody: { ...base, type: 'finalcut', data: { label: 'fc', status: 'idle', subs: {}, keepAudio: true } },
+    TextNodeBody: { ...base, type: 'text', data: { label: 't', text: '文本内容' } },
+    ShotNodeBody: { ...base, type: 'shot', data: { label: 'shot', visual: 'v', motion: 'm' } },
+  };
+  for (const [name, Comp] of Object.entries(windowStub.__DSH_IC_NODES__)) {
+    const sample = samples[name] || base;
+    renderDirect(Comp, { n: sample, kind: sample.type === 'video' ? 'video' : 'image', nodeId: sample.id, node: sample }, 'node:' + name);
+  }
+  // 生成面板：每种节点类型各渲染一次（图片/视频/分镜/剧本/文本/成片 的控件组合完全不同）
+  const GC = windowStub.__DSH_IC_NODES__.GenComposer;
+  if (GC) {
+    for (const kind of ['image', 'video', 'storyboard', 'script', 'text', 'finalcut']) {
+      const nn = {
+        ...base, id: 'n_smoke_' + kind, type: kind,
+        data: kind === 'finalcut'
+          ? { label: 'fc', status: 'idle', subs: {}, keepAudio: true, ratio: '16:9', resolution: '720P' }
+          : { label: kind, prompt: 'x', idea: 'i', script: 's', text: 't', assetId: 'a1', ratio: '16:9', size: '2K', status: 'done', imageCount: 1, shots: [shot] },
+      };
+      renderDirect(GC, { nodeId: nn.id, node: nn }, 'composer:' + kind);
+    }
+  }
+  console.log('节点/生成面板直渲染：' + Object.keys(windowStub.__DSH_IC_NODES__).join(', '));
+} else {
+  console.error('✗ 未找到 __DSH_IC_NODES__（新组件冒烟出口被移除？）');
   process.exit(1);
 }
 

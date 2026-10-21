@@ -1,6 +1,7 @@
 // 节点排版规范：**作用于「已生成结果」的操作按钮必须放在节点末尾左下角**（内容之后、alignSelf:flex-start），
 // 参考分镜节点（复制全部 / 存为资产 / 铺开到画布）。曾经剧本节点把「铺开到场景 / 存为资产」夹在
 // 生成按钮与输出正文之间，用户要往下扫一遍节点才能找到——这条规范从此由本测试兜住。
+// 媒体节点合并后：图片/视频节点底部只有「下载 / 重新生成 / 参考图 N」三个结果操作，空节点没有生成按钮。
 // 运行：node scripts/test-node-actions.mjs（退出码 0=通过）
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
@@ -101,14 +102,32 @@ assertActionsAtEnd('剧本节点', NODES.ScriptNodeBody({ n: scriptNode }));
 // 2) 分镜节点：复制全部 / 存为资产 / 铺开到画布 → 末尾左下角（规范源头）
 assertActionsAtEnd('分镜节点', NODES.StoryboardNodeBody({ n: sbNode }));
 
-// 3) 生成节点与成片节点：有产物时操作行同样必须在末尾（无产物时不渲染操作行，不参与断言）
+// 3) 媒体节点（合并后的图片/视频）与成片节点：有产物时操作行同样必须在末尾（无产物时不渲染操作行，不参与断言）。
+//    媒体节点底部的「下载 / 重新生成 / 参考图 N」是本次改版后唯一的结果操作入口。
 for (const [label, comp, node, kind] of [
-  ['图片生成节点', NODES.GenNodeBody, { id: 'n_ig', type: 'image-gen', x: 0, y: 0, data: { label: '角色-陈拾 设定图', prompt: 'x', assetId: 'a1' } }, 'image'],
+  ['图片节点', NODES.MediaNodeBody, { id: 'n_ig', type: 'image', x: 0, y: 0, w: 360, h: 360, data: { label: '角色-陈拾 设定图', prompt: 'x', assetId: 'a1', ratio: '16:9', size: '2K', status: 'done' } }, 'image'],
+  ['视频节点', NODES.MediaNodeBody, { id: 'n_vid', type: 'video', x: 0, y: 0, w: 640, h: 360, data: { label: '视频', prompt: 'x', assetId: 'a1', ratio: '16:9', resolution: '720P', status: 'done' } }, 'video'],
   ['成片节点', NODES.FinalCutNodeBody, { id: 'n_fc', type: 'finalcut', x: 0, y: 0, data: { label: '成片', assetId: 'a1' } }, undefined],
 ]) {
   const els = flatten(comp({ n: node, kind }));
   const actsIdx = els.findIndex((e) => keyOf(e) === 'acts');
   if (actsIdx >= 0) ok(actsIdx === els.length - 1, label + ' 的操作行不在末尾（' + (actsIdx + 1) + '/' + els.length + '）');
+}
+
+// 3b) 空媒体节点：只显示空态，绝不内嵌生成按钮（生成动作在生成面板的发送按钮里）
+for (const kind of ['image', 'video']) {
+  const emptyNode = { id: 'n_empty_' + kind, type: kind, x: 0, y: 0, w: 360, h: 360, data: { label: kind, prompt: '', assetId: null, status: 'idle' } };
+  const els = flatten(NODES.MediaNodeBody({ n: emptyNode, kind }));
+  ok(els.length > 0, kind + ' 空节点没有渲染任何内容（应该有虚线空态）');
+  ok(!els.some((e) => keyOf(e) === 'acts'), kind + ' 空节点不应渲染结果操作行（无结果可操作）');
+  ok(!els.some((e) => String(e.props && e.props.className || '').includes('dshic-gen')), kind + ' 空节点内不应有生成按钮');
+}
+
+// 3c) 生成面板：本次改版后 text/script/storyboard/image/video/finalcut 都能渲染（控件按类型区分）
+for (const kind of ['text', 'script', 'storyboard', 'image', 'video', 'finalcut']) {
+  const n = { id: 'n_c_' + kind, type: kind, x: 0, y: 0, w: 360, h: 360, data: { label: kind, prompt: 'x', idea: 'i', script: 's', text: 't', ratio: '16:9', size: '2K', resolution: '720P', duration: 5, shots: [], status: 'idle' } };
+  const out = NODES.GenComposer({ nodeId: n.id, node: n });
+  ok(!!out && out.__el, '生成面板 ' + kind + ' 未渲染出面板根节点');
 }
 
 // 4) 源码面：旧的中部操作行标记彻底消失（防止换个 key 又摆回中间）
@@ -119,5 +138,5 @@ if (errs.length) {
   for (const e of errs) console.error('  - ' + e);
   process.exit(1);
 }
-console.log('✓ 节点操作排版测试通过（结果操作按钮统一在节点末尾左下角：剧本 / 分镜 / 生成 / 成片）');
+console.log('✓ 节点操作排版测试通过（结果操作按钮统一在节点末尾左下角：剧本 / 分镜 / 合并图片·视频 / 成片；空媒体节点无生成按钮；生成面板六种类型均可渲染）');
 process.exit(0);

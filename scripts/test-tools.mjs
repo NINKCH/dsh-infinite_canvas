@@ -232,18 +232,28 @@ try {
   if (!chen || !chen.desc.includes('怀表')) errs.push('设定集同名条目未更新');
   if (!b1.bible.worldview) errs.push('设定集世界观未保留');
   if (!b1.bibleUpdatedAt) errs.push('设定集缺少 bibleUpdatedAt（客户端无法感知同步）');
-  // 通用建节点：角色参考图节点
-  const n = await byName.get('canvas_create_node').execute({ projectId, type: 'image-gen', name: '角色-陈拾 参考图', prompt: '中近景，陈拾，旧邮差制服' }, {});
+  // 通用建节点：角色参考图节点（合并后的 image 类型：有 prompt = 待生成的空节点）
+  const n = await byName.get('canvas_create_node').execute({ projectId, type: 'image', name: '角色-陈拾 参考图', prompt: '中近景，陈拾，旧邮差制服' }, {});
   if (!n || !n.ok || !n.nodeId) errs.push('canvas_create_node 未返回 nodeId');
   const doc = await mod._internals.projectsGet({ id: projectId });
   const created = doc.nodes[n.nodeId];
-  if (!created || created.type !== 'image-gen') errs.push('canvas_create_node 未创建 image-gen 节点');
+  if (!created || created.type !== 'image') errs.push('canvas_create_node 未创建合并后的 image 节点');
   if (!created || !(created.data.prompt || '').includes('陈拾')) errs.push('canvas_create_node 未写入提示词');
   if (!created || created.data.label !== '角色-陈拾 参考图') errs.push('canvas_create_node 丢失了节点名（data.label 被覆盖）');
+  if (!created || created.data.size !== '2K' || created.data.ratio !== '16:9') errs.push('image 节点缺少默认清晰度/比例');
+  // 旧类型名兼容：image-gen / image-asset 必须自动映射为 image（旧项目与旧调用都能用）
+  for (const legacy of ['image-gen', 'image-asset']) {
+    const l = await byName.get('canvas_create_node').execute({ projectId, type: legacy, name: '旧名-' + legacy, prompt: 'x' }, {});
+    const d = await mod._internals.projectsGet({ id: projectId });
+    const ln = d.nodes[l.nodeId];
+    if (!ln || ln.type !== 'image') errs.push('canvas_create_node 未把旧类型 ' + legacy + ' 映射为 image');
+    if (!l.text || !l.text.includes('旧类型')) errs.push('canvas_create_node 未告知 ' + legacy + ' 已映射为合并节点');
+  }
 
   // 新增：读节点（含对话框提示词与参数）→ 改节点（不必删节点重建）→ 触发不等待
   const st1 = await byName.get('canvas_node_status').execute({ projectId, nodeId: n.nodeId }, {});
   if (!st1 || !(st1.prompt || '').includes('陈拾')) errs.push('canvas_node_status 未返回生成节点的对话框提示词（prompt）');
+  if (!st1 || st1.type !== 'image') errs.push('canvas_node_status 未按合并类型显示节点（期望 image，实际 ' + (st1 && st1.type) + '）');
   const up = await byName.get('canvas_update_node').execute({
     projectId, nodeId: n.nodeId,
     patch: { prompt: '特写，陈拾，雨夜，旧邮差制服', ratio: '9:16', size: '2K', duration: 5, resolution: '1080P', id: '不可改' },
@@ -330,19 +340,20 @@ try {
   const docCf = await mod._internals.projectsGet({ id: projectId });
   const cfEdge = (docCf.edges || []).find((e) => e.fromNode === scriptNode.id && e.toNode === sb2.nodeId && e.toPort === 'script');
   if (!cfEdge) errs.push('connectFrom 未在创建时自动连线');
-  // 多镜头工作流：video-gen 无 prompt + 项目里有分镜表 → 自动连到分镜表（优先有镜头的，多镜头提示词从连线取）
-  const vg = await byName.get('canvas_create_node').execute({ projectId, type: 'video-gen', name: '第二节多镜头视频' }, {});
+  // 多镜头工作流：video（合并类型）无 prompt + 项目里有分镜表 → 自动连到分镜表（优先有镜头的，多镜头提示词从连线取）
+  const vg = await byName.get('canvas_create_node').execute({ projectId, type: 'video', name: '第二节多镜头视频' }, {});
   const docVg = await mod._internals.projectsGet({ id: projectId });
+  if (!docVg.nodes[vg.nodeId] || docVg.nodes[vg.nodeId].type !== 'video') errs.push('canvas_create_node 未创建合并后的 video 节点');
   const vgEdge = (docVg.edges || []).find((e) => e.toNode === vg.nodeId && e.toPort === 'prompt' && docVg.nodes[e.fromNode] && docVg.nodes[e.fromNode].type === 'storyboard');
-  if (!vgEdge) errs.push('video-gen 未自动连线到上游分镜表（多镜头一次性生成工作流失效）');
-  if (vgEdge && vgEdge.fromNode !== sb.nodeId) errs.push('video-gen 自动连线未优先选择有镜头的分镜表');
-  if (docVg.nodes[vg.nodeId] && String(docVg.nodes[vg.nodeId].data.prompt || '').trim()) errs.push('已连线的 video-gen 仍写入了 prompt（连线与提示词未二选一）');
-  // 显式 prompt 的 video-gen：分镜表已拆解镜头 → **结构性强制**连线分镜表、prompt 忽略（多镜头铁律封死旁路）
+  if (!vgEdge) errs.push('video 未自动连线到上游分镜表（多镜头一次性生成工作流失效）');
+  if (vgEdge && vgEdge.fromNode !== sb.nodeId) errs.push('video 自动连线未优先选择有镜头的分镜表');
+  if (docVg.nodes[vg.nodeId] && String(docVg.nodes[vg.nodeId].data.prompt || '').trim()) errs.push('已连线的 video 仍写入了 prompt（连线与提示词未二选一）');
+  // 显式 prompt 的 video（旧名 video-gen 兼容）：分镜表已拆解镜头 → **结构性强制**连线分镜表、prompt 忽略（多镜头铁律封死旁路）
   const vg2 = await byName.get('canvas_create_node').execute({ projectId, type: 'video-gen', name: '第二节单镜头视频', prompt: '固定镜头，猫跳上柜台' }, {});
   const docVg2 = await mod._internals.projectsGet({ id: projectId });
   const vg2Edge = (docVg2.edges || []).find((e) => e.toNode === vg2.nodeId && e.toPort === 'prompt');
-  if (!vg2Edge || vg2Edge.fromNode !== sb.nodeId) errs.push('显式 prompt 的 video-gen 未被强制连线到分镜表（多镜头铁律的结构性强制失效）');
-  if (docVg2.nodes[vg2.nodeId] && String(docVg2.nodes[vg2.nodeId].data.prompt || '').trim()) errs.push('强制连线的 video-gen 仍保留手写 prompt');
+  if (!vg2Edge || vg2Edge.fromNode !== sb.nodeId) errs.push('显式 prompt 的 video（旧名 video-gen）未被强制连线到分镜表（多镜头铁律的结构性强制失效）');
+  if (docVg2.nodes[vg2.nodeId] && String(docVg2.nodes[vg2.nodeId].data.prompt || '').trim()) errs.push('强制连线的 video 仍保留手写 prompt');
   // 连线工具可用性：手动连 sb2 → vg2（单线输入端口替换语义）
   const connSbVg = await byName.get('canvas_connect').execute({ projectId, fromNode: sb2.nodeId, toNode: vg2.nodeId }, {});
   if (!connSbVg || !connSbVg.edgeId) errs.push('分镜表 → 视频生成 连线被拒（storyboard 应有文本输出口）');

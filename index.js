@@ -276,10 +276,10 @@ function ensureSchema(db, root) {
   }
 }
 
-/** 项目文档摘要（列表页用，避免每次列表都解析全量 doc）。 */
+/** 项目文档摘要（列表页用，避免每次列表都解析全量 doc）。类型按合并类型输出。 */
 function docSummary(d) {
   const nodes = Object.values(d.nodes || {}).map((n) => ({
-    id: n.id, type: n.type, label: (n.data && n.data.label) || '', status: (n.data && n.data.status) || 'idle',
+    id: n.id, type: normalizeNodeType(n.type), label: (n.data && n.data.label) || '', status: (n.data && n.data.status) || 'idle',
   }));
   return { nodeIds: Object.keys(d.nodes || {}), nodes, source: d.source || 'app' };
 }
@@ -991,7 +991,9 @@ function projectsList() {
       try { tombs = JSON.parse(r.tombstones || '[]'); } catch { /* 旧行 */ }
       return {
         id: r.id, name: r.name, createdAt: r.created_at || 0, updatedAt: r.updated_at || 0,
-        source: sum.source || 'app', nodeIds: sum.nodeIds || [], nodes: sum.nodes || [],
+        source: sum.source || 'app', nodeIds: sum.nodeIds || [],
+        // 旧版本摘要里可能是旧类型名：输出时按合并类型归一（image / video）
+        nodes: (sum.nodes || []).map((n) => ({ ...n, type: normalizeNodeType(n && n.type) })),
         tombstones: Array.isArray(tombs) ? tombs : [], bibleUpdatedAt: r.bible_updated_at || 0,
       };
     });
@@ -1011,7 +1013,7 @@ function projectsList() {
         continue;
       }
       const nodes = Object.values(d.nodes || {}).map((n) => ({
-        id: n.id, type: n.type, label: (n.data && n.data.label) || '',
+        id: n.id, type: normalizeNodeType(n.type), label: (n.data && n.data.label) || '',
         status: (n.data && n.data.status) || 'idle',
       }));
       list.push({ id: d.id || id, name: d.name || id, createdAt: d.createdAt || 0, updatedAt: d.updatedAt || 0, source: d.source || 'app', nodeIds: Object.keys(d.nodes || {}), nodes, tombstones: d.tombstones || [], bibleUpdatedAt: d.bibleUpdatedAt || 0 });
@@ -1267,6 +1269,24 @@ function defaultLabel(text) {
   const line = String(text || '').trim().split(/\r?\n/)[0] || '';
   return line.length > 18 ? line.slice(0, 18) + '…' : (line || '未命名');
 }
+/** 旧节点类型 → 合并类型（与客户端 client.js 同一映射）：
+ *  image-gen / image-asset → image，video-gen / video-asset → video。
+ *  旧项目文档读入时统一归一（只改 type，节点 data / 连线端点原样保留：有 assetId 就是资产，有 prompt 就是提示词）。 */
+const LEGACY_NODE_TYPES = { 'image-gen': 'image', 'image-asset': 'image', 'video-gen': 'video', 'video-asset': 'video' };
+function normalizeNodeType(type) { return LEGACY_NODE_TYPES[type] || type; }
+function normalizeNode(n) {
+  if (n && typeof n === 'object') {
+    const t = normalizeNodeType(n.type);
+    if (t !== n.type) n.type = t;
+  }
+  return n;
+}
+function normalizeDocNodes(doc) {
+  if (!doc || typeof doc !== 'object') return doc;
+  for (const n of Object.values(doc.nodes || {})) normalizeNode(n);
+  return doc;
+}
+const MERGED_NODE_TYPES = ['image', 'video'];
 /** 构造与客户端 newNode() 完全一致的节点（形状不一致会导致渲染异常）。 */
 function agentNode(kind, text, x, y, label) {
   const id = 'na' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
@@ -1275,7 +1295,8 @@ function agentNode(kind, text, x, y, label) {
     ? { status: 'idle', error: null, text: String(text ?? '') }
     : { status: 'idle', error: null, idea: String(text ?? ''), output: '', aiStatus: 'idle', aiError: null };
   if (label) data.label = String(label).slice(0, 40);
-  return { id, type: isText ? 'text' : 'script', x, y, w: isText ? 260 : 320, h: 100, data };
+  // 与客户端一致：所有节点默认 360×360（文本/剧本/分镜固定这个尺寸，不随内容变化；尺寸持久化进文档）
+  return { id, type: isText ? 'text' : 'script', x, y, w: 360, h: 360, data };
 }
 /** 新节点布局（用户设计）：
  *  1) 有 connectFrom 源 → 放在源节点右侧同一行（串联节点横向成对）；
@@ -1286,9 +1307,9 @@ function nextNodePos(doc, type, connectFromId) {
   const H = (n) => Number(n && n.h) || 160;
   const W = (n) => Number(n && n.w) || 280;
   const nodes = Object.values(doc.nodes || {});
-  const EST_H = { storyboard: 560, 'video-gen': 620, 'image-gen': 560, script: 420, finalcut: 420, text: 220 };
-  const estH = EST_H[type] || 300;
-  const estW = type === 'finalcut' ? 300 : 280;
+  const EST_H = { storyboard: 360, video: 360, image: 360, script: 360, finalcut: 360, text: 360 };
+  const estH = EST_H[type] || 360;
+  const estW = 360;
   const same = nodes.filter((n) => n.type === type);
   let x = 80;
   let y = 40;
@@ -1514,7 +1535,8 @@ function readDoc(id) {
   if (sqlActive()) {
     const doc = readDocOrNull(id);
     if (!doc) throw new Error('项目不存在：' + id + '（先用 canvas_list_projects 查看可用项目 id）');
-    return doc;
+    // 旧项目兼容：读入即归一旧节点类型（image-gen/image-asset → image，video-gen/video-asset → video）
+    return normalizeDocNodes(doc);
   }
   const f = projectFile(id);
   let raw;
@@ -1524,7 +1546,7 @@ function readDoc(id) {
     throw new Error('项目不存在：' + id + '（先用 canvas_list_projects 查看可用项目 id）');
   }
   try {
-    return JSON.parse(raw);
+    return normalizeDocNodes(JSON.parse(raw));
   } catch {
     throw new Error('项目文件损坏，无法解析：' + id + '（可考虑重建该项目）');
   }
@@ -1613,13 +1635,17 @@ async function canvasUpdateBible(args) {
   markDocChanged(id);
   return { projectId: id, bible: doc.bible, bibleUpdatedAt: doc.bibleUpdatedAt };
 }
-/** 通用建节点（供对话建角色/场景/道具参考图等）；支持 script/text/image-gen/video-gen/storyboard/finalcut。 */
+/** 通用建节点（供对话建角色/场景/道具参考图等）；支持 script/text/image/video/storyboard/finalcut。
+ *  image / video 是合并类型：有 assetId 即资产节点、有 prompt 即待生成的空节点；旧名
+ *  image-gen / image-asset / video-gen / video-asset 仍接受，内部一律映射为合并类型。 */
 function canvasCreateNode(args) {
   const id = String((args && args.projectId) || '');
   const f = projectFile(id);
   const doc = readDoc(id);
-  const type = String((args && args.type) || 'text');
-  if (!['script', 'text', 'image-gen', 'video-gen', 'storyboard', 'finalcut'].includes(type)) throw new Error('不支持的节点类型: ' + type);
+  const rawType = String((args && args.type) || 'text');
+  const type = normalizeNodeType(rawType);
+  if (!['script', 'text', 'image', 'video', 'storyboard', 'finalcut'].includes(type)) throw new Error('不支持的节点类型: ' + rawType);
+  const legacyType = rawType !== type ? rawType : '';
   const label = args && args.name ? String(args.name).slice(0, 40) : '';
   const prompt = String((args && args.prompt) || '');
   const connectFrom = String((args && args.connectFrom) || '');
@@ -1627,15 +1653,15 @@ function canvasCreateNode(args) {
   let connected = null;
   let autoConnected = null;
   let node;
-  if (type === 'image-gen') {
-    node = agentNode('text', '', pos.x, pos.y, label || '图片生成');
-    node.type = 'image-gen';
-    node.w = 280;
-    node.data = { ...node.data, status: 'idle', error: null, prompt, assetId: null, demo: false, size: (args && args.size) || '2K', ratio: (args && args.ratio) || '16:9' };
-  } else if (type === 'video-gen') {
-    node = agentNode('text', '', pos.x, pos.y, label || '视频生成');
-    node.type = 'video-gen';
-    node.w = 280;
+  if (type === 'image') {
+    node = agentNode('text', '', pos.x, pos.y, label || '图片节点');
+    node.type = 'image';
+    node.w = 360; node.h = 360;
+    node.data = { ...node.data, status: 'idle', error: null, prompt, assetId: null, demo: false, size: (args && args.size) || '2K', ratio: (args && args.ratio) || '16:9', imageCount: 1 };
+  } else if (type === 'video') {
+    node = agentNode('text', '', pos.x, pos.y, label || '视频节点');
+    node.type = 'video';
+    node.w = 360; node.h = 360;
     // 多镜头工作流（结构性强制）：项目里已有**拆解过镜头**的分镜表 → 一律自动连线分镜表、prompt 忽略。
     // 一个分镜表 = 一个完整视频，镜头清单只从分镜表读取；对话侧手写 prompt 绕过分镜表是高频错误，这里直接封死。
     const sbs = Object.values(doc.nodes || {}).filter((n) => n.type === 'storyboard');
@@ -1667,7 +1693,7 @@ function canvasCreateNode(args) {
   } else if (type === 'finalcut') {
     node = agentNode('text', '', pos.x, pos.y, label || '成片');
     node.type = 'finalcut';
-    node.w = 300;
+    node.w = 360; node.h = 360;
     node.data = { ...node.data, status: 'idle', error: null, resolution: (args && args.resolution) || '720P', ratio: (args && args.ratio) || '16:9', transition: 'none', progress: null, assetId: null, subs: {}, keepAudio: true };
   } else if (type === 'script') {
     node = agentNode('script', prompt, pos.x, pos.y, label || defaultLabel(prompt));
@@ -1684,8 +1710,8 @@ function canvasCreateNode(args) {
     const defaultToPort = (type === 'storyboard' && (srcType === 'text' || srcType === 'script')) ? 'script' : undefined;
     const edge = connectEdge(doc, connectFrom, node.id, args && args.connectFromPort, (args && args.connectToPort) || defaultToPort);
     connected = edge.id;
-  } else if (autoConnected && (type === 'storyboard' || type === 'video-gen')) {
-    // 未指定连线但上游已存在（分镜表→剧本 / 视频生成→分镜表）→ 默认自动连线（工作流的默认形态，不依赖 Agent 记得）
+  } else if (autoConnected && (type === 'storyboard' || type === 'video')) {
+    // 未指定连线但上游已存在（分镜表→剧本 / 视频节点→分镜表）→ 默认自动连线（工作流的默认形态，不依赖 Agent 记得）
     const edge = connectEdge(doc, autoConnected.from, node.id, undefined, type === 'storyboard' ? 'script' : undefined);
     connected = edge.id;
   }
@@ -1693,13 +1719,18 @@ function canvasCreateNode(args) {
   writeIcDoc(id, doc);
   markDocChanged(id);
   const note = autoConnected && autoConnected.ignoredPrompt
-    ? (type === 'video-gen'
+    ? (type === 'video'
       ? '⚠️ 已强制连线到分镜表（多镜头工作流：一个分镜表 = 一个完整视频，镜头清单从分镜表读取），传入的 prompt 已忽略——不要手写视频提示词绕过分镜表。'
       : '已自动连线到上游剧本节点，传入的 prompt 被忽略（内容从连线取）。')
     : (autoConnected && autoConnected.emptyShots
       ? '已连线到分镜表；该分镜表尚未拆解镜头（shots 为空）——先 canvas_run_node 分镜表生成镜头，再生成视频。'
       : '');
-  return { ok: true, projectId: id, nodeId: node.id, type: node.type, label: (node.data && node.data.label) || '', edgeId: connected || undefined, note: note || undefined };
+  return {
+    ok: true, projectId: id, nodeId: node.id, type: node.type, label: (node.data && node.data.label) || '',
+    edgeId: connected || undefined, note: note || undefined,
+    // 旧名（image-gen / image-asset / video-gen / video-asset）已映射为合并节点：明确告诉 Agent 实际类型
+    mergedType: legacyType ? (legacyType + ' → ' + node.type + '（合并节点：有 assetId 即资产，空节点在画布点开面板生成）') : undefined,
+  };
 }
 
 /** 一键重排：按「行」布局——横向数据流决定列，竖向端口（prev/frame）不参与分列；
@@ -2072,16 +2103,15 @@ async function canvasOpen(args) {
   return { ok: true, projectId: pid || null };
 }
 
-/** 与客户端一致的端口表（连线校验用）。 */
+/** 与客户端一致的端口表（连线校验用）。image / video 是合并类型（旧生成/资产节点归一到这里）：
+ *  image 输入 prompt+ref、输出 out；video 输入 prompt+frame+ref、输出 out/tailpick/last。 */
 const PORT_TABLE = {
   'text': { inputs: [], outputs: [{ id: 'out', kind: 'text' }] },
   'shot': { inputs: [{ id: 'char', kind: 'image' }, { id: 'scene', kind: 'image' }, { id: 'prop', kind: 'image' }], outputs: [{ id: 'visual', kind: 'text' }, { id: 'motion', kind: 'text' }] },
   'script': { inputs: [], outputs: [{ id: 'out', kind: 'text' }] },
   'storyboard': { inputs: [{ id: 'prev', kind: 'text' }, { id: 'script', kind: 'text' }], outputs: [{ id: 'out', kind: 'text' }, { id: 'tail', kind: 'text' }] },
-  'image-gen': { inputs: [{ id: 'prompt', kind: 'text' }, { id: 'ref', kind: 'image' }], outputs: [{ id: 'out', kind: 'image' }] },
-  'video-gen': { inputs: [{ id: 'prompt', kind: 'text' }, { id: 'frame', kind: 'image' }, { id: 'ref', kind: 'image' }], outputs: [{ id: 'out', kind: 'video' }, { id: 'tailpick', kind: 'image' }, { id: 'last', kind: 'image' }] },
-  'image-asset': { inputs: [{ id: 'in', kind: 'image' }], outputs: [{ id: 'out', kind: 'image' }] },
-  'video-asset': { inputs: [{ id: 'in', kind: 'video' }], outputs: [{ id: 'out', kind: 'video' }, { id: 'tailpick', kind: 'image' }, { id: 'last', kind: 'image' }] },
+  'image': { inputs: [{ id: 'prompt', kind: 'text' }, { id: 'ref', kind: 'image' }], outputs: [{ id: 'out', kind: 'image' }] },
+  'video': { inputs: [{ id: 'prompt', kind: 'text' }, { id: 'frame', kind: 'image' }, { id: 'ref', kind: 'image' }], outputs: [{ id: 'out', kind: 'video' }, { id: 'tailpick', kind: 'image' }, { id: 'last', kind: 'image' }] },
   'finalcut': { inputs: [{ id: 'in', kind: 'video' }], outputs: [] },
   'group': { inputs: [], outputs: [] },
 };
@@ -2103,14 +2133,42 @@ function connectEdge(doc, fromId, toId, fromPort, toPort) {
   if (fromId === toId) throw new Error('不能把节点连到自己');
   const outs = (PORT_TABLE[from.type] && PORT_TABLE[from.type].outputs) || [];
   const ins = (PORT_TABLE[to.type] && PORT_TABLE[to.type].inputs) || [];
-  const fp = String(fromPort || (outs[0] && outs[0].id) || '');
+  let fp = String(fromPort || '').trim();
   // 目标端口缺省时按语义选择，而不是死板取第一个输入口：
   // 剧本/文本 → 分镜表 = 剧本来源（script）；分镜表 → 分镜表 = 承接上一镜（prev）；其余取第一个输入口
   let tp = String(toPort || '').trim();
   if (!tp) {
-    if (to.type === 'storyboard' && (from.type === 'text' || from.type === 'script')) tp = 'script';
-    else if (to.type === 'storyboard' && from.type === 'storyboard') tp = 'prev';
-    else tp = String((ins[0] && ins[0].id) || '');
+    // 目标端口缺省时按语义选择（与客户端「端口单点、系统自动选口」同一套规则）：
+    // 文本 → 分镜表 script；分镜表 → 分镜表 prev；文本 → 图片/视频 prompt；
+    // 图片 → 图片/视频 ref；视频 → 视频 frame 或成片 in。
+    if (to.type === 'storyboard') {
+      tp = from.type === 'storyboard' ? 'prev' : ((from.type === 'text' || from.type === 'script') ? 'script' : String((ins[0] && ins[0].id) || ''));
+    } else if (to.type === 'image') {
+      tp = (from.type === 'image' || from.type === 'image-asset' || from.type === 'image-gen') ? 'ref' : 'prompt';
+    } else if (to.type === 'video') {
+      if (from.type === 'video' || from.type === 'video-asset' || from.type === 'video-gen') tp = 'frame';
+      else if (from.type === 'image' || from.type === 'image-asset' || from.type === 'image-gen') tp = 'ref';
+      else tp = 'prompt';
+    } else if (to.type === 'finalcut') {
+      tp = 'in';
+    } else {
+      tp = String((ins[0] && ins[0].id) || '');
+    }
+  }
+  if (!fp) {
+    const want = ins.find((p) => p.id === tp);
+    const same = want ? outs.filter((o) => o.kind === want.kind) : [];
+    if (tp === 'prev') {
+      const tail = same.find((o) => o.id === 'tail');
+      fp = String((tail && tail.id) || (same[0] && same[0].id) || (outs[0] && outs[0].id) || '');
+    } else if (want && want.kind === 'image') {
+      // 视频 → 视频的 frame：优先尾帧最佳选帧，退到真·最后帧
+      const pick = same.find((o) => o.id === 'tailpick');
+      const last = same.find((o) => o.id === 'last');
+      fp = String((pick && from.data && from.data.lastPickAssetId ? 'tailpick' : '') || (last && last.id) || (same[0] && same[0].id) || (outs[0] && outs[0].id) || '');
+    } else {
+      fp = String((same[0] && same[0].id) || (outs[0] && outs[0].id) || '');
+    }
   }
   const outDef = outs.find((p) => p.id === fp);
   const inDef = ins.find((p) => p.id === tp);
@@ -2818,7 +2876,7 @@ export function apply(ctx) {
             additionalProperties: false,
           },
           output: {
-            schema: { type: 'object', properties: { ok: { type: 'boolean' }, text: { type: 'string' }, status: { type: 'string' }, assetId: { type: 'string' }, prompt: { type: 'string' }, ratio: { type: 'string' }, size: { type: 'string' }, duration: { type: 'number' }, resolution: { type: 'string' }, frameMode: { type: 'string' }, imageModel: { type: 'string' }, videoModel: { type: 'string' }, genWarn: { type: 'string' }, chainFrom: { type: 'string' }, seam: { type: 'object', properties: { ok: { type: 'boolean' }, sim: { type: 'number' }, thr: { type: 'number' }, note: { type: 'string' } } }, tailPickAssetId: { type: 'string' }, historyAssetIds: { type: 'array', items: { type: 'string' } }, warnings: { type: 'array', items: { type: 'string' } }, shots: { type: 'array', items: { type: 'object', properties: { index: { type: 'number' }, title: { type: 'string' }, duration: { type: 'number' }, visual: { type: 'string' }, motion: { type: 'string' }, tail: { type: 'string' }, cam: { type: 'string' }, start: { type: 'string' }, seg: { type: 'string' }, characters: { type: 'array', items: { type: 'string' } }, scene: { type: 'string' }, props: { type: 'array', items: { type: 'string' } } } } } }, required: ['ok', 'text'] },
+            schema: { type: 'object', properties: { ok: { type: 'boolean' }, text: { type: 'string' }, type: { type: 'string' }, status: { type: 'string' }, assetId: { type: 'string' }, prompt: { type: 'string' }, ratio: { type: 'string' }, size: { type: 'string' }, duration: { type: 'number' }, resolution: { type: 'string' }, frameMode: { type: 'string' }, imageModel: { type: 'string' }, videoModel: { type: 'string' }, genWarn: { type: 'string' }, chainFrom: { type: 'string' }, seam: { type: 'object', properties: { ok: { type: 'boolean' }, sim: { type: 'number' }, thr: { type: 'number' }, note: { type: 'string' } } }, tailPickAssetId: { type: 'string' }, historyAssetIds: { type: 'array', items: { type: 'string' } }, warnings: { type: 'array', items: { type: 'string' } }, shots: { type: 'array', items: { type: 'object', properties: { index: { type: 'number' }, title: { type: 'string' }, duration: { type: 'number' }, visual: { type: 'string' }, motion: { type: 'string' }, tail: { type: 'string' }, cam: { type: 'string' }, start: { type: 'string' }, seg: { type: 'string' }, characters: { type: 'array', items: { type: 'string' } }, scene: { type: 'string' }, props: { type: 'array', items: { type: 'string' } } } } } }, required: ['ok', 'text'] },
             render: (args, value) => [{ type: 'text', text: String(value.text || '') }],
           },
           timeoutMs: 30000,
@@ -2870,7 +2928,7 @@ export function apply(ctx) {
             if (s.seam) lines.push('接缝校验: ' + (s.seam.ok ? '通过' : '偏跳') + (s.seam.sim != null ? '（相似度 ' + s.seam.sim + '，阈值 ' + s.seam.thr + '）' : '') + (s.seam.note ? ' — ' + s.seam.note : ''));
             if (s.tailPick && s.tailPickAssetId) lines.push('尾帧最佳选帧: ' + Number(s.tailPick.t || 0).toFixed(2) + 's 处（得分 ' + s.tailPick.score + '）资产 ' + s.tailPickAssetId);
             return {
-              ok: true, status: s.status, assetId: s.assetId || undefined,
+              ok: true, type: s.type, status: s.status, assetId: s.assetId || undefined,
               prompt: s.prompt || undefined, ratio: s.ratio || undefined, size: s.size || undefined,
               duration: s.duration == null ? undefined : s.duration, resolution: s.resolution || undefined,
               frameMode: s.frameMode || undefined, imageModel: s.imageModel || undefined, videoModel: s.videoModel || undefined,
@@ -2895,7 +2953,7 @@ export function apply(ctx) {
                 type: 'object',
                 description: '要修改的字段（只传需要改的，其余保持不动）',
                 properties: {
-                  prompt: { type: 'string', description: '图片/视频生成节点的提示词（对话框内容）' },
+                  prompt: { type: 'string', description: '图片/视频节点的提示词（对话框内容）' },
                   idea: { type: 'string', description: '剧本节点的创作意图' },
                   output: { type: 'string', description: '剧本节点的成稿' },
                   text: { type: 'string', description: '文本节点的正文' },
@@ -3055,12 +3113,12 @@ export function apply(ctx) {
         });
         reg({
           name: 'canvas_create_node',
-          description: '在项目画布上新建指定类型的节点（image-gen 图片生成 / video-gen 视频生成 / storyboard 分镜表 / finalcut 成片 / script 剧本 / text 文本）。【分镜必须用 type:"storyboard" 的分镜表节点，绝不要用剧本节点装分镜】。【工作流铁律】实际生成由节点完成：你只负责写提示词、连线（connectFrom）、canvas_run_node 触发，不要把成稿直接填进 output。分镜表用 connectFrom 连到上游剧本节点（内容来自连线，不要复制剧本全文）；image-gen/video-gen 没有上游提示词时才在 prompt 里写内容，有上游时靠连线取。',
+          description: '在项目画布上新建指定类型的节点（image 图片节点 / video 视频节点 / storyboard 分镜表 / finalcut 成片 / script 剧本 / text 文本）。图片与视频是**合并节点**：有 assetId 就是已有素材（资产），空节点在画布上点开生成面板填写提示词后生成；旧类型名 image-gen / image-asset / video-gen / video-asset 仍可用，会被自动映射为 image / video。【分镜必须用 type:"storyboard" 的分镜表节点，绝不要用剧本节点装分镜】。【工作流铁律】实际生成由节点完成：你只负责写提示词、连线（connectFrom）、canvas_run_node 触发，不要把成稿直接填进 output。分镜表用 connectFrom 连到上游剧本节点（内容来自连线，不要复制剧本全文）；image/video 没有上游提示词时才在 prompt 里写内容，有上游时靠连线取。',
           parameters: {
             type: 'object',
             properties: {
               projectId: { type: 'string', description: '项目 id' },
-              type: { type: 'string', enum: ['script', 'text', 'image-gen', 'video-gen', 'storyboard', 'finalcut'], description: '节点类型' },
+              type: { type: 'string', enum: ['script', 'text', 'image', 'video', 'storyboard', 'finalcut', 'image-gen', 'image-asset', 'video-gen', 'video-asset'], description: '节点类型（image/video 为合并类型；旧名 image-gen 等仍接受并自动映射）' },
               name: { type: 'string', description: '节点名字（建议填写，如"角色-陈拾 参考图"）' },
               prompt: { type: 'string', description: '提示词（图片/视频用画面提示词；剧本用创作意图；文本用正文）' },
               size: { type: 'string', description: '可选：图片清晰度 1K/2K/4K' },
@@ -3080,12 +3138,21 @@ export function apply(ctx) {
           timeoutMs: 30000,
           async execute(args) {
             const r = canvasCreateNode(args);
-            return { ok: true, projectId: r.projectId, nodeId: r.nodeId, label: r.label || undefined, text: '✅ 已新建[' + r.type + ']节点「' + (r.label || r.nodeId) + '」（id=' + r.nodeId + '）。可用 canvas_run_node 触发执行。' };
+            const kindHint = r.type === 'image'
+              ? '（图片节点：有 assetId 即资产；空节点在画布上点开生成面板写提示词后生成）'
+              : r.type === 'video'
+                ? '（视频节点：有 assetId 即资产；空节点在画布上点开生成面板写提示词后生成）'
+                : '';
+            return {
+              ok: true, projectId: r.projectId, nodeId: r.nodeId, label: r.label || undefined,
+              text: '✅ 已新建[' + r.type + ']节点「' + (r.label || r.nodeId) + '」（id=' + r.nodeId + '）。' + kindHint
+                + (r.mergedType ? '\n注：旧类型 ' + r.mergedType : '') + (r.note ? '\n' + r.note : ''),
+            };
           },
         });
         reg({
           name: 'canvas_connect',
-          description: '在项目画布上把两个节点连成工作流连线（剧本 → 分镜表 → 图片/视频 → 成片）。【工作流铁律】分镜表的内容来自连线的上游剧本节点，不要把剧本全文复制进分镜表节点；生成类节点（image-gen/video-gen）没有上游提示词时才在 prompt 里写内容，有上游时靠连线取。端口类型必须匹配（text→text、image→image、video→video），不匹配会报错；单线输入端口（script/prompt/frame/in）重复连线会替换旧线，ref 类端口允许多条。',
+          description: '在项目画布上把两个节点连成工作流连线（剧本 → 分镜表 → 图片/视频 → 成片）。【工作流铁律】分镜表的内容来自连线的上游剧本节点，不要把剧本全文复制进分镜表节点；图片/视频节点没有上游提示词时才在 prompt 里写内容，有上游时靠连线取。端口类型必须匹配（text→text、image→image、video→video），不匹配会报错；单线输入端口（script/prompt/frame/in）重复连线会替换旧线，ref 类端口允许多条。目标端口缺省时按语义自动选：文本→分镜表 script、分镜表→分镜表 prev、文本→图片/视频 prompt、图片→图片/视频 ref、视频→视频 frame / 成片 in。',
           parameters: {
             type: 'object',
             properties: {
@@ -3093,7 +3160,7 @@ export function apply(ctx) {
               fromNode: { type: 'string', description: '源节点 id（连出方）' },
               fromPort: { type: 'string', description: '可选：源端口，默认该节点第一个输出端口（剧本/文本/图片/视频都是 out）' },
               toNode: { type: 'string', description: '目标节点 id（连入方）' },
-              toPort: { type: 'string', description: '可选：目标端口，默认该节点第一个输入端口（分镜表=script、图片/视频=prompt、成片=in）' },
+              toPort: { type: 'string', description: '可选：目标端口，缺省按语义自动选择（分镜表=script/prev、图片=prompt/ref、视频=prompt/ref/frame、成片=in）' },
             },
             required: ['projectId', 'fromNode', 'toNode'],
             additionalProperties: false,
