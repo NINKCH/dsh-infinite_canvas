@@ -101,7 +101,8 @@ if (unrelHasEntries) {
 // OBS-1 硬要求（QA 判据）：清单**手工维护**，绝不从 `git log` 动态生成——动态清单会自证
 // （脚本生成的清单当然自己全中，"缺一必红"退化成摆设）。数量相等 + 逐 sha 关键词命中，两条都拦。
 const COVERAGE = [
-  // 0.18.6 已发布，清单清零——下一轮新提交从这里开始记账。
+  // 0.18.6 已发布；此后每笔未发版功能提交在这里登记（sha + Unreleased 里必须能命中的关键词）。
+  { sha: 'b34462d', keys: [/merge generation and asset nodes|unified media node|MediaNodeBody|GenComposer|节点类型合并/i] },
 ];
 for (const c of COVERAGE) {
   ok(c.keys.some((re) => re.test(section)), '未发版提交 ' + c.sha + ' 在 Unreleased 段里找不到对应记录（补记不全）');
