@@ -1283,10 +1283,86 @@ function normalizeNode(n) {
 }
 function normalizeDocNodes(doc) {
   if (!doc || typeof doc !== 'object') return doc;
-  for (const n of Object.values(doc.nodes || {})) normalizeNode(n);
+  for (const n of Object.values(doc.nodes || {})) {
+    normalizeNode(n);
+    normalizeMediaNodeSize(n); // 与客户端同一几何规则：媒体节点外框 = 预览区 + 标题栏 +（有结果时）操作栏
+  }
   return doc;
 }
 const MERGED_NODE_TYPES = ['image', 'video'];
+// ---- 媒体节点几何（必须与 client.js 的 NODE_HDR_H / NODE_FOOT_H / MEDIA_PREVIEW_SHORT / MEDIA_MAX_LONG 一致）----
+// 媒体节点三段：标题栏（固定）+ 预览区（盒比 = 画面比例，短边 360、长边 ≤800）+ 操作栏（固定，有结果才有）。
+const NODE_HDR_H = 32;
+const NODE_FOOT_H = 32;
+const MEDIA_PREVIEW_SHORT = 360;
+const MEDIA_MAX_LONG = 800;
+const RATIOS = ['16:9', '9:16', '1:1', '4:3', '3:4', '21:9'];
+const ratioIsValid = (r) => {
+  const [rw, rh] = String(r || '').split(':').map(Number);
+  return rw > 0 && rh > 0;
+};
+/** 画面比例 → 预览区尺寸（不含标题栏/操作栏）。 */
+function mediaPreviewSize(ratio) {
+  const [rw, rh] = String(ratio == null ? '' : ratio).split(':').map(Number);
+  if (!rw || !rh) return { w: MEDIA_PREVIEW_SHORT, h: MEDIA_PREVIEW_SHORT };
+  let w; let h;
+  if (rw >= rh) { h = MEDIA_PREVIEW_SHORT; w = Math.round(MEDIA_PREVIEW_SHORT * rw / rh); }
+  else { w = MEDIA_PREVIEW_SHORT; h = Math.round(MEDIA_PREVIEW_SHORT * rh / rw); }
+  const long = Math.max(w, h);
+  if (long > MEDIA_MAX_LONG) { const k = MEDIA_MAX_LONG / long; w = Math.round(w * k); h = Math.round(h * k); }
+  return { w, h };
+}
+/** 媒体节点外框尺寸 = 预览区尺寸 + 固定栏高度（hasFooter 只在有 assetId 时为 true）。 */
+function mediaNodeSize(ratio, hasFooter) {
+  const pv = mediaPreviewSize(ratio);
+  return { w: pv.w, h: pv.h + NODE_HDR_H + (hasFooter ? NODE_FOOT_H : 0) };
+}
+/** 像素尺寸 → 比例（吸附到 RATIOS 档，3% 容差；否则约分）。 */
+function ratioFromDims(w, h) {
+  const aw = Number(w) || 0;
+  const ah = Number(h) || 0;
+  if (!(aw > 0 && ah > 0)) return '16:9';
+  const want = aw / ah;
+  let best = null;
+  for (const r of RATIOS) {
+    const [rw, rh] = r.split(':').map(Number);
+    const diff = Math.abs(rw / rh - want) / want;
+    if (!best || diff < best.diff) best = { ratio: r, diff };
+  }
+  if (best && best.diff <= 0.03) return best.ratio;
+  const gcd = (a, b) => (b ? gcd(b, a % b) : a);
+  const k = gcd(Math.round(aw), Math.round(ah)) || 1;
+  return Math.round(aw / k) + ':' + Math.round(ah / k);
+}
+/** 媒体节点应使用的画面比例：记录值 → 资产实测尺寸 → 默认 16:9。 */
+function mediaRatioOf(n) {
+  const d = (n && n.data) || {};
+  if (ratioIsValid(d.ratio)) return d.ratio;
+  const aw = Number(d.assetW);
+  const ah = Number(d.assetH);
+  if (aw > 0 && ah > 0) return ratioFromDims(aw, ah);
+  return '16:9';
+}
+/** 文档读入时的幂等归一：媒体节点外框必须满足「预览区比例 = 画面比例」，
+ *  否则按记录比例重算（用户等比拉伸过的预览区比例已正确 → 保留）。
+ *  与 client.js normalizeMediaNodeSize 同一规则，Host 侧建节点/读文档也保持一致。 */
+function normalizeMediaNodeSize(n) {
+  if (!n || (normalizeNodeType(n.type) !== 'image' && normalizeNodeType(n.type) !== 'video')) return n;
+  const d = n.data || (n.data = {});
+  const hasFooter = !!d.assetId;
+  const ratio = mediaRatioOf(n);
+  if (!ratioIsValid(d.ratio)) d.ratio = ratio;
+  const [rw, rh] = String(ratio).split(':').map(Number);
+  const want = rw / rh;
+  const pw = Number(n.w) || 0;
+  const ph = (Number(n.h) || 0) - NODE_HDR_H - (hasFooter ? NODE_FOOT_H : 0);
+  const okPreview = pw > 0 && ph > 0 && Math.abs(pw / ph - want) / want <= 0.02;
+  if (!okPreview) {
+    const sz = mediaNodeSize(ratio, hasFooter);
+    n.w = sz.w; n.h = sz.h;
+  }
+  return n;
+}
 /** 构造与客户端 newNode() 完全一致的节点（形状不一致会导致渲染异常）。 */
 function agentNode(kind, text, x, y, label) {
   const id = 'na' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
@@ -1302,14 +1378,15 @@ function agentNode(kind, text, x, y, label) {
  *  1) 有 connectFrom 源 → 放在源节点右侧同一行（串联节点横向成对）；
  *  2) 无连线 → 同类型竖向成列（排在该类型最后一个节点下方，新起一行）；
  *  3) 碰撞检测：候选位置与任何现有节点（含最小间距 28px）相交 → 自动下移到该节点下方，绝不重叠。 */
-function nextNodePos(doc, type, connectFromId) {
+function nextNodePos(doc, type, connectFromId, size) {
   const GAP_X = 60, GAP_Y = 40, MIN_GAP = 28;
   const H = (n) => Number(n && n.h) || 160;
   const W = (n) => Number(n && n.w) || 280;
   const nodes = Object.values(doc.nodes || {});
   const EST_H = { storyboard: 360, video: 360, image: 360, script: 360, finalcut: 360, text: 360 };
-  const estH = EST_H[type] || 360;
-  const estW = 360;
+  // 媒体节点的真实外框比 360 高/宽（预览区按比例 + 固定栏）：建节点时传 size，避免估小后与邻居重叠
+  const estH = (size && Number(size.h)) || EST_H[type] || 360;
+  const estW = (size && Number(size.w)) || 360;
   const same = nodes.filter((n) => n.type === type);
   let x = 80;
   let y = 40;
@@ -1649,19 +1726,24 @@ function canvasCreateNode(args) {
   const label = args && args.name ? String(args.name).slice(0, 40) : '';
   const prompt = String((args && args.prompt) || '');
   const connectFrom = String((args && args.connectFrom) || '');
-  const pos = nextNodePos(doc, type, connectFrom);
+  // 媒体节点：空态按「预览区比例 + 标题栏」给外框（没有操作栏就不加 NODE_FOOT_H），
+  // 布点时用真实外框做碰撞检测，避免按 360×360 估小后与同列邻居重叠。
+  const mediaSize = (type === 'image' || type === 'video')
+    ? mediaNodeSize((args && args.ratio) || '16:9', false)
+    : null;
+  const pos = nextNodePos(doc, type, connectFrom, mediaSize);
   let connected = null;
   let autoConnected = null;
   let node;
   if (type === 'image') {
     node = agentNode('text', '', pos.x, pos.y, label || '图片节点');
     node.type = 'image';
-    node.w = 360; node.h = 360;
+    node.w = mediaSize.w; node.h = mediaSize.h;
     node.data = { ...node.data, status: 'idle', error: null, prompt, assetId: null, demo: false, size: (args && args.size) || '2K', ratio: (args && args.ratio) || '16:9', imageCount: 1 };
   } else if (type === 'video') {
     node = agentNode('text', '', pos.x, pos.y, label || '视频节点');
     node.type = 'video';
-    node.w = 360; node.h = 360;
+    node.w = mediaSize.w; node.h = mediaSize.h;
     // 多镜头工作流（结构性强制）：项目里已有**拆解过镜头**的分镜表 → 一律自动连线分镜表、prompt 忽略。
     // 一个分镜表 = 一个完整视频，镜头清单只从分镜表读取；对话侧手写 prompt 绕过分镜表是高频错误，这里直接封死。
     const sbs = Object.values(doc.nodes || {}).filter((n) => n.type === 'storyboard');

@@ -17,10 +17,19 @@ window.__ModuleLoader__.load({
     const DB_NAME = 'dsh-infinite-canvas';
     const GENERAL_PID = 'general'; // 通用项目：多项目共用的资产挂在这里
     const DB_STORE = 'assets';
-    // 所有节点默认 360×360；图片/视频节点有结果后按画面比例只在一个方向变长（长边上限 800）
+    // 所有节点默认 360×360（文本/剧本/分镜固定这个尺寸，尺寸持久化进文档）。
+    // 媒体节点（image/video）由三段构成，从上到下（几何铁律，别再改回"节点框 = 画面框"）：
+    //   ① 标题栏 NODE_HDR_H —— 固定高度，不参与画面比例、不被拉伸；
+    //   ② 预览区 —— **盒比严格等于媒体比例**：短边 MEDIA_PREVIEW_SHORT，长边 = 短边×比例，上限 MEDIA_MAX_LONG；
+    //   ③ 操作栏 NODE_FOOT_H —— 固定高度（有结果才渲染），不参与画面比例、不被拉伸。
+    // 于是：节点宽 = 预览区宽；节点高 = 预览区高 + NODE_HDR_H +（有操作栏 ? NODE_FOOT_H : 0）。
+    // 旧实现把节点 w/h 直接当成画面框，标题栏/操作栏从画面里吃掉几十像素 → 预览被 cover 裁掉约 10%。
     const NODE_W = 360;
     const NODE_H = 360;
-    const MEDIA_MAX_LONG = 800;
+    const NODE_HDR_H = 32; // 标题栏固定高度（.dshic-node-head 的高度，border-box 含 1px 下边框）
+    const NODE_FOOT_H = 32; // 媒体节点操作栏固定高度（24px 按钮 + 8px 下内距；沿用改版前按钮行高度）
+    const MEDIA_PREVIEW_SHORT = 360; // 媒体预览区短边固定 360
+    const MEDIA_MAX_LONG = 800; // 媒体预览区长边上限 800
     // 生成面板宽度：控件行必须单行不换行（模型 → 类型控件 → @ → 发送），所以有**最小宽度**；
     // 面板绝不能跟着节点宽度收缩（360 宽节点曾把发送按钮挤到第二行）。节点更宽时可同步放宽到上限。
     const COMPOSER_MIN_W = 520;
@@ -92,16 +101,32 @@ window.__ModuleLoader__.load({
     const isImageLike = (n) => !!n && (n.type === 'image' || n.type === 'image-gen' || n.type === 'image-asset');
     // 有生成面板的节点类型（点击节点弹出 GenComposer）
     const COMPOSER_TYPES = new Set(['text', 'script', 'storyboard', 'image', 'video', 'finalcut']);
-    /** 画面比例 → 节点尺寸：短边固定 360，长边按比例放大；长边超过 800 则整体缩到 800。 */
+    /** 画面比例 → **预览区**尺寸：短边固定 360，长边按比例放大；长边超过 800 则整体缩到 800。
+     *  【注意】这里不含标题栏/操作栏——节点外框用 nodeSizeForRatio()，别再拿这个当节点 w/h。 */
     function sizeForRatio(ratio) {
       const [rw, rh] = String(ratio == null ? '' : ratio).split(':').map(Number);
-      if (!rw || !rh) return { w: NODE_W, h: NODE_H };
+      if (!rw || !rh) return { w: MEDIA_PREVIEW_SHORT, h: MEDIA_PREVIEW_SHORT };
       let w; let h;
-      if (rw >= rh) { h = NODE_H; w = Math.round(NODE_H * rw / rh); }
-      else { w = NODE_W; h = Math.round(NODE_W * rh / rw); }
+      if (rw >= rh) { h = MEDIA_PREVIEW_SHORT; w = Math.round(MEDIA_PREVIEW_SHORT * rw / rh); }
+      else { w = MEDIA_PREVIEW_SHORT; h = Math.round(MEDIA_PREVIEW_SHORT * rh / rw); }
       const long = Math.max(w, h);
       if (long > MEDIA_MAX_LONG) { const k = MEDIA_MAX_LONG / long; w = Math.round(w * k); h = Math.round(h * k); }
       return { w, h };
+    }
+    /** 媒体节点的固定栏总高度：标题栏 +（有操作栏时的）操作栏。缩放时这部分恒定，不参与画面比例。 */
+    function mediaBarsHeight(hasFooter) { return NODE_HDR_H + (hasFooter ? NODE_FOOT_H : 0); }
+    /** 媒体节点外框尺寸 = 预览区尺寸 + 固定栏高度（**节点 w/h 的唯一计算入口**，生成完成/加载旧文档/改比例都走这里）。
+     *  hasFooter：有结果（assetId）才渲染操作栏；空态没有操作栏，绝不凭空多出 NODE_FOOT_H。 */
+    function nodeSizeForRatio(ratio, opts) {
+      const o = opts || {};
+      const pv = sizeForRatio(ratio);
+      return { w: pv.w, h: pv.h + mediaBarsHeight(!!o.hasFooter) };
+    }
+    /** 媒体节点是否有末尾操作栏：只有拿到结果（assetId）才渲染「下载 / 重新生成 / 参考图 N」。 */
+    function mediaHasFooter(n) {
+      if (!n || !n.data || !n.data.assetId) return false;
+      const t = normalizeNodeType(n.type);
+      return t === 'image' || t === 'video';
     }
     const ratioIsValid = (r) => {
       const [rw, rh] = String(r || '').split(':').map(Number);
@@ -144,31 +169,43 @@ window.__ModuleLoader__.load({
       const [rw, rh] = String(recorded).split(':').map(Number);
       return Math.abs((rw / rh) - (aw / ah)) / (aw / ah) <= 0.03 ? recorded : actual;
     }
-    /** 媒体节点的比例（宽/高）：拖拽缩放时用它推出另一边，保证框永远等于画面比例。 */
-    function mediaAspectOf(n) {
-      const sz = sizeForRatio(mediaRatioOf(n));
-      return sz.w / sz.h;
+    /** 比例字符串的宽/高（无有效值回落 16:9）；媒体预览盒必须严格等于这个比例。 */
+    function ratioAspect(ratio) {
+      const [rw, rh] = String(ratio == null ? '' : ratio).split(':').map(Number);
+      return (rw > 0 && rh > 0) ? rw / rh : 16 / 9;
     }
-    /** 文档入口的尺寸归一：已有结果的图片/视频节点，框尺寸必须符合记录的 ratio
-     *  （缺省从资产尺寸推断，再缺省 16:9）。旧文档里 360×360 的盒子会在图片上下/左右留白。
-     *  幂等：已经成正比（用户等比放大过）的节点保持原尺寸，只校正比例不对的旧盒子。 */
+    /** 媒体节点的画面比例（宽/高）：拖拽缩放时用它推出预览区另一边，保证预览盒永远等于画面比例。 */
+    function mediaAspectOf(n) {
+      return ratioAspect(mediaRatioOf(n));
+    }
+    /** 文档入口的尺寸归一（幂等）：媒体节点外框必须满足「预览区比例 = 画面比例」，
+     *  外框高 = 预览高 + NODE_HDR_H +（有结果时的 NODE_FOOT_H）。
+     *  · 旧文档（上一轮把节点框直接当成画面框）→ 预览被标题栏/操作栏挤掉一截，这里按记录比例
+     *    （缺省资产像素，再缺省 16:9）重算；空态节点按记录比例给外框，但**不加操作栏高度**。
+     *  · 用户等比拉伸过的节点：预览区比例已经正确 → 原样保留（不回收尺寸）。 */
     function normalizeMediaNodeSize(n) {
-      if (!n || (n.type !== 'image' && n.type !== 'video')) return n;
+      if (!n || (normalizeNodeType(n.type) !== 'image' && normalizeNodeType(n.type) !== 'video')) return n;
       const d = n.data || (n.data = {});
-      if (!d.assetId) return n; // 未生成：保持统一 360×360
+      const hasFooter = mediaHasFooter(n);
       const ratio = mediaRatioOf(n);
       if (!ratioIsValid(d.ratio)) d.ratio = ratio; // 有实测尺寸就落成记录值（下一次加载不再猜）
-      const sz = sizeForRatio(ratio);
-      const w = Number(n.w);
-      const h = Number(n.h);
-      const sameRatio = w > 0 && h > 0 && Math.abs(w / h - sz.w / sz.h) / (sz.w / sz.h) <= 0.02;
-      if (!sameRatio) { n.w = sz.w; n.h = sz.h; }
+      const want = ratioAspect(ratio);
+      const pw = Number(n.w) || 0;
+      const ph = (Number(n.h) || 0) - mediaBarsHeight(hasFooter); // 反推预览区高度
+      const okPreview = pw > 0 && ph > 0 && Math.abs(pw / ph - want) / want <= 0.02;
+      if (!okPreview) {
+        const sz = nodeSizeForRatio(ratio, { hasFooter });
+        n.w = sz.w; n.h = sz.h;
+      }
       return n;
     }
     /** 尺寸拖拽的纯计算：
      *  · 普通节点自由缩放（宽高独立）；
-     *  · 媒体节点等比缩放——拖角/拖边都用主方向推出另一边（不允许拉出与画面比例不符的框）。 */
-    function resizeBoxFor(dir, w0, h0, dx, dy, aspect) {
+     *  · 媒体节点等比缩放——**缩放的是预览区尺寸**，标题栏/操作栏高度恒定（mediaBarsHeight）：
+     *    拖角/拖边都用主方向推出预览区另一边，返回的 w/h 是**节点外框**（= 预览宽 / 预览高 + 固定栏），
+     *    所以节点高度永远 = 预览高 + NODE_HDR_H +（hasFooter ? NODE_FOOT_H : 0），绝不允许拉出与画面比例不符的框。
+     *  opts.hasFooter：该媒体节点当前是否有操作栏（有 assetId 才有）。 */
+    function resizeBoxFor(dir, w0, h0, dx, dy, aspect, opts) {
       const MIN_W = 200; const MAX_W = 1200; const MIN_H = 120; const MAX_H = 2400;
       if (!aspect) {
         const out = { w: Math.round(w0), h: Math.round(h0) };
@@ -179,22 +216,26 @@ window.__ModuleLoader__.load({
         return out;
       }
       const a = aspect > 0 ? aspect : 1;
+      const bars = mediaBarsHeight(!!(opts && opts.hasFooter));
+      // 左右拖：预览宽 = 节点宽（节点宽就是预览宽），预览高 = 预览宽 / 比例
       if (dir.includes('e') || dir.includes('w')) {
         const raw = dir.includes('e') ? w0 + dx : w0 - dx;
         let w = clamp(raw, MIN_W, MAX_W);
-        let h = w / a;
-        if (h < MIN_H) { h = MIN_H; w = h * a; }
-        if (h > MAX_H) { h = MAX_H; w = h * a; }
+        let ph = w / a;
+        if (ph < MIN_H) { ph = MIN_H; w = ph * a; }
+        if (ph > MAX_H) { ph = MAX_H; w = ph * a; }
         w = clamp(w, MIN_W, MAX_W);
-        h = w / a;
-        return { w: Math.round(w), h: Math.round(h) };
+        ph = w / a;
+        return { w: Math.round(w), h: Math.round(ph) + bars };
       }
-      const raw = dir.includes('s') ? h0 + dy : h0 - dy;
-      let h = clamp(raw, MIN_H, MAX_H);
-      let w = h * a;
-      if (w < MIN_W) { w = MIN_W; h = w / a; }
-      if (w > MAX_W) { w = MAX_W; h = w / a; }
-      return { w: Math.round(w), h: Math.round(h) };
+      // 上下拖：先按拖动量算预览高（要扣掉固定栏，标题栏/操作栏不跟着拉长），再推预览宽
+      const ph0 = (Number(h0) || 0) - bars; // 反推当前预览高
+      const rawH = dir.includes('s') ? ph0 + dy : ph0 - dy;
+      let ph = clamp(rawH, MIN_H, MAX_H);
+      let w = ph * a;
+      if (w < MIN_W) { w = MIN_W; ph = w / a; }
+      if (w > MAX_W) { w = MAX_W; ph = w / a; }
+      return { w: Math.round(w), h: Math.round(ph) + bars };
     }
     /** 生成面板宽度：不随节点宽度收缩（节点 360 宽时面板仍是 520）；节点更宽时同步放宽到上限。
      *  视口极窄时以"不超出视口 - 24"优先（否则面板会溢出屏幕无法操作）。 */
@@ -1329,7 +1370,7 @@ window.__ModuleLoader__.load({
 .dshic-node.st-running{border-color:var(--dsw-alias-brand-primary);}
 .dshic-node.st-done{border-color:var(--dsw-alias-state-success-primary);}
 .dshic-node.st-error{border-color:var(--dsw-alias-state-error-primary);}
-.dshic-node-head{display:flex;align-items:center;gap:6px;height:30px;padding:0 8px;border-bottom:1px solid var(--dsw-alias-border-l1);
+.dshic-node-head{display:flex;align-items:center;gap:6px;flex:none;height:${NODE_HDR_H}px;box-sizing:border-box;padding:0 8px;border-bottom:1px solid var(--dsw-alias-border-l1);
   border-radius:12px 12px 0 0;background:color-mix(in srgb,var(--dsw-alias-label-primary) 4%,transparent);cursor:grab;}
 .dshic-dot{width:8px;height:8px;border-radius:50%;flex:none;}
 .dshic-dot.k-text{background:var(--dsw-alias-label-secondary);}
@@ -1628,7 +1669,8 @@ window.__ModuleLoader__.load({
 .dshic-node:hover{box-shadow:0 2px 4px rgba(0,0,0,.10),0 10px 26px rgba(0,0,0,.14);}
 .dshic-node.is-selected{box-shadow:0 0 0 2px color-mix(in srgb,var(--dsw-alias-brand-primary) 38%,transparent),0 10px 26px rgba(0,0,0,.14);}
 .dshic-node.st-running{box-shadow:0 0 0 2px color-mix(in srgb,var(--dsw-alias-brand-primary) 45%,transparent),0 8px 22px rgba(0,0,0,.12);}
-.dshic-node-head{height:32px;padding:0 10px;}
+/* 标题栏高度由常量 NODE_HDR_H 决定（基础规则里 flex:none + height）；这里只调内距，不要再写死高度 */
+.dshic-node-head{padding:0 10px;}
 .dshic-node-head .dshic-node-label,.dshic-node-head strong{font-weight:600;letter-spacing:.2px;}
 .dshic-node-body{padding:10px;display:flex;flex-direction:column;gap:8px;}
 .dshic-gen{height:32px;font-weight:600;letter-spacing:.3px;box-shadow:0 1px 3px rgba(0,0,0,.18);}
@@ -1646,12 +1688,18 @@ window.__ModuleLoader__.load({
 .dshic-node .dshic-textarea,.dshic-node .dshic-input{border-radius:8px;}
 .dshic-preview{border-radius:10px;}
 /* ── 统一媒体节点（节点内只显示结果）────────────────────────────── */
+/* body 是媒体节点的三段容器（标题栏 / 预览区 / 操作栏），三段各自不滚动；高度公式见 nodeSizeForRatio：
+   节点高 = 预览高 + NODE_HDR_H +（有操作栏 ? NODE_FOOT_H : 0）。 */
 .dshic-node-body.is-media{padding:0;gap:0;overflow:hidden;}
-.dshic-node-body.is-media > .dshic-node-row{padding:0 8px 8px;flex:none;box-sizing:border-box;}
-.dshic-media-wrap{position:relative;flex:1;min-height:0;display:flex;flex-direction:column;background:var(--dsw-alias-bg-layer-2);}
-/* 预览**填满**内容区（object-fit:cover，绝不 letterbox）：节点框比例已按画面比例校正，
-   cover 只是兜住节点标题栏/操作行占掉的那几个像素，不再出现上下/左右的白边黑边。 */
-.dshic-media-fill{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;background:var(--dsw-alias-bg-layer-2);display:block;}
+.dshic-node-body.is-media > .dshic-node-head{flex:none;border-radius:14px 14px 0 0;}
+.dshic-media-wrap{position:relative;flex:1;min-height:0;display:flex;flex-direction:column;background:var(--dsw-alias-bg-layer-2);overflow:hidden;}
+/* 预览**不裁切**：预览盒比例已严格等于画面比例（nodeSizeForRatio 保证），
+   所以用 fill 既不会裁切（旧 cover 会裁掉约 10%）也不会 letterbox；比例一致时 fill == contain。 */
+.dshic-media-fill{position:absolute;inset:0;width:100%;height:100%;object-fit:fill;background:var(--dsw-alias-bg-layer-2);display:block;}
+/* 操作栏（第三段）：固定高度 NODE_FOOT_H，flex:none 不参与画面比例、不被正文拉伸 */
+.dshic-media-foot{flex:none;height:${NODE_FOOT_H}px;box-sizing:border-box;display:flex;align-items:center;gap:6px;flex-wrap:nowrap;
+  padding:0 8px 8px;width:100%;max-width:100%;overflow:hidden;}
+.dshic-media-foot .dshic-flex{flex:1;min-width:0;}
 /* 未就绪（加载中 / 资产暂时取不到 / 加载失败）→ 中性骨架，绝不渲染 <img> 破图占位 */
 .dshic-media-skeleton{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:var(--dsw-alias-bg-layer-2);overflow:hidden;}
 .dshic-media-skeleton::after{content:"";position:absolute;inset:0;background:linear-gradient(100deg,
@@ -1679,8 +1727,10 @@ window.__ModuleLoader__.load({
 .dshic-refbadge-thumb.is-empty{display:inline-block;}
 /* ── 纯结果文本节点（文本/剧本）──────────────────────────────── */
 /* 节点被拉高时：多出来的空间由内容区（正文/镜头清单）撑满，绝不留下空白带。
-   body 是 flex 列（flex:1 + min-height:0），滚动区占满剩余高度，末尾操作行自然贴在左下角。 */
+   body 是 flex 列（flex:1 + min-height:0），滚动区占满剩余高度，末尾操作行自然贴在左下角。
+   操作行同样 flex:none 固定高度：不参与拉伸（与媒体节点标题栏/操作栏同一条纪律）。 */
 .dshic-node-body > .dshic-scroll-preview{flex:1 1 auto;min-height:0;}
+.dshic-node-body > .dshic-node-row{flex:none;}
 .dshic-scroll-preview{flex:1;min-height:0;overflow:auto;font-size:12px;line-height:1.65;color:var(--dsw-alias-label-primary);white-space:pre-wrap;word-break:break-word;}
 .dshic-scroll-preview.is-empty{display:flex;align-items:center;justify-content:center;border:1.5px dashed var(--dsw-alias-border-l2);border-radius:10px;color:var(--dsw-alias-label-secondary);}
 .dshic-shot-summary{padding:2px 0;font-size:12px;color:var(--dsw-alias-label-secondary);flex:none;}
@@ -6377,11 +6427,16 @@ window.__ModuleLoader__.load({
         data.members = []; data.collapsed = false; data.hidden = false;
         data.label = T('group');
       }
-      // 统一 360×360：尺寸持久化进文档（w/h）；内容再多也在节点内滚动，绝不随内容自动变化。
+      // 文本/剧本/分镜/成片固定 360×360（尺寸持久化进文档，内容再多也在节点内滚动，绝不随内容自动变化）。
+      // 媒体节点：空态尚无结果 → 按「预览区比例 + 标题栏」给外框，**没有操作栏就不加 NODE_FOOT_H**。
+      let size = { w: NODE_W, h: NODE_H };
+      if (type === 'image' || type === 'video') {
+        size = nodeSizeForRatio(data.ratio, { hasFooter: false });
+      }
       return {
         id: uid('n'), type,
         x: Math.round(pos.x), y: Math.round(pos.y),
-        w: NODE_W, h: NODE_H,
+        w: size.w, h: size.h,
         data,
       };
     }
@@ -7254,9 +7309,9 @@ window.__ModuleLoader__.load({
           // 媒体历史：保留最近 8 次结果，可在节点内切换
           const h = [{ assetId, ts: Date.now() }].concat(nd.data.history || []);
           nd.data.history = h.filter((x, i, arr) => arr.findIndex((y) => y.assetId === x.assetId) === i).slice(0, 8);
-          // 生成的图片/视频节点按画面比例「只在一个方向变长」：16:9 → 变宽，9:16 → 变高，长边上限 800
+          // 生成的图片/视频节点：节点外框 = 预览区（按画面比例，短边 360、长边 ≤800）+ 标题栏 + 操作栏
           if (nd.type === 'image' || nd.type === 'video') {
-            const sz = sizeForRatio(mediaRatioOf(nd));
+            const sz = nodeSizeForRatio(mediaRatioOf(nd), { hasFooter: true });
             nd.w = sz.w; nd.h = sz.h;
           }
         }
@@ -7271,6 +7326,7 @@ window.__ModuleLoader__.load({
           if (tn && (isImageNode(tn) || isVideoNode(tn))) {
             tn.data.assetId = assetId;
             tn.data.status = 'done';
+            normalizeMediaNodeSize(tn); // 下游资产节点同样按「预览 + 固定栏」重算（旧链路兼容）
           }
         }
         s.assetsTick++;
@@ -7940,10 +7996,12 @@ window.__ModuleLoader__.load({
         const x0 = cur.x;
         const y0 = cur.y;
         const aspect = isMedia ? mediaAspectOf(cur) : null;
+        // 媒体节点缩放的是**预览区**：标题栏/操作栏高度恒定，所以要把「当前有没有操作栏」传进去
+        const hasFooter = isMedia && mediaHasFooter(cur);
         const move = (ev) => {
           const dx = (ev.clientX - sx) / scale;
           const dy = (ev.clientY - sy) / scale;
-          const box = resizeBoxFor(dir, w0, h0, dx, dy, aspect);
+          const box = resizeBoxFor(dir, w0, h0, dx, dy, aspect, { hasFooter });
           update((s) => {
             const nd = s.graph.nodes[n.id];
             if (!nd) return;
@@ -7966,20 +8024,52 @@ window.__ModuleLoader__.load({
       };
       const resetHeight = (e) => {
         e.stopPropagation();
-        // 双击底边：媒体节点回到该画面比例的标准尺寸（短边 360、长边 ≤800）；
-        // 文本/剧本/分镜回到统一默认 360×360（尺寸仍然持久化，不会随内容自动变化）
+        // 双击底边：媒体节点回到该画面比例的标准外框（预览区短边 360、长边 ≤800 + 固定栏高度；
+        // 空态没有操作栏就不加 NODE_FOOT_H）；文本/剧本/分镜回到统一默认 360×360。
         update((s) => {
           const nd = s.graph.nodes[n.id];
           if (!nd) return;
-          if (isMedia && nd.data && nd.data.assetId) { const sz = sizeForRatio(mediaRatioOf(nd)); nd.w = sz.w; nd.h = sz.h; }
-          else if (isMedia) { nd.w = NODE_W; nd.h = NODE_H; } // 空媒体节点：回到统一 360×360
-          else nd.h = NODE_H;
+          if (isMedia) {
+            const sz = nodeSizeForRatio(mediaRatioOf(nd), { hasFooter: mediaHasFooter(nd) });
+            nd.w = sz.w; nd.h = sz.h;
+          } else nd.h = NODE_H;
         });
         pushHistory();
       };
       const nt = normalizeNodeType(n.type);
       const inKind = (PORTS[nt] && PORTS[nt].inputs && PORTS[nt].inputs[0] && PORTS[nt].inputs[0].kind) || 'text';
       const outKind = (PORTS[nt] && PORTS[nt].outputs && PORTS[nt].outputs[0] && PORTS[nt].outputs[0].kind) || 'text';
+      // 标题栏（固定高度 NODE_HDR_H，不参与画面比例）：媒体节点把它放进 body 内，
+      // 让 body 里从上到下严格是「标题栏 / 预览区 / 操作栏」三段（几何 = nodeSizeForRatio 的公式）。
+      const headEl = h('div', { className: 'dshic-node-head' },
+        h('span', { className: 'dshic-head-ic' }, Ic(TYPE_ICON[nt] || 'text', 12)),
+        renaming
+          ? h('input', {
+              className: 'dshic-input', style: { height: 22, flex: 1, minWidth: 0 }, autoFocus: true, value: nameVal,
+              placeholder: TYPE_LABEL()[nt],
+              onChange: (e) => setNameVal(e.target.value),
+              onPointerDown: (e) => e.stopPropagation(),
+              onKeyDown: (e) => {
+                if (e.key === 'Enter') commitName();
+                if (e.key === 'Escape') setRenaming(false);
+              },
+              onBlur: commitName,
+            })
+          : h('span', {
+              className: 'dshic-node-title', title: T('renameHint'),
+              onDoubleClick: (e) => { e.stopPropagation(); startRename(); },
+            }, n.data.label || TYPE_LABEL()[nt]),
+        (n.data.status === 'running' || n.data.aiStatus === 'running') ? h('span', { className: 'dshic-spin' }) : null,
+        h('button', {
+          type: 'button', className: 'dshic-node-x', title: T('renameHint'),
+          onPointerDown: (e) => e.stopPropagation(),
+          onClick: startRename,
+        }, '✎'),
+        h('button', {
+          type: 'button', className: 'dshic-node-x', title: T('delete'),
+          onPointerDown: (e) => e.stopPropagation(),
+          onClick: () => removeNodes([n.id]),
+        }, '✕'));
       return h('div', {
         'data-node-id': n.id,
         className: cls('dshic-node', 'type-' + nt, 'st-' + st, selected && 'is-selected'),
@@ -7993,36 +8083,12 @@ window.__ModuleLoader__.load({
           selectAndOpenComposer(n.id);
         },
       },
-        h('div', { className: 'dshic-node-head' },
-          h('span', { className: 'dshic-head-ic' }, Ic(TYPE_ICON[nt] || 'text', 12)),
-          renaming
-            ? h('input', {
-                className: 'dshic-input', style: { height: 22, flex: 1, minWidth: 0 }, autoFocus: true, value: nameVal,
-                placeholder: TYPE_LABEL()[nt],
-                onChange: (e) => setNameVal(e.target.value),
-                onPointerDown: (e) => e.stopPropagation(),
-                onKeyDown: (e) => {
-                  if (e.key === 'Enter') commitName();
-                  if (e.key === 'Escape') setRenaming(false);
-                },
-                onBlur: commitName,
-              })
-            : h('span', {
-                className: 'dshic-node-title', title: T('renameHint'),
-                onDoubleClick: (e) => { e.stopPropagation(); startRename(); },
-              }, n.data.label || TYPE_LABEL()[nt]),
-          (n.data.status === 'running' || n.data.aiStatus === 'running') ? h('span', { className: 'dshic-spin' }) : null,
-          h('button', {
-            type: 'button', className: 'dshic-node-x', title: T('renameHint'),
-            onPointerDown: (e) => e.stopPropagation(),
-            onClick: startRename,
-          }, '✎'),
-          h('button', {
-            type: 'button', className: 'dshic-node-x', title: T('delete'),
-            onPointerDown: (e) => e.stopPropagation(),
-            onClick: () => removeNodes([n.id]),
-          }, '✕')),
-        h('div', { className: cls('dshic-node-body', isMedia && 'is-media') }, nodeBody(n)),
+        isMedia ? null : headEl,
+        // 媒体节点：body 内三段（标题栏 / 预览区 / 操作栏），标题栏与操作栏 flex:none 固定高度，
+        // 预览区 flex:1 吃掉剩余高度 —— 剩余高度正是 sizeForRatio 算出的画面盒。
+        // 用展开参数而不是数组作为 children：避免 React 对数组子节点要求 key 的告警。
+        h('div', { className: cls('dshic-node-body', isMedia && 'is-media') },
+          ...(isMedia ? [headEl, nodeBody(n)] : [nodeBody(n)])),
         // 尺寸把手：右/左/下/上四条边 + 右下角（双击底边回到默认 360 高）
         h('div', { className: 'dshic-rs dshic-rs-e', title: T('resizeHint'), onPointerDown: (e) => startResize(e, 'e') }),
         h('div', { className: 'dshic-rs dshic-rs-w', title: T('resizeHint'), onPointerDown: (e) => startResize(e, 'w') }),
@@ -8526,13 +8592,13 @@ window.__ModuleLoader__.load({
         else nd.data.model = v;
       });
       const setData = (key, v) => update((s) => { const nd = s.graph.nodes[n.id]; if (nd) nd.data[key] = v; });
-      // 比例变化：已有结果时立即按新比例重排节点尺寸（只在一个方向变长，长边上限 800）
+      // 比例变化：媒体节点立即按「预览区比例 + 固定栏」重排外框（有结果才有操作栏；空态不加操作栏）
       const setRatio = (v) => update((s) => {
         const nd = s.graph.nodes[n.id];
         if (!nd) return;
         nd.data.ratio = v;
-        if ((nd.type === 'image' || nd.type === 'video') && nd.data.assetId) {
-          const sz = sizeForRatio(v);
+        if (nd.type === 'image' || nd.type === 'video') {
+          const sz = nodeSizeForRatio(v, { hasFooter: mediaHasFooter(nd) });
           nd.w = sz.w; nd.h = sz.h;
         }
       });
@@ -8931,9 +8997,9 @@ window.__ModuleLoader__.load({
       // 打开面板必须同时选中节点：面板渲染条件是 composerId ∈ S.sel。
       // 视频控件会 stopPropagation（不经过节点根 pointerdown），所以这里自己保证选中。
       const openPanel = () => selectAndOpenComposer(n.id);
-      /** 媒体真实像素尺寸 → 记录进节点并按比例校正框尺寸。
-       *  「节点框长宽比 = 媒体本身的长宽比」：记录的比例与实测一致（3% 容差）就沿用记录值，
-       *  明显不一致（API 没按比例出图 / 导入的外部素材）则以**画面实际比例**为准——否则预览必然 letterbox。 */
+      /** 媒体真实像素尺寸 → 记录进节点并按比例校正**预览区**（节点外框 = 预览 + 固定栏）。
+       *  「预览区盒比 = 媒体本身的长宽比」：记录的比例与实测一致（3% 容差）就沿用记录值，
+       *  明显不一致（API 没按比例出图 / 导入的外部素材）则以**画面实际比例**为准——否则预览必然留边。 */
       const recordMediaDims = (aw0, ah0) => {
         const aw = Number(aw0) || 0;
         const ah = Number(ah0) || 0;
@@ -8941,15 +9007,11 @@ window.__ModuleLoader__.load({
         update((s) => {
           const nd = s.graph.nodes[n.id];
           if (!nd) return;
-          const ratio = mediaRatioForDims(nd.data.ratio, aw, ah);
           nd.data.assetW = aw;
           nd.data.assetH = ah;
-          nd.data.ratio = ratio;
-          const sz = sizeForRatio(ratio);
-          const w = Number(nd.w);
-          const h = Number(nd.h);
-          const same = w > 0 && h > 0 && Math.abs(w / h - sz.w / sz.h) / (sz.w / sz.h) <= 0.02;
-          if (!same) { nd.w = sz.w; nd.h = sz.h; }
+          nd.data.ratio = mediaRatioForDims(nd.data.ratio, aw, ah);
+          // 预览区比例已经正确（用户等比拉伸过的）就保留现有尺寸，只校正被旧实现做歪的框
+          normalizeMediaNodeSize(nd);
         });
       };
       const imgShown = done && !!assetUrlV && kind === 'image' && mediaState !== 'error';
@@ -9002,9 +9064,11 @@ window.__ModuleLoader__.load({
             : null,
           n.data.error ? h('div', { key: 'err', className: 'dshic-media-err', title: n.data.error }, '⚠ ' + n.data.error) : null,
         ),
-        // 结果操作：下载 / 重新生成 / 参考图 N（末尾左下角，作用于已生成结果）
+        // 操作栏（第三段）：下载 / 重新生成 / 参考图 N（末尾左下角，作用于已生成结果）。
+        // 高度固定 NODE_FOOT_H（CSS flex:none + height），不参与画面比例、不被正文拉伸；
+        // 空态（done=false）不渲染这一栏，节点高度里也不加 NODE_FOOT_H。
         done
-          ? h('div', { key: 'acts', className: 'dshic-node-row', style: { alignSelf: 'flex-start' } },
+          ? h('div', { key: 'acts', className: 'dshic-media-foot', style: { alignSelf: 'flex-start' } },
               h('button', {
                 type: 'button', className: 'dshic-mini is-ghost', disabled: !assetUrlV,
                 onPointerDown: (e) => e.stopPropagation(),
@@ -12073,11 +12137,12 @@ window.__ModuleLoader__.load({
           // 并供 smoke-render 直接渲染新组件（MediaNodeBody / GenComposer）抓渲染期崩溃；
           // NodeShell 用于断言「点击节点任意位置都能打开生成面板」不止边框可点。
           window.__DSH_IC_NODES__ = { ScriptNodeBody, StoryboardNodeBody, MediaNodeBody, GenComposer, FinalCutNodeBody, TextNodeBody, ShotNodeBody, NodeShell };
-          // 排版纯函数/常量出口：尺寸比例、媒体框比例校正、等比缩放、面板宽度（供 scripts/test-node-layout.mjs 断言）
+          // 排版纯函数/常量出口：预览区比例、节点外框公式、等比缩放、面板宽度（供 scripts/test-node-layout.mjs 断言）
           window.__DSH_IC_LAYOUT__ = {
-            NODE_W, NODE_H, MEDIA_MAX_LONG,
+            NODE_W, NODE_H, NODE_HDR_H, NODE_FOOT_H, MEDIA_PREVIEW_SHORT, MEDIA_MAX_LONG,
             COMPOSER_MIN_W, COMPOSER_MAX_W, COMPOSER_VIEWPORT_GAP,
-            sizeForRatio, ratioFromDims, mediaRatioOf, mediaAspectOf, mediaRatioForDims,
+            sizeForRatio, nodeSizeForRatio, mediaBarsHeight, mediaHasFooter,
+            ratioIsValid, ratioAspect, ratioFromDims, mediaRatioOf, mediaAspectOf, mediaRatioForDims,
             normalizeMediaNodeSize, normalizeGraphDoc, resizeBoxFor, composerWidthFor,
             NODE_INTERACTIVE_SELECTOR,
           };
