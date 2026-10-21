@@ -67,9 +67,14 @@ ok(!/^## \[Unreleased\].*?\d+\.\d+\.\d+/m.test(section), 'Unreleased 段里写�
   ok(/api\/object/.test(hostSrc), 'CHANGELOG 声称保留读路径，但 index.js 里已找不到 /api/object 路由');
 }
 
-// ---------- 4) package.json 版本未被擅自改动 ----------
+// ---------- 4) package.json 版本未在 dev 上被擅自改动 ----------
+// 基线 = CHANGELOG 里最新**已发布**段的版本号（不是字面量）：发版后基线自动前移，
+// 不必每版手改这个门禁（曾把 0.18.4 写死，0.18.5 一发就假红）。
 const pkg = JSON.parse(readFileSync(path.join(ROOT, 'package.json'), 'utf8'));
-ok(pkg.version === '0.18.4', 'package.json 的 version 被改动（本单不改版本号）：' + pkg.version);
+const baselineVersion = firstReleased ? firstReleased[1] : '';
+ok(!!baselineVersion, '找不到最新已发布版本号，无法校验 package.json（CHANGELOG 段缺失？）');
+ok(pkg.version === baselineVersion, 'package.json 的 version 与最新已发布版本不一致（本单不改版本号）：'
+  + pkg.version + ' ≠ ' + baselineVersion);
 
 // ---------- 5) 四个分组齐全 ----------
 for (const g of ['Added', 'Fixed', 'Changed', 'Internal']) {
@@ -92,36 +97,8 @@ for (const g of ['Added', 'Fixed', 'Changed', 'Internal']) {
 // OBS-1 硬要求（QA 判据）：清单**手工维护**，绝不从 `git log` 动态生成——动态清单会自证
 // （脚本生成的清单当然自己全中，"缺一必红"退化成摆设）。数量相等 + 逐 sha 关键词命中，两条都拦。
 const COVERAGE = [
-  { sha: 'a732f5b', keys: [/character.sheet/i] },
-  { sha: 'a20ee16', keys: [/canvas_update_node|canvas_generate_node/i] },
-  { sha: 'f745b4a', keys: [/vendor.adjacent|vendor-format|vendor format|reference-generation|storyboard-driven/i] },
-  { sha: '9373bff', keys: [/project folder|projects\/<project>/i] },
-  { sha: '537b74d', keys: [/segment continuity|hand-off|segments now actually connect/i] },
-  { sha: 'c662c2a', keys: [/dur is not defined|final-cut merge/i] },
-  { sha: '69e21e4', keys: [/13 defects|13 conflicts|continuity fixes/i] },
-  { sha: '4707f52', keys: [/semantic inversion|tail is the shot|previous shot/i] },
-  { sha: '16f20fe', keys: [/Alt-drag/i] },
-  { sha: 'dfab885', keys: [/top toolbar|shortcuts panel/i] },
-  { sha: '02a9891', keys: [/Download filenames follow the real container|real container/i] },
-  { sha: '8bffade', keys: [/absolute `base`|ArtCraft calls/i] },
-  { sha: '454b934', keys: [/disk mirror/i] },
-  { sha: '67bfee4', keys: [/regress\.mjs|regression entry point/i] },
-  { sha: 'c409e6a', keys: [/write path is retired|read path is kept|content-addressed/i] },
-  { sha: 'b705887', keys: [/hard-codes the regression item count|--list.*live source/i] },
-  { sha: 'ed3713f', keys: [/reference-upload trio|magic-byte sniffing/i] },
-  { sha: 'c578311', keys: [/EXIF rotation is reported|dimension measurement/i] },
-  { sha: '7367b00', keys: [/Unknown video vendors degrade/i] },
-  { sha: '0313d7f', keys: [/ftsReconcile/i] },
-  { sha: '94515e1', keys: [/Craft outputs no longer survive|craft\/ directory/i] },
-  { sha: '1f6ea01', keys: [/extension mappings/i] },
-  { sha: 'ff5e82e', keys: [/placeholder project|我的画布|empty state/i] },
-  { sha: '95e6a87', keys: [/placeholder project|我的画布|empty state/i] },
-  { sha: '1ab7b66', keys: [/no-models hint|no models configured|runs will ask you to configure/i] },
-  { sha: '37959ed', keys: [/Path traversal in project deletion/i] },
-  { sha: '192a377', keys: [/wrong reference images|previous run as this run|disk-cleanup failures|shortcuts panel now shows|go back to auto|overwritten mid-run|misreport it|keeps voice references/i] },
-  { sha: 'f6d4d5f', keys: [/right-pane tab|side by side|beside the chat/i] },
-  { sha: 'fd5b891', keys: [/tab kind|right-pane registry|consistency re-check/i] },
-  { sha: '67e26ca', keys: [/registration id|pane-tab slot keys|查看方式/i] },
+  // 0.18.5 已发布，上一轮清单随之清零——现在只为 0.18.5 之后的新提交记账。
+  { sha: '663447f', keys: [/asset nodes that are ready to generate|设定图|image-gen node/i] },
 ];
 for (const c of COVERAGE) {
   ok(c.keys.some((re) => re.test(section)), '未发版提交 ' + c.sha + ' 在 Unreleased 段里找不到对应记录（补记不全）');

@@ -6,8 +6,17 @@ GitHub Releases carry the same notes in English; maintainer-facing runbooks live
 
 ## [Unreleased]
 
-> Nothing yet. Add entries here (Added / Fixed / Changed / Internal) as `dev` moves; the release
-> gate requires the section to exist above the newest released version.
+### Added
+- **Expanding a storyboard now builds asset nodes that are ready to generate**: every character, scene and prop the shots mention is resolved against the asset library first — an image that exists becomes an asset node wired to the video's reference port, and one that does not becomes an **image-generation node whose prompt is already written** to the asset-sheet layout (character six-block sheet, scene main-image-plus-surrounding-panels, prop title + 45° hero + details + side view + colour swatches; 2K landscape). The bible's appearance notes and style baseline are injected automatically, so the reference sheet is usable in one click instead of being hand-written. Re-expanding the same storyboard reuses same-label generator nodes rather than stacking duplicates.
+
+### Fixed
+- **No more empty 「待补充」 placeholder nodes after expanding**: the old placeholders made a video node look wired up while its reference list stayed empty; they are replaced by the generator nodes above, and the toast reports how many asset nodes were created versus reused from the library.
+
+### Changed
+- **The canvas skill documents the new expansion contract**: what expansion creates for each missing entity, the naming convention of the generated sheets, and the order to generate in (assets first, then video).
+
+### Internal
+- `scripts/test-expand-assets.mjs` drives the real expansion in a sandbox (3 entities → 3 generator nodes with sheet prompts and 3 reference edges, no placeholders, no duplicates on a second run); `test-mentions` covers the prompt generator for all three asset kinds plus the English variant, and the regression gate lists the new test.
 
 ## [0.18.5] — 2026-10-21
 
