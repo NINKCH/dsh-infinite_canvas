@@ -6,8 +6,10 @@ GitHub Releases carry the same notes in English; maintainer-facing runbooks live
 
 ## [Unreleased]
 
-> Version number and release scope are **not decided yet** — the maintainer picks both after
-> the first batch closes. This section only records what is already on `dev`.
+> Nothing yet. Add entries here (Added / Fixed / Changed / Internal) as `dev` moves; the release
+> gate requires the section to exist above the newest released version.
+
+## [0.18.5] — 2026-10-21
 
 ### Added
 - **The canvas now lives beside the chat as a right-pane tab**: the Harness right pane is a tab system, and the plugin registers an 无限画布 tab (full canvas UI) plus an entry card on the Start page that opens it — chat on the left, storyboard/generation/final-cut on the right, no more flipping between two views. The canvas runs in exactly one place at a time (shared node graph and generation state): opening it in the pane while the full-page canvas is open (or vice versa) moves the live instance instead of duplicating it, and claiming the narrow pane collapses the canvas's own side panel to fit.
