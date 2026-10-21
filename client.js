@@ -21,6 +21,11 @@ window.__ModuleLoader__.load({
     const NODE_W = 360;
     const NODE_H = 360;
     const MEDIA_MAX_LONG = 800;
+    // 生成面板宽度：控件行必须单行不换行（模型 → 类型控件 → @ → 发送），所以有**最小宽度**；
+    // 面板绝不能跟着节点宽度收缩（360 宽节点曾把发送按钮挤到第二行）。节点更宽时可同步放宽到上限。
+    const COMPOSER_MIN_W = 520;
+    const COMPOSER_MAX_W = 720;
+    const COMPOSER_VIEWPORT_GAP = 24; // 面板宽度上限 = 视口宽 - 24（两侧各留 12）
     const CRAFT_SKILL = 'canvas-craft'; // 内置创作方法论技能（未选技能时默认注入）
 
     // 节点类型的唯一事实源是 TYPE_LABEL / TYPE_KIND / PORTS（见下方）：历史上这里还有一个
@@ -70,10 +75,14 @@ window.__ModuleLoader__.load({
       }
       return n;
     }
-    /** 文档级归一（幂等）：迁移两次结果一致。只改 type，不动 data / edges / 坐标 / 尺寸。 */
+    /** 文档级归一（幂等）：迁移两次结果一致。改 type + 校正已有结果媒体节点的框比例，不动 data / edges / 坐标。 */
     function normalizeGraphDoc(doc) {
       if (!doc || typeof doc !== 'object') return doc;
-      for (const n of Object.values(doc.nodes || {})) normalizeNode(n);
+      for (const n of Object.values(doc.nodes || {})) {
+        normalizeNode(n);
+        // 旧文档里 360×360 的图片/视频盒子会在预览上下/左右留白：按记录比例（或资产尺寸）校正
+        normalizeMediaNodeSize(n);
+      }
       return doc;
     }
     const isImageNode = (n) => !!n && n.type === 'image';
@@ -85,7 +94,7 @@ window.__ModuleLoader__.load({
     const COMPOSER_TYPES = new Set(['text', 'script', 'storyboard', 'image', 'video', 'finalcut']);
     /** 画面比例 → 节点尺寸：短边固定 360，长边按比例放大；长边超过 800 则整体缩到 800。 */
     function sizeForRatio(ratio) {
-      const [rw, rh] = String(ratio || '16:9').split(':').map(Number);
+      const [rw, rh] = String(ratio == null ? '' : ratio).split(':').map(Number);
       if (!rw || !rh) return { w: NODE_W, h: NODE_H };
       let w; let h;
       if (rw >= rh) { h = NODE_H; w = Math.round(NODE_H * rw / rh); }
@@ -93,6 +102,112 @@ window.__ModuleLoader__.load({
       const long = Math.max(w, h);
       if (long > MEDIA_MAX_LONG) { const k = MEDIA_MAX_LONG / long; w = Math.round(w * k); h = Math.round(h * k); }
       return { w, h };
+    }
+    const ratioIsValid = (r) => {
+      const [rw, rh] = String(r || '').split(':').map(Number);
+      return rw > 0 && rh > 0;
+    };
+    /** 像素尺寸 → 画面比例：先吸附到 RATIOS 里最接近的档（3% 容差，兼容 API 的 1024×576、1080×1920），
+     *  否则约分为最简整数比。用于旧资产节点"没有记录 ratio"时从图片/视频真实尺寸反推。 */
+    function ratioFromDims(w, h) {
+      const aw = Number(w) || 0;
+      const ah = Number(h) || 0;
+      if (!(aw > 0 && ah > 0)) return '16:9';
+      const want = aw / ah;
+      let best = null;
+      for (const r of RATIOS) {
+        const [rw, rh] = r.split(':').map(Number);
+        const diff = Math.abs(rw / rh - want) / want;
+        if (!best || diff < best.diff) best = { ratio: r, diff };
+      }
+      if (best && best.diff <= 0.03) return best.ratio;
+      const gcd = (a, b) => (b ? gcd(b, a % b) : a);
+      const k = gcd(Math.round(aw), Math.round(ah)) || 1;
+      return Math.round(aw / k) + ':' + Math.round(ah / k);
+    }
+    /** 媒体节点应使用的画面比例：记录值 → 资产实测尺寸（data.assetW/H）→ 默认 16:9。 */
+    function mediaRatioOf(n) {
+      const d = (n && n.data) || {};
+      if (ratioIsValid(d.ratio)) return d.ratio;
+      const aw = Number(d.assetW);
+      const ah = Number(d.assetH);
+      if (aw > 0 && ah > 0) return ratioFromDims(aw, ah);
+      return '16:9';
+    }
+    /** 记录比例 vs 实测尺寸取哪个：一致（3% 容差）用记录值，明显不一致以**画面实际比例**为准。 */
+    function mediaRatioForDims(recorded, aw0, ah0) {
+      const aw = Number(aw0) || 0;
+      const ah = Number(ah0) || 0;
+      const actual = ratioFromDims(aw, ah);
+      if (!ratioIsValid(recorded)) return actual;
+      if (!(aw > 0 && ah > 0)) return recorded;
+      const [rw, rh] = String(recorded).split(':').map(Number);
+      return Math.abs((rw / rh) - (aw / ah)) / (aw / ah) <= 0.03 ? recorded : actual;
+    }
+    /** 媒体节点的比例（宽/高）：拖拽缩放时用它推出另一边，保证框永远等于画面比例。 */
+    function mediaAspectOf(n) {
+      const sz = sizeForRatio(mediaRatioOf(n));
+      return sz.w / sz.h;
+    }
+    /** 文档入口的尺寸归一：已有结果的图片/视频节点，框尺寸必须符合记录的 ratio
+     *  （缺省从资产尺寸推断，再缺省 16:9）。旧文档里 360×360 的盒子会在图片上下/左右留白。
+     *  幂等：已经成正比（用户等比放大过）的节点保持原尺寸，只校正比例不对的旧盒子。 */
+    function normalizeMediaNodeSize(n) {
+      if (!n || (n.type !== 'image' && n.type !== 'video')) return n;
+      const d = n.data || (n.data = {});
+      if (!d.assetId) return n; // 未生成：保持统一 360×360
+      const ratio = mediaRatioOf(n);
+      if (!ratioIsValid(d.ratio)) d.ratio = ratio; // 有实测尺寸就落成记录值（下一次加载不再猜）
+      const sz = sizeForRatio(ratio);
+      const w = Number(n.w);
+      const h = Number(n.h);
+      const sameRatio = w > 0 && h > 0 && Math.abs(w / h - sz.w / sz.h) / (sz.w / sz.h) <= 0.02;
+      if (!sameRatio) { n.w = sz.w; n.h = sz.h; }
+      return n;
+    }
+    /** 尺寸拖拽的纯计算：
+     *  · 普通节点自由缩放（宽高独立）；
+     *  · 媒体节点等比缩放——拖角/拖边都用主方向推出另一边（不允许拉出与画面比例不符的框）。 */
+    function resizeBoxFor(dir, w0, h0, dx, dy, aspect) {
+      const MIN_W = 200; const MAX_W = 1200; const MIN_H = 120; const MAX_H = 2400;
+      if (!aspect) {
+        const out = { w: Math.round(w0), h: Math.round(h0) };
+        if (dir.includes('e')) out.w = Math.round(clamp(w0 + dx, MIN_W, MAX_W));
+        if (dir.includes('w')) out.w = Math.round(clamp(w0 - dx, MIN_W, MAX_W));
+        if (dir.includes('s')) out.h = Math.round(clamp(h0 + dy, MIN_H, MAX_H));
+        if (dir.includes('n')) out.h = Math.round(clamp(h0 - dy, MIN_H, MAX_H));
+        return out;
+      }
+      const a = aspect > 0 ? aspect : 1;
+      if (dir.includes('e') || dir.includes('w')) {
+        const raw = dir.includes('e') ? w0 + dx : w0 - dx;
+        let w = clamp(raw, MIN_W, MAX_W);
+        let h = w / a;
+        if (h < MIN_H) { h = MIN_H; w = h * a; }
+        if (h > MAX_H) { h = MAX_H; w = h * a; }
+        w = clamp(w, MIN_W, MAX_W);
+        h = w / a;
+        return { w: Math.round(w), h: Math.round(h) };
+      }
+      const raw = dir.includes('s') ? h0 + dy : h0 - dy;
+      let h = clamp(raw, MIN_H, MAX_H);
+      let w = h * a;
+      if (w < MIN_W) { w = MIN_W; h = w / a; }
+      if (w > MAX_W) { w = MAX_W; h = w / a; }
+      return { w: Math.round(w), h: Math.round(h) };
+    }
+    /** 生成面板宽度：不随节点宽度收缩（节点 360 宽时面板仍是 520）；节点更宽时同步放宽到上限。
+     *  视口极窄时以"不超出视口 - 24"优先（否则面板会溢出屏幕无法操作）。 */
+    function composerWidthFor(nodeW, viewportW) {
+      const vw = Number(viewportW) > 0 ? Number(viewportW) : 1200;
+      const cap = Math.min(COMPOSER_MAX_W, Math.max(0, vw - COMPOSER_VIEWPORT_GAP));
+      const want = Math.max(Number(nodeW) || NODE_W, COMPOSER_MIN_W);
+      return Math.max(Math.min(cap, want), Math.min(COMPOSER_MIN_W, cap));
+    }
+    // 允许通过媒体预览点击打开面板：只有真正的交互控件（按钮/下拉/视频控件/可编辑输入）保留拦截
+    const NODE_INTERACTIVE_SELECTOR = 'input,textarea,select,button,video,a,label,[data-no-drag],[contenteditable="true"]';
+    function isNodeInteractiveTarget(t) {
+      return !!(t && typeof t.closest === 'function' && t.closest(NODE_INTERACTIVE_SELECTOR));
     }
     // 允许多条入线的输入端口（参考图类），其余输入端口保持单线
     const MULTI_INPUT_PORTS = new Set(['ref', 'char', 'scene', 'prop']);
@@ -1534,7 +1649,19 @@ window.__ModuleLoader__.load({
 .dshic-node-body.is-media{padding:0;gap:0;overflow:hidden;}
 .dshic-node-body.is-media > .dshic-node-row{padding:0 8px 8px;flex:none;box-sizing:border-box;}
 .dshic-media-wrap{position:relative;flex:1;min-height:0;display:flex;flex-direction:column;background:var(--dsw-alias-bg-layer-2);}
-.dshic-media-fill{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;background:var(--dsw-alias-bg-layer-2);display:block;}
+/* 预览**填满**内容区（object-fit:cover，绝不 letterbox）：节点框比例已按画面比例校正，
+   cover 只是兜住节点标题栏/操作行占掉的那几个像素，不再出现上下/左右的白边黑边。 */
+.dshic-media-fill{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;background:var(--dsw-alias-bg-layer-2);display:block;}
+/* 未就绪（加载中 / 资产暂时取不到 / 加载失败）→ 中性骨架，绝不渲染 <img> 破图占位 */
+.dshic-media-skeleton{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:var(--dsw-alias-bg-layer-2);overflow:hidden;}
+.dshic-media-skeleton::after{content:"";position:absolute;inset:0;background:linear-gradient(100deg,
+  color-mix(in srgb,var(--dsw-alias-label-primary) 4%,transparent) 20%,
+  color-mix(in srgb,var(--dsw-alias-label-primary) 10%,transparent) 42%,
+  color-mix(in srgb,var(--dsw-alias-label-primary) 4%,transparent) 64%);
+  background-size:220% 100%;animation:dshic-skeleton 1.3s linear infinite;}
+@keyframes dshic-skeleton{0%{background-position:120% 0}100%{background-position:-120% 0}}
+.dshic-media-skeleton.is-error{background:color-mix(in srgb,var(--dsw-alias-state-error-primary) 6%,var(--dsw-alias-bg-layer-2));}
+.dshic-media-skeleton.is-error::after{animation:none;background:transparent;}
 .dshic-media-empty{position:absolute;inset:10px;border:1.5px dashed var(--dsw-alias-border-l2);border-radius:10px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:7px;color:var(--dsw-alias-label-secondary);cursor:pointer;background:color-mix(in srgb,var(--dsw-alias-bg-layer-1) 70%,transparent);}
 .dshic-media-empty:hover{border-color:var(--dsw-alias-brand-primary);color:var(--dsw-alias-label-primary);}
 .dshic-media-empty-ic{width:32px;height:32px;border-radius:9px;display:flex;align-items:center;justify-content:center;background:color-mix(in srgb,var(--dsw-alias-label-primary) 8%,transparent);}
@@ -1551,10 +1678,16 @@ window.__ModuleLoader__.load({
 .dshic-refbadge-thumb{width:16px;height:16px;border-radius:5px;object-fit:cover;border:1px solid rgba(255,255,255,.5);background:linear-gradient(135deg,#9aa4b2,#6b7686);display:block;}
 .dshic-refbadge-thumb.is-empty{display:inline-block;}
 /* ── 纯结果文本节点（文本/剧本）──────────────────────────────── */
+/* 节点被拉高时：多出来的空间由内容区（正文/镜头清单）撑满，绝不留下空白带。
+   body 是 flex 列（flex:1 + min-height:0），滚动区占满剩余高度，末尾操作行自然贴在左下角。 */
+.dshic-node-body > .dshic-scroll-preview{flex:1 1 auto;min-height:0;}
 .dshic-scroll-preview{flex:1;min-height:0;overflow:auto;font-size:12px;line-height:1.65;color:var(--dsw-alias-label-primary);white-space:pre-wrap;word-break:break-word;}
 .dshic-scroll-preview.is-empty{display:flex;align-items:center;justify-content:center;border:1.5px dashed var(--dsw-alias-border-l2);border-radius:10px;color:var(--dsw-alias-label-secondary);}
 .dshic-shot-summary{padding:2px 0;font-size:12px;color:var(--dsw-alias-label-secondary);flex:none;}
 .dshic-shot-summary b{color:var(--dsw-alias-label-primary);font-size:13px;}
+/* 分镜镜头清单：占满分镜节点剩余高度并内部滚动（固定 max-height 会在节点拉高时留白） */
+.dshic-node-fill{display:flex;flex-direction:column;flex:1 1 auto;min-height:0;}
+.dshic-shot-list.is-fill{flex:1 1 auto;min-height:0;max-height:none;overflow-y:auto;}
 /* ── 生成面板（浮层单例；紧贴选中节点下方）──────────────────── */
 .dshic-composer{position:fixed;z-index:200;left:0;top:0;background:var(--dsw-alias-bg-overlay);border:1px solid var(--dsw-alias-border-l2);border-radius:16px;box-shadow:0 12px 40px rgba(0,0,0,.16),0 2px 6px rgba(0,0,0,.08);display:flex;flex-direction:column;max-height:calc(100vh - 24px);box-sizing:border-box;}
 .dshic-composer-caret{position:absolute;top:-6px;width:11px;height:11px;background:var(--dsw-alias-bg-overlay);border-left:1px solid var(--dsw-alias-border-l2);border-top:1px solid var(--dsw-alias-border-l2);transform:rotate(45deg);border-radius:2px 0 0 0;z-index:1;}
@@ -1571,7 +1704,11 @@ window.__ModuleLoader__.load({
 .dshic-composer-refhint{font-size:10px;color:var(--dsw-alias-label-secondary);line-height:14px;}
 .dshic-composer-prompt{flex:none;}
 .dshic-composer-extra{display:flex;flex-direction:column;gap:6px;}
-.dshic-composer-controls{display:flex;align-items:center;gap:6px;flex-wrap:wrap;padding:6px 12px 11px;flex:none;border-top:1px solid var(--dsw-alias-border-l1);}
+.dshic-composer-controls{display:flex;align-items:center;gap:6px;flex-wrap:nowrap;padding:6px 12px 11px;flex:none;border-top:1px solid var(--dsw-alias-border-l1);}
+/* 控件行单行不换行：空间不足时只让「模型下拉」收缩（省略号），发送按钮永远在行内、绝不换行 */
+.dshic-composer-controls .dshic-flex{flex:1 1 6px;min-width:6px;}
+.dshic-composer-controls .dshic-pick-wrap{flex:0 1 auto;min-width:0;}
+.dshic-composer-controls .dshic-pick{max-width:100%;min-width:0;}
 .dshic-pick-wrap{display:inline-flex;flex:none;}
 .dshic-pick{display:inline-flex;align-items:center;gap:5px;height:28px;padding:0 8px;border-radius:8px;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font:inherit;font-size:11.5px;cursor:pointer;box-sizing:border-box;justify-content:space-between;}
 .dshic-pick:hover,.dshic-pick.is-open{background:color-mix(in srgb,var(--dsw-alias-label-primary) 7%,transparent);}
@@ -7119,7 +7256,7 @@ window.__ModuleLoader__.load({
           nd.data.history = h.filter((x, i, arr) => arr.findIndex((y) => y.assetId === x.assetId) === i).slice(0, 8);
           // 生成的图片/视频节点按画面比例「只在一个方向变长」：16:9 → 变宽，9:16 → 变高，长边上限 800
           if (nd.type === 'image' || nd.type === 'video') {
-            const sz = sizeForRatio(nd.data.ratio);
+            const sz = sizeForRatio(mediaRatioOf(nd));
             nd.w = sz.w; nd.h = sz.h;
           }
         }
@@ -7196,6 +7333,17 @@ window.__ModuleLoader__.load({
       S.composerId = next;
       notify();
     }
+    /** 点击节点正文/预览打开面板：面板渲染条件要求 composerId ∈ S.sel，
+     *  而视频控件/分镜清单会在 pointerdown 里 stopPropagation（不经节点根选中），
+     *  所以这里补一次"未选中则选中"（已选中时不动，保留 Shift 多选）。 */
+    function selectAndOpenComposer(nodeId) {
+      const nd = nodeId ? S.graph.nodes[nodeId] : null;
+      const next = nd && COMPOSER_TYPES.has(nd.type) ? nodeId : null;
+      update((s) => {
+        if (nd && !s.sel.has(nodeId)) { s.sel = new Set([nodeId]); s.selEdge = null; }
+        s.composerId = next;
+      });
+    }
 
     function onCanvasPointerDown(e) {
       const target = e.target;
@@ -7231,7 +7379,9 @@ window.__ModuleLoader__.load({
     function onNodePointerDown(e, n) {
       if (e.button === 2 || e.button === 1) return;
       const t = e.target;
-      if (t.closest && t.closest('input,textarea,select,button,video,a,label,[data-no-drag]')) return;
+      // 真正的交互控件（按钮/下拉/视频控件/可编辑输入）保留原生行为；
+      // 图片/视频预览不再被拦成"点了没反应"——点节点任意位置都能打开生成面板（见 NodeShell onClick）。
+      if (isNodeInteractiveTarget(t)) return;
       e.stopPropagation();
       closeMenu();
       // 点击即置顶：被点的节点（含拖动中的整组）绘制在最上层，避免被其他节点盖住
@@ -7654,6 +7804,8 @@ window.__ModuleLoader__.load({
           notify();
           pushHistory();
           flushSave();
+          // 尺寸变化后让生成面板重新贴回节点下方（出图后节点按比例变长时面板不能悬空）
+          try { if (composerReposition) composerReposition(); } catch { /* 定位失败不影响尺寸 */ }
         }, 260);
       };
       const ro = new ResizeObserver(() => {
@@ -7771,9 +7923,11 @@ window.__ModuleLoader__.load({
         setRenaming(false);
       };
       const startRename = () => { setNameVal(n.data.label || ''); setRenaming(true); };
+      const isMedia = n.type === 'image' || n.type === 'video';
       // 统一的尺寸拖拽：dir = 'e' | 'w' | 's' | 'n' | 'se'
       // 左右改宽（左边缘同时改 x，视觉上"从左边拉"），上下改高，右下角同时改宽高。
       // 尺寸一律写进文档的 w/h（持久化；刷新/换设备后保留）。
+      // 媒体节点：等比缩放——拖角/拖边都用主方向推出另一边，绝不允许拉出与画面比例不符的框。
       const startResize = (e, dir) => {
         e.stopPropagation();
         e.preventDefault();
@@ -7785,24 +7939,18 @@ window.__ModuleLoader__.load({
         const h0 = cur.h || NODE_H;
         const x0 = cur.x;
         const y0 = cur.y;
+        const aspect = isMedia ? mediaAspectOf(cur) : null;
         const move = (ev) => {
           const dx = (ev.clientX - sx) / scale;
           const dy = (ev.clientY - sy) / scale;
+          const box = resizeBoxFor(dir, w0, h0, dx, dy, aspect);
           update((s) => {
             const nd = s.graph.nodes[n.id];
             if (!nd) return;
-            if (dir.includes('e')) nd.w = Math.round(Math.max(200, Math.min(1200, w0 + dx)));
-            if (dir.includes('w')) {
-              const w = Math.round(Math.max(200, Math.min(1200, w0 - dx)));
-              nd.w = w;
-              nd.x = Math.round(x0 + (w0 - w));
-            }
-            if (dir.includes('s')) nd.h = Math.round(Math.max(120, Math.min(2400, h0 + dy)));
-            if (dir.includes('n')) {
-              const h = Math.round(Math.max(120, Math.min(2400, h0 - dy)));
-              nd.h = h;
-              nd.y = Math.round(y0 + (h0 - h));
-            }
+            nd.w = box.w;
+            nd.h = box.h;
+            if (dir.includes('w')) nd.x = Math.round(x0 + (w0 - box.w));
+            if (dir.includes('n')) nd.y = Math.round(y0 + (h0 - box.h));
           });
         };
         const up = () => {
@@ -7810,6 +7958,7 @@ window.__ModuleLoader__.load({
           window.removeEventListener('pointerup', up);
           flushSave(); // 拖拽结束立即落盘：否则防抖期间切换页面会丢失 w/h
           try { if (resolvePushNow(new Set([n.id])).size > 1) notify(); } catch { /* 布局自愈失败不影响尺寸 */ }
+          try { if (composerReposition) composerReposition(); } catch { /* 定位失败不影响尺寸 */ }
           pushHistory();
         };
         window.addEventListener('pointermove', move);
@@ -7817,11 +7966,17 @@ window.__ModuleLoader__.load({
       };
       const resetHeight = (e) => {
         e.stopPropagation();
-        // 双击底边：高度回到统一默认 360（尺寸仍然持久化，不会随内容自动变化）
-        update((s) => { const nd = s.graph.nodes[n.id]; if (nd) nd.h = NODE_H; });
+        // 双击底边：媒体节点回到该画面比例的标准尺寸（短边 360、长边 ≤800）；
+        // 文本/剧本/分镜回到统一默认 360×360（尺寸仍然持久化，不会随内容自动变化）
+        update((s) => {
+          const nd = s.graph.nodes[n.id];
+          if (!nd) return;
+          if (isMedia && nd.data && nd.data.assetId) { const sz = sizeForRatio(mediaRatioOf(nd)); nd.w = sz.w; nd.h = sz.h; }
+          else if (isMedia) { nd.w = NODE_W; nd.h = NODE_H; } // 空媒体节点：回到统一 360×360
+          else nd.h = NODE_H;
+        });
         pushHistory();
       };
-      const isMedia = n.type === 'image' || n.type === 'video';
       const nt = normalizeNodeType(n.type);
       const inKind = (PORTS[nt] && PORTS[nt].inputs && PORTS[nt].inputs[0] && PORTS[nt].inputs[0].kind) || 'text';
       const outKind = (PORTS[nt] && PORTS[nt].outputs && PORTS[nt].outputs[0] && PORTS[nt].outputs[0].kind) || 'text';
@@ -7831,6 +7986,12 @@ window.__ModuleLoader__.load({
         style: { left: n.x, top: n.y, width: n.w || NODE_W, height: n.h || NODE_H, zIndex: Number(n.z) || 1 },
         ref: refCb,
         onPointerDown: (e) => onNodePointerDown(e, n),
+        // 点击节点**任意位置**（标题栏 / 预览图 / 空白区 / 空态区 / 正文区）都打开生成面板；
+        // 只有真正的交互控件（按钮、下拉、视频控件、可编辑输入）由各自的 stopPropagation 拦下。
+        onClick: (e) => {
+          if (isNodeInteractiveTarget(e && e.target)) return;
+          selectAndOpenComposer(n.id);
+        },
       },
         h('div', { className: 'dshic-node-head' },
           h('span', { className: 'dshic-head-ic' }, Ic(TYPE_ICON[nt] || 'text', 12)),
@@ -8183,8 +8344,10 @@ window.__ModuleLoader__.load({
     // ============================================================
     // 生成面板（GenComposer，浮层单例）：紧贴选中节点下方弹出
     // ============================================================
-    /** 通用下拉：固定宽度触发按钮 + 可搜索浮层列表（几十个模型也能快速定位）。 */
-    function PopupSelect({ value, options, onChange, width, title, className, searchable }) {
+    /** 通用下拉：固定宽度触发按钮 + 可搜索浮层列表（几十个模型也能快速定位）。
+     *  shrink=true 时宽度作为 flex 基准：控件行空间不足可以先收缩（模型名走省略号），
+     *  保证发送按钮永远留在同一行。 */
+    function PopupSelect({ value, options, onChange, width, title, className, searchable, shrink }) {
       const [open, setOpen] = useState(false);
       const [q, setQ] = useState('');
       const [pos, setPos] = useState({ left: 0, top: 0, width: width || 160 });
@@ -8222,10 +8385,14 @@ window.__ModuleLoader__.load({
       const shown = (searchable && query)
         ? options.filter((o) => (String(o.label) + ' ' + String(o.sub || '') + ' ' + String(o.value)).toLowerCase().includes(query))
         : options;
-      return h('span', { className: cls('dshic-pick-wrap', className) },
+      return h('span', {
+        className: cls('dshic-pick-wrap', className),
+        // 可收缩的下拉（模型）：flex-basis = 期望宽度，min-width:0 允许被压到省略号
+        style: shrink ? { flex: '0 1 ' + (Number(width) || 160) + 'px', minWidth: 0 } : undefined,
+      },
         h('button', {
           type: 'button', ref: btnRef, className: cls('dshic-pick', open && 'is-open'),
-          style: width ? { width: width + 'px' } : undefined,
+          style: shrink ? { width: '100%', minWidth: 0 } : (width ? { width: width + 'px' } : undefined),
           title: (cur && (cur.title || cur.sub ? ((cur.sub ? cur.sub + ' · ' : '') + cur.label) : '')) || title || '',
           onPointerDown: (e) => e.stopPropagation(),
           onClick: (e) => { e.stopPropagation(); if (open) setOpen(false); else openMenu(); },
@@ -8291,7 +8458,9 @@ window.__ModuleLoader__.load({
         const vh = window.innerHeight || 800;
         const pad = 12;
         const gap = 9;
-        const pw = Math.min(Math.max(Math.min(r.width || NODE_W, 560), 460), Math.min(720, vw - pad * 2));
+        // 面板宽度：**不随节点宽度收缩**（最小 520，否则控件行放不下会挤掉发送按钮）；
+        // 节点更宽时同步放宽，但不超过 720 / 视口 - 24。
+        const pw = composerWidthFor(r.width, vw);
         box.style.width = pw + 'px';
         const ph = box.offsetHeight || 280;
         let left = (r.left || 0) + (r.width || 0) / 2 - pw / 2;
@@ -8624,7 +8793,7 @@ window.__ModuleLoader__.load({
           !isFinalCut
             ? h(PopupSelect, {
                 value: modelRef, options: modelOptions, onChange: setModel, width: 172,
-                title: T('modelLabel'), searchable: true, className: 'is-model',
+                title: T('modelLabel'), searchable: true, className: 'is-model', shrink: true,
               })
             : null,
           isStoryboard
@@ -8749,6 +8918,9 @@ window.__ModuleLoader__.load({
         return () => { ok = false; };
       }, [n.id, S.assetsTick, S.store]);
       const assetUrlV = useAssetUrl(n.data.assetId);
+      const [mediaState, setMediaState] = useState('idle'); // idle | ready | error（未就绪一律骨架，绝不破图）
+      // 换了资产（重新生成/历史切换）→ 回到未就绪：旧图不残留、新图加载期间有骨架兜底
+      useEffect(() => { setMediaState('idle'); }, [n.data.assetId]);
       const refEdges = S.graph.edges.filter((x) => x.toNode === n.id && x.toPort === 'ref');
       const firstRefSrc = refEdges.length ? S.graph.nodes[refEdges[0].fromNode] : null;
       const firstRefAid = firstRefSrc ? servedAssetId(firstRefSrc, refEdges[0].fromPort) : null;
@@ -8756,28 +8928,63 @@ window.__ModuleLoader__.load({
       const running = n.data.status === 'running';
       const done = !!n.data.assetId;
       const statusLabel = running ? T('genRunning') : done ? T('generated') : (n.data.status === 'error' ? T('genFailed') : '');
-      const openPanel = () => { S.composerId = n.id; notify(); };
+      // 打开面板必须同时选中节点：面板渲染条件是 composerId ∈ S.sel。
+      // 视频控件会 stopPropagation（不经过节点根 pointerdown），所以这里自己保证选中。
+      const openPanel = () => selectAndOpenComposer(n.id);
+      /** 媒体真实像素尺寸 → 记录进节点并按比例校正框尺寸。
+       *  「节点框长宽比 = 媒体本身的长宽比」：记录的比例与实测一致（3% 容差）就沿用记录值，
+       *  明显不一致（API 没按比例出图 / 导入的外部素材）则以**画面实际比例**为准——否则预览必然 letterbox。 */
+      const recordMediaDims = (aw0, ah0) => {
+        const aw = Number(aw0) || 0;
+        const ah = Number(ah0) || 0;
+        if (!(aw > 0 && ah > 0)) return;
+        update((s) => {
+          const nd = s.graph.nodes[n.id];
+          if (!nd) return;
+          const ratio = mediaRatioForDims(nd.data.ratio, aw, ah);
+          nd.data.assetW = aw;
+          nd.data.assetH = ah;
+          nd.data.ratio = ratio;
+          const sz = sizeForRatio(ratio);
+          const w = Number(nd.w);
+          const h = Number(nd.h);
+          const same = w > 0 && h > 0 && Math.abs(w / h - sz.w / sz.h) / (sz.w / sz.h) <= 0.02;
+          if (!same) { nd.w = sz.w; nd.h = sz.h; }
+        });
+      };
+      const imgShown = done && !!assetUrlV && kind === 'image' && mediaState !== 'error';
+      const vidShown = done && !!assetUrlV && kind === 'video' && mediaState !== 'error';
       return [
         h('div', { key: 'media', className: cls('dshic-media-wrap', running && 'is-running') },
-          done && assetUrlV && kind === 'image'
+          // 骨架层永远铺满内容区：图片/视频未就绪（加载中、资产暂取不到、解码失败）显示中性骨架，
+          // 绝不出现 <img alt> 破图占位，也绝不出现 letterbox 空白带。图片加载完成后骨架自动撤掉。
+          done && mediaState !== 'ready'
+            ? h('div', { key: 'sk', className: cls('dshic-media-skeleton', mediaState === 'error' && 'is-error') })
+            : null,
+          imgShown
             ? h('img', {
-                key: 'img', className: 'dshic-media-fill', src: assetUrlV, draggable: false, 'data-no-drag': '1',
-                onPointerDown: (e) => e.stopPropagation(),
-                onClick: (e) => { e.stopPropagation(); openPanel(); },
+                key: 'img', className: 'dshic-media-fill', src: assetUrlV, draggable: false,
+                onLoad: (e) => { setMediaState('ready'); const el = e && e.currentTarget; recordMediaDims(el && el.naturalWidth, el && el.naturalHeight); },
+                onError: () => setMediaState('error'),
                 onDoubleClick: (e) => { e.stopPropagation(); openLightbox('image', assetUrlV, n.data.label); },
               })
             : null,
-          done && assetUrlV && kind === 'video'
+          vidShown
             ? h('video', {
                 key: 'vid', className: 'dshic-media-fill', src: assetUrlV, controls: true, preload: 'metadata',
-                'data-no-drag': '1', onPointerDown: (e) => e.stopPropagation(),
+                // 视频控件保留 stopPropagation（拖动/选择不被视频吃掉），但**仍要打开生成面板**：
+                // 点击视频任意位置先拦住节点拖动，再调用 openPanel（"拦截后仍调用打开"）。
+                onPointerDown: (e) => { e.stopPropagation(); openPanel(); },
+                onClick: (e) => e.stopPropagation(),
+                onLoadedMetadata: (e) => { setMediaState('ready'); const el = e && e.currentTarget; recordMediaDims(el && el.videoWidth, el && el.videoHeight); },
+                onError: () => setMediaState('error'),
               })
             : null,
           !done
             ? h('div', { key: 'empty', className: 'dshic-media-empty', onClick: openPanel },
                 h('span', { className: 'dshic-media-empty-ic' }, Ic(kind === 'video' ? 'video' : 'image', 18)),
                 h('span', { className: 'dshic-media-empty-t' }, T(kind === 'video' ? 'clickToGenVideo' : 'clickToGenImage')))
-            : (assetUrlV ? null : h('div', { key: 'ph', className: 'dshic-media-empty' }, h('span', { className: 'dshic-media-empty-t' }, '…'))),
+            : null,
           statusLabel
             ? h('div', { key: 'st', className: cls('dshic-status-badge', running ? 'is-run' : done ? 'is-done' : 'is-err') },
                 h('span', { className: 'dshic-status-dot' }),
@@ -9209,8 +9416,9 @@ window.__ModuleLoader__.load({
             )
           : null,
         shots.length
-          ? h('div', { key: 'listwrap', style: { alignSelf: 'stretch' } },
-              h('div', { key: 'list', className: 'dshic-shot-list', style: { maxHeight: 240 } },
+          ? h('div', { key: 'listwrap', className: 'dshic-node-fill' },
+              // 镜头清单占满分镜节点剩余高度并在内部滚动：节点拉高时由清单撑满，不留空白带
+              h('div', { key: 'list', className: 'dshic-shot-list is-fill' },
                 shots.map((sh, i) => {
                   const pl = shotContinuityPlan(sh, shots[i - 1], i);
                   return h('div', { key: i, className: 'dshic-shot-item', onPointerDown: (e) => e.stopPropagation() },
@@ -11862,8 +12070,17 @@ window.__ModuleLoader__.load({
         if (typeof window !== 'undefined' && window.__DSH_IC_SMOKE__) {
           window.__DSH_IC_TABS__ = { ProjectsTab, AssetsTab, BibleTab, SettingsTab, CanvasPage, ShortcutsPanel, CanvasHostedApp };
           // 节点体/生成面板组件出口：供 scripts/test-node-actions.mjs 断言「结果操作按钮必须在节点末尾左下角」，
-          // 并供 smoke-render 直接渲染新组件（MediaNodeBody / GenComposer）抓渲染期崩溃
-          window.__DSH_IC_NODES__ = { ScriptNodeBody, StoryboardNodeBody, MediaNodeBody, GenComposer, FinalCutNodeBody, TextNodeBody, ShotNodeBody };
+          // 并供 smoke-render 直接渲染新组件（MediaNodeBody / GenComposer）抓渲染期崩溃；
+          // NodeShell 用于断言「点击节点任意位置都能打开生成面板」不止边框可点。
+          window.__DSH_IC_NODES__ = { ScriptNodeBody, StoryboardNodeBody, MediaNodeBody, GenComposer, FinalCutNodeBody, TextNodeBody, ShotNodeBody, NodeShell };
+          // 排版纯函数/常量出口：尺寸比例、媒体框比例校正、等比缩放、面板宽度（供 scripts/test-node-layout.mjs 断言）
+          window.__DSH_IC_LAYOUT__ = {
+            NODE_W, NODE_H, MEDIA_MAX_LONG,
+            COMPOSER_MIN_W, COMPOSER_MAX_W, COMPOSER_VIEWPORT_GAP,
+            sizeForRatio, ratioFromDims, mediaRatioOf, mediaAspectOf, mediaRatioForDims,
+            normalizeMediaNodeSize, normalizeGraphDoc, resizeBoxFor, composerWidthFor,
+            NODE_INTERACTIVE_SELECTOR,
+          };
           // 成片合成（composeFinalCut）纯函数级出口：浏览器录制链路无法在 Node 端跑，
           // 但合成主循环（分段推进/裁剪/转场/字幕）可以用假的 video/MediaRecorder 真实执行——
           // 这正是历史上一处 "dur is not defined" 在真机上才炸的漏洞所在。
@@ -11881,6 +12098,9 @@ window.__ModuleLoader__.load({
             hostSyncTick, mergeHostDoc, loadBible, loadGraphDoc,
             removeNodes, ungroupNode, undo, redo, pushHistory,
             graph: () => JSON.parse(JSON.stringify(S.graph)),
+            // 生成面板挂靠节点（纯 UI 状态）：供 test-node-layout 断言「点击节点任意位置 → 面板打开」。
+            composerId: () => S.composerId,
+            selectedIds: () => [...S.sel],
             // 冒烟测试用：切换「快捷键面板」展开态，让展开后的列表也走一次真实渲染
             setKeysOpen: (v) => { S.keysOpen = !!v; },
             state: () => ({ stopped: hostSyncStopped, busy: hostSyncBusy, projects: S.projects.map((p) => p.id), activeId: S.activeId, ready: S.ready }),
