@@ -6,6 +6,11 @@ GitHub Releases carry the same notes in English; maintainer-facing runbooks live
 
 ## [Unreleased]
 
+> Nothing yet. Add entries here (Added / Fixed / Changed / Internal) as `dev` moves; the release
+> gate requires the section to exist above the newest released version.
+
+## [0.18.6] — 2026-10-21
+
 ### Added
 - **Expanding a storyboard now builds asset nodes that are ready to generate**: every character, scene and prop the shots mention is resolved against the asset library first — an image that exists becomes an asset node wired to the video's reference port, and one that does not becomes an **image-generation node whose prompt is already written** to the asset-sheet layout (character six-block sheet, scene main-image-plus-surrounding-panels, prop title + 45° hero + details + side view + colour swatches; 2K landscape). The bible's appearance notes and style baseline are injected automatically, so the reference sheet is usable in one click instead of being hand-written. Re-expanding the same storyboard reuses same-label generator nodes rather than stacking duplicates.
 

@@ -76,13 +76,17 @@ ok(!!baselineVersion, '找不到最新已发布版本号，无法校验 package.
 ok(pkg.version === baselineVersion, 'package.json 的 version 与最新已发布版本不一致（本单不改版本号）：'
   + pkg.version + ' ≠ ' + baselineVersion);
 
-// ---------- 5) 四个分组齐全 ----------
-for (const g of ['Added', 'Fixed', 'Changed', 'Internal']) {
-  ok(new RegExp('^### ' + g + '\\s*$', 'm').test(section), 'Unreleased 段缺少 `### ' + g + '` 分组');
-}
+// ---------- 5) 四个分组齐全（仅当 Unreleased 段有内容时） ----------
+// 刚发完版时 Unreleased 是空段（只有一句提示），此时**无可记录、也无结构可校验**——
+// 旧口径无条件要求四分组，发版提交一落地就假红（0.18.6 发版时坐实）。真正的把关在
+// 第 7/8 节：只要有未发版提交，清单必须与提交数相等且逐条命中；缺条目照样红。
+const unrelHasEntries = /^\s*-\s+\S/m.test(section);
+if (unrelHasEntries) {
+  for (const g of ['Added', 'Fixed', 'Changed', 'Internal']) {
+    ok(new RegExp('^### ' + g + '\\s*$', 'm').test(section), 'Unreleased 段缺少 `### ' + g + '` 分组');
+  }
 
-// ---------- 6) 每个分组下至少一条条目 ----------
-{
+  // ---------- 6) 每个分组下至少一条条目 ----------
   const parts = section.split(/^### /m).slice(1);
   for (const p of parts) {
     const name = p.split('\n')[0].trim();
@@ -97,9 +101,7 @@ for (const g of ['Added', 'Fixed', 'Changed', 'Internal']) {
 // OBS-1 硬要求（QA 判据）：清单**手工维护**，绝不从 `git log` 动态生成——动态清单会自证
 // （脚本生成的清单当然自己全中，"缺一必红"退化成摆设）。数量相等 + 逐 sha 关键词命中，两条都拦。
 const COVERAGE = [
-  // 0.18.5 已发布，上一轮清单随之清零——现在只为 0.18.5 之后的新提交记账。
-  { sha: '663447f', keys: [/asset nodes that are ready to generate|设定图|image-gen node/i] },
-  { sha: 'd5c10b8', keys: [/bottom-left|result actions|操作按钮/i] },
+  // 0.18.6 已发布，清单清零——下一轮新提交从这里开始记账。
 ];
 for (const c of COVERAGE) {
   ok(c.keys.some((re) => re.test(section)), '未发版提交 ' + c.sha + ' 在 Unreleased 段里找不到对应记录（补记不全）');
@@ -293,5 +295,6 @@ if (errs.length) {
   for (const e of errs) console.error('  - ' + e);
   process.exit(1);
 }
-console.log('✓ IC-07 验证通过：Unreleased 段结构完整（4 分组）、无提前写死的版本号、CAS 条目措辞与读路径保留一致，' + COVERAGE.length + ' 个未发版提交全部有记录');
+console.log('✓ IC-07 验证通过：' + (unrelHasEntries ? 'Unreleased 段结构完整（4 分组）' : 'Unreleased 为空段（已发版、无待记事项）')
+  + '、无提前写死的版本号、CAS 条目措辞与读路径保留一致，' + COVERAGE.length + ' 个未发版提交全部有记录');
 process.exit(0);
