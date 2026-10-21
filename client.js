@@ -8579,23 +8579,6 @@ window.__ModuleLoader__.load({
           ? h('div', { key: 'stream', className: 'dshic-stream', title: aiStreamLine(n.id) },
               h('span', { className: 'dshic-stream-dot' }), aiStreamLine(n.id))
           : null,
-        h('div', { key: 'btns', className: 'dshic-node-row' },
-          h('div', { className: 'dshic-flex' }),
-          n.data.output ? h('button', {
-            type: 'button', className: 'dshic-mini is-ghost', title: T('expandScenes') + '（每场 → 文本+分镜表 组合）',
-            onPointerDown: (e) => e.stopPropagation(),
-            onClick: () => expandScriptToScenes(n),
-          }, Ic('expandAll', 11), T('expandScenes')) : null,
-          n.data.output ? h('button', {
-            type: 'button', className: 'dshic-mini is-ghost', title: T('saveTextAsset'),
-            onPointerDown: (e) => e.stopPropagation(),
-            onClick: async () => {
-              await saveTextAssetRecord(S.activeId, { name: (String(n.data.label || '').trim() || T('scriptAssetPrefix')) + ' ' + nowStamp(), text: n.data.output, category: 'script', prompt: n.data.idea });
-              update((s) => { s.assetsTick++; });
-              toast(T('savedOk'));
-            },
-          }, Ic('download', 11), T('saveTextAsset')) : null,
-        ),
         n.data.aiError ? h('div', { key: 'err', className: 'dshic-err' }, n.data.aiError) : null,
         h('span', { key: 'l2', className: 'dshic-shot-label' }, T('scriptOutputLabel')),
         h(PromptArea, {
@@ -8604,6 +8587,26 @@ window.__ModuleLoader__.load({
           placeholder: running ? T('aiRunning') : '',
           onChange: (v) => update((s) => { const nd = s.graph.nodes[n.id]; if (nd) nd.data.output = v; }),
         }),
+        // 结果相关操作放节点末尾左下角（与分镜节点同一规范：内容之后 + alignSelf:flex-start）——
+        // 这些按钮作用于「已经生成出来的剧本」，不该夹在生成按钮与输出正文之间。
+        n.data.output
+          ? h('div', { key: 'acts', className: 'dshic-node-row', style: { alignSelf: 'flex-start' } },
+              h('button', {
+                type: 'button', className: 'dshic-mini is-ghost', title: T('saveTextAsset'),
+                onPointerDown: (e) => e.stopPropagation(),
+                onClick: async () => {
+                  await saveTextAssetRecord(S.activeId, { name: (String(n.data.label || '').trim() || T('scriptAssetPrefix')) + ' ' + nowStamp(), text: n.data.output, category: 'script', prompt: n.data.idea });
+                  update((s) => { s.assetsTick++; });
+                  toast(T('savedOk'));
+                },
+              }, Ic('download', 11), T('saveTextAsset')),
+              h('button', {
+                type: 'button', className: 'dshic-mini', title: T('expandScenes') + '（每场 → 文本+分镜表 组合）',
+                onPointerDown: (e) => e.stopPropagation(),
+                onClick: () => expandScriptToScenes(n),
+              }, Ic('expandAll', 11), T('expandScenes')),
+            )
+          : null,
       ];
     }
 
@@ -11387,6 +11390,8 @@ window.__ModuleLoader__.load({
         // 直接暴露各页签组件与同步入口，让测试能逐个渲染/驱动，抓白屏与同步断链问题
         if (typeof window !== 'undefined' && window.__DSH_IC_SMOKE__) {
           window.__DSH_IC_TABS__ = { ProjectsTab, AssetsTab, BibleTab, SettingsTab, CanvasPage, ShortcutsPanel, CanvasHostedApp };
+          // 节点体组件出口：供 scripts/test-node-actions.mjs 断言「结果操作按钮必须在节点末尾左下角」的排版规范
+          window.__DSH_IC_NODES__ = { ScriptNodeBody, StoryboardNodeBody, GenNodeBody, FinalCutNodeBody, AssetNodeBody, TextNodeBody, ShotNodeBody };
           // 成片合成（composeFinalCut）纯函数级出口：浏览器录制链路无法在 Node 端跑，
           // 但合成主循环（分段推进/裁剪/转场/字幕）可以用假的 video/MediaRecorder 真实执行——
           // 这正是历史上一处 "dur is not defined" 在真机上才炸的漏洞所在。
