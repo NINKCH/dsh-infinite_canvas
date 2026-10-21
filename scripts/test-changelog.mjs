@@ -103,6 +103,7 @@ if (unrelHasEntries) {
 const COVERAGE = [
   // 0.18.6 已发布；此后每笔未发版功能提交在这里登记（sha + Unreleased 里必须能命中的关键词）。
   { sha: 'b34462d', keys: [/merge generation and asset nodes|unified media node|MediaNodeBody|GenComposer|节点类型合并/i] },
+  { sha: '0f88454', keys: [/aspect|one row|any click|等比|letterbox|比例/i] },
 ];
 for (const c of COVERAGE) {
   ok(c.keys.some((re) => re.test(section)), '未发版提交 ' + c.sha + ' 在 Unreleased 段里找不到对应记录（补记不全）');
