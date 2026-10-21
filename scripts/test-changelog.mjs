@@ -99,6 +99,7 @@ for (const g of ['Added', 'Fixed', 'Changed', 'Internal']) {
 const COVERAGE = [
   // 0.18.5 已发布，上一轮清单随之清零——现在只为 0.18.5 之后的新提交记账。
   { sha: '663447f', keys: [/asset nodes that are ready to generate|设定图|image-gen node/i] },
+  { sha: 'd5c10b8', keys: [/bottom-left|result actions|操作按钮/i] },
 ];
 for (const c of COVERAGE) {
   ok(c.keys.some((re) => re.test(section)), '未发版提交 ' + c.sha + ' 在 Unreleased 段里找不到对应记录（补记不全）');

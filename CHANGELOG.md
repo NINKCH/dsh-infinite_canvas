@@ -14,6 +14,7 @@ GitHub Releases carry the same notes in English; maintainer-facing runbooks live
 
 ### Changed
 - **The canvas skill documents the new expansion contract**: what expansion creates for each missing entity, the naming convention of the generated sheets, and the order to generate in (assets first, then video).
+- **Result actions now sit at the node's bottom-left on every node**: the script node had 铺开到场景 / 存为资产 between the generate button and the script body, while every other result-bearing node kept its actions after the content. The script node follows the storyboard convention now (save-as-asset, then the primary expand), and the layout skill states the rule: buttons that act on a generated result go last and left-aligned, input controls stay in the input area.
 
 ### Internal
 - `scripts/test-expand-assets.mjs` drives the real expansion in a sandbox (3 entities → 3 generator nodes with sheet prompts and 3 reference edges, no placeholders, no duplicates on a second run); `test-mentions` covers the prompt generator for all three asset kinds plus the English variant, and the regression gate lists the new test.
