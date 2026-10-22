@@ -107,6 +107,7 @@ const COVERAGE = [
   { sha: '6c4d9a7', keys: [/fixed-height header|action bar|fixed chrome|not part of the picture ratio/i] },
   { sha: '825b1af', keys: [/follows the reviewed prototype|content area|点击|原型/i] },
   { sha: '2a25a84', keys: [/panel got simpler|drag a thumbnail|controls only while playing/i] },
+  { sha: '5bbb39d', keys: [/only the references you actually wired|lists every asset|injects the bible text|shot-level detail/i] },
 ];
 for (const c of COVERAGE) {
   ok(c.keys.some((re) => re.test(section)), '未发版提交 ' + c.sha + ' 在 Unreleased 段里找不到对应记录（补记不全）');
