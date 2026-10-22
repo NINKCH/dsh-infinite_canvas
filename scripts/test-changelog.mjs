@@ -111,6 +111,7 @@ const COVERAGE = [
   { sha: 'd90ea5a', keys: [/expert personas now carry|available to the Harness itself|shortcut/i] },
   { sha: '9d6b1ed', keys: [/icon rail|IconRail|studio modal|StudioModal|project switcher|图标|弹窗|面板/i] },
   { sha: '2793862', keys: [/inject list|without inject|client plugin loads again/i] },
+  { sha: '2a1b829', keys: [/sub-canvases|directory tree|rename|icon-only/i] },
 ];
 for (const c of COVERAGE) {
   ok(c.keys.some((re) => re.test(section)), '未发版提交 ' + c.sha + ' 在 Unreleased 段里找不到对应记录（补记不全）');
