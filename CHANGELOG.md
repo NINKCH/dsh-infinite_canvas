@@ -6,6 +6,11 @@ GitHub Releases carry the same notes in English; maintainer-facing runbooks live
 
 ## [Unreleased]
 
+> Nothing yet. Add entries here (Added / Fixed / Changed / Internal) as `dev` moves; the release
+> gate requires the section to exist above the newest released version.
+
+## [0.18.7] — 2026-10-22
+
 ### Added
 - **One「专家 / Expert」picker replaces the two skill dropdowns**: the settings card is now just「技能增强 / Skill boost」with a single「专家 / Expert」select; an expert bundles a per-capability persona (`script` / `storyboard`) with a `skills` list, and the picker only lists plugin experts — the current build ships `general`（「通用专家 / General expert」, the default）, whose persona and `canvas-craft` skill are exactly the previous built-in experts, so generation quality and prompt structure are unchanged. Script and storyboard generation now resolve through the same `buildExpertContext(kind, settings)` path (and so does bible drafting), so one selection drives both; unknown/missing ids fall back to `general`. The registry is a plain `EXPERTS` array so future experts (ancient-costume / wuxia / marketing) only need their own `persona` + `skills`; Harness-wide skills (artcraft-* / noteboard-* / office-* / diagnose-*) are never offered. Old settings with `skillScript` / `skillStoryboard` but no `expert` migrate silently to `general` (the legacy keys are no longer written or read), and a corrupt value never throws.
 - **The client plugin loads again after the shortcut work**: the skill shortcut probed `ctx.shortcuts` directly, and the client runner rejects reading a service a module did not declare in its `inject` list (`cannot get property "shortcuts" without inject`) — that threw during the module's `apply`, so the whole client half failed to synchronise and the panel never appeared. `shortcuts` is now declared in `inject`, and the probe is wrapped so an older runner without the service only skips the shortcut instead of breaking the plugin.

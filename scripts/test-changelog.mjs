@@ -101,30 +101,7 @@ if (unrelHasEntries) {
 // OBS-1 硬要求（QA 判据）：清单**手工维护**，绝不从 `git log` 动态生成——动态清单会自证
 // （脚本生成的清单当然自己全中，"缺一必红"退化成摆设）。数量相等 + 逐 sha 关键词命中，两条都拦。
 const COVERAGE = [
-  // 0.18.6 已发布；此后每笔未发版功能提交在这里登记（sha + Unreleased 里必须能命中的关键词）。
-  { sha: 'b34462d', keys: [/merge generation and asset nodes|unified media node|MediaNodeBody|GenComposer|节点类型合并/i] },
-  { sha: '0f88454', keys: [/aspect|one row|any click|等比|letterbox|比例/i] },
-  { sha: '6c4d9a7', keys: [/fixed-height header|action bar|fixed chrome|not part of the picture ratio/i] },
-  { sha: '825b1af', keys: [/follows the reviewed prototype|content area|点击|原型/i] },
-  { sha: '2a25a84', keys: [/panel got simpler|drag a thumbnail|controls only while playing/i] },
-  { sha: '5bbb39d', keys: [/only the references you actually wired|lists every asset|injects the bible text|shot-level detail/i] },
-  { sha: 'd90ea5a', keys: [/expert personas now carry|available to the Harness itself|shortcut/i] },
-  { sha: '9d6b1ed', keys: [/icon rail|IconRail|studio modal|StudioModal|project switcher|图标|弹窗|面板/i] },
-  { sha: '2793862', keys: [/inject list|without inject|client plugin loads again/i] },
-  { sha: '2a1b829', keys: [/sub-canvases|directory tree|rename|icon-only/i] },
-  { sha: 'caea5e7', keys: [/in-place rename|shows only the current one|solid-surface|rail only takes the middle|no literal colours/i] },
-  { sha: 'e97f063', keys: [/default canvas|defaultCanvasName|only one canvas remains|remaining canvas/i] },
-  { sha: '814f135', keys: [/current-project tick|inline rename|right panel|新建项目/i] },
-  { sha: 'afec094', keys: [/paginat|search|icon rail frame|search row|分页|图标/i] },
-  { sha: '41fb0b7', keys: [/size the project menu|content up to five|canvas name on the project row|canvas chip|自适应/i] },
-  { sha: '11fbc15', keys: [/pager sits on the same row|search field|rail|storage|icon rail/i] },
-  { sha: '3ae252b', keys: [/pager|page-jump|plus icon|magnifier|页码/i] },
-  { sha: '9d39aa0', keys: [/expert selector|whole skill set|skill pickers|专家/i] },
-  { sha: '07bfda3', keys: [/icon rail|rail is a fixed column|float|图标列/i] },
-  { sha: '1af1e55', keys: [/redundant expert field label|skill boost card|expert|专家/i] },
-  { sha: 'aa02f28', keys: [/icon rail|floats over the canvas|悬浮/i] },
-  { sha: 'ef574bd', keys: [/solid white pill|floating icon rail|白底/i] },
-  { sha: 'e6b1e87', keys: [/slim square-cornered pill|hugs them|square corners/i] },
+  // 0.18.7 已发布，清单清零——下一轮新提交从这里开始记账。
 ];
 for (const c of COVERAGE) {
   ok(c.keys.some((re) => re.test(section)), '未发版提交 ' + c.sha + ' 在 Unreleased 段里找不到对应记录（补记不全）');
