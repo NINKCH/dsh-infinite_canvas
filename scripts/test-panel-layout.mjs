@@ -7,8 +7,9 @@
 //      Esc / 遮罩关闭、右侧面板不再有资产/设定集页签
 //   4) 顶部工具栏：最左「返回会话」纯 < 图标 → 项目名（下拉列出项目 + 新建项目…；双击项目名就地编辑；
 //      下拉每行右侧「修改」按钮在该行就地编辑（当前项目行同样可点，pointerdown/click 都不触发行切换），
-//      当前项目只用蓝底/蓝字标选中、不再渲染 ✓；顶部不再有铅笔；下拉里没有「重命名项目…」；
-//      下拉固定 5 行/页 + 搜索 + 分页（>5 项），分页/搜索先结清进行中的就地改名）
+//      当前项目只用蓝底/蓝字标选中、不再渲染 ✓；顶部不再有铅笔、也不再有当前画布名 chip；下拉里没有「重命名项目…」；
+//      下拉行单行「项目名 · 画布名」；≤5 项列表高 = 实际行数（不留空白），>5 项才固定 5 行 + 分页；
+//      搜索/分页先结清进行中的就地改名）
 //   5) 快捷键 / 帮助反馈 / 检查更新回到右上角：三个纯图标按钮（hover tooltip），右侧面板不再有动作行
 //   6) 多画布：项目为根、子画布为目录；新建必须命名；切换读写不同 key；删除回默认画布；
 //      默认画布 canvasId=null（key 仍等于 projectId，旧数据零迁移）
@@ -706,22 +707,26 @@ function cssRule(selector) {
   din.props.onKeyDown({ key: 'Enter', preventDefault: noop, stopPropagation: noop });
   eq(CANVAS.canvasNameFor(active, null), defBefore, '默认画布空名提交改掉了名字');
   eq(PANEL.state().inlineEdit, null, '默认画布空名提交后没有退出编辑');
-  // 合法名字 → Enter 提交，canvasNameFor / 顶部画布名 / 下拉副标题 / 面板同步
+  // 合法名字 → Enter 提交，canvasNameFor / 下拉行内画布名 / 面板同步；顶部工具栏不再显示画布名
   act(all(TABS.ProjectsTab()), 'rename-canvas-default').props.onClick({ stopPropagation: noop });
   const din2 = all(TABS.ProjectsTab()).find((e) => e.props && e.props['data-role'] === 'inline-canvas-name-input');
   din2.props.onChange({ target: { value: '主画布' } });
   din2.props.onKeyDown({ key: 'Enter', preventDefault: noop, stopPropagation: noop });
   eq(CANVAS.canvasNameFor(active, null), '主画布', '默认画布改名未生效');
   ok(stringsOf(all(TABS.ProjectsTab())).join('|').includes('主画布'), '默认画布改名后面板未同步');
-  CANVAS.switchCanvas(null); // 切到默认画布，顶部/下拉应显示它的新名字
-  const chip = all(TABS.Toolbar()).find((e) => e.props && e.props['data-role'] === 'active-canvas-name');
-  ok(!!chip, '顶部缺少当前画布名');
-  eq(chip && stringsOf(chip).join(''), '主画布', '默认画布改名后顶部画布名未同步');
+  // 第 3 条：顶部工具栏不再有当前画布名 chip（源码级 + 渲染级）
+  ok(!/active-canvas-name/.test(src), '源码里仍渲染顶部当前画布名（active-canvas-name）');
+  ok(!/dshic-canvas-chip/.test(src), '源码里仍残留顶部当前画布名样式（dshic-canvas-chip）');
+  CANVAS.switchCanvas(null); // 切到默认画布；下拉里当前项目行应显示它的新名字
+  const tbNoChip = all(TABS.Toolbar());
+  ok(!tbNoChip.some((e) => e.props && e.props['data-role'] === 'active-canvas-name'), '顶部工具栏仍渲染当前画布名 chip');
+  ok(!!tbNoChip.find((e) => e.props && e.props['data-role'] === 'project-name'), '顶部项目名丢失');
+  ok(tbNoChip.some((e) => clsOf(e).includes('dshic-proj-car')), '顶部项目名下拉箭头丢失');
   PANEL.openProjectMenuAt(10, 50);
   const menuNow = all(TABS.Toolbar());
   const menuSub = menuNow.filter((e) => e.props && e.props['data-role'] === 'project-menu-canvas-name')
     .find((e) => stringsOf(e).join('') === '主画布');
-  ok(!!menuSub, '默认画布改名后下拉项目行的画布名副标题未同步');
+  ok(!!menuSub, '默认画布改名后下拉当前项目行的画布名未同步');
   PANEL.closeProjectMenu();
   // 默认画布可删除（画布数 > 1）：行上有删除按钮 + 行内二次确认；删除走 deleteCanvasNamed(pid, null)
   ok(CANVAS.listCanvases(active).length > 1, '默认画布删除用例要求项目里还有其它画布');
@@ -879,16 +884,52 @@ function cssRule(selector) {
     return el ? stringsOf(el).join('') : '';
   };
   const menuSearch = () => all(TABS.Toolbar()).find((e) => e.props && e.props['data-role'] === 'project-menu-search');
-  // 第一页最多 5 行；列表高度固定（不随项目数变化）
+  // >5 项：固定 5 行高 + 分页；≤5 项：按实际行数自适应（不留空白）
   eq(rows().length, 5, '项目下拉第一页应只渲染 5 个项目行');
+  const listEl = () => all(TABS.Toolbar()).find((e) => e.props && e.props['data-role'] === 'project-menu-list');
   const listCss = cssRule('.dshic-proj-menu-list');
-  ok(/height:calc\(5 \* 38px\)/.test(listCss), '项目下拉列表没有固定 5 行高度：' + listCss.slice(0, 120));
-  ok(/overflow:hidden/.test(listCss), '项目下拉列表没有固定高度裁切（项目多时会撑高下拉）');
+  ok(/height:auto/.test(listCss), '项目下拉列表基础高度应为 auto（≤5 项时按实际行数）：' + listCss.slice(0, 120));
+  ok(/overflow:visible/.test(listCss), '项目下拉列表基础不应裁切（≤5 项时按实际行数）');
+  const pagedCss = cssRule('.dshic-proj-menu-list.is-paged');
+  ok(/height:calc\(5 \* 38px\)/.test(pagedCss), '>5 项时缺少固定 5 行高度（is-paged）：' + pagedCss.slice(0, 120));
+  ok(/overflow:hidden/.test(pagedCss), '>5 项时列表没有固定高度裁切（项目多时会撑高下拉）');
+  ok(clsOf(listEl()).includes('is-paged'), '>5 项时列表没有命中 is-paged（仍会自适应）');
+  eq(listEl().props['data-paged'], '1', '>5 项时列表 data-paged 标记不对');
   const totalPages = Math.ceil(PANEL.state().projects.length / 5);
   ok(totalPages > 1, '构造的项目数不足，无法验证分页');
   eq(pageText(), '1/' + totalPages, '分页页码显示不对');
   ok(!!act(all(TABS.Toolbar()), 'project-menu-next'), '项目下拉缺少「下一页」控件');
   ok(!!act(all(TABS.Toolbar()), 'project-menu-prev'), '项目下拉缺少「上一页」控件');
+  // 行内布局：每个项目行只有一行文本「项目名 · 画布名」，没有单独画布名次行节点
+  const row0 = rows()[0];
+  const row0Id = String(row0.props['data-action']).replace('switch-project-', '');
+  const mainEl = all(row0).find((e) => clsOf(e).includes('dshic-proj-menu-main'));
+  ok(!!mainEl, '项目行缺少主区容器');
+  const mainKids = (mainEl.props.children || []).filter(Boolean);
+  ok(!all(row0).some((e) => clsOf(e).includes('dshic-proj-menu-sub')), '项目行仍渲染单独的画布名次行节点（dshic-proj-menu-sub）');
+  ok(mainKids.some((e) => clsOf(e).includes('dshic-proj-menu-canvas')), '项目行缺少同行画布名节点');
+  ok(mainKids.some((e) => clsOf(e).includes('dshic-proj-menu-dot') && stringsOf(e).join('') === '·'), '项目行缺少「·」分隔符');
+  const row0Name = PANEL.state().projects.find((p) => p.id === row0Id).name;
+  const row0Text = stringsOf(row0).join('');
+  ok(row0Text.includes('·') && row0Text.includes('默认画布'), '项目行文本不是「项目名 · 画布名」形式：' + row0Text.slice(0, 80));
+  ok(row0Text.indexOf(row0Name) >= 0 && row0Text.indexOf(row0Name) < row0Text.indexOf('·'), '行内顺序应为项目名在前、画布名在后');
+  // 行内编辑：铅笔只编辑项目名，画布名仍在同一行；提交后项目名变化、画布名不变
+  act(all(TABS.Toolbar()), 'edit-project-' + row0Id).props.onClick({ preventDefault: noop, stopPropagation: noop });
+  const rowEdit = rows().find((e) => String(e.props['data-action'] || '') === 'switch-project-' + row0Id);
+  const mainEdit = all(rowEdit).find((e) => clsOf(e).includes('dshic-proj-menu-main'));
+  ok(!!mainEdit && clsOf(mainEdit).includes('is-editing'), '编辑态项目行主区没有 is-editing');
+  ok(!!all(mainEdit).find((e) => e.props && e.props['data-role'] === 'inline-project-name-input-menu'), '编辑态 input 不在项目行主区内');
+  ok(all(mainEdit).some((e) => clsOf(e).includes('dshic-proj-menu-canvas')), '编辑态画布名没有和 input 留在同一行');
+  ok(!!mainEdit.props.children && (Array.isArray(mainEdit.props.children) ? mainEdit.props.children : []).filter(Boolean).length === 3,
+    '编辑态同一行应只有 input + 分隔符 + 画布名三个节点');
+  const inputEdit = all(mainEdit).find((e) => e.props && e.props['data-role'] === 'inline-project-name-input-menu');
+  const canvasBefore = CANVAS.canvasNameFor(row0Id, null);
+  inputEdit.props.onChange({ target: { value: '行内改名项目' } });
+  inputEdit.props.onKeyDown({ key: 'Enter', preventDefault: noop, stopPropagation: noop });
+  eq(PANEL.state().projects.find((p) => p.id === row0Id).name, '行内改名项目', '行内编辑没有只改项目名');
+  eq(CANVAS.canvasNameFor(row0Id, null), canvasBefore, '行内改项目名时画布名被改了');
+  // 恢复名字，避免影响后续搜索/分页计数断言
+  PANEL.renameProjectTo(row0Id, row0Name);
   // 搜索 '分页项目' → 12 项，分 3 页；第一页 01–05
   ok(!!menuSearch(), '项目下拉缺少搜索框');
   menuSearch().props.onChange({ target: { value: '分页项目' } });
@@ -908,10 +949,15 @@ function cssRule(selector) {
   eq(rows().length, 2, '最后一页应只渲染剩余 2 行');
   ok(stringsOf(rows()[0]).join('').includes('分页项目11'), '最后一页不是第 11–12 个项目');
   eq(pageText(), '3/3', '第三页页码应为 3/3');
-  // 搜索过滤到 ≤5 项：分页消失
+  // 搜索过滤到 ≤5 项：分页消失，列表高度 = 实际行数（3×行高，无空白占位）
   PANEL.setProjectMenuSearch('分页项目1');
   eq(rows().length, 3, '搜索「分页项目1」应命中 3 项（10/11/12）');
   ok(!all(TABS.Toolbar()).some((e) => e.props && e.props['data-role'] === 'project-menu-pager'), '结果 ≤5 项时仍显示分页控件');
+  const adaptiveList = listEl();
+  ok(!!adaptiveList, '≤5 项时缺少列表节点');
+  ok(!clsOf(adaptiveList).includes('is-paged'), '≤5 项时列表仍固定 5 行高（is-paged）');
+  eq(adaptiveList.props['data-paged'], '0', '≤5 项时列表应标记 data-paged=0（高度自适应）');
+  eq((adaptiveList.props.children || []).filter(Boolean).length, 3, '≤5 项时列表高度应等于实际 3 行（不应补空行占位）');
   // 无匹配空态
   PANEL.setProjectMenuSearch('不存在的项目');
   eq(rows().length, 0, '无匹配时仍渲染项目行');
