@@ -118,6 +118,7 @@ const COVERAGE = [
   { sha: 'afec094', keys: [/paginat|search|icon rail frame|search row|分页|图标/i] },
   { sha: '41fb0b7', keys: [/size the project menu|content up to five|canvas name on the project row|canvas chip|自适应/i] },
   { sha: '11fbc15', keys: [/pager sits on the same row|search field|rail|storage|icon rail/i] },
+  { sha: '3ae252b', keys: [/pager|page-jump|plus icon|magnifier|页码/i] },
 ];
 for (const c of COVERAGE) {
   ok(c.keys.some((re) => re.test(section)), '未发版提交 ' + c.sha + ' 在 Unreleased 段里找不到对应记录（补记不全）');
