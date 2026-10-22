@@ -147,12 +147,14 @@ const run = (movers) => {
 // ---------------- 3) 快捷键面板 ----------------
 ok(/function ShortcutsPanel\(/.test(src), '未找到 ShortcutsPanel 组件');
 ok(/h\(ShortcutsPanel\)/.test(src), 'ShortcutsPanel 未挂载');
-// 位置契约：入口必须在**顶部工具栏**里（用户要求），而不是画布左上角浮层。
-// 工具栏函数体里必须出现它，且画布容器（CanvasPage）里不能再有 —— 防止后续重构又挪回去。
+// 位置契约：入口在**右侧面板**（面板结构重构：快捷键/帮助/检查更新从顶部工具栏移到右侧面板），
+// 不在顶部工具栏、也不在画布容器里 —— 防止后续重构又挪回去。
+const rightbarBody = fnBody('Rightbar');
+ok(/h\(ShortcutsPanel\)/.test(rightbarBody), '快捷键入口不在右侧面板里（应放在右侧面板动作区）');
 const toolbarBody = fnBody('Toolbar');
-ok(/h\(ShortcutsPanel\)/.test(toolbarBody), '快捷键入口不在顶部工具栏里（应放在工具栏右侧）');
+ok(!/h\(ShortcutsPanel\)/.test(toolbarBody), '快捷键入口仍在顶部工具栏里（应已移到右侧面板）');
 const canvasPageBody = fnBody('CanvasPage');
-ok(!/h\(ShortcutsPanel\)/.test(canvasPageBody), '快捷键入口仍挂在画布内（应已移到工具栏）');
+ok(!/h\(ShortcutsPanel\)/.test(canvasPageBody), '快捷键入口仍挂在画布内（应已移到右侧面板）');
 // 下拉面板要相对按钮定位（否则挪进工具栏后会飘到页面左上角）
 ok(/\.dshic-keys-wrap\{position:relative/.test(src), '.dshic-keys-wrap 不是相对定位（下拉面板会脱离按钮）');
 ok(/\.dshic-keys-pop\{position:absolute;right:0;top:calc\(100% \+ 6px\)/.test(src), '下拉面板未相对按钮右对齐定位');

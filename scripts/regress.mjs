@@ -70,6 +70,7 @@ const SUITE = [
   { name: 'test-node-merge.mjs', desc: '节点类型合并：旧文档迁移 / 连线与 data 不丢 / 幂等' },
   { name: 'test-node-actions.mjs', desc: '结果操作按钮统一在节点末尾左下角' },
   { name: 'test-node-layout.mjs', desc: '节点尺寸/画面比例、点击任意位置开面板、面板 520 nowrap' },
+  { name: 'test-panel-layout.mjs', desc: '面板结构：顶部无空白 / 左侧图标列 / 资产+设定集统一弹窗 / 工具栏项目切换 / 多画布 key' },
   { name: 'test-llm-stream.mjs', desc: 'LLM 流式与推理重试' },
   { name: 'test-sync-bible.mjs', desc: '设定集同步合并 / 边墓碑防复活' },
   { name: 'test-user-scenarios.mjs', desc: '用户实测场景定向复验' },

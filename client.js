@@ -438,6 +438,10 @@ window.__ModuleLoader__.load({
       'duplicate': '复制节点 (Ctrl+D)',
       'confirmDel': '确认删除?',
       'newProject': '新建项目',
+      'switchProject': '切换项目',
+      'renameProject': '重命名项目…',
+      'defaultCanvas': '默认画布',
+      'projectNameRequired': '项目名不能为空',
       'emptyProjectHint': '还没有项目。点上方「新建项目」创建第一个项目，或直接在对话里说「创建一个项目叫…」。',
       'projectName': '项目名称',
       'renameHint': '双击名称重命名',
@@ -940,6 +944,10 @@ window.__ModuleLoader__.load({
       'duplicate': 'Duplicate (Ctrl+D)',
       'confirmDel': 'Confirm delete?',
       'newProject': 'New project',
+      'switchProject': 'Switch project',
+      'renameProject': 'Rename project…',
+      'defaultCanvas': 'Default canvas',
+      'projectNameRequired': 'Project name cannot be empty',
       'emptyProjectHint': 'No projects yet. Click "New project" above to create the first one, or just say "create a project called…" in the chat.',
       'projectName': 'Project name',
       'renameHint': 'Double-click to rename',
@@ -1418,7 +1426,7 @@ window.__ModuleLoader__.load({
   --dshic-ctl-h:26px;            /* 视频播放控件条高度（播放中才出现的底部浮层） */
 }
 .dshic-page{position:relative;height:100%;display:flex;flex-direction:column;box-sizing:border-box;
-  padding-top:var(--dsh-frame-top-clearance,0px);background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-primary);
+  background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-primary);
   font-size:14px;line-height:22px;overflow:hidden;user-select:none;-webkit-user-select:none;}
 .dshic-toolbar{flex:none;display:flex;align-items:center;gap:6px;min-height:44px;padding:4px 10px;flex-wrap:wrap;
   background:var(--dsw-alias-bg-layer-1);border-bottom:1px solid var(--dsw-alias-border-l1);position:relative;z-index:20;}
@@ -1436,6 +1444,61 @@ window.__ModuleLoader__.load({
 .dshic-flex{flex:1;}
 .dshic-zoom{min-width:56px;text-align:center;font-size:12px;color:var(--dsw-alias-label-secondary);font-variant-numeric:tabular-nums;}
 .dshic-main{flex:1;display:flex;min-height:0;}
+/* ── 左侧图标列（单列；固定，不随画布平移缩放）──────────────────── */
+.dshic-rail{flex:none;width:46px;display:flex;flex-direction:column;align-items:center;gap:3px;padding:6px 0;
+  background:var(--dsw-alias-bg-layer-1);border-right:1px solid var(--dsw-alias-border-l1);z-index:25;box-sizing:border-box;}
+.dshic-rail-btn{width:34px;height:34px;flex:none;display:flex;align-items:center;justify-content:center;border:none;border-radius:9px;
+  background:transparent;color:var(--dsw-alias-label-secondary);cursor:pointer;position:relative;padding:0;}
+.dshic-rail-btn:hover{background:color-mix(in srgb,var(--dsw-alias-label-primary) 8%,transparent);color:var(--dsw-alias-label-primary);}
+.dshic-rail-btn.is-active{background:color-mix(in srgb,var(--dsw-alias-brand-primary) 16%,transparent);color:var(--dsw-alias-brand-primary);}
+.dshic-rail-btn.is-danger{color:var(--dsw-alias-state-error-primary);}
+.dshic-rail-btn:disabled{opacity:.45;cursor:default;}
+.dshic-rail-sep{width:24px;height:1px;flex:none;background:var(--dsw-alias-border-l1);margin:4px 0;}
+/* ── 顶部工具栏：最左项目切换 ─────────────────────────────────── */
+.dshic-proj-switch{max-width:220px;}
+.dshic-proj-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600;}
+.dshic-proj-car{color:var(--dsw-alias-label-secondary);font-size:9px;flex:none;}
+.dshic-proj-menu{position:fixed;z-index:320;min-width:220px;max-width:320px;max-height:60vh;overflow-y:auto;padding:5px;
+  background:var(--dsw-alias-bg-overlay);border:1px solid var(--dsw-alias-border-l2);border-radius:12px;
+  box-shadow:0 12px 40px rgba(0,0,0,.18);display:flex;flex-direction:column;gap:2px;box-sizing:border-box;}
+.dshic-proj-menu-item{display:flex;align-items:center;gap:8px;width:100%;min-height:30px;padding:0 9px;border:none;border-radius:7px;
+  background:transparent;color:var(--dsw-alias-label-primary);font:inherit;font-size:12px;cursor:pointer;text-align:left;box-sizing:border-box;}
+.dshic-proj-menu-item:hover{background:color-mix(in srgb,var(--dsw-alias-label-primary) 8%,transparent);}
+.dshic-proj-menu-item.is-active{background:color-mix(in srgb,var(--dsw-alias-brand-primary) 14%,transparent);color:var(--dsw-alias-brand-primary);font-weight:600;}
+.dshic-proj-menu-item .dshic-proj-menu-meta{margin-left:auto;font-size:10px;color:var(--dsw-alias-label-secondary);}
+.dshic-proj-menu-sep{height:1px;background:var(--dsw-alias-border-l1);margin:4px 2px;}
+/* ── 统一弹窗（资产 + 设定集）────────────────────────────────── */
+.dshic-studio-overlay{position:fixed;inset:0;z-index:300;background:color-mix(in srgb,var(--dsw-alias-bg-base) 58%,transparent);
+  display:flex;align-items:center;justify-content:center;padding:24px;box-sizing:border-box;backdrop-filter:blur(2px);}
+.dshic-studio-modal{width:min(1080px,calc(100vw - 48px));height:min(780px,calc(100vh - 48px));display:flex;flex-direction:column;
+  background:var(--dsw-alias-bg-overlay);border:1px solid var(--dsw-alias-border-l2);border-radius:16px;
+  box-shadow:0 24px 64px rgba(0,0,0,.24);overflow:hidden;box-sizing:border-box;}
+.dshic-studio-head{flex:none;display:flex;align-items:center;gap:10px;padding:10px 14px;border-bottom:1px solid var(--dsw-alias-border-l1);}
+.dshic-studio-tabs{display:flex;gap:4px;}
+.dshic-studio-tab{height:30px;padding:0 14px;border:none;border-radius:8px;background:transparent;color:var(--dsw-alias-label-secondary);
+  font:inherit;font-size:13px;font-weight:600;cursor:pointer;}
+.dshic-studio-tab:hover{background:color-mix(in srgb,var(--dsw-alias-label-primary) 7%,transparent);}
+.dshic-studio-tab.is-active{background:color-mix(in srgb,var(--dsw-alias-brand-primary) 15%,transparent);color:var(--dsw-alias-brand-primary);}
+.dshic-studio-title{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:right;
+  font-size:11px;color:var(--dsw-alias-label-secondary);}
+.dshic-studio-body{flex:1;min-height:0;overflow:auto;padding:14px;display:flex;flex-direction:column;gap:10px;box-sizing:border-box;}
+/* 弹窗内部再开确认框/PhotoCraft：层级必须高于统一弹窗（否则被遮罩盖住点不到） */
+.dshic-studio-overlay .dshic-modal-overlay{z-index:340;}
+.dshic-studio-bible{display:flex;flex-direction:column;gap:8px;width:100%;max-width:820px;margin:0 auto;}
+.dshic-modal-assets{display:flex;flex-direction:column;gap:10px;}
+.dshic-modal-assets .dshic-asset-grid{grid-template-columns:repeat(auto-fill,minmax(158px,1fr));gap:10px;}
+.dshic-modal-assets .dshic-asset-thumb{height:112px;}
+.dshic-asset-pager{display:flex;align-items:center;gap:8px;font-size:11.5px;color:var(--dsw-alias-label-secondary);}
+/* 设定集条目：行 + 已绑定资产缩略图 */
+.dshic-bible-item{display:flex;flex-direction:column;gap:4px;padding:5px 0;border-bottom:1px dashed var(--dsw-alias-border-l1);}
+.dshic-bible-thumbs{display:flex;gap:5px;flex-wrap:wrap;padding-left:4px;}
+.dshic-bible-thumb{width:36px;height:36px;border-radius:7px;object-fit:cover;border:1px solid var(--dsw-alias-border-l1);
+  background:var(--dsw-alias-bg-layer-2);display:inline-flex;align-items:center;justify-content:center;color:var(--dsw-alias-brand-primary);cursor:zoom-in;}
+.dshic-bible-thumb.is-audio{cursor:default;}
+.dshic-bible-thumb.is-empty{opacity:.4;}
+/* ── 右侧面板底部动作（快捷键 / 帮助 / 检查更新）──────────────── */
+.dshic-rb-actions{flex:none;display:flex;align-items:center;gap:2px;padding:2px 8px 6px;}
+.dshic-rb-actions .dshic-btn{height:26px;padding:0 8px;font-size:12px;color:var(--dsw-alias-label-secondary);}
 .dshic-canvas{flex:1;position:relative;overflow:hidden;background-color:var(--dsw-alias-bg-base);
   background-image:radial-gradient(color-mix(in srgb,var(--dsw-alias-border-l2) 55%,transparent) 1px,transparent 1px);
   outline:none;}
@@ -1631,7 +1694,7 @@ window.__ModuleLoader__.load({
   color:var(--dsw-alias-label-secondary);font-size:13px;line-height:1;cursor:ns-resize;opacity:.6;user-select:none;-webkit-user-select:none;
   background:var(--dsw-alias-bg-layer-2);border:1px solid var(--dsw-alias-border-l1);border-radius:4px;}
 .dshic-shot-grip:hover{opacity:1;color:var(--dsw-alias-label-primary);}
-.dshic-lightbox{position:fixed;inset:0;z-index:90;background:rgba(0,0,0,.82);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;padding:24px;}
+.dshic-lightbox{position:fixed;inset:0;z-index:360;background:rgba(0,0,0,.82);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;padding:24px;}
 .dshic-lightbox img,.dshic-lightbox video{max-width:92vw;max-height:80vh;border-radius:8px;background:#000;box-shadow:0 12px 48px rgba(0,0,0,.5);}
 .dshic-lightbox-cap{font-size:12px;color:#eee;user-select:text;-webkit-user-select:text;max-width:80vw;word-break:break-all;text-align:center;}
 .dshic-textcard{width:100%;height:86px;box-sizing:border-box;border:none;background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-secondary);
@@ -2129,12 +2192,52 @@ window.__ModuleLoader__.load({
     }
 
     function emptyGraph() { return { nodes: {}, edges: [], view: { x: 60, y: 40, scale: 1 } }; }
-    /** 统一文档入口：读出来即归一旧节点类型（image-gen/image-asset → image，video-gen/video-asset → video）。 */
-    function loadGraphDoc(pid) {
-      const doc = lsGet(LS_GRAPH + pid, null);
+
+    // ============================================================
+    // 画布文档 key（多画布预留）
+    //   当前：一个项目只有一张画布，canvasId = null → key 就是 projectId（行为与旧版完全一致）。
+    //   下一步「项目下建子目录，每个子目录 = 一张新画布」时：canvasId 非空 → key = `${projectId}::${canvasId}`。
+    //   switchCanvas(canvasId) / activeGraphKey() 已按同一套 key 读写；届时 Host 侧 projectsPut/projectsGet
+    //   只需把 canvasId 一起透传（资产/设定集仍按 projectId 共享，天然满足"项目内共享"）。
+    // ============================================================
+    const DEFAULT_CANVAS_ID = null;
+    function canvasDocKey(projectId, canvasId) {
+      return canvasId ? (String(projectId) + '::' + String(canvasId)) : String(projectId);
+    }
+    function activeCanvasId() { return S.activeCanvasId || DEFAULT_CANVAS_ID; }
+    function activeGraphKey() { return canvasDocKey(S.activeId, activeCanvasId()); }
+    /** 多画布预留：当前每个项目恰好一张默认画布；将来从项目文档索引返回子画布列表。 */
+    function listCanvases(projectId) {
+      void projectId;
+      return [{ id: DEFAULT_CANVAS_ID, name: T('defaultCanvas') }];
+    }
+    /** 统一文档入口：读出来即归一旧节点类型（image-gen/image-asset → image，video-gen/video-asset → video）。
+     *  canvasId 省略 = 项目默认画布（当前唯一画布）。 */
+    function loadGraphDoc(pid, canvasId) {
+      const doc = lsGet(LS_GRAPH + canvasDocKey(pid, canvasId == null ? DEFAULT_CANVAS_ID : canvasId), null);
       return doc ? normalizeGraphDoc(doc) : doc;
     }
-    function saveGraphDoc(pid, graph) { lsSet(LS_GRAPH + pid, graph); }
+    function saveGraphDoc(pid, graph, canvasId) {
+      lsSet(LS_GRAPH + canvasDocKey(pid, canvasId == null ? DEFAULT_CANVAS_ID : canvasId), graph);
+    }
+    /** 多画布预留：切换到同一项目下的另一张画布（当前只有默认画布，调用等价于 no-op/reset）。
+     *  真正启用时：ProjectsTab 里列出 listCanvases() → 点击 → switchCanvas(id)。 */
+    function switchCanvas(canvasId) {
+      const next = canvasId == null ? DEFAULT_CANVAS_ID : canvasId;
+      if (next === activeCanvasId()) return;
+      flushSave();
+      const doc = loadGraphDoc(S.activeId, next) || emptyGraph();
+      update((s) => {
+        s.activeCanvasId = next;
+        s.graph = { nodes: doc.nodes || {}, edges: doc.edges || [], view: doc.view || { x: 60, y: 40, scale: 1 } };
+        s.sel = new Set(); s.selEdge = null; s.composerId = null;
+        V.x = s.graph.view.x; V.y = s.graph.view.y; V.scale = s.graph.view.scale;
+        applyViewToDom();
+      });
+      history.stack = [];
+      history.idx = -1;
+      pushHistory();
+    }
 
     // ============================================================
     // 项目设定集（Series Bible）：跨集/跨镜一致性的唯一事实源
@@ -6531,6 +6634,14 @@ window.__ModuleLoader__.load({
       running: false,
       rightOpen: true,
       rightTab: 'projects',
+      // 多画布预留：当前项目下只有默认画布（null）；将来 = 子目录/子画布 id
+      activeCanvasId: null,
+      // 统一弹窗（资产 + 设定集合并）：'bible' | 'assets' | null；纯 UI 状态
+      panelModal: null,
+      // 工具栏项目下拉（位置由按钮真实矩形计算）：{left, top} | null；纯 UI 状态
+      projectMenu: null,
+      // 工具栏「新建项目… / 重命名项目…」命名弹窗：{ mode:'create'|'rename', value, error } | null
+      projectDialog: null,
       menu: null,          // {x, y, kind:'add'}
       composerId: null,    // 生成面板当前挂靠的节点 id（单例；纯 UI 状态，不持久化）
       assetsTick: 0,
@@ -6575,7 +6686,8 @@ window.__ModuleLoader__.load({
     function flushSave() {
       if (!S.ready || !S.activeId) return;
       if (saveTimer) { clearTimeout(saveTimer); saveTimer = null; }
-      saveGraphDoc(S.activeId, S.graph);
+      // 多画布预留：写入当前画布 key（当前 = 项目默认画布；将来 = projectId::canvasId）
+      saveGraphDoc(S.activeId, S.graph, activeCanvasId());
       const proj = S.projects.find((p) => p.id === S.activeId);
       if (proj) proj.updatedAt = Date.now();
       lsSet(LS_PROJECTS, S.projects);
@@ -6641,6 +6753,7 @@ window.__ModuleLoader__.load({
       const doc = loadGraphDoc(pid) || emptyGraph();
       update((s) => {
         s.activeId = pid;
+        s.activeCanvasId = DEFAULT_CANVAS_ID; // 多画布预留：切项目回到该项目默认画布
         s.graph = { nodes: doc.nodes || {}, edges: doc.edges || [], view: doc.view || { x: 60, y: 40, scale: 1 } };
         s.sel = new Set(); s.selEdge = null;
         s.composerId = null;
@@ -10552,57 +10665,284 @@ window.__ModuleLoader__.load({
       ];
     }
 
-    function Toolbar() {
+    // ============================================================
+    // 统一弹窗 / 项目命名弹窗的状态与动作（供图标列、工具栏、测试缝共用）
+    // ============================================================
+    function openStudioModal(tab) {
+      update((s) => { s.panelModal = tab === 'assets' ? 'assets' : 'bible'; });
+    }
+    function setStudioModalTab(tab) {
+      update((s) => { if (s.panelModal) s.panelModal = tab === 'assets' ? 'assets' : 'bible'; });
+    }
+    function closeStudioModal() {
+      update((s) => { s.panelModal = null; });
+    }
+    /** Esc 关闭统一弹窗（真实监听器与测试都走这里，保证行为一致）。 */
+    function handleStudioModalKey(e) {
+      if (e && e.key === 'Escape' && S.panelModal) { closeStudioModal(); return true; }
+      return false;
+    }
+    function openProjectDialog(mode, initial) {
+      update((s) => {
+        s.projectDialog = { mode: mode === 'rename' ? 'rename' : 'create', value: String(initial || ''), error: null };
+      });
+    }
+    function closeProjectDialog() {
+      update((s) => { s.projectDialog = null; });
+    }
+    function openProjectMenuAt(left, top) {
+      update((s) => { s.projectMenu = { left: Math.max(8, Number(left) || 8), top: Math.max(8, Number(top) || 48) }; });
+    }
+    function closeProjectMenu() {
+      if (!S.projectMenu) return;
+      update((s) => { s.projectMenu = null; });
+    }
+    function toggleProjectMenuAt(left, top) {
+      if (S.projectMenu) closeProjectMenu();
+      else openProjectMenuAt(left, top);
+    }
+    /** 新建项目：名字为空一律拒绝并回错（绝不静默兜底成"项目 N"）。 */
+    function createProjectNamed(rawName) {
+      const name = String(rawName == null ? '' : rawName).trim();
+      if (!name) return { ok: false, error: T('projectNameRequired') };
+      const p = { id: uid('p'), name: name.slice(0, 80), createdAt: Date.now(), updatedAt: Date.now() };
+      update((s) => { s.projects.push(p); });
+      switchProject(p.id);
+      try { hostRpc('projectsPut', { id: p.id, name: p.name, doc: emptyGraph() }).catch(() => { /* 静默：下次同步重试 */ }); } catch { /* 忽略 */ }
+      lsSet(LS_PROJECTS, S.projects);
+      lsSet(LS_ACTIVE, p.id);
+      return { ok: true, project: p };
+    }
+    /** 提交命名弹窗：新建 / 重命名共用；空名拒绝并写入错误提示。 */
+    function submitProjectDialog() {
+      const dlg = S.projectDialog;
+      if (!dlg) return { ok: false };
+      const v = String(dlg.value || '').trim();
+      if (!v) {
+        update((s) => { if (s.projectDialog) s.projectDialog.error = T('projectNameRequired'); });
+        return { ok: false, error: T('projectNameRequired') };
+      }
+      if (dlg.mode === 'rename' && S.activeId) {
+        update((s) => {
+          const p = s.projects.find((x) => x.id === s.activeId);
+          if (p) { p.name = v.slice(0, 80); p.updatedAt = Date.now(); }
+        });
+        lsSet(LS_PROJECTS, S.projects);
+        try {
+          const doc = loadGraphDoc(S.activeId) || emptyGraph();
+          hostRpc('projectsPut', { id: S.activeId, name: v, doc }).catch(() => { /* 静默 */ });
+        } catch { /* 忽略 */ }
+      } else {
+        const r = createProjectNamed(v);
+        if (!r.ok) { update((s) => { if (s.projectDialog) s.projectDialog.error = r.error; }); return r; }
+      }
+      closeProjectDialog();
+      return { ok: true };
+    }
+
+    // ============================================================
+    // 左侧图标列（单列）：加节点 / 资产 / 设定集 / 运行工作流
+    // 固定列，不随画布平移缩放；与弹窗当前页对应的图标高亮。
+    // ============================================================
+    const RAIL_NODE_TYPES = [
+      { type: 'text', icon: 'text' },
+      { type: 'script', icon: 'script' },
+      { type: 'storyboard', icon: 'board' },
+      { type: 'image', icon: 'image' },
+      { type: 'video', icon: 'video' },
+      { type: 'finalcut', icon: 'film' },
+    ];
+    function IconRail() {
       const labels = TYPE_LABEL();
-      const [naming, setNaming] = useState(false);
-      const proj = S.projects.find((p) => p.id === S.activeId);
-      return h('div', { className: 'dshic-toolbar' },
-        h(Btn, { onClick: () => CTX && CTX.layout.selectPanel(null), title: T('back') }, Ic('back', 13), h('span', { className: 'dshic-toolbar-title' }, T('back'))),
-        h('div', { className: 'dshic-toolbar-sep' }),
-        h(Btn, {
-          onClick: (e) => {
-            const r = e.currentTarget.getBoundingClientRect();
-            S.menu = { x: r.left, y: r.bottom + 4, kind: 'add' };
-            notify();
-          },
-          title: T('addNode'),
-        }, Ic('plus', 13), T('addNode')),
-        S.running
-          ? h(Btn, { onClick: stopRun, title: T('stop') }, Ic('stop', 12), T('running'))
-          : h(Btn, { onClick: runWorkflow, primary: true, title: T('run') }, Ic('play', 12), T('run')),
-        h(Btn, { onClick: fitView, title: T('fit') }, Ic('fit', 13)),
-        h(Btn, { onClick: undo, title: T('undo'), disabled: history.idx <= 0 }, Ic('undoIc', 13)),
-        h(Btn, { onClick: redo, title: T('redo'), disabled: history.idx >= history.stack.length - 1 }, Ic('redoIc', 13)),
-        h('div', { className: 'dshic-flex' }),
-        h('div', { className: 'dshic-zoom-group' },
-          h(Btn, { onClick: () => zoomStep(0.85), title: T('zoomOut') }, Ic('zoomOut', 12)),
-          h('button', { type: 'button', className: 'dshic-zoom-val', title: T('zoomReset'), onClick: () => resetZoom() }, Math.round(V.scale * 100) + '%'),
-          h(Btn, { onClick: () => zoomStep(1.18), title: T('zoomIn') }, Ic('zoomIn', 12)),
-        ),
-        h('div', { className: 'dshic-toolbar-sep' }),
-        h(ShortcutsPanel), // 快捷键入口（工具栏右侧，缩放控件与项目名之间）
-        h('div', { className: 'dshic-toolbar-sep' }),
-        naming
-          ? h('input', {
-              className: 'dshic-input', style: { width: 160 }, autoFocus: true, defaultValue: proj ? proj.name : '',
-              onBlur: (e) => { const v = e.target.value.trim(); if (v && proj) update((s) => { const p = s.projects.find((x) => x.id === s.activeId); if (p) p.name = v; }); setNaming(false); },
-              onKeyDown: (e) => { if (e.key === 'Enter') e.target.blur(); if (e.key === 'Escape') setNaming(false); },
-            })
-          : h('button', { type: 'button', className: 'dshic-btn', style: { fontWeight: 600, maxWidth: 180, overflow: 'hidden' }, onDoubleClick: () => setNaming(true), title: T('renameHint') },
-              h('span', { style: { overflow: 'hidden', textOverflow: 'ellipsis' } }, proj ? proj.name : '')),
-        h('div', { className: 'dshic-toolbar-sep' }),
-        h(Btn, { onClick: () => update((s) => { s.supportOpen = true; }), title: T('supportBtn') }, Ic('help', 13), T('supportBtn')),
-        h('div', { className: 'dshic-toolbar-sep' }),
+      const add = (type) => {
+        const c = worldCenter();
+        // 与工具栏/空态「添加节点」同一入口：addNodeAt 负责默认数据、360×360 尺寸、选中与历史
+        addNodeAt(type, { x: Math.round(c.x - NODE_W / 2), y: Math.round(c.y - NODE_H / 2) });
+      };
+      return h('div', { className: 'dshic-rail', 'data-role': 'icon-rail' },
+        RAIL_NODE_TYPES.map((it) => h('button', {
+          key: 'add-' + it.type, type: 'button', className: 'dshic-rail-btn',
+          'data-action': 'add-' + it.type, title: labels[it.type] || it.type,
+          onClick: () => add(it.type),
+        }, Ic(it.icon, 16))),
+        h('div', { key: 'sep-nodes', className: 'dshic-rail-sep' }),
         h('button', {
-          type: 'button', className: cls('dshic-btn'), style: { fontSize: 12, color: 'var(--dsw-alias-label-secondary)', gap: 4 },
-          title: T('updateBtn') + ((S.updateInfo && S.updateInfo.runningVersion) ? '（当前 v' + S.updateInfo.runningVersion + '）' : ''), disabled: S.updateChecking,
-          onClick: () => { checkUpdate(false).then((info) => { if (info && info.upToDate) toast(T('updateUpToDate') + (info.runningVersion ? ' v' + info.runningVersion : '')); }); },
-        }, T('updateBtn'), S.updateChecking ? h('span', { className: 'dshic-spin' }) : ((S.updateInfo && !S.updateInfo.upToDate) ? ' ⬆' : '')),
-        h('div', { className: 'dshic-toolbar-sep' }),
-        h(Btn, {
-          active: S.rightOpen, title: T('toggleRight'),
-          onClick: () => update((s) => { s.rightOpen = !s.rightOpen; }),
-        }, Ic('sidebar', 13)),
+          key: 'assets', type: 'button',
+          className: cls('dshic-rail-btn', S.panelModal === 'assets' && 'is-active'),
+          'data-action': 'open-assets', title: T('assets'),
+          onClick: () => openStudioModal('assets'),
+        }, Ic('image', 16)),
+        h('button', {
+          key: 'bible', type: 'button',
+          className: cls('dshic-rail-btn', S.panelModal === 'bible' && 'is-active'),
+          'data-action': 'open-bible', title: T('bibleTab'),
+          onClick: () => openStudioModal('bible'),
+        }, Ic('script', 16)),
+        h('div', { key: 'sep-actions', className: 'dshic-rail-sep' }),
+        S.running
+          ? h('button', {
+              key: 'stop', type: 'button', className: 'dshic-rail-btn is-danger',
+              'data-action': 'stop-workflow', title: T('stop'), onClick: stopRun,
+            }, Ic('stop', 16))
+          : h('button', {
+              key: 'run', type: 'button', className: 'dshic-rail-btn',
+              'data-action': 'run-workflow', title: T('run'), onClick: runWorkflow,
+            }, Ic('play', 16)),
+      );
+    }
+
+    // ============================================================
+    // 统一弹窗（资产 + 设定集）：右侧面板不再有这两个页签
+    // ============================================================
+    function StudioModal() {
+      const tab = S.panelModal;
+      useEffect(() => {
+        if (!tab) return undefined;
+        const onKey = (e) => { handleStudioModalKey(e); };
+        window.addEventListener('keydown', onKey);
+        return () => window.removeEventListener('keydown', onKey);
+      }, [tab]);
+      if (!tab) return null;
+      const proj = S.projects.find((p) => p.id === S.activeId);
+      const tabBtn = (id, label) => h('button', {
+        key: id, type: 'button', 'data-tab': id,
+        className: cls('dshic-studio-tab', tab === id && 'is-active'),
+        onClick: () => setStudioModalTab(id),
+      }, label);
+      return h('div', {
+        className: 'dshic-studio-overlay', 'data-role': 'studio-modal',
+        onPointerDown: (e) => { if (e.target === e.currentTarget) closeStudioModal(); },
+      },
+        h('div', { className: 'dshic-studio-modal', onPointerDown: (e) => e.stopPropagation() },
+          h('div', { className: 'dshic-studio-head' },
+            h('div', { className: 'dshic-studio-tabs' },
+              tabBtn('bible', T('bibleTab')),
+              tabBtn('assets', T('assets'))),
+            h('span', { className: 'dshic-studio-title' }, proj ? proj.name : ''),
+            h('button', {
+              type: 'button', className: 'dshic-iconbtn', title: T('cancel'),
+              'data-action': 'close-modal', onClick: closeStudioModal,
+            }, '✕')),
+          h('div', { className: 'dshic-studio-body' },
+            tab === 'bible'
+              ? h('div', { className: 'dshic-studio-bible' }, h(BibleTab))
+              : h('div', { className: 'dshic-modal-assets' }, h(AssetsTab, { variant: 'modal' }))),
+        ));
+    }
+
+    // ============================================================
+    // 顶部工具栏：最左项目名（下拉切换 / 新建 / 重命名）
+    // 说明：添节点在左侧图标列，运行工作流也在图标列；快捷键/帮助/检查更新在右侧面板。
+    // ============================================================
+    function Toolbar() {
+      const proj = S.projects.find((p) => p.id === S.activeId);
+      const btnRef = useRef(null);
+      const menu = S.projectMenu;
+      useEffect(() => {
+        if (!menu) return undefined;
+        const onDown = (e) => {
+          const t = e && e.target;
+          if (btnRef.current && t && btnRef.current.contains && btnRef.current.contains(t)) return;
+          if (t && t.closest && t.closest('.dshic-proj-menu')) return;
+          closeProjectMenu();
+        };
+        document.addEventListener('pointerdown', onDown, true);
+        return () => document.removeEventListener('pointerdown', onDown, true);
+      }, [!!menu]);
+      const toggleMenu = (e) => {
+        e.stopPropagation();
+        const r = e.currentTarget.getBoundingClientRect();
+        toggleProjectMenuAt(r.left, (r.bottom || 44) + 4);
+      };
+      return [
+        h('div', { key: 'bar', className: 'dshic-toolbar' },
+          h('button', {
+            key: 'proj', type: 'button', ref: btnRef, className: 'dshic-btn dshic-proj-switch',
+            'data-role': 'project-switcher', title: T('switchProject'),
+            onPointerDown: (e) => e.stopPropagation(),
+            onClick: toggleMenu,
+          },
+            Ic('folder', 13),
+            h('span', { className: 'dshic-proj-name', 'data-role': 'project-name' }, proj ? proj.name : T('newProject')),
+            h('span', { className: 'dshic-proj-car' }, '▾')),
+          h(Btn, { onClick: () => CTX && CTX.layout.selectPanel(null), title: T('back') }, Ic('back', 13), h('span', { className: 'dshic-toolbar-title' }, T('back'))),
+          h('div', { className: 'dshic-toolbar-sep' }),
+          h(Btn, { onClick: fitView, title: T('fit') }, Ic('fit', 13)),
+          h(Btn, { onClick: undo, title: T('undo'), disabled: history.idx <= 0 }, Ic('undoIc', 13)),
+          h(Btn, { onClick: redo, title: T('redo'), disabled: history.idx >= history.stack.length - 1 }, Ic('redoIc', 13)),
+          h('div', { className: 'dshic-flex' }),
+          h('div', { className: 'dshic-zoom-group' },
+            h(Btn, { onClick: () => zoomStep(0.85), title: T('zoomOut') }, Ic('zoomOut', 12)),
+            h('button', { type: 'button', className: 'dshic-zoom-val', title: T('zoomReset'), onClick: () => resetZoom() }, Math.round(V.scale * 100) + '%'),
+            h(Btn, { onClick: () => zoomStep(1.18), title: T('zoomIn') }, Ic('zoomIn', 12)),
+          ),
+          h('div', { className: 'dshic-toolbar-sep' }),
+          h(Btn, {
+            active: S.rightOpen, title: T('toggleRight'),
+            onClick: () => update((s) => { s.rightOpen = !s.rightOpen; }),
+          }, Ic('sidebar', 13)),
+        ),
+        menu
+          ? h('div', { key: 'menu', className: 'dshic-proj-menu', style: { left: menu.left, top: menu.top }, onPointerDown: (e) => e.stopPropagation() },
+              S.projects.map((p) => h('button', {
+                key: p.id, type: 'button',
+                className: cls('dshic-proj-menu-item', p.id === S.activeId && 'is-active'),
+                'data-action': 'switch-project-' + p.id,
+                onClick: () => { closeProjectMenu(); if (p.id !== S.activeId) switchProject(p.id); },
+              },
+                h('span', { className: 'dshic-proj-name' }, p.name),
+                h('span', { className: 'dshic-proj-menu-meta' }, p.id === S.activeId ? '✓' : ''))),
+              S.projects.length ? h('div', { key: 'sep', className: 'dshic-proj-menu-sep' }) : null,
+              h('button', {
+                key: 'new', type: 'button', className: 'dshic-proj-menu-item', 'data-action': 'new-project-main',
+                onClick: () => { closeProjectMenu(); openProjectDialog('create', ''); },
+              }, Ic('plus', 12), T('newProject') + '…'),
+              h('button', {
+                key: 'rename', type: 'button', className: 'dshic-proj-menu-item', 'data-action': 'rename-project-main',
+                disabled: !proj,
+                onClick: () => { closeProjectMenu(); openProjectDialog('rename', proj ? proj.name : ''); },
+              }, Ic('pencil', 12), T('renameProject')),
+            )
+          : null,
+      ];
+    }
+
+    // ============================================================
+    // 项目命名弹窗（新建必须命名 + 空名校验；重命名复用）
+    // ============================================================
+    function ProjectNameDialog() {
+      const dlg = S.projectDialog;
+      useEffect(() => {
+        if (!dlg) return undefined;
+        const onKey = (e) => { if (e.key === 'Escape') closeProjectDialog(); };
+        window.addEventListener('keydown', onKey);
+        return () => window.removeEventListener('keydown', onKey);
+      }, [dlg]);
+      if (!dlg) return null;
+      const isRename = dlg.mode === 'rename';
+      const submit = () => { submitProjectDialog(); };
+      return h('div', {
+        className: 'dshic-modal-overlay', 'data-role': 'project-dialog',
+        onPointerDown: (e) => { if (e.target === e.currentTarget) closeProjectDialog(); },
+      },
+        h('div', { className: 'dshic-modal', style: { width: 380 }, onPointerDown: (e) => e.stopPropagation() },
+          h('div', { className: 'dshic-modal-title' }, isRename ? T('renameProject') : T('newProject')),
+          h('div', { className: 'dshic-field' },
+            h('span', { className: 'dshic-field-label' }, T('projectName')),
+            h('input', {
+              className: 'dshic-input', autoFocus: true, value: dlg.value || '',
+              placeholder: T('projectName'), 'data-role': 'project-name-input',
+              onChange: (e) => update((s) => { if (s.projectDialog) { s.projectDialog.value = e.target.value; s.projectDialog.error = null; } }),
+              onKeyDown: (e) => { if (e.key === 'Enter') submit(); if (e.key === 'Escape') closeProjectDialog(); },
+              onPointerDown: (e) => e.stopPropagation(),
+            })),
+          dlg.error ? h('div', { key: 'err', className: 'dshic-err', 'data-role': 'project-error' }, dlg.error) : null,
+          h('div', { className: 'dshic-modal-actions' },
+            h('button', { type: 'button', className: 'dshic-btn dshic-btn-outline', onClick: closeProjectDialog }, T('cancel')),
+            h('button', {
+              type: 'button', className: 'dshic-btn dshic-primary',
+              'data-action': 'project-dialog-submit', onClick: submit,
+            }, isRename ? T('renameProject') : T('newProject')))),
       );
     }
 
@@ -10803,11 +11143,18 @@ window.__ModuleLoader__.load({
         ));
     }
 
-    function AssetsTab() {
+    /** 资产页（统一弹窗内）：数据源 = assetsForPicker（服务端分页拉全 + 本地遗留合并），
+     *  搜索/分类/项目筛选与分页都在客户端做；卡片 = AssetCard（缩略图或视频首帧 + 名称 + 分类 + 时间，
+     *  预览/下载/添加到画布 全部保留）。右侧面板不再有资产页签。 */
+    const ASSET_PAGE_SIZE = 24;
+    function AssetsTab({ variant } = {}) {
+      void variant;
       const [assets, setAssets] = useState([]);
+      const [loading, setLoading] = useState(true);
       const [tick, setTick] = useState(0);
       const [filter, setFilter] = useState('all');
       const [scope, setScope] = useState(S.activeId || 'all'); // 打开资产面板默认定位到当前项目
+      const [page, setPage] = useState(0);
       const prevActiveRef = useRef(S.activeId);
       useEffect(() => {
         // 当前项目变化时，资产筛选跟随（面板重开也会重置为当前项目）
@@ -10815,52 +11162,32 @@ window.__ModuleLoader__.load({
       }, [S.activeId]);
       const [search, setSearch] = useState('');
       const [qDeb, setQDeb] = useState('');
-      const [total, setTotal] = useState(0);
-      const [cursor, setCursor] = useState(null);
       const [craftFor, setCraftFor] = useState(null);
       const [delTarget, setDelTarget] = useState(null); // 待确认删除的资产（确认框见 DeleteAssetModal）
       const [assetName, setAssetName] = useState(''); // 删除确认框的输入内容
       const fileRef = useRef(null);
-      // 搜索防抖：0.18 起检索在服务端（SQLite trigram 中文全文索引）
+      // 搜索防抖：资产多时避免每个按键都过一遍全量过滤
       useEffect(() => {
         const t = setTimeout(() => setQDeb(search), 300);
         return () => clearTimeout(t);
       }, [search]);
+      useEffect(() => { setPage(0); }, [filter, qDeb, scope]);
       useEffect(() => {
         probeCraft();
         let ok = true;
         (async () => {
+          setLoading(true);
+          let list = [];
           try {
-            if (!S.store) {
-              // IndexedDB 模式（未设数据目录）：本地全量
-              let list;
-              if (scope === 'all') list = await idbAll();
-              else list = (await idbAll()).filter((a) => a.projectId === scope || a.projectId === GENERAL_PID);
-              if (ok) { setAssets(list); setTotal(list.length); setCursor(null); }
-              return;
-            }
-            // 服务端分页：首屏 50 条，滚动到底「加载更多」
-            const r = await hostRpc('assetsList', {
-              projectId: scope === 'all' ? '' : scope,
-              category: filter === 'all' ? '' : filter,
-              q: qDeb.trim(), limit: 50, cursor: null,
-            }).catch(() => null);
-            if (ok && r) { setAssets(r.items || []); setTotal(r.total || 0); setCursor(r.nextCursor || null); }
-          } catch { if (ok) setAssets([]); }
+            // 唯一数据源：assetsForPicker 已按 200/页拉全并合并本地遗留（多项目共享，可按 scope 过滤）
+            list = await assetsForPicker();
+          } catch { list = []; }
+          if (!ok) return;
+          setAssets(list);
+          setLoading(false);
         })();
         return () => { ok = false; };
-      }, [S.activeId, tick, S.assetsTick, scope, filter, qDeb, S.store]);
-      const loadMore = async () => {
-        if (!cursor) return;
-        const r = await hostRpc('assetsList', {
-          projectId: scope === 'all' ? '' : scope,
-          category: filter === 'all' ? '' : filter,
-          q: qDeb.trim(), limit: 50, cursor,
-        }).catch(() => null);
-        if (!r) return;
-        setAssets((prev) => prev.concat(r.items || []));
-        setCursor(r.nextCursor || null);
-      };
+      }, [S.activeId, tick, S.assetsTick, S.store]);
       const projectName = (pid) => {
         if (pid === GENERAL_PID) return T('generalProject');
         const p = S.projects.find((x) => x.id === pid);
@@ -10969,7 +11296,7 @@ window.__ModuleLoader__.load({
         }
         toast(T('craftSyncDone').replace('{ok}', String(okN)).replace('{fail}', String(failN)));
       };
-      const shown = assets.filter((a) => {
+      const filtered = assets.filter((a) => {
         if (scope !== 'all' && scope !== GENERAL_PID && a.projectId !== scope && a.projectId !== GENERAL_PID) return false;
         if (filter !== 'all' && (a.category || 'general') !== filter) return false;
         if (!q) return true;
@@ -10979,6 +11306,9 @@ window.__ModuleLoader__.load({
         ].join(' ').toLowerCase();
         return hay.includes(q);
       });
+      const pageCount = Math.max(1, Math.ceil(filtered.length / ASSET_PAGE_SIZE));
+      const pageSafe = Math.min(Math.max(0, page), pageCount - 1);
+      const shown = filtered.slice(pageSafe * ASSET_PAGE_SIZE, pageSafe * ASSET_PAGE_SIZE + ASSET_PAGE_SIZE);
       return [
         h('div', { key: 'chips', className: 'dshic-chips' },
           [{ id: 'all', label: T('catAll') }].concat(CATEGORIES.map((c) => ({ id: c, label: catLabel(c) }))).map((c) =>
@@ -11003,19 +11333,29 @@ window.__ModuleLoader__.load({
         h('button', { key: 'craftsync', type: 'button', className: 'dshic-mini', style: { alignSelf: 'flex-start' }, disabled: !craftOkCached(), title: craftOkCached() ? T('craftSyncAll') : T('craftUnreachable'), onClick: syncAll, onPointerDown: (e) => e.stopPropagation() }, Ic('upload', 11), T('craftSyncAll')),
         h('button', { key: 'imp', type: 'button', className: 'dshic-mini', style: { alignSelf: 'flex-start' }, onClick: () => { if (fileRef.current) fileRef.current.click(); } }, Ic('upload', 11), T('import')),
         h('input', { key: 'file', ref: fileRef, type: 'file', accept: 'image/*,video/*', multiple: true, style: { display: 'none' }, onChange: onImport }),
-        shown.length === 0
-          ? h('div', { key: 'empty', className: 'dshic-hint' }, T('emptyAssets'))
-          : h('div', { key: 'grid', className: 'dshic-asset-grid' },
-              shown.map((a) => h(AssetCard, {
-                key: a.id, a, onAdd: addNodeFor, onDel: (x) => setDelTarget(x), onCat: changeCategory,
-                onRename: rename, onMove: moveAsset,
-                projectName: projectName(a.projectId),
-              })),
-            ),
-        cursor
-          ? h('button', { key: 'more', type: 'button', className: 'dshic-mini', style: { alignSelf: 'flex-start' }, onClick: loadMore, onPointerDown: (e) => e.stopPropagation() },
-              '加载更多 / Load more（' + assets.length + ' / ' + total + '）')
-          : null,
+        loading && !assets.length
+          ? h('div', { key: 'loading', className: 'dshic-hint' }, T('aiRunning'))
+          : shown.length === 0
+            ? h('div', { key: 'empty', className: 'dshic-hint' }, T('emptyAssets'))
+            : h('div', { key: 'grid', className: 'dshic-asset-grid' },
+                shown.map((a) => h(AssetCard, {
+                  key: a.id, a, onAdd: addNodeFor, onDel: (x) => setDelTarget(x), onCat: changeCategory,
+                  onRename: rename, onMove: moveAsset,
+                  projectName: projectName(a.projectId),
+                })),
+              ),
+        // 分页（客户端分页：资产数据源已是全量 assetsForPicker）
+        h('div', { key: 'pager', className: 'dshic-asset-pager' },
+          h('button', {
+            type: 'button', className: 'dshic-mini is-ghost', 'data-action': 'assets-page-prev',
+            disabled: pageSafe <= 0, onClick: () => setPage(pageSafe - 1), onPointerDown: (e) => e.stopPropagation(),
+          }, '‹ ' + T('pagePrev')),
+          h('span', { 'data-role': 'assets-page-info' }, (pageSafe + 1) + ' / ' + pageCount + ' · ' + filtered.length + ' / ' + assets.length),
+          h('button', {
+            type: 'button', className: 'dshic-mini is-ghost', 'data-action': 'assets-page-next',
+            disabled: pageSafe >= pageCount - 1, onClick: () => setPage(pageSafe + 1), onPointerDown: (e) => e.stopPropagation(),
+          }, T('pageNext') + ' ›'),
+        ),
         delTarget ? h(DeleteAssetModal, {
           key: 'delasset', target: delTarget, name: assetName, setName: setAssetName,
           onCancel: () => { setDelTarget(null); setAssetName(''); },
@@ -12048,6 +12388,38 @@ window.__ModuleLoader__.load({
             }, T('bibleLinkApply') + (picked.size ? '（' + picked.size + '）' : ''))),
         ));
     }
+    /** 设定集条目已绑定资产的缩略图行（图片显示画面、视频显示首帧、音频显示图标）。 */
+    function BibleAssetThumbs({ ids }) {
+      const list = (ids || []).filter(Boolean).slice(0, 6);
+      if (!list.length) return null;
+      return h('div', { className: 'dshic-bible-thumbs' },
+        list.map((id, i) => h(BibleThumb, { key: id + '_' + i, assetId: id })));
+    }
+    function BibleThumb({ assetId }) {
+      const url = useAssetUrl(assetId);
+      const [kind, setKind] = useState('');
+      useEffect(() => {
+        let ok = true;
+        idbGet(assetId).then((r) => { if (ok) setKind((r && r.kind) || ''); }).catch(() => { /* 忽略 */ });
+        return () => { ok = false; };
+      }, [assetId]);
+      if (kind === 'audio') {
+        return h('span', { className: 'dshic-bible-thumb is-audio', title: assetId }, Ic('audio', 14));
+      }
+      if (!url) return h('span', { className: 'dshic-bible-thumb is-empty', title: assetId });
+      if (kind === 'video') {
+        return h('video', {
+          className: 'dshic-bible-thumb', src: url + '#t=0.1', muted: true, preload: 'metadata',
+          onPointerDown: (e) => e.stopPropagation(),
+        });
+      }
+      return h('img', {
+        className: 'dshic-bible-thumb', src: url, draggable: false, title: assetId,
+        onPointerDown: (e) => e.stopPropagation(),
+        onClick: (e) => { e.stopPropagation(); openLightbox('image', url, assetId); },
+      });
+    }
+
 /** 项目设定集（Series Bible）：世界观 + 风格 + 角色/场景/道具卡，注入所有 AI 生成保证跨集一致。 */
     function BibleTab() {
       const [bible, setBible] = useState(() => loadBible(S.activeId));
@@ -12076,32 +12448,37 @@ window.__ModuleLoader__.load({
             onClick: () => persist({ ...bible, [key]: [...(bible[key] || []), { name: '', desc: '', assetIds: [] }] }),
           }, Ic('plus', 11), T('bibleAdd')),
         ),
-        ...(bible[key] || []).map((item, i) => h('div', { key: i, className: 'dshic-row' },
-          h('input', {
-            className: 'dshic-input', style: { width: 76, flex: 'none' }, value: item.name || '',
-            placeholder: T('bibleNamePh'),
-            onChange: (e) => { const arr = [...bible[key]]; arr[i] = { ...arr[i], name: e.target.value }; persist({ ...bible, [key]: arr }); },
-            onPointerDown: (e) => e.stopPropagation(),
-          }),
-          // 链接资产栏：把该条目绑定到资产库的图片/音频/视频（多选）；@引用时注入设定文字、
-          // 音频作声音参考。参考图只认连线，绑定关系不会让图片自动上送（缺陷 1 的口径）
-          h('button', {
-            type: 'button', className: cls('dshic-mini', (item.assetIds || []).length && 'is-active'),
-            title: T('bibleLinkAssets'),
-            onPointerDown: (e) => e.stopPropagation(),
-            onClick: () => setLinkFor({ key, index: i, entry: item }),
-          }, Ic('image', 11), (item.assetIds || []).length ? ' ' + item.assetIds.length : ''),
-          h('input', {
-            className: 'dshic-input', style: { flex: 1, minWidth: 0 }, value: item.desc || '',
-            placeholder: T('bibleDescPh'),
-            onChange: (e) => { const arr = [...bible[key]]; arr[i] = { ...arr[i], desc: e.target.value }; persist({ ...bible, [key]: arr }); },
-            onPointerDown: (e) => e.stopPropagation(),
-          }),
-          h('button', {
-            type: 'button', className: 'dshic-iconbtn is-danger',
-            onPointerDown: (e) => e.stopPropagation(),
-            onClick: () => { const arr = [...bible[key]]; arr.splice(i, 1); persist({ ...bible, [key]: arr }); },
-          }, '✕'),
+        ...(bible[key] || []).map((item, i) => h('div', { key: i, className: 'dshic-bible-item' },
+          h('div', { className: 'dshic-row' },
+            h('input', {
+              className: 'dshic-input', style: { width: 76, flex: 'none' }, value: item.name || '',
+              placeholder: T('bibleNamePh'),
+              onChange: (e) => { const arr = [...bible[key]]; arr[i] = { ...arr[i], name: e.target.value }; persist({ ...bible, [key]: arr }); },
+              onPointerDown: (e) => e.stopPropagation(),
+            }),
+            // 链接资产栏：把该条目绑定到资产库的图片/音频/视频（多选）；@引用时注入设定文字、
+            // 音频作声音参考。参考图只认连线，绑定关系不会让图片自动上送（缺陷 1 的口径）
+            h('button', {
+              type: 'button', className: cls('dshic-mini', (item.assetIds || []).length && 'is-active'),
+              title: T('bibleLinkAssets'),
+              onPointerDown: (e) => e.stopPropagation(),
+              onClick: () => setLinkFor({ key, index: i, entry: item }),
+            }, Ic('image', 11), (item.assetIds || []).length ? ' ' + item.assetIds.length : ''),
+            h('input', {
+              className: 'dshic-input', style: { flex: 1, minWidth: 0 }, value: item.desc || '',
+              placeholder: T('bibleDescPh'),
+              onChange: (e) => { const arr = [...bible[key]]; arr[i] = { ...arr[i], desc: e.target.value }; persist({ ...bible, [key]: arr }); },
+              onPointerDown: (e) => e.stopPropagation(),
+            }),
+            h('button', {
+              type: 'button', className: 'dshic-iconbtn is-danger',
+              onPointerDown: (e) => e.stopPropagation(),
+              onClick: () => { const arr = [...bible[key]]; arr.splice(i, 1); persist({ ...bible, [key]: arr }); },
+            }, '✕'),
+          ),
+          (item.assetIds || []).length
+            ? h(BibleAssetThumbs, { key: 'thumbs', ids: item.assetIds })
+            : null,
         )),
         linkFor && linkFor.key === key
           ? h(BibleLinkDialog, {
@@ -12149,25 +12526,39 @@ window.__ModuleLoader__.load({
     }
 
     function Rightbar() {
+      // 资产 / 设定集已合并进统一弹窗（左下图标列打开），右侧面板只保留项目 / 设置。
+      // 多画布预留：项目页签（ProjectsTab）是将来「项目下多张画布」列表的挂载位置。
       const tabs = [
         { id: 'projects', label: T('projects'), icon: 'folder' },
-        { id: 'assets', label: T('assets'), icon: 'image' },
-        { id: 'bible', label: T('bibleTab'), icon: 'script' },
         { id: 'settings', label: T('settings'), icon: 'settings' },
       ];
+      const active = tabs.some((t) => t.id === S.rightTab) ? S.rightTab : 'projects';
       return h('div', { className: 'dshic-rightbar', 'data-rb': '1', onPointerDown: (e) => e.stopPropagation() },
         h('div', { className: 'dshic-tabs' },
           tabs.map((t) => h('button', {
             key: t.id, type: 'button',
-            className: cls('dshic-tab', S.rightTab === t.id && 'is-active'),
+            className: cls('dshic-tab', active === t.id && 'is-active'),
+            'data-tab': t.id,
             onClick: () => update((s) => { s.rightTab = t.id; }),
           }, t.label)),
         ),
+        // 快捷键 / 帮助反馈 / 检查更新：从顶部工具栏迁移到右侧面板（行为不变）
+        h('div', { className: 'dshic-rb-actions' },
+          h(ShortcutsPanel),
+          h('button', {
+            type: 'button', className: 'dshic-btn', 'data-action': 'rightbar-help', title: T('supportBtn'),
+            onClick: () => update((s) => { s.supportOpen = true; }),
+          }, Ic('help', 13)),
+          h('button', {
+            type: 'button', className: 'dshic-btn', 'data-action': 'rightbar-update',
+            title: T('updateBtn') + ((S.updateInfo && S.updateInfo.runningVersion) ? '（当前 v' + S.updateInfo.runningVersion + '）' : ''),
+            disabled: S.updateChecking,
+            onClick: () => { checkUpdate(false).then((info) => { if (info && info.upToDate) toast(T('updateUpToDate') + (info.runningVersion ? ' v' + info.runningVersion : '')); }); },
+          }, S.updateChecking ? h('span', { className: 'dshic-spin' }) : ((S.updateInfo && !S.updateInfo.upToDate) ? '⬆' : Ic('download', 13))),
+        ),
         h('div', { className: 'dshic-rb-body' },
-          S.rightTab === 'projects' ? h(ProjectsTab) : null,
-          S.rightTab === 'assets' ? h(AssetsTab) : null,
-          S.rightTab === 'bible' ? h(BibleTab) : null,
-          S.rightTab === 'settings' ? h(SettingsTab) : null,
+          active === 'projects' ? h(ProjectsTab) : null,
+          active === 'settings' ? h(SettingsTab) : null,
         ),
       );
     }
@@ -12366,6 +12757,7 @@ window.__ModuleLoader__.load({
           : null,
         h(Toolbar),
         h('div', { className: 'dshic-main' },
+          h(IconRail),
           h('div', {
             ref: rootRef,
             className: 'dshic-canvas',
@@ -12409,6 +12801,8 @@ window.__ModuleLoader__.load({
           ),
           S.rightOpen ? h(Rightbar) : null,
         ),
+        h(StudioModal),          // 资产 + 设定集统一弹窗（单例；S.panelModal 控制）
+        h(ProjectNameDialog),    // 新建 / 重命名项目（空名校验）
         S.menu ? h(ContextMenu, { menu: S.menu }) : null,
         S.lightbox ? h(Lightbox) : null,
         S.supportOpen ? h(SupportDialog) : null,
@@ -12826,7 +13220,11 @@ window.__ModuleLoader__.load({
         // 冒烟测试专用缝隙（仅在 smoke-render.mjs 设置了该标记时存在）：
         // 直接暴露各页签组件与同步入口，让测试能逐个渲染/驱动，抓白屏与同步断链问题
         if (typeof window !== 'undefined' && window.__DSH_IC_SMOKE__) {
-          window.__DSH_IC_TABS__ = { ProjectsTab, AssetsTab, BibleTab, SettingsTab, CanvasPage, ShortcutsPanel, CanvasHostedApp, SkillPalette };
+          window.__DSH_IC_TABS__ = {
+            ProjectsTab, AssetsTab, BibleTab, SettingsTab, CanvasPage, ShortcutsPanel, CanvasHostedApp, SkillPalette,
+            // 面板结构重构（左侧图标列 / 顶部工具栏 / 右侧面板 / 统一弹窗）
+            Toolbar, Rightbar, IconRail, StudioModal, ProjectNameDialog,
+          };
           // 节点体/生成面板组件出口：供 scripts/test-node-actions.mjs 断言「结果操作按钮必须在节点末尾左下角」，
           // 并供 smoke-render 直接渲染新组件（MediaNodeBody / GenComposer）抓渲染期崩溃；
           // NodeShell 用于断言「点击区域规则」：标题栏/底部操作栏不弹面板，只有内容区弹。
@@ -12878,6 +13276,28 @@ window.__ModuleLoader__.load({
           window.__DSH_IC_IMGREF__ = { rawImageDims, sniffImageEncoding, registerReferenceAsset };
           // IC-03：视频厂商识别/前缀归一化的纯函数出口（供 scripts/test-vendor-detect.mjs 直接断言）
           window.__DSH_IC_VENDOR__ = { detectVideoVendor, gatewayPrefixFor, wanEndpoints, vendorBase, VIDEO_REF_CAPS };
+          // 面板结构（左侧图标列 / 统一弹窗 / 工具栏项目切换）：供 scripts/test-panel-layout.mjs 驱动
+          window.__DSH_IC_PANEL__ = {
+            IconRail, StudioModal, Toolbar, Rightbar, AssetCard, ProjectNameDialog,
+            openStudioModal, setStudioModalTab, closeStudioModal, handleStudioModalKey,
+            openProjectDialog, closeProjectDialog, submitProjectDialog, createProjectNamed,
+            setProjectDialogValue: (v) => { if (S.projectDialog) S.projectDialog.value = String(v == null ? '' : v); },
+            openProjectMenuAt, closeProjectMenu, toggleProjectMenuAt,
+            state: () => ({
+              panelModal: S.panelModal,
+              projectMenu: S.projectMenu ? { ...S.projectMenu } : null,
+              projectDialog: S.projectDialog ? { ...S.projectDialog } : null,
+              rightTab: S.rightTab,
+              activeId: S.activeId,
+              projects: S.projects.map((p) => ({ id: p.id, name: p.name })),
+              keysOpen: S.keysOpen,
+              supportOpen: !!S.supportOpen,
+            }),
+          };
+          // 多画布预留接口：文档 key 抽象（当前 canvasId=null → key 就是 projectId）
+          window.__DSH_IC_CANVAS__ = {
+            DEFAULT_CANVAS_ID, canvasDocKey, activeCanvasId, activeGraphKey, listCanvases, switchCanvas,
+          };
           // BLK-02：ArtCraft 目录基准相关的纯函数出口（供 scripts/test-craft-base.mjs 断言）
           window.__DSH_IC_CRAFT__ = { craftBaseDir, craftBaseDirRequired, joinLocal, craftFolderOf, craft };
           // 创作技能注入的测试缝隙：人设文本 / 快捷键命令定义 / 技能浮层动作（供 scripts/test-skill-inject.mjs 断言）
