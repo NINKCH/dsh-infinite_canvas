@@ -460,6 +460,7 @@ window.__ModuleLoader__.load({
       'noProjectMatch': '没有匹配的项目',
       'prevPage': '上一页',
       'nextPage': '下一页',
+      'pageNumber': '页码',
       'emptyProjectHint': '还没有项目。点左上角项目名 →「+ 新建项目…」创建第一个项目，或直接在对话里说「创建一个项目叫…」。',
       'projectName': '项目名称',
       'renameHint': '双击名称重命名',
@@ -995,6 +996,7 @@ window.__ModuleLoader__.load({
       'noProjectMatch': 'No matching projects',
       'prevPage': 'Previous page',
       'nextPage': 'Next page',
+      'pageNumber': 'Page number',
       'emptyProjectHint': 'No projects yet. Open the project name at the top left →「+ New project…」to create the first one, or just say "create a project called…" in the chat.',
       'projectName': 'Project name',
       'renameHint': 'Double-click to rename',
@@ -1527,10 +1529,13 @@ window.__ModuleLoader__.load({
   max-height:min(60vh,calc(100vh - 64px));overflow-y:auto;overscroll-behavior:contain;padding:6px;
   background:var(--dsw-alias-bg-layer-1);border:1px solid var(--dshic-line2);border-radius:15px;
   box-shadow:var(--dshic-shadow-lg);display:flex;flex-direction:column;gap:2px;box-sizing:border-box;}
-/* 搜索行：搜索框占满剩余宽度；分页控件（>5 项才有）紧贴搜索框右侧、同一行 */
+/* 顶部行：[+ 新建项目]（纯图标）+ 搜索框（放大镜内嵌在输入框内部右侧） */
 .dshic-proj-menu-searchrow{display:flex;align-items:center;gap:6px;flex:none;padding:2px 2px 5px;}
-.dshic-proj-menu-search{flex:1;min-width:0;padding:0;}
-.dshic-proj-menu-search .dshic-input{height:28px;font-size:12px;box-sizing:border-box;width:100%;}
+.dshic-proj-menu-add{flex:none;display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;
+  padding:0;border:none;border-radius:8px;background:transparent;color:var(--dsw-alias-label-secondary);cursor:pointer;}
+.dshic-proj-menu-add:hover{background:var(--dsw-alias-interactive-bg-hover,color-mix(in srgb,var(--dsw-alias-label-primary) 8%,transparent));color:var(--dsw-alias-label-primary);}
+.dshic-proj-menu-search{position:relative;flex:1;min-width:0;padding:0;}
+.dshic-proj-menu-search .dshic-input{height:28px;font-size:12px;box-sizing:border-box;width:100%;padding-right:26px;}
 /* 列表：≤5 项时高度 = 实际行数（无空白）；只有 >5 项才固定 5 行高（.is-paged）并分页 */
 .dshic-proj-menu-list{flex:none;height:auto;overflow:visible;display:flex;flex-direction:column;gap:2px;}
 .dshic-proj-menu-list.is-paged{height:calc(5 * 38px);overflow:hidden;}
@@ -1538,14 +1543,19 @@ window.__ModuleLoader__.load({
 /* 无匹配空态：按内容高度，不制造空白 */
 .dshic-proj-menu-empty{flex:none;padding:18px 8px;display:flex;align-items:center;justify-content:center;
   font-size:12px;color:var(--dsw-alias-label-secondary);}
-/* 分页（>5 项才出现，位于搜索行右侧）：上一页 / 页码 1/3 / 下一页 */
-.dshic-proj-menu-pager{flex:none;display:flex;align-items:center;gap:4px;padding:0;}
+/* 底部分页行（>5 项才出现）：‹ [页码输入] / N ›，居中 */
+.dshic-proj-menu-pager{flex:none;display:flex;align-items:center;justify-content:center;gap:6px;padding:4px 2px 2px;}
 .dshic-proj-menu-pager-btn{display:inline-flex;align-items:center;justify-content:center;width:24px;height:22px;
   border:none;border-radius:6px;background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;
   font-size:14px;line-height:1;cursor:pointer;padding:0;}
 .dshic-proj-menu-pager-btn:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover,color-mix(in srgb,var(--dsw-alias-label-primary) 8%,transparent));color:var(--dsw-alias-label-primary);}
 .dshic-proj-menu-pager-btn:disabled{opacity:.35;cursor:default;}
-.dshic-proj-menu-page{font-size:11px;color:var(--dsw-alias-label-secondary);font-variant-numeric:tabular-nums;min-width:32px;text-align:center;}
+.dshic-proj-menu-pagebox{display:inline-flex;align-items:center;gap:4px;}
+.dshic-proj-menu-pageinput{width:38px;height:24px;text-align:center;font:inherit;font-size:12px;padding:0 2px;
+  border:1px solid var(--dshic-line2);border-radius:6px;background:var(--dsw-alias-bg-layer-1);
+  color:var(--dsw-alias-label-primary);box-sizing:border-box;}
+.dshic-proj-menu-pageinput:focus{outline:none;border-color:var(--dshic-accent);box-shadow:var(--dshic-shadow-sel);}
+.dshic-proj-menu-pagetotal{font-size:11px;color:var(--dsw-alias-label-secondary);font-variant-numeric:tabular-nums;white-space:nowrap;}
 .dshic-proj-menu-item{display:flex;align-items:center;gap:8px;width:100%;min-height:32px;padding:0 10px;
   border:none;border-radius:9px;background:transparent;color:var(--dsw-alias-label-primary);
   font:inherit;font-size:var(--dshic-panel-font);line-height:1.4;cursor:pointer;text-align:left;box-sizing:border-box;}
@@ -7081,9 +7091,10 @@ window.__ModuleLoader__.load({
       panelModal: null,
       // 工具栏项目下拉（位置由按钮真实矩形计算）：{left, top} | null；纯 UI 状态
       projectMenu: null,
-      // 项目下拉的搜索与分页（最多 5 行/页，列表高度固定）；打开下拉时重置
+      // 项目下拉的搜索与分页（最多 5 行/页，分页在列表底部、带页码输入框）；打开下拉时重置
       projectMenuSearch: '',
       projectMenuPage: 0,
+      projectMenuPageInput: null, // 页码输入框的草稿值（null = 显示当前页）
       // 工具栏「新建项目…」命名弹窗（重命名已改为就地编辑，不再走弹窗）：{ mode:'create'|'canvas-create', value, error } | null
       projectDialog: null,
       // 就地改名（顶部项目名 / 下拉项目行 / 右栏项目行 / 右栏画布行同一套状态）：
@@ -11303,13 +11314,41 @@ window.__ModuleLoader__.load({
     }
     function setProjectMenuSearch(v) {
       settleInlineEditBeforeMenuNav();
-      update((s) => { s.projectMenuSearch = String(v == null ? '' : v); s.projectMenuPage = 0; });
+      update((s) => { s.projectMenuSearch = String(v == null ? '' : v); s.projectMenuPage = 0; s.projectMenuPageInput = null; });
     }
     function setProjectMenuPage(p) {
       settleInlineEditBeforeMenuNav();
       const total = projectMenuTotalPages();
-      const next = Math.max(0, Math.min(total - 1, Number(p) || 0));
-      update((s) => { s.projectMenuPage = next; });
+      const next = Math.max(0, Math.min(total - 1, Math.floor(Number(p)) || 0));
+      update((s) => { s.projectMenuPage = next; s.projectMenuPageInput = null; });
+      return next;
+    }
+    /** 页码输入框只改草稿，不改当前页（回车/失焦才跳转）。 */
+    function setProjectMenuPageInput(v) {
+      S.projectMenuPageInput = String(v == null ? '' : v);
+      notify();
+    }
+    /** 提交页码：纯数字 → 夹取到 1..N 后跳页；空/非数字 → 不改变当前页并还原显示。 */
+    function commitProjectMenuPageInput() {
+      settleInlineEditBeforeMenuNav();
+      const raw = S.projectMenuPageInput;
+      if (raw == null) return projectMenuPageNow();
+      const text = String(raw).trim();
+      let next = null;
+      if (/^\d+$/.test(text)) {
+        const total = projectMenuTotalPages();
+        next = Math.max(0, Math.min(total - 1, Number(text) - 1)); // 1-based → 0-based，夹取 1..N
+      }
+      update((s) => {
+        if (next != null) s.projectMenuPage = next;
+        s.projectMenuPageInput = null; // 非法文本：仅清草稿，当前页不变
+      });
+      return next == null ? projectMenuPageNow() : next;
+    }
+    function cancelProjectMenuPageInput() {
+      if (S.projectMenuPageInput == null) return;
+      S.projectMenuPageInput = null;
+      notify();
     }
     /** 项目下拉的视口约束：右侧/底部各留安全边距，项目多时靠 max-height + 内部滚动，绝不溢出视口。 */
     function openProjectMenuAt(left, top) {
@@ -11323,7 +11362,7 @@ window.__ModuleLoader__.load({
       update((s) => {
         s.projectMenu = { left: l, top: t };
         // 新开下拉：搜索词与页码回到初始；已打开时只是重新定位，不打断当前搜索/翻页
-        if (!wasOpen) { s.projectMenuSearch = ''; s.projectMenuPage = 0; }
+        if (!wasOpen) { s.projectMenuSearch = ''; s.projectMenuPage = 0; s.projectMenuPageInput = null; }
       });
     }
     function closeProjectMenu() {
@@ -11568,8 +11607,18 @@ window.__ModuleLoader__.load({
         ),
         menu
           ? h('div', { key: 'menu', className: 'dshic-proj-menu', style: menuStyle, onPointerDown: (e) => e.stopPropagation() },
-              // 搜索行：搜索框占满剩余宽度，分页控件（>5 项才有）紧贴搜索框右侧、同一行
+              // 顶部行：[+ 新建项目]（纯图标）+ 搜索框（放大镜内嵌在输入框右侧）
               h('div', { key: 'searchrow', className: 'dshic-proj-menu-searchrow', 'data-role': 'project-menu-searchrow' },
+                h('button', {
+                  key: 'add', type: 'button', className: 'dshic-proj-menu-add', 'data-action': 'new-project-main',
+                  title: T('newProject'),
+                  onPointerDown: (e) => e.stopPropagation(),
+                  onClick: (e) => {
+                    if (e && e.stopPropagation) e.stopPropagation();
+                    closeProjectMenu();
+                    openProjectDialog('create', '');
+                  },
+                }, Ic('plus', 13)),
                 h('div', { key: 'search', className: 'dshic-proj-menu-search' },
                   h('input', {
                     className: 'dshic-input', type: 'search', value: S.projectMenuSearch || '',
@@ -11584,24 +11633,10 @@ window.__ModuleLoader__.load({
                         if (menuShown[0].id !== S.activeId) switchProject(menuShown[0].id);
                       }
                     },
-                  })),
-                menuTotalPages > 1
-                  ? h('div', { key: 'pager', className: 'dshic-proj-menu-pager', 'data-role': 'project-menu-pager' },
-                      h('button', {
-                        type: 'button', className: 'dshic-proj-menu-pager-btn', 'data-action': 'project-menu-prev',
-                        title: T('prevPage'), disabled: menuPage <= 0,
-                        onPointerDown: (e) => e.stopPropagation(),
-                        onClick: () => setProjectMenuPage(menuPage - 1),
-                      }, '‹'),
-                      h('span', { key: 'page', className: 'dshic-proj-menu-page', 'data-role': 'project-menu-page' },
-                        (menuPage + 1) + '/' + menuTotalPages),
-                      h('button', {
-                        type: 'button', className: 'dshic-proj-menu-pager-btn', 'data-action': 'project-menu-next',
-                        title: T('nextPage'), disabled: menuPage >= menuTotalPages - 1,
-                        onPointerDown: (e) => e.stopPropagation(),
-                        onClick: () => setProjectMenuPage(menuPage + 1),
-                      }, '›'))
-                  : null),
+                  }),
+                  h('span', {
+                    key: 'ic', className: 'dshic-search-ic', 'data-role': 'project-menu-search-icon', 'aria-hidden': 'true',
+                  }, Ic('search', 12)))),
               // 列表：≤5 项按实际行数自适应（不留空白）；>5 项固定 5 行高 + 分页
               menuShown.length
                 ? h('div', {
@@ -11671,11 +11706,40 @@ window.__ModuleLoader__.load({
                     }))
                 : h('div', { key: 'empty', className: 'dshic-proj-menu-empty', 'data-role': 'project-menu-empty' },
                     T('noProjectMatch')),
-              S.projects.length ? h('div', { key: 'sep', className: 'dshic-proj-menu-sep' }) : null,
-              h('button', {
-                key: 'new', type: 'button', className: 'dshic-proj-menu-item', 'data-action': 'new-project-main',
-                onClick: () => { closeProjectMenu(); openProjectDialog('create', ''); },
-              }, Ic('plus', 12), T('newProject') + '…'),
+              // 底部分页行（>5 项才有）：‹ [页码输入] / N ›；≤5 项时整行不渲染、不占位
+              menuTotalPages > 1
+                ? h('div', { key: 'pager', className: 'dshic-proj-menu-pager', 'data-role': 'project-menu-pager' },
+                    h('button', {
+                      type: 'button', className: 'dshic-proj-menu-pager-btn', 'data-action': 'project-menu-prev',
+                      title: T('prevPage'), disabled: menuPage <= 0,
+                      onPointerDown: (e) => e.stopPropagation(),
+                      onClick: () => setProjectMenuPage(menuPage - 1),
+                    }, '‹'),
+                    h('div', { key: 'pagebox', className: 'dshic-proj-menu-pagebox' },
+                      h('input', {
+                        key: 'input', className: 'dshic-proj-menu-pageinput', type: 'text',
+                        inputMode: 'numeric', 'data-role': 'project-menu-page-input', 'aria-label': T('pageNumber'),
+                        // 未输入时显示当前页（1-based）；输入中显示草稿，回车/失焦再夹取跳转
+                        value: S.projectMenuPageInput != null ? S.projectMenuPageInput : String(menuPage + 1),
+                        onPointerDown: (e) => e.stopPropagation(),
+                        onClick: (e) => e.stopPropagation(),
+                        onChange: (e) => setProjectMenuPageInput(e.target.value),
+                        onBlur: () => commitProjectMenuPageInput(),
+                        onKeyDown: (e) => {
+                          if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); commitProjectMenuPageInput(); }
+                          else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); cancelProjectMenuPageInput(); }
+                        },
+                      }),
+                      h('span', {
+                        key: 'total', className: 'dshic-proj-menu-pagetotal', 'data-role': 'project-menu-page-total',
+                      }, '/ ' + menuTotalPages)),
+                    h('button', {
+                      type: 'button', className: 'dshic-proj-menu-pager-btn', 'data-action': 'project-menu-next',
+                      title: T('nextPage'), disabled: menuPage >= menuTotalPages - 1,
+                      onPointerDown: (e) => e.stopPropagation(),
+                      onClick: () => setProjectMenuPage(menuPage + 1),
+                    }, '›'))
+                : null,
             )
           : null,
       ];
@@ -14158,6 +14222,7 @@ window.__ModuleLoader__.load({
             beginInlineRename, setInlineEditValue, commitInlineRename, cancelInlineRename, inlineEditValue,
             setCanvasSearch, toggleCanvasCollapsed,
             setProjectMenuSearch, setProjectMenuPage, PROJECT_MENU_PAGE_SIZE,
+            setProjectMenuPageInput, commitProjectMenuPageInput, cancelProjectMenuPageInput,
             setDbStats, toggleStorageInfo,
             setStorageInfoOpen: (v) => { S.storageInfoOpen = !!v; notify(); },
             createCanvasNamed, renameCanvasNamed, deleteCanvasNamed, listCanvases, canvasNameFor,
@@ -14169,6 +14234,7 @@ window.__ModuleLoader__.load({
               projectMenu: S.projectMenu ? { ...S.projectMenu } : null,
               projectMenuSearch: S.projectMenuSearch,
               projectMenuPage: S.projectMenuPage,
+              projectMenuPageInput: S.projectMenuPageInput,
               projectMenuTotalPages: projectMenuTotalPages(),
               projectDialog: S.projectDialog ? { ...S.projectDialog } : null,
               inlineEdit: S.inlineEdit ? { ...S.inlineEdit } : null,
