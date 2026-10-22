@@ -338,6 +338,9 @@ if (SETTINGS && TABS) {
   eq(selects.length, 1, '专家下拉组件应只有一个 select');
   const expertSel = selects[0];
   ok(expertSel && expertSel.props['data-role'] === 'expert-select', '专家下拉缺少 data-role="expert-select"');
+  // 卡片大标题已说明用途：不得再多一行「专家 ⓘ」小标签（历史返工点）
+  ok(!exEls.some((e) => String((e.props && e.props.className) || '') === 'dshic-field-label'),
+    '专家下拉上方仍有多余的字段标签行（应只保留下拉框）');
   const optTexts = [];
   (function walkOpt(el) {
     if (el == null || typeof el === 'boolean') return;

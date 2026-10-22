@@ -12489,13 +12489,14 @@ window.__ModuleLoader__.load({
       return data || { skills: [] };
     }
     function ExpertSelect({ value, onChange }) {
-      // 选项只来自本插件 EXPERTS（persona + skills 的专家团），绝不列举 Harness 全部技能
+      // 选项只来自本插件 EXPERTS（persona + skills 的专家团），绝不列举 Harness 全部技能。
+      // 卡片大标题「技能增强」已经说明用途，这里不再重复一行「专家 ⓘ」小标签，直接给下拉框。
       const current = expertIdOrDefault(value);
       return h('div', { className: 'dshic-field' },
-        h('span', { className: 'dshic-field-label' }, T('expertLabel'), InfoTip(T('expertHint'))),
         h('select', {
           className: 'dshic-select', value: current, 'data-role': 'expert-select',
           'data-expert-options': EXPERTS.map((e) => e.id).join(','),
+          title: T('expertHint'),
           onChange: (e) => onChange(expertIdOrDefault(e.target.value)),
           onPointerDown: (e) => e.stopPropagation(),
         }, EXPERTS.map((e) => h('option', { key: e.id, value: e.id }, T(e.nameKey)))));
