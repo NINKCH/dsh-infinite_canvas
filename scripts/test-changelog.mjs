@@ -116,6 +116,7 @@ const COVERAGE = [
   { sha: 'e97f063', keys: [/default canvas|defaultCanvasName|only one canvas remains|remaining canvas/i] },
   { sha: '814f135', keys: [/current-project tick|inline rename|right panel|新建项目/i] },
   { sha: 'afec094', keys: [/paginat|search|icon rail frame|search row|分页|图标/i] },
+  { sha: '41fb0b7', keys: [/size the project menu|content up to five|canvas name on the project row|canvas chip|自适应/i] },
 ];
 for (const c of COVERAGE) {
   ok(c.keys.some((re) => re.test(section)), '未发版提交 ' + c.sha + ' 在 Unreleased 段里找不到对应记录（补记不全）');
