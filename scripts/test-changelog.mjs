@@ -112,6 +112,7 @@ const COVERAGE = [
   { sha: '9d6b1ed', keys: [/icon rail|IconRail|studio modal|StudioModal|project switcher|图标|弹窗|面板/i] },
   { sha: '2793862', keys: [/inject list|without inject|client plugin loads again/i] },
   { sha: '2a1b829', keys: [/sub-canvases|directory tree|rename|icon-only/i] },
+  { sha: 'caea5e7', keys: [/inline project rename|current-project-only|solid theme surfaces|centred icon rail/i] },
 ];
 for (const c of COVERAGE) {
   ok(c.keys.some((re) => re.test(section)), '未发版提交 ' + c.sha + ' 在 Unreleased 段里找不到对应记录（补记不全）');
