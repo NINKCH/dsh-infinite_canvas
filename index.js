@@ -281,7 +281,7 @@ function docSummary(d) {
   const nodes = Object.values(d.nodes || {}).map((n) => ({
     id: n.id, type: normalizeNodeType(n.type), label: (n.data && n.data.label) || '', status: (n.data && n.data.status) || 'idle',
   }));
-  return { nodeIds: Object.keys(d.nodes || {}), nodes, source: d.source || 'app' };
+  return { nodeIds: Object.keys(d.nodes || {}), nodes, source: d.source || 'app', canvases: canvasRegistry(d) };
 }
 
 /** v1 → v2 一次性迁移：文档按 updatedAt 新者胜合并；资产索引照抄（媒体文件原地保留，rel 指针不动——零风险迁移）。 */
@@ -747,6 +747,9 @@ function sqlDeleteProjectRows(db, id, root) {
   try {
     db.prepare('DELETE FROM assets WHERE project_id = ?').run(id);
     db.prepare('DELETE FROM projects WHERE id = ?').run(id);
+    // 多画布：项目下的子画布行随项目一起清掉（否则删项目后画布文档残留成孤行）
+    const canvasPattern = String(id).replace(/[\\%_]/g, '\\$&') + CANVAS_ID_SEP + '%';
+    db.prepare("DELETE FROM projects WHERE id LIKE ? ESCAPE '\\'").run(canvasPattern);
   } catch (e) { result.errors.push('delete rows: ' + String((e && e.message) || e)); }
   if (root) {
     const seen = new Set();
@@ -768,6 +771,24 @@ function sqlDeleteProjectRows(db, id, root) {
   if (result.errors.length) result.ok = false;
   return result;
 }
+/** 子画布文档镜像：数据目录 projects/<项目名文件夹>/canvases/<canvasId>.json。
+ *  子画布共用项目文件夹（资产/设定集按项目维度）；失败不影响主存储。 */
+function mirrorCanvasDocToDataRoot(projectId, canvasId, doc) {
+  const root = dataRoot();
+  if (!root) return;
+  const projectDoc = readDocOrNull(projectId) || {};
+  let folder = null;
+  try { folder = ensureProjectFolder(projectId, projectDoc.name || projectId); } catch { return; }
+  if (!folder) return;
+  try {
+    const dir = path.join(root, 'projects', folder, 'canvases');
+    mkdirSync(dir, { recursive: true });
+    const f = path.join(dir, String(canvasId) + '.json');
+    const tmp = f + '.' + process.pid + '.tmp';
+    writeFileSync(tmp, JSON.stringify(doc, null, 1), 'utf8');
+    renameSync(tmp, f);
+  } catch { /* 镜像失败不影响主存储 */ }
+}
 /** 一次性迁移/对齐数据目录布局：旧 pid 文件夹 → 项目名文件夹，并镜像全部项目文档。 */
 function dataRootMigrate() {
   const root = dataRoot();
@@ -775,7 +796,7 @@ function dataRootMigrate() {
   let ids = [];
   try {
     ids = existsSync(PROJECTS_DIR)
-      ? readdirSync(PROJECTS_DIR).filter((f) => f.endsWith('.json')).map((f) => f.replace(/\.json$/, ''))
+      ? readdirSync(PROJECTS_DIR).filter((f) => f.endsWith('.json')).map((f) => f.replace(/\.json$/, '')).filter((id) => !isCanvasDocId(id))
       : [];
   } catch { ids = []; }
   let filesMoved = 0;
@@ -837,6 +858,7 @@ function dataRootImport() {
     ? readdirSync(projectsDir, { withFileTypes: true }).filter((d) => d.isDirectory()).map((d) => d.name)
     : [];
   const imported = [];
+  const importedCanvases = [];
   const assets = {};
   for (const folder of dirs) {
     const dir = path.join(projectsDir, folder);
@@ -856,8 +878,26 @@ function dataRootImport() {
       const list = JSON.parse(readFileSync(path.join(dir, 'assets.json'), 'utf8'));
       if (Array.isArray(list)) assets[id] = list;
     } catch { /* 无资产索引 */ }
+    // 多画布：画布文档镜像在 projects/<项目文件夹>/canvases/*.json（updatedAt 新者胜）
+    try {
+      const cvDir = path.join(dir, 'canvases');
+      for (const f of readdirSync(cvDir)) {
+        if (!f.endsWith('.json')) continue;
+        let cdoc = null;
+        try { cdoc = JSON.parse(readFileSync(path.join(cvDir, f), 'utf8')); } catch { continue; }
+        const cid = normalizeCanvasId(cdoc && cdoc.canvasId);
+        if (!cid) continue;
+        const target = canvasDocId(id, cid);
+        let curC = null;
+        try { curC = JSON.parse(readFileSync(projectFile(target), 'utf8')); } catch { /* 本机没有该画布 */ }
+        if (!curC || (curC.updatedAt || 0) < (cdoc.updatedAt || 0)) {
+          writeIcDoc(target, { ...cdoc, id: target, projectId: id, canvasId: cid, updatedAt: Date.now() });
+          importedCanvases.push({ id, canvasId: cid, name: String(cdoc.name || cid) });
+        }
+      }
+    } catch { /* 无画布镜像 */ }
   }
-  return { ok: true, imported, assets };
+  return { ok: true, imported, canvases: importedCanvases, assets };
 }
 /** 设定集字段规范化（世界观/风格 + 角色/场景/道具条目，条目可携带链接资产 assetIds）。 */
 function normalizeBible(raw) {
@@ -977,13 +1017,58 @@ function pickFolderDialog() {
 // 客户端是内容权威（编辑后推送全量文档）；Agent 经工具在 Host 侧追加节点；客户端轮询合并。
 const PROJECTS_DIR = process.env.DSH_IC_PROJECTS_DIR || path.join(os.homedir(), '.dsh', 'infinite-canvas', 'projects');
 function projectFile(id) {
-  if (!/^[A-Za-z0-9_-]{1,64}$/.test(String(id || ''))) throw new Error('非法项目 id');
-  return path.join(PROJECTS_DIR, String(id) + '.json');
+  const s = String(id || '');
+  const seg = isCanvasDocId(s) ? splitCanvasDocId(s) : { projectId: s, canvasId: null };
+  const okProject = /^[A-Za-z0-9_-]{1,96}$/.test(seg.projectId || '');
+  const okCanvas = seg.canvasId === null || /^[A-Za-z0-9_-]{1,64}$/.test(seg.canvasId || '');
+  if (!okProject || !okCanvas) throw new Error('非法项目 id');
+  return path.join(PROJECTS_DIR, s + '.json');
+}
+// ---------- 多画布（项目下子目录 = 独立画布文档）----------
+// 默认画布：canvasId = null，文档 id 仍是 projectId（旧数据零迁移）。
+// 子画布：文档 id = `${projectId}__cv__${canvasId}`，项目文档里登记 canvases: [{id,name,createdAt}]；
+// 资产/设定集仍以 projectId 为维度共享，不随画布分割。
+const CANVAS_ID_SEP = '__cv__';
+function canvasDocId(projectId, canvasId) {
+  const cid = normalizeCanvasId(canvasId);
+  return cid ? (String(projectId) + CANVAS_ID_SEP + cid) : String(projectId);
+}
+function isCanvasDocId(docId) { return String(docId || '').includes(CANVAS_ID_SEP); }
+function splitCanvasDocId(docId) {
+  const s = String(docId || '');
+  const i = s.indexOf(CANVAS_ID_SEP);
+  if (i < 0) return { projectId: s, canvasId: null };
+  return { projectId: s.slice(0, i), canvasId: s.slice(i + CANVAS_ID_SEP.length) || null };
+}
+function normalizeCanvasId(v) {
+  const s = String(v == null ? '' : v).trim();
+  if (!s) return null;
+  if (!/^[A-Za-z0-9_-]{1,64}$/.test(s)) throw new Error('非法画布 id: ' + s);
+  return s;
+}
+function canvasRegistry(projectDoc) {
+  return Array.isArray(projectDoc && projectDoc.canvases)
+    ? projectDoc.canvases.filter((c) => c && c.id).map((c) => ({ id: String(c.id), name: String(c.name || '').slice(0, 80), createdAt: Number(c.createdAt) || 0 }))
+    : [];
+}
+/** 规范化画布清单（Host 侧唯一写入口）：丢弃非法 id、同名去重、最多 200 个画布。 */
+function sanitizeCanvases(list) {
+  const out = [];
+  const seen = new Set();
+  for (const raw of (Array.isArray(list) ? list : [])) {
+    let cid;
+    try { cid = normalizeCanvasId(raw && raw.id); } catch { continue; }
+    if (!cid || seen.has(cid)) continue;
+    seen.add(cid);
+    out.push({ id: cid, name: String((raw && raw.name) || cid).slice(0, 80), createdAt: Number(raw && raw.createdAt) || Date.now() });
+  }
+  return out.slice(0, 200);
 }
 function projectsList() {
   if (sqlActive()) {
     const db = getDb();
-    const rows = db.prepare('SELECT id, name, created_at, updated_at, bible_updated_at, summary, tombstones FROM projects ORDER BY updated_at DESC').all();
+    const rows = db.prepare('SELECT id, name, created_at, updated_at, bible_updated_at, summary, tombstones FROM projects ORDER BY updated_at DESC').all()
+      .filter((r) => !isCanvasDocId(r.id)); // 子画布行不是项目：不出现在项目列表（画布清单在项目文档里）
     return rows.map((r) => {
       let sum = {};
       try { sum = JSON.parse(r.summary || '{}'); } catch { /* 旧行/损坏摘要 */ }
@@ -995,6 +1080,7 @@ function projectsList() {
         // 旧版本摘要里可能是旧类型名：输出时按合并类型归一（image / video）
         nodes: (sum.nodes || []).map((n) => ({ ...n, type: normalizeNodeType(n && n.type) })),
         tombstones: Array.isArray(tombs) ? tombs : [], bibleUpdatedAt: r.bible_updated_at || 0,
+        canvases: canvasRegistry(sum),
       };
     });
   }
@@ -1003,6 +1089,7 @@ function projectsList() {
   const list = [];
   for (const f of files) {
     const id = f.slice(0, -5);
+    if (isCanvasDocId(id)) continue; // 子画布文档不是项目（由所属项目的 canvases 清单表达）
     try {
       let d;
       try {
@@ -1016,7 +1103,7 @@ function projectsList() {
         id: n.id, type: normalizeNodeType(n.type), label: (n.data && n.data.label) || '',
         status: (n.data && n.data.status) || 'idle',
       }));
-      list.push({ id: d.id || id, name: d.name || id, createdAt: d.createdAt || 0, updatedAt: d.updatedAt || 0, source: d.source || 'app', nodeIds: Object.keys(d.nodes || {}), nodes, tombstones: d.tombstones || [], bibleUpdatedAt: d.bibleUpdatedAt || 0 });
+      list.push({ id: d.id || id, name: d.name || id, createdAt: d.createdAt || 0, updatedAt: d.updatedAt || 0, source: d.source || 'app', nodeIds: Object.keys(d.nodes || {}), nodes, tombstones: d.tombstones || [], bibleUpdatedAt: d.bibleUpdatedAt || 0, canvases: canvasRegistry(d) });
     } catch { /* 单文件损坏跳过 */ }
   }
   return list.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
@@ -1026,9 +1113,13 @@ async function projectsPut(args) {
   // 项目删除墓碑（长效）：删除后迟到的全量推送（450ms 防抖竞速 / 启动 pushAllProjectsToHost 快照）
   // 一律拒收——否则项目原地复活（资产/设定集已清，复活即残废）。客户端不会复用项目 id，拒收永不误伤。
   if (deletedProjectIds().includes(id)) return { ok: true, id, deleted: true };
-  const f = projectFile(id);
+  // 多画布：canvasId 缺省 = 项目默认画布（文档 id 仍是 projectId，旧数据零迁移）；
+  // 子画布写到独立文档 id，项目文档只保留名称/设定集/画布清单/默认画布图。
+  const canvasId = normalizeCanvasId(args && args.canvasId);
+  const targetId = canvasId ? canvasDocId(id, canvasId) : id;
+  projectFile(targetId); // 非法 id 早失败（画布文档 id 走同一套校验）
   const doc = (args && args.doc) || {};
-  let prev = readDocOrNull(id) || {};
+  let prev = readDocOrNull(targetId) || {};
   // 墓碑：对话删除的节点 + 客户端本地删除的节点（客户端删除时也会写入 tombstones）。
   // tombstoneAt 记录每个墓碑的创建时刻：只有**推送时间戳（doc.ts）不早于墓碑时刻**的推送
   // 才被认定为"撤销恢复"允许清墓碑；陈旧推送（快照早于删除、无 ts 或 ts 更老）不得借
@@ -1114,8 +1205,7 @@ async function projectsPut(args) {
   const keptEdgeTomb = edgeTombstones.slice(-400);
   const pruneStamp = (m, keep) => { const o = {}; for (const k of keep) { if (m[k] !== undefined) o[k] = m[k]; } return o; };
   const out = {
-    id,
-    name: String((args && args.name) || prev.name || id).slice(0, 80),
+    id: targetId,
     createdAt: prev.createdAt || (doc && doc.createdAt) || Date.now(),
     updatedAt: Date.now(),
     source: prev.source || 'app',
@@ -1127,8 +1217,21 @@ async function projectsPut(args) {
     tombstoneAt: pruneStamp(tombstoneAt, keptTomb),
     edgeTombstoneAt: pruneStamp(edgeTombstoneAt, keptEdgeTomb),
   };
+  if (canvasId) {
+    out.projectId = id;
+    out.canvasId = canvasId; // 子画布文档：不带 name/canvases/bible（项目级字段只在项目文档）
+  } else {
+    out.name = String((args && args.name) || prev.name || id).slice(0, 80);
+    out.canvases = sanitizeCanvases((args && args.canvases) !== undefined ? args.canvases : prev.canvases);
+  }
   // 设定集随文档一起同步（世界观/风格/角色/场景/道具）：对话侧可读写
-  if (doc.bible !== undefined) {
+  let canvasBible = null;
+  if (canvasId) {
+    // 设定集是项目级：子画布推送里携带的 bible 落到项目文档（画布文档不存 bible）
+    const projectDoc = readDocOrNull(id) || {};
+    if (doc.bible !== undefined) canvasBible = { bible: normalizeBible(doc.bible), bibleUpdatedAt: Date.now() };
+    else if (projectDoc.bible !== undefined) canvasBible = { bible: projectDoc.bible, bibleUpdatedAt: projectDoc.bibleUpdatedAt || 0 };
+  } else if (doc.bible !== undefined) {
     out.bible = normalizeBible(doc.bible);
     out.bibleUpdatedAt = Date.now();
   } else if (prev.bible !== undefined) {
@@ -1136,23 +1239,46 @@ async function projectsPut(args) {
     out.bibleUpdatedAt = prev.bibleUpdatedAt || 0;
   }
   // 设定集有更新时重算全部分镜表的一致性告警（客户端侧设定集编辑也走这条路径）
-  if (out.bible !== undefined) {
+  const bibleForWarn = canvasId ? (canvasBible && canvasBible.bible) : out.bible;
+  if (bibleForWarn !== undefined) {
     try {
       const assetNames = readAssetIndexNames(id);
       for (const nd of Object.values(merged)) {
         if (nd && nd.type === 'storyboard' && Array.isArray(nd.data && nd.data.shots) && nd.data.shots.length) {
-          const nextW = storyboardConsistencyWarnings(out.bible, nd.data.shots, assetNames);
+          const nextW = storyboardConsistencyWarnings(bibleForWarn, nd.data.shots, assetNames);
           if (JSON.stringify(nextW) !== JSON.stringify(nd.data.warnings || [])) nd.data.warnings = nextW;
         }
       }
     } catch { /* 重算失败不影响保存 */ }
   }
   mkdirSync(PROJECTS_DIR, { recursive: true });
-  writeIcDoc(id, out); // 统一走原子写 + 数据目录镜像（此前直写绕过了镜像与原子性）
-  return { ok: true, id, updatedAt: out.updatedAt };
+  writeIcDoc(targetId, out); // 统一走原子写 + 数据目录镜像（此前直写绕过了镜像与原子性）
+  if (canvasId) {
+    // 项目级字段（名称/设定集/画布清单）始终只写项目文档：项目文档缺失时补一份最小项目
+    const projectDoc = readDocOrNull(id);
+    if (!projectDoc) {
+      const canvases = sanitizeCanvases((args && args.canvases) || []);
+      if (!canvases.some((c) => c.id === canvasId)) canvases.push({ id: canvasId, name: canvasId, createdAt: Date.now() });
+      writeIcDoc(id, {
+        id, name: String((args && args.name) || id).slice(0, 80), createdAt: Date.now(), updatedAt: Date.now(),
+        nodes: {}, edges: [], view: { x: 60, y: 40, scale: 1 }, tombstones: [], canvases,
+        ...(canvasBible ? { bible: canvasBible.bible, bibleUpdatedAt: canvasBible.bibleUpdatedAt } : {}),
+      });
+    } else {
+      const patch = {};
+      if (canvasBible) { patch.bible = canvasBible.bible; patch.bibleUpdatedAt = canvasBible.bibleUpdatedAt; }
+      if (args && args.canvases !== undefined) patch.canvases = sanitizeCanvases(args.canvases);
+      if (Object.keys(patch).length) patchProjectDoc(id, patch);
+    }
+  }
+  return { ok: true, id, ...(canvasId ? { canvasId } : {}), updatedAt: out.updatedAt };
 }
 async function projectsGet(args) {
-  return readDoc(String((args && args.id) || ''));
+  const id = String((args && args.id) || '');
+  const canvasId = normalizeCanvasId(args && args.canvasId);
+  if (!canvasId) return readDoc(id);
+  // 默认画布/子画布同一入口：子画布返回独立文档 + 项目级字段（名称/设定集/画布清单）
+  return readCanvasDoc(id, canvasId);
 }
 /** 长效项目删除墓碑（区别于 projectsSync 的一次性 deletedProjects 通知信号）：
  *  删除后任何迟到的 projectsPut 都被拒收，直到 dataRootImport 显式恢复该 id。 */
@@ -1246,6 +1372,7 @@ async function projectsDelete(args) {
     cleanup = sqlDeleteProjectRows(getDb(), id, dataRoot());
   } else {
     try { unlinkSync(projectFile(id)); } catch { /* 已不存在视为成功 */ }
+    try { deleteCanvasDocsForProject(id); } catch { /* 子画布清理失败不影响删除 */ }
     try { removeDataRootProject(id); } catch { /* 数据目录镜像清理失败不影响删除 */ }
   }
   try { addDeletedProjectId(id); } catch { /* 墓碑写失败不影响删除 */ }
@@ -1503,8 +1630,8 @@ function canvasCreateProject(args) {
  */
 function canvasWriteNode(args) {
   const id = String((args && args.projectId) || '');
-  const f = projectFile(id);
-  const doc = readDoc(id);
+  const canvasId = toolCanvasId(args);
+  const doc = readToolDoc(args);
   const text = String((args && args.text) || '');
   const target = (args && args.target) === 'output' ? 'output' : 'idea';
   const nodeId = String((args && args.nodeId) || '');
@@ -1555,7 +1682,8 @@ function canvasWriteNode(args) {
     if (idea !== null && node.type === 'script') node.data.idea = idea;
     if (name) node.data.label = name;
   };
-  const save = () => { doc.updatedAt = Date.now(); writeIcDoc(id, doc); markDocChanged(id); };
+  const save = () => { doc.updatedAt = Date.now(); writeToolDoc(args, doc); };
+  const withCanvas = (o) => (canvasId ? { ...o, canvasId } : o);
   /** 该节点是否已有会被 target=output 覆盖的内容（剧本=成稿；分镜=镜头列表；文本=正文）。 */
   const hasExisting = (node) => {
     if (!node || !node.data) return false;
@@ -1573,14 +1701,14 @@ function canvasWriteNode(args) {
     guardOverwrite(node);
     writeInto(node);
     save();
-    return { ok: true, projectId: id, nodeId, updated: true, label: node.data.label || '' };
+    return withCanvas({ ok: true, projectId: id, nodeId, updated: true, label: node.data.label || '' });
   }
   if ((args && args.kind) === 'text') {
     const pos = nextNodePos(doc);
     const n = agentNode('text', text, pos.x, pos.y, name || defaultLabel(text));
     doc.nodes[n.id] = n;
     save();
-    return { ok: true, projectId: id, nodeId: n.id, label: n.data.label || '' };
+    return withCanvas({ ok: true, projectId: id, nodeId: n.id, label: n.data.label || '' });
   }
   const scripts = Object.values(doc.nodes || {}).filter((n) => n.type === 'script');
   let reuse = null;
@@ -1597,7 +1725,7 @@ function canvasWriteNode(args) {
     }
     writeInto(reuse);
     save();
-    return { ok: true, projectId: id, nodeId: reuse.id, updated: true, reused: true, label: reuse.data.label || '' };
+    return withCanvas({ ok: true, projectId: id, nodeId: reuse.id, updated: true, reused: true, label: reuse.data.label || '' });
   }
   const pos = nextNodePos(doc);
   const n = agentNode('script', target === 'output' ? '' : text, pos.x, pos.y, name || defaultLabel(text));
@@ -1605,7 +1733,7 @@ function canvasWriteNode(args) {
   if (idea !== null) n.data.idea = idea;
   doc.nodes[n.id] = n;
   save();
-  return { ok: true, projectId: id, nodeId: n.id, label: n.data.label || '' };
+  return withCanvas({ ok: true, projectId: id, nodeId: n.id, label: n.data.label || '' });
 }
 /** 读取项目文档：把"文件不存在/内容损坏"变成用户和模型都读得懂的报错（不泄漏绝对路径）。 */
 function readDoc(id) {
@@ -1628,8 +1756,11 @@ function readDoc(id) {
     throw new Error('项目文件损坏，无法解析：' + id + '（可考虑重建该项目）');
   }
 }
-/** 原子写项目文档：SQL 模式走单行事务；文件模式先写临时文件再改名，避免半写导致项目"消失"。 */
+/** 原子写项目/画布文档：SQL 模式走单行事务；文件模式先写临时文件再改名，避免半写导致项目"消失"。
+ *  子画布文档（id 含 __cv__）不重复登记项目文件夹、不镜像 project.json——项目级 meta 只属于默认画布行。 */
 function writeIcDoc(id, doc) {
+  const canvasRef = splitCanvasDocId(id);
+  const isCanvas = isCanvasDocId(id);
   if (sqlActive()) {
     const db = getDb();
     db.prepare(`INSERT INTO projects (id, name, created_at, updated_at, bible_updated_at, summary, tombstones, doc)
@@ -1638,19 +1769,109 @@ function writeIcDoc(id, doc) {
                   bible_updated_at = excluded.bible_updated_at, summary = excluded.summary,
                   tombstones = excluded.tombstones, doc = excluded.doc`)
       .run(
-        id, String(doc.name || id).slice(0, 80), doc.createdAt || Date.now(), doc.updatedAt || Date.now(),
-        doc.bibleUpdatedAt || 0, JSON.stringify(docSummary(doc)), JSON.stringify(doc.tombstones || []), JSON.stringify(doc),
+        id,
+        String((doc && doc.name) || (isCanvas ? canvasRef.projectId : id)).slice(0, 80),
+        (doc && doc.createdAt) || Date.now(), (doc && doc.updatedAt) || Date.now(),
+        (doc && doc.bibleUpdatedAt) || 0, JSON.stringify(docSummary(doc)), JSON.stringify((doc && doc.tombstones) || []), JSON.stringify(doc),
       );
     // SQL 模式也要保证数据目录里有 meta 映射（craft 清理/物理落盘按 folder 定位）：
-    // 目录与 project.json 镜像不再是主存储，但 folder 登记是 /api/asset 落盘与 ArtCraft 基准的前提。
-    try { ensureProjectFolder(id, (doc && doc.name) || id); } catch { /* meta 写失败不阻塞主存储 */ }
+    // 子画布共用项目的物理文件夹，不单独登记。
+    if (!isCanvas) {
+      try { ensureProjectFolder(id, (doc && doc.name) || id); } catch { /* meta 写失败不阻塞主存储 */ }
+    }
     return;
   }
   const f = projectFile(id);
   const tmp = f + '.' + process.pid + '.tmp';
   writeFileSync(tmp, JSON.stringify(doc, null, 1), 'utf8');
   renameSync(tmp, f);
-  mirrorProjectToDataRoot(id, doc); // 数据目录镜像（含设定集/assetIds 绑定）：失败不影响主存储
+  // 数据目录镜像（含设定集/assetIds 绑定）：失败不影响主存储；子画布镜像到项目文件夹下 canvases/，不写 project.json
+  if (!isCanvas) mirrorProjectToDataRoot(id, doc);
+  else mirrorCanvasDocToDataRoot(canvasRef.projectId, canvasRef.canvasId, doc);
+}
+/** 读取画布文档（多画布）：默认画布 = 项目文档；子画布 = 独立文档 + 合并项目级字段（名称/设定集/画布清单）。 */
+function readCanvasDoc(projectId, canvasId) {
+  const pid = String(projectId || '');
+  const cid = normalizeCanvasId(canvasId);
+  const projectDoc = readDocOrNull(pid);
+  if (!projectDoc) throw new Error('项目不存在：' + pid + '（先用 canvas_list_projects 查看可用项目 id）');
+  if (!cid) {
+    return normalizeDocNodes({ ...projectDoc, canvases: canvasRegistry(projectDoc) });
+  }
+  const rec = canvasRegistry(projectDoc).find((c) => c.id === cid);
+  if (!rec) throw new Error('画布不存在：' + cid + '（项目 ' + pid + '；先用 canvas_list_projects 查看可用画布）');
+  const raw = readDocOrNull(canvasDocId(pid, cid)) || {};
+  const doc = { ...raw, id: pid, projectId: pid, canvasId: cid, name: projectDoc.name || pid };
+  doc.nodes = raw.nodes || {};
+  doc.edges = raw.edges || [];
+  doc.view = raw.view || { x: 60, y: 40, scale: 1 };
+  if (projectDoc.bible !== undefined) { doc.bible = projectDoc.bible; doc.bibleUpdatedAt = projectDoc.bibleUpdatedAt || 0; }
+  doc.canvases = canvasRegistry(projectDoc);
+  return normalizeDocNodes(doc);
+}
+/** 写画布文档：默认画布写项目文档；子画布写独立文档（项目级字段剔除）。 */
+function writeCanvasDoc(projectId, canvasId, doc) {
+  const pid = String(projectId || '');
+  const cid = normalizeCanvasId(canvasId);
+  if (!cid) {
+    writeIcDoc(pid, { ...doc, id: pid });
+    return;
+  }
+  const out = { ...doc, id: canvasDocId(pid, cid), projectId: pid, canvasId: cid, updatedAt: Date.now() };
+  delete out.bible;
+  delete out.bibleUpdatedAt;
+  delete out.canvases;
+  delete out.name;
+  writeIcDoc(canvasDocId(pid, cid), out);
+}
+/** 更新项目级字段（名称/设定集/画布清单）——只作用于默认画布那份项目文档。 */
+function patchProjectDoc(projectId, patch) {
+  const pid = String(projectId || '');
+  const cur = readDocOrNull(pid);
+  if (!cur) throw new Error('项目不存在：' + pid);
+  writeIcDoc(pid, { ...cur, ...patch, id: pid });
+}
+/** 工具入口统一的画布参数解析：args.canvasId 缺省 = 项目默认画布（null）；非法 id 直接报错不静默降级。 */
+function toolCanvasId(args) {
+  return normalizeCanvasId(args && args.canvasId);
+}
+/** 工具读文档：默认画布读项目文档，子画布读子文档（项目级字段已合并进来）。 */
+function readToolDoc(args) {
+  const pid = String((args && args.projectId) || '');
+  return readCanvasDoc(pid, toolCanvasId(args));
+}
+/** 工具写文档：默认画布写项目文档、子画布写子文档，并标记画布级变更信号。返回 canvasId。 */
+function writeToolDoc(args, doc) {
+  const pid = String((args && args.projectId) || '');
+  const cid = toolCanvasId(args);
+  writeCanvasDoc(pid, cid, doc);
+  markDocChanged(pid, cid);
+  return cid;
+}
+/** 删除项目的全部子画布文档（项目删除时清干净，避免残留行/文件被列出）。 */
+function deleteCanvasDocsForProject(projectId) {
+  const pid = String(projectId || '');
+  if (!pid) return 0;
+  let removed = 0;
+  if (sqlActive()) {
+    try {
+      const db = getDb();
+      const ids = db.prepare('SELECT id FROM projects WHERE instr(id, ?) > 0').all(CANVAS_ID_SEP).map((r) => r.id)
+        .filter((id) => splitCanvasDocId(id).projectId === pid);
+      const del = db.prepare('DELETE FROM projects WHERE id = ?');
+      for (const id of ids) { try { del.run(id); removed++; } catch { /* 单行失败不影响其他 */ } }
+    } catch { /* 清理失败不影响项目删除 */ }
+    return removed;
+  }
+  try {
+    for (const f of readdirSync(PROJECTS_DIR)) {
+      if (!f.endsWith('.json')) continue;
+      const id = f.slice(0, -5);
+      if (!isCanvasDocId(id) || splitCanvasDocId(id).projectId !== pid) continue;
+      try { unlinkSync(path.join(PROJECTS_DIR, f)); removed++; } catch { /* 文件占用/已删 */ }
+    }
+  } catch { /* 无目录 */ }
+  return removed;
 }
 /** 读取设定集（对话侧"设定集先行"的前提）。 */
 async function canvasGetBible(args) {
@@ -1717,8 +1938,8 @@ async function canvasUpdateBible(args) {
  *  image-gen / image-asset / video-gen / video-asset 仍接受，内部一律映射为合并类型。 */
 function canvasCreateNode(args) {
   const id = String((args && args.projectId) || '');
-  const f = projectFile(id);
-  const doc = readDoc(id);
+  const canvasId = toolCanvasId(args);
+  const doc = readToolDoc(args);
   const rawType = String((args && args.type) || 'text');
   const type = normalizeNodeType(rawType);
   if (!['script', 'text', 'image', 'video', 'storyboard', 'finalcut'].includes(type)) throw new Error('不支持的节点类型: ' + rawType);
@@ -1798,8 +2019,7 @@ function canvasCreateNode(args) {
     connected = edge.id;
   }
   doc.updatedAt = Date.now();
-  writeIcDoc(id, doc);
-  markDocChanged(id);
+  writeToolDoc(args, doc);
   const note = autoConnected && autoConnected.ignoredPrompt
     ? (type === 'video'
       ? '⚠️ 已强制连线到分镜表（多镜头工作流：一个分镜表 = 一个完整视频，镜头清单从分镜表读取），传入的 prompt 已忽略——不要手写视频提示词绕过分镜表。'
@@ -1808,7 +2028,7 @@ function canvasCreateNode(args) {
       ? '已连线到分镜表；该分镜表尚未拆解镜头（shots 为空）——先 canvas_run_node 分镜表生成镜头，再生成视频。'
       : '');
   return {
-    ok: true, projectId: id, nodeId: node.id, type: node.type, label: (node.data && node.data.label) || '',
+    ok: true, projectId: id, ...(canvasId ? { canvasId } : {}), nodeId: node.id, type: node.type, label: (node.data && node.data.label) || '',
     edgeId: connected || undefined, note: note || undefined,
     // 旧名（image-gen / image-asset / video-gen / video-asset）已映射为合并节点：明确告诉 Agent 实际类型
     mergedType: legacyType ? (legacyType + ' → ' + node.type + '（合并节点：有 assetId 即资产，空节点在画布点开面板生成）') : undefined,
@@ -1820,9 +2040,10 @@ function canvasCreateNode(args) {
  *  行高取行内最高节点、行间保留间距，绝不重叠。 */
 function canvasRelayout(args) {
   const id = String((args && args.projectId) || '');
-  const doc = readDoc(id);
+  const canvasId = toolCanvasId(args);
+  const doc = readToolDoc(args);
   const nodes = Object.values(doc.nodes || {});
-  if (!nodes.length) return { ok: true, projectId: id, moved: 0, rows: 0 };
+  if (!nodes.length) return { ok: true, projectId: id, ...(canvasId ? { canvasId } : {}), moved: 0, rows: 0 };
   const VERT = new Set(['prev', 'frame']);
   const byId = new Map(nodes.map((n) => [n.id, n]));
   const depth = new Map(nodes.map((n) => [n.id, 0]));
@@ -1867,9 +2088,8 @@ function canvasRelayout(args) {
     cy += rowH + 40;
   }
   doc.updatedAt = Date.now();
-  writeIcDoc(id, doc);
-  markDocChanged(id);
-  return { ok: true, projectId: id, moved, rows: rowList.length };
+  writeToolDoc(args, doc);
+  return { ok: true, projectId: id, ...(canvasId ? { canvasId } : {}), moved, rows: rowList.length };
 }
 async function canvasDeleteProject(args) {
   const id = String((args && args.projectId) || '');
@@ -1882,6 +2102,7 @@ async function canvasDeleteProject(args) {
     cleanup = sqlDeleteProjectRows(getDb(), id, dataRoot());
   } else {
     try { unlinkSync(projectFile(id)); } catch { /* 已删除 */ }
+    try { deleteCanvasDocsForProject(id); } catch { /* 子画布清理失败不影响删除 */ }
     try { removeDataRootProject(id); } catch { /* 数据目录镜像清理失败不影响删除 */ }
   }
   // 通知客户端把这个项目也从本地删掉，否则下次推送会把它复活 + 长效墓碑：拒收迟到的推送
@@ -1900,29 +2121,29 @@ async function canvasDeleteProject(args) {
 async function canvasDeleteNode(args) {
   const id = String((args && args.projectId) || '');
   const nodeId = String((args && args.nodeId) || '');
-  const f = projectFile(id);
-  const doc = readDoc(id);
+  const canvasId = toolCanvasId(args);
+  const doc = readToolDoc(args);
   if (!doc.nodes[nodeId]) throw new Error('节点不存在: ' + nodeId);
   delete doc.nodes[nodeId];
   doc.edges = (doc.edges || []).filter((e) => e.fromNode !== nodeId && e.toNode !== nodeId);
   doc.tombstones = [...new Set([...(doc.tombstones || []), nodeId])].slice(-100);
   doc.tombstoneAt = { ...(doc.tombstoneAt || {}), [nodeId]: Date.now() }; // 记录墓碑创建时刻：撤销恢复的推送（ts 更新）才允许清墓碑
   doc.updatedAt = Date.now();
-  writeIcDoc(id, doc);
-  markDocChanged(id);
-  return { ok: true, projectId: id, nodeId };
+  writeToolDoc(args, doc);
+  return { ok: true, projectId: id, ...(canvasId ? { canvasId } : {}), nodeId };
 }
 /** 运行节点：写一次性请求，画布客户端轮询消费后用画布内配置的模型/接口真实执行。 */
 async function canvasRunNode(args) {
   const pid = String((args && args.projectId) || '');
   const nodeId = String((args && args.nodeId) || '');
-  const doc = readDoc(pid);
+  const canvasId = toolCanvasId(args);
+  const doc = readToolDoc(args);
   const node = doc.nodes[nodeId];
   if (!node) throw new Error('节点不存在: ' + nodeId);
   const cfg = readIcConfig();
-  cfg.ui = { ...(cfg.ui || {}), runRequest: { projectId: pid, nodeId, at: Date.now() } };
+  cfg.ui = { ...(cfg.ui || {}), runRequest: { projectId: pid, canvasId, nodeId, at: Date.now() } };
   writeIcConfig(cfg);
-  return { ok: true, projectId: pid, nodeId, type: node.type, label: (node.data && node.data.label) || '' };
+  return { ok: true, projectId: pid, ...(canvasId ? { canvasId } : {}), nodeId, type: node.type, label: (node.data && node.data.label) || '' };
 }
 /** 读取节点运行状态与产物（画布执行完成后会把结果推回 Host 文档）。 */
 /** 分镜一致性检查（与客户端 checkShotConsistency 同规则，Host 供状态查询/设定集更新后重算）：
@@ -1990,7 +2211,8 @@ function readAssetIndexNames(pid) {
 async function canvasNodeStatus(args) {
   const pid = String((args && args.projectId) || '');
   const nodeId = String((args && args.nodeId) || '');
-  const doc = readDoc(pid);
+  const canvasId = toolCanvasId(args);
+  const doc = readToolDoc(args);
   const n = doc.nodes[nodeId];
   if (!n) throw new Error('节点不存在: ' + nodeId);
   // 分镜表：返回镜头清单（结构化）——对话侧据此组织视频提示词，绝不自行推导/编造镜头表
@@ -2019,7 +2241,7 @@ async function canvasNodeStatus(args) {
     : undefined;
   const d = n.data || {};
   return {
-    projectId: pid, nodeId, type: n.type, label: d.label || '',
+    projectId: pid, ...(canvasId ? { canvasId } : {}), nodeId, type: n.type, label: d.label || '',
     status: d.status || 'idle',
     aiStatus: d.aiStatus || 'idle',
     // 文档级时间戳：canvas_generate_node 的等待循环用它区分「本轮真的跑过」与「上一次的残留终态」
@@ -2067,7 +2289,8 @@ const NODE_PATCH_FIELDS = ['prompt', 'idea', 'output', 'text', 'script', 'requir
 function canvasUpdateNode(args) {
   const pid = String((args && args.projectId) || '');
   const nodeId = String((args && args.nodeId) || '');
-  const doc = readDoc(pid);
+  const canvasId = toolCanvasId(args);
+  const doc = readToolDoc(args);
   const n = doc.nodes[nodeId];
   if (!n) throw new Error('节点不存在: ' + nodeId + '（先用 canvas_list_projects 查看节点 id）');
   const patch = (args && args.patch) || {};
@@ -2126,24 +2349,24 @@ function canvasUpdateNode(args) {
     throw new Error('没有可应用的字段（允许：' + NODE_PATCH_FIELDS.join(' / ') + ' / shots）；收到：' + keys.join(' / '));
   }
   doc.updatedAt = Date.now();
-  writeIcDoc(pid, doc);
-  markDocChanged(pid);
-  return { projectId: pid, nodeId, type: n.type, label: n.data.label || '', applied, skipped, prompt: String(n.data.prompt || '').slice(0, 400) };
+  writeToolDoc(args, doc);
+  return { projectId: pid, ...(canvasId ? { canvasId } : {}), nodeId, type: n.type, label: n.data.label || '', applied, skipped, prompt: String(n.data.prompt || '').slice(0, 400) };
 }
 /** 触发节点执行并（可选）等待到终态：对话侧"改完提示词 → 点生成 → 拿结果"的一站式入口。
  *  执行发生在画布侧（需要浏览器开着画布页面消费运行请求），等待超时不代表失败。 */
 async function canvasGenerateNode(args) {
   const pid = String((args && args.projectId) || '');
   const nodeId = String((args && args.nodeId) || '');
+  const canvasId = toolCanvasId(args);
   const waitSec = Math.max(0, Math.min(600, Number((args && args.waitSeconds) || 0)));
   // 触发前快照：canvasRunNode 只写一次性 runRequest，真正的执行要等画布下一个 3s 同步 tick
   // 才开始（状态才翻成 running）；而下面的首轮轮询在 2.5s 就发生——对**曾经跑过**的节点，
   // 首轮会读到上一次的 done/error 并误当本次结果（页面关闭 100%、页开约 17% 触发）。
   // 因此终态只有在「本轮确实跑过」时才可信：轮询中见过 running，或文档在触发后被写过
   //（快进完成的短任务可能整体落在两次轮询之间，用文档时间戳兜底）。
-  const baseline = await canvasNodeStatus({ projectId: pid, nodeId }).catch(() => null);
+  const baseline = await canvasNodeStatus({ projectId: pid, canvasId, nodeId }).catch(() => null);
   const baseUpdatedAt = Number(baseline && baseline.docUpdatedAt) || 0;
-  const run = await canvasRunNode({ projectId: pid, nodeId });
+  const run = await canvasRunNode({ projectId: pid, canvasId, nodeId });
   if (!waitSec) {
     return { ok: true, triggered: true, finished: false, projectId: pid, nodeId, type: run.type, label: run.label, status: 'running', note: '已触发执行；画布需处于打开状态才会真正执行，可用 canvas_node_status 查询进度' };
   }
@@ -2152,7 +2375,7 @@ async function canvasGenerateNode(args) {
   let sawRunning = false;
   while (Date.now() < deadline) {
     await new Promise((r) => setTimeout(r, 2500));
-    try { last = await canvasNodeStatus({ projectId: pid, nodeId }); } catch { continue; }
+    try { last = await canvasNodeStatus({ projectId: pid, canvasId, nodeId }); } catch { continue; }
     const st = String(last.status || '');
     const ai = String(last.aiStatus || '');
     if (st === 'running' || ai === 'running') { sawRunning = true; continue; }
@@ -2175,14 +2398,78 @@ async function canvasGenerateNode(args) {
 }
 async function canvasOpen(args) {
   const pid = String((args && args.projectId) || '');
+  const canvasId = toolCanvasId(args);
   if (pid) {
-    // 项目必须真实存在：否则工具回"✅ 已打开"，而前端因为找不到项目什么都不做（假成功）
-    if (!docExists(pid)) throw new Error('项目不存在：' + pid + '（先用 canvas_list_projects 查看可用项目 id）');
+    // 项目（以及指定画布）必须真实存在：否则工具回"✅ 已打开"，而前端因为找不到项目什么都不做（假成功）
+    if (canvasId) readCanvasDoc(pid, canvasId);
+    else if (!docExists(pid)) throw new Error('项目不存在：' + pid + '（先用 canvas_list_projects 查看可用项目 id）');
   }
   const cfg = readIcConfig();
-  cfg.ui = { ...(cfg.ui || {}), openRequest: { projectId: pid || null, at: Date.now() } };
+  cfg.ui = { ...(cfg.ui || {}), openRequest: { projectId: pid || null, canvasId: pid ? canvasId : null, at: Date.now() } };
   writeIcConfig(cfg);
-  return { ok: true, projectId: pid || null };
+  return { ok: true, projectId: pid || null, ...(canvasId ? { canvasId } : {}) };
+}
+
+/** 画布清单（多画布目录树的数据源）：默认画布不登记在 canvases 里（客户端用 canvasId=null 表达），
+ *  返回 projectId + canvases（子画布）。 */
+async function canvasesList(args) {
+  const pid = String((args && args.projectId) || '');
+  const doc = readDoc(pid);
+  return { projectId: pid, name: doc.name || pid, canvases: canvasRegistry(doc) };
+}
+/** 新建子画布：必须命名；画布 id 由 Host 生成（csv 前缀，避免与项目 id 混淆）。
+ *  新画布首次打开是空白画布（没有文档行，readCanvasDoc 会兜底空图）。 */
+async function canvasCreate(args) {
+  const pid = String((args && args.projectId) || '');
+  const name = String((args && args.name) || '').trim();
+  if (!name) throw new Error('需要画布名称（新建画布必须命名）');
+  const projectDoc = readDoc(pid);
+  const list = canvasRegistry(projectDoc);
+  // 同名复用：重复点击/重试不产生一堆同名画布
+  const dup = list.find((c) => String(c.name).trim() === name);
+  if (dup) return { ok: true, projectId: pid, canvasId: dup.id, name: dup.name, reused: true };
+  if (list.length >= 200) throw new Error('一个项目最多 200 个画布');
+  // 客户端可自带 id（本地已登记、目录树已显示的路径）：合法且未占用就采用，避免两端 id 不一致
+  const wantId = normalizeCanvasId(args && args.canvasId);
+  const cid = (wantId && !list.some((c) => c.id === wantId)) ? wantId : ('cv' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6));
+  const next = sanitizeCanvases([...list, { id: cid, name: name.slice(0, 80), createdAt: Date.now() }]);
+  patchProjectDoc(pid, { canvases: next });
+  return { ok: true, projectId: pid, canvasId: cid, name: name.slice(0, 80), reused: false };
+}
+/** 重命名子画布：必须命名；同名（除自己）拒绝。 */
+async function canvasRename(args) {
+  const pid = String((args && args.projectId) || '');
+  const cid = normalizeCanvasId(args && args.canvasId);
+  if (!cid) throw new Error('需要 canvasId（默认画布不能重命名，请直接重命名项目）');
+  const name = String((args && args.name) || '').trim();
+  if (!name) throw new Error('需要画布名称');
+  const projectDoc = readDoc(pid);
+  const list = canvasRegistry(projectDoc);
+  const target = list.find((c) => c.id === cid);
+  if (!target) throw new Error('画布不存在：' + cid);
+  if (list.some((c) => c.id !== cid && String(c.name).trim() === name)) throw new Error('同名画布已存在：' + name);
+  const next = list.map((c) => (c.id === cid ? { ...c, name: name.slice(0, 80) } : c));
+  patchProjectDoc(pid, { canvases: sanitizeCanvases(next) });
+  return { ok: true, projectId: pid, canvasId: cid, name: name.slice(0, 80) };
+}
+/** 删除子画布：删登记 + 删画布文档。默认画布不允许删除（项目本身要删请用 canvas_delete_project）。 */
+async function canvasDelete(args) {
+  const pid = String((args && args.projectId) || '');
+  const cid = normalizeCanvasId(args && args.canvasId);
+  if (!cid) throw new Error('需要 canvasId（默认画布不能删除）');
+  const projectDoc = readDoc(pid);
+  const list = canvasRegistry(projectDoc);
+  const targetId = canvasDocId(pid, cid);
+  const inList = list.some((c) => c.id === cid);
+  const hasDoc = Boolean(readDocOrNull(targetId));
+  // 幂等：客户端先删本地登记再发删除请求时，Host 可能只剩文档或只剩登记
+  if (!inList && !hasDoc) throw new Error('画布不存在：' + cid);
+  if (inList) patchProjectDoc(pid, { canvases: sanitizeCanvases(list.filter((c) => c.id !== cid)) });
+  try {
+    if (sqlActive()) getDb().prepare('DELETE FROM projects WHERE id = ?').run(targetId);
+    else unlinkSync(projectFile(targetId));
+  } catch { /* 文档不存在视为已删除 */ }
+  return { ok: true, projectId: pid, canvasId: cid };
 }
 
 /** 与客户端一致的端口表（连线校验用）。image / video 是合并类型（旧生成/资产节点归一到这里）：
@@ -2198,11 +2485,14 @@ const PORT_TABLE = {
   'group': { inputs: [], outputs: [] },
 };
 const MULTI_INPUT_PORTS = new Set(['ref', 'char', 'scene', 'prop']);
-/** Agent 改动了项目文档：记一次性信号，让画布在几秒内拉回合并（否则画布上看不到 Agent 的改动）。 */
-function markDocChanged(projectId) {
+/** Agent 改动了项目文档：记一次性信号，让画布在几秒内拉回合并（否则画布上看不到 Agent 的改动）。
+ *  canvasId 记录是哪个画布被改（缺省/默认画布 = null），客户端只刷新当前画布。 */
+function markDocChanged(projectId, canvasId) {
   try {
     const cfg = readIcConfig();
-    cfg.ui = { ...(cfg.ui || {}), docChanged: { projectId, at: Date.now() } };
+    let cid = null;
+    try { cid = normalizeCanvasId(canvasId); } catch { cid = null; }
+    cfg.ui = { ...(cfg.ui || {}), docChanged: { projectId, canvasId: cid, at: Date.now() } };
     writeIcConfig(cfg);
   } catch { /* 配置写失败不影响主流程 */ }
 }
@@ -2270,7 +2560,8 @@ function connectEdge(doc, fromId, toId, fromPort, toPort) {
 /** 在两个节点间连线（画布工作流的关键：剧本→分镜→图→视频靠连线组织，不要复制文本）。 */
 function canvasConnect(args) {
   const id = String((args && args.projectId) || '');
-  const doc = readDoc(id);
+  const canvasId = toolCanvasId(args);
+  const doc = readToolDoc(args);
   const fromId = String((args && args.fromNode) || '');
   const toId = String((args && args.toNode) || '');
   const already = (doc.edges || []).some((e) => e.fromNode === fromId && e.toNode === toId);
@@ -2280,10 +2571,9 @@ function canvasConnect(args) {
   const fromLabel = String((from.data && from.data.label) || fromId);
   const toLabel = String((to.data && to.data.label) || toId);
   doc.updatedAt = Date.now();
-  writeIcDoc(id, doc);
-  markDocChanged(id);
+  writeToolDoc(args, doc);
   return {
-    ok: true, projectId: id, edgeId: edge.id, already,
+    ok: true, projectId: id, ...(canvasId ? { canvasId } : {}), edgeId: edge.id, already,
     text: '✅ 已连线：「' + fromLabel + '」(' + edge.fromPort + ') → 「' + toLabel + '」(' + edge.toPort + ')。' + (already ? '（此前已连过，本次未重复建线）' : ''),
   };
 }
@@ -2409,7 +2699,7 @@ async function updateInstall() {
 export const inject = ['webServer', 'tools'];
 
 // 仅供诊断 / 自动化测试（不属于 RPC 面，运行时行为不受影响）
-export const _internals = { updateCheck, updateInstall, npmLatestVersion, cmpVer, findPnpm, getProfileDir: () => PROFILE_DIR, getVersion: () => VERSION, dataRoot, setDataRoot, dataRootMigrate, dataRootImport, ensureProjectFolder, physicalRel, mirrorProjectToDataRoot, writeAssetIndex, removeAssetIndexEntry, readDataRootMeta, removeDataRootProject, sqlDeleteProjectRows, deletedProjectIds, addDeletedProjectId, clearDeletedProjectId, fetchProxyForward, storyboardConsistencyWarnings, readAssetIndexNames, safeJoin, mimeOf, pipeFile, getIcConfigPath: () => CONFIG_PATH, canvasCreateProject, canvasWriteNode, canvasConnect, canvasDeleteProject, canvasDeleteNode, canvasRunNode, canvasNodeStatus, canvasGetBible, canvasUpdateBible, canvasCreateNode, canvasOpen, projectsList, projectsPut, projectsGet, projectsDelete, projectsSync, sqliteAvailable: () => !!SQLITE, getDb, closeDb, dbAssetsList, dbAssetsGet, dbAssetNames, dbAssetCreate, dbAssetUpdate, dbAssetDelete, objectAbsFor, ftsReconcile, readDocOrNull, docExists, sqlActive, rpcMethods: () => _rpcMethods, canvasUpdateNode, canvasGenerateNode };
+export const _internals = { updateCheck, updateInstall, npmLatestVersion, cmpVer, findPnpm, getProfileDir: () => PROFILE_DIR, getVersion: () => VERSION, dataRoot, setDataRoot, dataRootMigrate, dataRootImport, ensureProjectFolder, physicalRel, mirrorProjectToDataRoot, writeAssetIndex, removeAssetIndexEntry, readDataRootMeta, removeDataRootProject, sqlDeleteProjectRows, deletedProjectIds, addDeletedProjectId, clearDeletedProjectId, fetchProxyForward, storyboardConsistencyWarnings, readAssetIndexNames, safeJoin, mimeOf, pipeFile, getIcConfigPath: () => CONFIG_PATH, canvasCreateProject, canvasWriteNode, canvasConnect, canvasDeleteProject, canvasDeleteNode, canvasRunNode, canvasNodeStatus, canvasGetBible, canvasUpdateBible, canvasCreateNode, canvasOpen, canvasesList, canvasCreate, canvasRename, canvasDelete, canvasDocId, isCanvasDocId, splitCanvasDocId, normalizeCanvasId, canvasRegistry, sanitizeCanvases, readCanvasDoc, writeCanvasDoc, deleteCanvasDocsForProject, projectsList, projectsPut, projectsGet, projectsDelete, projectsSync, sqliteAvailable: () => !!SQLITE, getDb, closeDb, dbAssetsList, dbAssetsGet, dbAssetNames, dbAssetCreate, dbAssetUpdate, dbAssetDelete, objectAbsFor, ftsReconcile, readDocOrNull, docExists, sqlActive, rpcMethods: () => _rpcMethods, canvasUpdateNode, canvasGenerateNode };
 
 function resolveModel(providers, want) {
   const byProvider = want && want.provider
@@ -2767,6 +3057,10 @@ export function apply(ctx) {
       async canvasRunNode(args) { return canvasRunNode(args); },
       async canvasNodeStatus(args) { return canvasNodeStatus(args); },
       async canvasOpen(args) { return canvasOpen(args); },
+      async canvasesList(args) { return canvasesList(args); },
+      async canvasCreate(args) { return canvasCreate(args); },
+      async canvasRename(args) { return canvasRename(args); },
+      async canvasDelete(args) { return canvasDelete(args); },
       async assetDelete(args) {
         const id = String((args && args.id) || '');
         if (!id) return { ok: true };
@@ -2857,7 +3151,7 @@ export function apply(ctx) {
         };
         reg({
           name: 'canvas_list_projects',
-          description: '列出无限画布的项目及其节点（节点 id/类型/名称/状态）。用户提到画布项目、想看有哪些项目、或要指定某个项目/节点时使用。',
+          description: '列出无限画布的项目、每个项目下的画布（多画布：默认画布 + 子画布）及其节点（节点 id/类型/名称/状态）。用户提到画布项目、想看有哪些项目/画布、或要指定某个项目/画布/节点时使用。子画布用 canvasId 标识（缺省 = 默认画布）。',
           parameters: { type: 'object', properties: { keyword: { type: 'string', description: '按项目名称过滤（可选）' } }, additionalProperties: false },
           output: {
             schema: { type: 'object', properties: { count: { type: 'integer' }, text: { type: 'string' } }, required: ['count', 'text'] },
@@ -2869,8 +3163,10 @@ export function apply(ctx) {
             const list = projectsList().filter((p) => !kw || String(p.name).toLowerCase().includes(kw));
             const lines = [];
             for (const p of list) {
-              lines.push('- 「' + p.name + '」 id=' + p.id + ' · ' + p.nodes.length + ' 节点 · 更新于 ' + new Date(p.updatedAt).toLocaleString());
+              const canvases = Array.isArray(p.canvases) ? p.canvases : [];
+              lines.push('- 「' + p.name + '」 id=' + p.id + ' · ' + p.nodes.length + ' 节点 · ' + canvases.length + ' 个子画布 · 更新于 ' + new Date(p.updatedAt).toLocaleString());
               for (const n of p.nodes) lines.push('    · [' + n.type + '] ' + (n.label || '(未命名)') + ' id=' + n.id + ' status=' + n.status);
+              for (const c of canvases) lines.push('    ▸ 画布「' + (c.name || c.id) + '」 canvasId=' + c.id + '（用 canvasId 参数指定；资产与设定集按项目共享）');
             }
             const text = lines.length ? ('共 ' + list.length + ' 个项目：\n' + lines.join('\n')) : '画布上还没有项目。可调用 canvas_create_project 创建。';
             return { count: list.length, text };
@@ -2907,6 +3203,7 @@ export function apply(ctx) {
             type: 'object',
             properties: {
               projectId: { type: 'string', description: '项目 id（来自 canvas_list_projects 或 canvas_create_project）' },
+              canvasId: { type: 'string', description: '可选：画布 id（项目下子画布；缺省 = 项目默认画布。多画布项目必须显式指定目标画布）' },
               text: { type: 'string', description: '要写入的内容（按 target 与节点类型决定写哪里）' },
               kind: { type: 'string', enum: ['script', 'text'], description: '新节点类型：script=剧本（默认），text=纯文本' },
               target: { type: 'string', enum: ['idea', 'output'], description: '写哪一部分：idea=提示词/创作意图（默认），output=成稿' },
@@ -2933,6 +3230,7 @@ export function apply(ctx) {
             type: 'object',
             properties: {
               projectId: { type: 'string', description: '项目 id' },
+              canvasId: { type: 'string', description: '可选：画布 id（项目下的子画布；缺省 = 项目默认画布。来自 canvas_list_projects 的画布清单）' },
               nodeId: { type: 'string', description: '节点 id（来自 canvas_list_projects）' },
             },
             required: ['projectId', 'nodeId'],
@@ -2952,6 +3250,7 @@ export function apply(ctx) {
             type: 'object',
             properties: {
               projectId: { type: 'string', description: '项目 id' },
+              canvasId: { type: 'string', description: '可选：画布 id（项目下的子画布；缺省 = 项目默认画布）' },
               nodeId: { type: 'string', description: '节点 id' },
             },
             required: ['projectId', 'nodeId'],
@@ -3030,6 +3329,7 @@ export function apply(ctx) {
             type: 'object',
             properties: {
               projectId: { type: 'string', description: '项目 id' },
+              canvasId: { type: 'string', description: '可选：画布 id（项目下的子画布；缺省 = 项目默认画布）' },
               nodeId: { type: 'string', description: '节点 id（来自 canvas_list_projects）' },
               patch: {
                 type: 'object',
@@ -3074,6 +3374,7 @@ export function apply(ctx) {
             type: 'object',
             properties: {
               projectId: { type: 'string', description: '项目 id' },
+              canvasId: { type: 'string', description: '可选：画布 id（项目下的子画布；缺省 = 项目默认画布）' },
               nodeId: { type: 'string', description: '节点 id' },
               waitSeconds: { type: 'number', description: '可选：等待秒数（0=只触发；上限 600）' },
             },
@@ -3096,7 +3397,7 @@ export function apply(ctx) {
           description: '删除无限画布项目中的一个节点（连同它的连线）。用于清理误创建的节点。',
           parameters: {
             type: 'object',
-            properties: { projectId: { type: 'string', description: '项目 id' }, nodeId: { type: 'string', description: '节点 id' } },
+            properties: { projectId: { type: 'string', description: '项目 id' }, canvasId: { type: 'string', description: '可选：画布 id（缺省 = 项目默认画布）' }, nodeId: { type: 'string', description: '节点 id' } },
             required: ['projectId', 'nodeId'],
             additionalProperties: false,
           },
@@ -3112,7 +3413,7 @@ export function apply(ctx) {
           description: '一键重排画布节点布局（消除重叠）：按「行」排列——横向数据流决定列（文本→分镜表→视频→资产），竖向关系（衔接 prev / 首帧 frame）不参与分列；每行 = 一个横向连通组（如「场N文本 ↔ 场N分镜表」同行对齐），行高取行内最高节点、行间保留间距。节点重叠、或批量建点后布局混乱时调用。',
           parameters: {
             type: 'object',
-            properties: { projectId: { type: 'string', description: '项目 id' } },
+            properties: { projectId: { type: 'string', description: '项目 id' }, canvasId: { type: 'string', description: '可选：画布 id（缺省 = 项目默认画布）' } },
             required: ['projectId'],
             additionalProperties: false,
           },
@@ -3200,6 +3501,7 @@ export function apply(ctx) {
             type: 'object',
             properties: {
               projectId: { type: 'string', description: '项目 id' },
+              canvasId: { type: 'string', description: '可选：画布 id（项目下的子画布；缺省 = 项目默认画布）' },
               type: { type: 'string', enum: ['script', 'text', 'image', 'video', 'storyboard', 'finalcut', 'image-gen', 'image-asset', 'video-gen', 'video-asset'], description: '节点类型（image/video 为合并类型；旧名 image-gen 等仍接受并自动映射）' },
               name: { type: 'string', description: '节点名字（建议填写，如"角色-陈拾 参考图"）' },
               prompt: { type: 'string', description: '提示词（图片/视频用画面提示词；剧本用创作意图；文本用正文）' },
@@ -3239,6 +3541,7 @@ export function apply(ctx) {
             type: 'object',
             properties: {
               projectId: { type: 'string', description: '项目 id' },
+              canvasId: { type: 'string', description: '可选：画布 id（项目下的子画布；缺省 = 项目默认画布）' },
               fromNode: { type: 'string', description: '源节点 id（连出方）' },
               fromPort: { type: 'string', description: '可选：源端口，默认该节点第一个输出端口（剧本/文本/图片/视频都是 out）' },
               toNode: { type: 'string', description: '目标节点 id（连入方）' },
@@ -3257,7 +3560,7 @@ export function apply(ctx) {
         reg({
           name: 'canvas_open',
           description: '打开无限画布页面并跳到指定项目（画布侧会在几秒内自动切换）。用户想查看/编辑画布时使用。',
-          parameters: { type: 'object', properties: { projectId: { type: 'string', description: '要打开的项目 id（缺省只打开画布页）' } }, additionalProperties: false },
+          parameters: { type: 'object', properties: { projectId: { type: 'string', description: '要打开的项目 id（缺省只打开画布页）' }, canvasId: { type: 'string', description: '可选：要打开的画布 id（缺省 = 项目默认画布）' } }, additionalProperties: false },
           output: textOutput,
           timeoutMs: 30000,
           async execute(args) {

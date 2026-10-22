@@ -442,6 +442,14 @@ window.__ModuleLoader__.load({
       'renameProject': '重命名项目…',
       'defaultCanvas': '默认画布',
       'projectNameRequired': '项目名不能为空',
+      'newCanvas': '新建画布…',
+      'renameCanvas': '重命名画布',
+      'canvasName': '画布名称',
+      'canvasNameRequired': '画布名不能为空',
+      'canvasNameExists': '同名画布已存在',
+      'canvasHint': '每个子目录是一张独立画布；资产与设定集按项目共享',
+      'renameCanvasHint': '双击画布名重命名',
+      'delCanvasHint': '删除画布及其节点',
       'emptyProjectHint': '还没有项目。点上方「新建项目」创建第一个项目，或直接在对话里说「创建一个项目叫…」。',
       'projectName': '项目名称',
       'renameHint': '双击名称重命名',
@@ -948,6 +956,14 @@ window.__ModuleLoader__.load({
       'renameProject': 'Rename project…',
       'defaultCanvas': 'Default canvas',
       'projectNameRequired': 'Project name cannot be empty',
+      'newCanvas': 'New canvas…',
+      'renameCanvas': 'Rename canvas',
+      'canvasName': 'Canvas name',
+      'canvasNameRequired': 'Canvas name cannot be empty',
+      'canvasNameExists': 'A canvas with that name already exists',
+      'canvasHint': 'Each subfolder is an independent canvas; assets and the bible are shared per project',
+      'renameCanvasHint': 'Double-click the canvas name to rename',
+      'delCanvasHint': 'Delete canvas and its nodes',
       'emptyProjectHint': 'No projects yet. Click "New project" above to create the first one, or just say "create a project called…" in the chat.',
       'projectName': 'Project name',
       'renameHint': 'Double-click to rename',
@@ -1440,12 +1456,11 @@ window.__ModuleLoader__.load({
 .dshic-btn.dshic-primary{background:var(--dsw-alias-brand-primary);color:var(--dsw-alias-bg-base);}
 .dshic-btn.dshic-primary:hover{background:color-mix(in srgb,var(--dsw-alias-brand-primary) 85%,var(--dsw-alias-label-primary));}
 .dshic-toolbar-sep{width:1px;height:18px;background:var(--dsw-alias-border-l2);margin:0 4px;flex:none;}
-.dshic-toolbar-title{font-weight:600;font-size:14px;margin-left:2px;}
 .dshic-flex{flex:1;}
 .dshic-zoom{min-width:56px;text-align:center;font-size:12px;color:var(--dsw-alias-label-secondary);font-variant-numeric:tabular-nums;}
 .dshic-main{flex:1;display:flex;min-height:0;}
 /* ── 左侧图标列（单列；固定，不随画布平移缩放）──────────────────── */
-.dshic-rail{flex:none;width:46px;display:flex;flex-direction:column;align-items:center;gap:3px;padding:6px 0;
+.dshic-rail{flex:none;width:46px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;padding:6px 0;
   background:var(--dsw-alias-bg-layer-1);border-right:1px solid var(--dsw-alias-border-l1);z-index:25;box-sizing:border-box;}
 .dshic-rail-btn{width:34px;height:34px;flex:none;display:flex;align-items:center;justify-content:center;border:none;border-radius:9px;
   background:transparent;color:var(--dsw-alias-label-secondary);cursor:pointer;position:relative;padding:0;}
@@ -1454,8 +1469,13 @@ window.__ModuleLoader__.load({
 .dshic-rail-btn.is-danger{color:var(--dsw-alias-state-error-primary);}
 .dshic-rail-btn:disabled{opacity:.45;cursor:default;}
 .dshic-rail-sep{width:24px;height:1px;flex:none;background:var(--dsw-alias-border-l1);margin:4px 0;}
-/* ── 顶部工具栏：最左项目切换 ─────────────────────────────────── */
+/* ── 顶部工具栏：返回图标 → 项目切换（双击/铅笔改名）→ 右侧纯图标按钮 ── */
+.dshic-proj-switch-wrap{display:inline-flex;align-items:center;gap:2px;min-width:0;}
 .dshic-proj-switch{max-width:220px;}
+.dshic-proj-edit{width:22px;height:22px;flex:none;opacity:.55;}
+.dshic-proj-edit:hover{opacity:1;}
+.dshic-toolbar-tools{display:inline-flex;align-items:center;gap:2px;flex:none;}
+.dshic-toolbar-tools .dshic-btn{width:28px;padding:0;justify-content:center;}
 .dshic-proj-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600;}
 .dshic-proj-car{color:var(--dsw-alias-label-secondary);font-size:9px;flex:none;}
 .dshic-proj-menu{position:fixed;z-index:320;min-width:220px;max-width:320px;max-height:60vh;overflow-y:auto;padding:5px;
@@ -1496,9 +1516,19 @@ window.__ModuleLoader__.load({
   background:var(--dsw-alias-bg-layer-2);display:inline-flex;align-items:center;justify-content:center;color:var(--dsw-alias-brand-primary);cursor:zoom-in;}
 .dshic-bible-thumb.is-audio{cursor:default;}
 .dshic-bible-thumb.is-empty{opacity:.4;}
-/* ── 右侧面板底部动作（快捷键 / 帮助 / 检查更新）──────────────── */
-.dshic-rb-actions{flex:none;display:flex;align-items:center;gap:2px;padding:2px 8px 6px;}
-.dshic-rb-actions .dshic-btn{height:26px;padding:0 8px;font-size:12px;color:var(--dsw-alias-label-secondary);}
+/* ── 右侧面板「项目」页签：目录树（项目为根 / 子画布为子节点）────────── */
+.dshic-tree-proj{display:flex;flex-direction:column;gap:1px;flex:none;}
+.dshic-tree-proj>.dshic-proj{margin:1px 0 0;}
+.dshic-canvas-list{display:flex;flex-direction:column;gap:1px;padding:0 0 2px 10px;}
+.dshic-canvas-row{display:flex;align-items:center;gap:5px;min-height:24px;padding:1px 6px 1px 4px;border-radius:7px;
+  cursor:pointer;color:var(--dsw-alias-label-secondary);font-size:12px;box-sizing:border-box;}
+.dshic-canvas-row:hover{background:color-mix(in srgb,var(--dsw-alias-label-primary) 7%,transparent);color:var(--dsw-alias-label-primary);}
+.dshic-canvas-row.is-active{background:color-mix(in srgb,var(--dsw-alias-brand-primary) 14%,transparent);color:var(--dsw-alias-brand-primary);}
+.dshic-canvas-branch{flex:none;width:12px;text-align:center;font-size:10px;opacity:.65;}
+.dshic-canvas-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.dshic-canvas-row .dshic-iconbtn{width:20px;height:20px;opacity:.65;}
+.dshic-canvas-row:hover .dshic-iconbtn{opacity:1;}
+.dshic-canvas-tag{flex:none;font-size:10px;opacity:.6;}
 .dshic-canvas{flex:1;position:relative;overflow:hidden;background-color:var(--dsw-alias-bg-base);
   background-image:radial-gradient(color-mix(in srgb,var(--dsw-alias-border-l2) 55%,transparent) 1px,transparent 1px);
   outline:none;}
@@ -1767,6 +1797,7 @@ window.__ModuleLoader__.load({
   color:var(--dsw-alias-label-primary);}
 .dshic-keys-btn:hover{background:color-mix(in srgb,var(--dsw-alias-label-primary) 8%,transparent);}
 .dshic-keys-btn.is-open{background:color-mix(in srgb,var(--dsw-alias-brand-primary) 18%,transparent);color:var(--dsw-alias-brand-primary);}
+.dshic-keys-wrap.is-compact .dshic-keys-btn{width:28px;padding:0;justify-content:center;}
 .dshic-keys-btn-label{line-height:1;}
 .dshic-keys-caret{font-size:9px;opacity:.75;line-height:1;}
 /* 面板右对齐：按钮位于工具栏右半侧，向左展开才不会出屏；窄屏换行时也跟随按钮 */
@@ -2194,25 +2225,40 @@ window.__ModuleLoader__.load({
     function emptyGraph() { return { nodes: {}, edges: [], view: { x: 60, y: 40, scale: 1 } }; }
 
     // ============================================================
-    // 画布文档 key（多画布预留）
-    //   当前：一个项目只有一张画布，canvasId = null → key 就是 projectId（行为与旧版完全一致）。
-    //   下一步「项目下建子目录，每个子目录 = 一张新画布」时：canvasId 非空 → key = `${projectId}::${canvasId}`。
-    //   switchCanvas(canvasId) / activeGraphKey() 已按同一套 key 读写；届时 Host 侧 projectsPut/projectsGet
-    //   只需把 canvasId 一起透传（资产/设定集仍按 projectId 共享，天然满足"项目内共享"）。
+    // 画布文档 key（多画布）
+    //   默认画布：canvasId = null → key 就是 projectId（旧数据零迁移，旧文档照常打开）。
+    //   子画布：canvasId 非空 → key = `${projectId}::${canvasId}`（画布清单登记在 S.projects[*].canvases）。
+    //   资产 / 设定集仍以 projectId 为维度共享，不随画布分割。
     // ============================================================
     const DEFAULT_CANVAS_ID = null;
+    // 刚删除的画布（pid::cid → 时刻）：Host 清单可能还没跟上，同步时据此防止刚删的画布被拉回
+    const canvasTombstones = new Map();
+    // 正在从 Host 拉取的子画布文档（去重并发请求）
+    const canvasHydrating = new Map();
     function canvasDocKey(projectId, canvasId) {
       return canvasId ? (String(projectId) + '::' + String(canvasId)) : String(projectId);
     }
     function activeCanvasId() { return S.activeCanvasId || DEFAULT_CANVAS_ID; }
     function activeGraphKey() { return canvasDocKey(S.activeId, activeCanvasId()); }
-    /** 多画布预留：当前每个项目恰好一张默认画布；将来从项目文档索引返回子画布列表。 */
+    /** 项目下登记的子画布（不含默认画布）。旧项目没有 canvases 字段 → 空数组（只有默认画布）。 */
+    function projectCanvases(projectId) {
+      const p = S.projects.find((x) => x.id === projectId);
+      return p && Array.isArray(p.canvases) ? p.canvases.filter((c) => c && c.id) : [];
+    }
+    function canvasNameFor(projectId, canvasId) {
+      if (!canvasId) return T('defaultCanvas');
+      const rec = projectCanvases(projectId).find((c) => c.id === canvasId);
+      return rec ? (rec.name || rec.id) : String(canvasId);
+    }
+    /** 画布清单：默认画布固定第一项，其后是子画布（目录树数据源）。 */
     function listCanvases(projectId) {
-      void projectId;
-      return [{ id: DEFAULT_CANVAS_ID, name: T('defaultCanvas') }];
+      return [
+        { id: DEFAULT_CANVAS_ID, name: T('defaultCanvas'), isDefault: true },
+        ...projectCanvases(projectId).map((c) => ({ id: c.id, name: c.name || c.id, createdAt: c.createdAt || 0, isDefault: false })),
+      ];
     }
     /** 统一文档入口：读出来即归一旧节点类型（image-gen/image-asset → image，video-gen/video-asset → video）。
-     *  canvasId 省略 = 项目默认画布（当前唯一画布）。 */
+     *  canvasId 省略/null = 项目默认画布。 */
     function loadGraphDoc(pid, canvasId) {
       const doc = lsGet(LS_GRAPH + canvasDocKey(pid, canvasId == null ? DEFAULT_CANVAS_ID : canvasId), null);
       return doc ? normalizeGraphDoc(doc) : doc;
@@ -2220,23 +2266,111 @@ window.__ModuleLoader__.load({
     function saveGraphDoc(pid, graph, canvasId) {
       lsSet(LS_GRAPH + canvasDocKey(pid, canvasId == null ? DEFAULT_CANVAS_ID : canvasId), graph);
     }
-    /** 多画布预留：切换到同一项目下的另一张画布（当前只有默认画布，调用等价于 no-op/reset）。
-     *  真正启用时：ProjectsTab 里列出 listCanvases() → 点击 → switchCanvas(id)。 */
-    function switchCanvas(canvasId) {
+    /** 子画布首次打开：本地没有缓存时从 Host 拉一份（Host 是子画布文档的持久源）。
+     *  拉不到就保持空画布（不阻塞切换）；返回是否拉到了内容。 */
+    async function hydrateCanvasFromHost(pid, canvasId) {
+      if (!pid || !canvasId) return false;
+      if (loadGraphDoc(pid, canvasId)) return false; // 本地已有缓存（可能是空白新画布）：不再覆盖
+      const key = pid + '::' + canvasId;
+      const inflight = canvasHydrating.get(key);
+      if (inflight) return inflight;
+      const task = (async () => {
+        try {
+          const full = normalizeGraphDoc(await hostRpc('projectsGet', { id: pid, canvasId }));
+          if (!full) return false;
+          const g = { nodes: full.nodes || {}, edges: full.edges || [], view: full.view || { x: 60, y: 40, scale: 1 }, tombstones: full.tombstones || [], edgeTombstones: full.edgeTombstones || [] };
+          saveGraphDoc(pid, g, canvasId);
+          if (S.activeId === pid && activeCanvasId() === canvasId) {
+            update((s) => {
+              s.graph = { nodes: g.nodes, edges: g.edges, view: g.view };
+              s.sel = new Set(); s.selEdge = null; s.composerId = null;
+              V.x = g.view.x; V.y = g.view.y; V.scale = g.view.scale;
+              applyViewToDom();
+            });
+            history.stack = [];
+            history.idx = -1;
+            pushHistory();
+          }
+          return true;
+        } catch { return false; }
+      })();
+      canvasHydrating.set(key, task);
+      try { return await task; } finally { canvasHydrating.delete(key); }
+    }
+    /** 切换到同一项目下的另一张画布：flush 旧画布 → 载入新画布 → 重置选择/撤销栈/视口。
+     *  canvasId = null 表示回项目默认画布。opts.skipFlush：画布已被删除时不要回写它（避免把废弃图写回）。 */
+    function switchCanvas(canvasId, opts) {
       const next = canvasId == null ? DEFAULT_CANVAS_ID : canvasId;
       if (next === activeCanvasId()) return;
-      flushSave();
+      if (!(opts && opts.skipFlush)) flushSave();
       const doc = loadGraphDoc(S.activeId, next) || emptyGraph();
       update((s) => {
         s.activeCanvasId = next;
         s.graph = { nodes: doc.nodes || {}, edges: doc.edges || [], view: doc.view || { x: 60, y: 40, scale: 1 } };
         s.sel = new Set(); s.selEdge = null; s.composerId = null;
+        s.panelModal = null;
         V.x = s.graph.view.x; V.y = s.graph.view.y; V.scale = s.graph.view.scale;
         applyViewToDom();
       });
       history.stack = [];
       history.idx = -1;
       pushHistory();
+      if (next) hydrateCanvasFromHost(S.activeId, next);
+    }
+    /** 新建画布（必须命名）：本地先登记（目录树立刻可见），再通知 Host 落盘登记。 */
+    function createCanvasNamed(projectId, rawName) {
+      const name = String(rawName == null ? '' : rawName).trim();
+      if (!name) return { ok: false, error: T('canvasNameRequired') };
+      const pid = projectId || S.activeId;
+      const proj = S.projects.find((x) => x.id === pid);
+      if (!proj) return { ok: false, error: T('projectNameRequired') };
+      const dup = projectCanvases(pid).some((c) => String(c.name || '').trim() === name);
+      if (dup) return { ok: false, error: T('canvasNameExists') };
+      const rec = { id: uid('cv'), name: name.slice(0, 80), createdAt: Date.now() };
+      update((s) => {
+        const pp = s.projects.find((x) => x.id === pid);
+        if (pp) pp.canvases = [...(Array.isArray(pp.canvases) ? pp.canvases : []), rec];
+      });
+      lsSet(LS_PROJECTS, S.projects);
+      saveGraphDoc(pid, emptyGraph(), rec.id); // 新画布首入空白
+      if (pid === S.activeId) switchCanvas(rec.id);
+      try {
+        hostRpc('canvasCreate', { projectId: pid, canvasId: rec.id, name: rec.name }).catch(() => { /* 下次推送 canvases 会补齐 */ });
+      } catch { /* 忽略 */ }
+      scheduleSave();
+      return { ok: true, canvasId: rec.id, canvas: rec };
+    }
+    function renameCanvasNamed(projectId, canvasId, rawName) {
+      const name = String(rawName == null ? '' : rawName).trim();
+      const pid = projectId || S.activeId;
+      if (!canvasId) return { ok: false, error: T('canvasNameRequired') };
+      if (!name) return { ok: false, error: T('canvasNameRequired') };
+      const dup = projectCanvases(pid).some((c) => c.id !== canvasId && String(c.name || '').trim() === name);
+      if (dup) return { ok: false, error: T('canvasNameExists') };
+      update((s) => {
+        const pp = s.projects.find((x) => x.id === pid);
+        if (pp && Array.isArray(pp.canvases)) pp.canvases = pp.canvases.map((c) => (c.id === canvasId ? { ...c, name: name.slice(0, 80) } : c));
+      });
+      lsSet(LS_PROJECTS, S.projects);
+      try { hostRpc('canvasRename', { projectId: pid, canvasId, name: name.slice(0, 80) }).catch(() => { /* 忽略 */ }); } catch { /* 忽略 */ }
+      scheduleSave();
+      return { ok: true };
+    }
+    function deleteCanvasNamed(projectId, canvasId) {
+      const pid = projectId || S.activeId;
+      if (!canvasId) return { ok: false };
+      canvasTombstones.set(pid + '::' + canvasId, Date.now());
+      update((s) => {
+        const pp = s.projects.find((x) => x.id === pid);
+        if (pp && Array.isArray(pp.canvases)) pp.canvases = pp.canvases.filter((c) => c.id !== canvasId);
+      });
+      try { localStorage.removeItem(LS_GRAPH + canvasDocKey(pid, canvasId)); } catch { /* 忽略 */ }
+      lsSet(LS_PROJECTS, S.projects);
+      // 先离开待删画布（丢弃它的内存图，避免 flush 把废弃内容写回 Host），再删 Host 侧文档
+      if (pid === S.activeId && activeCanvasId() === canvasId) switchCanvas(DEFAULT_CANVAS_ID, { skipFlush: true });
+      try { hostRpc('canvasDelete', { projectId: pid, canvasId }).catch(() => { /* 忽略 */ }); } catch { /* 忽略 */ }
+      scheduleSave();
+      return { ok: true };
     }
 
     // ============================================================
@@ -5796,30 +5930,43 @@ window.__ModuleLoader__.load({
     // 用户在 UI 里删除过的节点（id → 时间戳）：同步的"内存画布为准"豁免只认这里——
     // 对话侧/Host 删除的节点不在此列，必须照常本地清除（否则旧内存副本会把对话侧刚删的节点复活）
     const userDeletedNodes = new Map();
-    async function importHostProject(hp) {
-      const full = normalizeGraphDoc(await hostRpc('projectsGet', { id: hp.id }));
+    /** 从 Host 拉一个项目到本地：默认画布文档 + 画布清单；若指定 canvasId 则顺带拉那张画布的文档。 */
+    async function importHostProject(hp, canvasId) {
+      const cid = (canvasId === undefined || canvasId === null) ? null : String(canvasId);
+      const full = normalizeGraphDoc(await hostRpc('projectsGet', { id: hp.id, ...(cid ? { canvasId: cid } : {}) }));
+      const canvases = Array.isArray(hp.canvases) ? hp.canvases.filter((c) => c && c.id) : [];
       update((s) => {
-        if (!s.projects.some((p) => p.id === hp.id)) {
-          s.projects.push({ id: hp.id, name: hp.name || hp.id, createdAt: full.createdAt || Date.now(), updatedAt: full.updatedAt || Date.now() });
+        const known = s.projects.find((p) => p.id === hp.id);
+        if (!known) {
+          s.projects.push({ id: hp.id, name: hp.name || hp.id, createdAt: full.createdAt || Date.now(), updatedAt: full.updatedAt || Date.now(), canvases });
+        } else if (canvases.length) {
+          known.canvases = canvases; // Host 的画布登记为准（多画布跨端一致）
         }
       });
       lsSet(LS_PROJECTS, S.projects);
-      saveGraphDoc(hp.id, { nodes: full.nodes || {}, edges: full.edges || [], view: full.view || { x: 60, y: 40, scale: 1 } });
+      const graph = { nodes: full.nodes || {}, edges: full.edges || [], view: full.view || { x: 60, y: 40, scale: 1 } };
+      if (cid) saveGraphDoc(hp.id, graph, cid);
+      else saveGraphDoc(hp.id, graph);
       if (full.bible) {
         saveBibleLocal(hp.id, full.bible);
         if (full.bibleUpdatedAt) lsSet(LS_BIBLE_SYNC + hp.id, full.bibleUpdatedAt);
       }
+      // 指定画布且正是当前画布：把内容并进内存（否则只落本地缓存，切换时读到）
+      if (cid && S.activeId === hp.id && activeCanvasId() === cid) mergeHostDoc(hp.id, full, cid);
     }
     const LS_DOCSYNC = 'dsh-ic:docsync:';
-    /** Host 侧改动了项目文档（Agent 建节点/连线/写内容/补设定集）→ 拉回并合并到本地画布。 */
-    function mergeHostDoc(pid, full) {
+    /** Host 侧改动了项目文档（Agent 建节点/连线/写内容/补设定集）→ 拉回并合并到本地画布。
+     *  canvasId 非空 = 该画布文档（多画布）；缺省 = 项目默认画布。 */
+    function mergeHostDoc(pid, full, canvasId) {
       if (!full) return;
+      const cid = full.canvasId || canvasId || DEFAULT_CANVAS_ID;
       // Host 侧（对话 Agent）可能写入了旧类型节点：先把整份文档归一，再做合并（类型迁移与旧项目兼容）
       normalizeGraphDoc(full);
-      const local = loadGraphDoc(pid) || emptyGraph();
+      const local = loadGraphDoc(pid, cid) || emptyGraph();
       // 节点墓碑：本地已删除的节点，绝不允许从 Host 拉回复活（删除后 3 秒内的同步拉取曾把节点又带回来）。
       // 墓碑以**内存中的当前画布**为准（可能还没落盘），否则 450ms 防抖窗口内的拉取会复活节点。
-      const live = (pid === S.activeId && S.graph) ? S.graph : null;
+      const isActiveCanvas = pid === S.activeId && activeCanvasId() === cid;
+      const live = (isActiveCanvas && S.graph) ? S.graph : null;
       const deadNodes = new Set([
         ...((local.tombstones) || []),
         ...((full.tombstones) || []),
@@ -5847,13 +5994,13 @@ window.__ModuleLoader__.load({
       }
       const keep = edges.filter((e) => !deadEdges.has(e.id) && nodes[e.fromNode] && nodes[e.toNode]);
       const tombOut = [...new Set([...(local.tombstones || []), ...((live && live.tombstones) || [])])].slice(-200);
-      saveGraphDoc(pid, { nodes, edges: keep, view: local.view, tombstones: tombOut, edgeTombstones: local.edgeTombstones || [] });
-      // 设定集随全量文档一起合并：Agent 用 canvas_update_bible 补的设定集在这里落地
+      saveGraphDoc(pid, { nodes, edges: keep, view: local.view, tombstones: tombOut, edgeTombstones: local.edgeTombstones || [] }, cid);
+      // 设定集随全量文档一起合并：Agent 用 canvas_update_bible 补的设定集在这里落地（设定集是项目级）
       if (full.bible) {
         saveBibleLocal(pid, full.bible);
         if (full.bibleUpdatedAt) lsSet(LS_BIBLE_SYNC + pid, full.bibleUpdatedAt);
       }
-      if (pid === S.activeId) update((s) => { s.graph = { nodes, edges: keep, view: s.graph.view, tombstones: tombOut, edgeTombstones: local.edgeTombstones || [] }; s.assetsTick++; });
+      if (isActiveCanvas) update((s) => { s.graph = { nodes, edges: keep, view: s.graph.view, tombstones: tombOut, edgeTombstones: local.edgeTombstones || [] }; s.assetsTick++; });
     }
     async function hostSyncTick() {
       if (hostSyncStopped) return;
@@ -5864,6 +6011,13 @@ window.__ModuleLoader__.load({
         // 对话删除的项目：从本地一并移除（否则本地下次推送会把它复活）
         if (Array.isArray(r.deletedProjects) && r.deletedProjects.length) {
           const gone = new Set(r.deletedProjects);
+          // 删除项目的同时清掉它的所有画布缓存（默认画布 key = projectId，子画布 key = pid::cid）
+          const goneCanvasKeys = [];
+          for (const pid of r.deletedProjects) {
+            const p = S.projects.find((x) => x.id === pid);
+            goneCanvasKeys.push(LS_GRAPH + canvasDocKey(pid, DEFAULT_CANVAS_ID));
+            for (const c of (p && Array.isArray(p.canvases) ? p.canvases : [])) goneCanvasKeys.push(LS_GRAPH + canvasDocKey(pid, c.id));
+          }
           update((s) => {
             s.projects = s.projects.filter((p) => !gone.has(p.id));
             if (gone.has(s.activeId)) {
@@ -5884,6 +6038,9 @@ window.__ModuleLoader__.load({
             try { localStorage.removeItem(LS_GRAPH + pid); } catch { /* 忽略 */ }
             try { localStorage.removeItem(LS_BIBLE + pid); } catch { /* 忽略 */ }
           }
+          for (const k of goneCanvasKeys) {
+            try { localStorage.removeItem(k); } catch { /* 忽略 */ }
+          }
           lsSet(LS_PROJECTS, S.projects);
           lsSet(LS_ACTIVE, S.activeId);
           applyViewToDomSoon();
@@ -5891,16 +6048,19 @@ window.__ModuleLoader__.load({
         // Agent 改动了项目文档（建节点/连线/写内容）→ 拉回合并，画布几秒内可见
         if (r.docChanged && r.docChanged.projectId) {
           const pid = r.docChanged.projectId;
-          const stamp = Number(lsGet(LS_DOCSYNC + pid, 0)) || 0;
+          const dcCanvas = (r.docChanged.canvasId === undefined || r.docChanged.canvasId === null) ? null : String(r.docChanged.canvasId);
+          const stampKey = LS_DOCSYNC + pid + (dcCanvas ? '::' + dcCanvas : '');
+          const stamp = Number(lsGet(stampKey, 0)) || 0;
           if ((r.docChanged.at || 0) > stamp) {
-            lsSet(LS_DOCSYNC + pid, String(r.docChanged.at || Date.now()));
+            lsSet(stampKey, String(r.docChanged.at || Date.now()));
             try {
               if (!S.projects.some((p) => p.id === pid)) {
                 const hp = (r.projects || []).find((x) => x.id === pid);
-                if (hp) await importHostProject(hp);
+                if (hp) await importHostProject(hp, dcCanvas);
               } else {
-                const full = await hostRpc('projectsGet', { id: pid });
-                mergeHostDoc(pid, full);
+                // 画布级改动：只拉该画布文档（非当前画布也缓存到本地，切换时直接可见）
+                const full = await hostRpc('projectsGet', { id: pid, canvasId: dcCanvas });
+                mergeHostDoc(pid, full, dcCanvas);
               }
             } catch { /* 下一轮 sync 会重试不到（信号已清）——由 missing-node 路径兜底 */ }
           }
@@ -5910,6 +6070,23 @@ window.__ModuleLoader__.load({
           // 否则排在它后面的项目的设定集/节点拉取会被连累跳过
           try {
             const known = S.projects.some((p) => p.id === hp.id);
+            // 画布登记同步：Host 是画布清单的持久源（对话/另一端建或改名后本地也能看到）。
+            // 合并策略 = 并集（本地刚建的画布不能被 Host 旧清单抹掉），刚删的画布由墓碑挡住。
+            if (Array.isArray(hp.canvases)) {
+              const now = Date.now();
+              const hostList = hp.canvases.filter((c) => c && c.id && !((now - (canvasTombstones.get(hp.id + '::' + c.id) || 0)) < 10000));
+              const cur = S.projects.find((p) => p.id === hp.id);
+              if (cur) {
+                const localList = Array.isArray(cur.canvases) ? cur.canvases : [];
+                const byId = new Map(localList.map((c) => [c.id, c]));
+                for (const c of hostList) byId.set(c.id, { id: c.id, name: c.name || c.id, createdAt: Number(c.createdAt) || 0 }); // Host 名称/顺序为准
+                const merged = [...byId.values()];
+                if (JSON.stringify(merged) !== JSON.stringify(localList)) {
+                  update((s) => { const pp = s.projects.find((x) => x.id === hp.id); if (pp) pp.canvases = merged; });
+                  lsSet(LS_PROJECTS, S.projects);
+                }
+              }
+            }
             const doc = known ? loadGraphDoc(hp.id) : null;
             // 设定集：Host 侧（对话改写）更新过 → 拉回本地（设定集先行，故优先于节点合并）
             if (known && hp.bibleUpdatedAt && hp.bibleUpdatedAt > (Number(lsGet(LS_BIBLE_SYNC + hp.id, 0)) || 0)) {
@@ -5978,12 +6155,14 @@ window.__ModuleLoader__.load({
         try {
           if (r.openRequest) {
             const pid = r.openRequest.projectId || null;
+            const wantCanvas = (r.openRequest.canvasId === undefined || r.openRequest.canvasId === null) ? null : String(r.openRequest.canvasId);
             if (pid && !S.projects.some((p) => p.id === pid)) {
               const hp = (r.projects || []).find((x) => x.id === pid);
               if (hp) await importHostProject(hp);
             }
             if (!pid || S.projects.some((p) => p.id === pid)) {
               if (pid && pid !== S.activeId) switchProject(pid);
+              if (pid && wantCanvas && wantCanvas !== activeCanvasId()) switchCanvas(wantCanvas);
               try { if (CTX && CTX.layout && CTX.layout.selectPanel) CTX.layout.selectPanel(PANEL_ID); } catch { /* 忽略 */ }
             }
           }
@@ -5998,9 +6177,14 @@ window.__ModuleLoader__.load({
     async function handleRunRequest(runRequest) {
       const pid = runRequest.projectId;
       const nodeId = runRequest.nodeId;
+      const wantCanvas = (runRequest.canvasId === undefined || runRequest.canvasId === null) ? null : String(runRequest.canvasId);
       if (pid && pid !== S.activeId && S.projects.some((p) => p.id === pid)) {
         switchProject(pid);
         try { if (CTX && CTX.layout && CTX.layout.selectPanel) CTX.layout.selectPanel(PANEL_ID); } catch { /* 忽略 */ }
+      }
+      // 多画布：对话侧指定了子画布 → 先切到那个画布再找节点（否则会找不到节点/跑错画布）
+      if (pid && pid === S.activeId && wantCanvas && wantCanvas !== activeCanvasId()) {
+        switchCanvas(wantCanvas);
       }
       const node = S.graph.nodes[nodeId];
       if (!node) throw new Error('节点不存在: ' + nodeId);
@@ -6008,7 +6192,8 @@ window.__ModuleLoader__.load({
       await runGenNode(node);
       flushSave();
     }
-    /** 启动时把本地全部项目推给 Host：让对话能看到并操作画布上已有的项目（客户端为内容权威）。 */
+    /** 启动时把本地全部项目推给 Host：让对话能看到并操作画布上已有的项目（客户端为内容权威）。
+     *  多画布：项目文档推默认画布 + 画布清单，每个子画布单独推自己的文档。 */
     async function pushAllProjectsToHost() {
       if (hostSyncStopped) return;
       // OBS-UI-1：空态（用户还没建任何项目）不推送——否则空态下的占位也会写进 canvas.db
@@ -6016,7 +6201,13 @@ window.__ModuleLoader__.load({
       for (const p of [...S.projects]) {
         try {
           const doc = loadGraphDoc(p.id) || emptyGraph();
-          await hostRpc('projectsPut', { id: p.id, name: p.name || p.id, doc });
+          const canvases = Array.isArray(p.canvases) ? p.canvases : [];
+          await hostRpc('projectsPut', { id: p.id, name: p.name || p.id, canvases, doc });
+          for (const c of canvases) {
+            const cdoc = loadGraphDoc(p.id, c.id);
+            if (!cdoc) continue; // 本地没有缓存的子画布：Host 上若已有就不动（避免空文档覆盖）
+            await hostRpc('projectsPut', { id: p.id, name: p.name || p.id, canvasId: c.id, canvases, doc: cdoc });
+          }
         } catch (e) {
           if (/未知操作/.test(String((e && e.message) || e))) { hostSyncStopped = true; return; }
         }
@@ -6686,8 +6877,9 @@ window.__ModuleLoader__.load({
     function flushSave() {
       if (!S.ready || !S.activeId) return;
       if (saveTimer) { clearTimeout(saveTimer); saveTimer = null; }
-      // 多画布预留：写入当前画布 key（当前 = 项目默认画布；将来 = projectId::canvasId）
-      saveGraphDoc(S.activeId, S.graph, activeCanvasId());
+      // 多画布：写入当前画布 key（默认画布 = 项目 key，旧数据零迁移）
+      const cid = activeCanvasId();
+      saveGraphDoc(S.activeId, S.graph, cid);
       const proj = S.projects.find((p) => p.id === S.activeId);
       if (proj) proj.updatedAt = Date.now();
       lsSet(LS_PROJECTS, S.projects);
@@ -6697,6 +6889,9 @@ window.__ModuleLoader__.load({
         const bibleField = bibleFieldForPush(S.activeId);
         hostRpc('projectsPut', {
           id: S.activeId, name: (proj && proj.name) || S.activeId,
+          // 画布 id 与画布清单：Host 据此把图写到对应画布文档并维护项目级画布登记
+          canvasId: cid,
+          canvases: (proj && Array.isArray(proj.canvases)) ? proj.canvases : [],
           doc: {
             ts: Date.now(), // 推送发出时刻：Host 据此区分"撤销恢复"（清墓碑）与"陈旧推送"（墓碑继续生效）
             nodes: S.graph.nodes, edges: S.graph.edges, view: S.graph.view,
@@ -6717,6 +6912,9 @@ window.__ModuleLoader__.load({
     function initStore() {
       S.projects = lsGet(LS_PROJECTS, []);
       if (!Array.isArray(S.projects)) S.projects = [];
+      // 多画布：旧项目没有 canvases 字段 → 归一为空数组（只有默认画布，旧数据零迁移）
+      for (const p of S.projects) { if (p && !Array.isArray(p.canvases)) p.canvases = []; }
+      S.activeCanvasId = DEFAULT_CANVAS_ID;
       // OBS-UI-1：不再自动创建「我的画布」空项目——干净客户端每次打开面板都会
       // 经 pushAllProjectsToHost 把它写进 canvas.db（QA 实测 13→14 持续累积）。
       // 空列表 = 空态：画布显示"新建项目"引导，用户显式点击才真正建项目。
@@ -8256,6 +8454,7 @@ window.__ModuleLoader__.load({
       eye: 'M2.5 12S6 6.5 12 6.5 21.5 12 21.5 12 18 17.5 12 17.5 2.5 12 2.5 12zM12 15a3 3 0 100-6 3 3 0 000 6z',
       eyeOff: 'M4 4l16 16M9.9 5.1A9.6 9.6 0 0112 5c6 0 9.5 7 9.5 7a17 17 0 01-3.3 4.2M6.2 7.4A17 17 0 002.5 12S6 19 12 19a9.4 9.4 0 003.9-.8M10 10a3 3 0 004 4',
       help: 'M12 21a9 9 0 100-18 9 9 0 000 18zM9.4 9.4a2.6 2.6 0 114.2 2.1c-.9.7-1.6 1.2-1.6 2.3M12 17h.01',
+      keyboard: 'M3 6h18v12H3zM7 10h.01M10 10h.01M13 10h.01M16 10h.01M7 13h.01M10 13h.01M13 13h.01M16 13h.01M8 16h8',
       link: 'M10 13a5 5 0 007.1 0l2.4-2.4a5 5 0 00-7.1-7.1L11 4.9M14 11a5 5 0 00-7.1 0L4.5 13.4a5 5 0 007.1 7.1L13 19.1',
     };
     function Ic(name, size) { return h(Icon, { d: ICONS[name], size: size || 14 }); }
@@ -10682,9 +10881,18 @@ window.__ModuleLoader__.load({
       if (e && e.key === 'Escape' && S.panelModal) { closeStudioModal(); return true; }
       return false;
     }
-    function openProjectDialog(mode, initial) {
+    const DIALOG_MODES = ['create', 'rename', 'canvas-create', 'canvas-rename'];
+    function openProjectDialog(mode, initial, opts) {
+      const m = DIALOG_MODES.includes(mode) ? mode : 'create';
+      const o = opts || {};
       update((s) => {
-        s.projectDialog = { mode: mode === 'rename' ? 'rename' : 'create', value: String(initial || ''), error: null };
+        s.projectDialog = {
+          mode: m,
+          value: String(initial || ''),
+          error: null,
+          projectId: o.projectId || s.activeId || null,
+          canvasId: o.canvasId || null,
+        };
       });
     }
     function closeProjectDialog() {
@@ -10713,16 +10921,24 @@ window.__ModuleLoader__.load({
       lsSet(LS_ACTIVE, p.id);
       return { ok: true, project: p };
     }
-    /** 提交命名弹窗：新建 / 重命名共用；空名拒绝并写入错误提示。 */
+    /** 提交命名弹窗：新建/重命名项目、新建/重命名画布共用；空名一律拒绝并写入错误提示。 */
     function submitProjectDialog() {
       const dlg = S.projectDialog;
       if (!dlg) return { ok: false };
+      const isCanvasMode = dlg.mode === 'canvas-create' || dlg.mode === 'canvas-rename';
       const v = String(dlg.value || '').trim();
       if (!v) {
-        update((s) => { if (s.projectDialog) s.projectDialog.error = T('projectNameRequired'); });
-        return { ok: false, error: T('projectNameRequired') };
+        const err = isCanvasMode ? T('canvasNameRequired') : T('projectNameRequired');
+        update((s) => { if (s.projectDialog) s.projectDialog.error = err; });
+        return { ok: false, error: err };
       }
-      if (dlg.mode === 'rename' && S.activeId) {
+      if (dlg.mode === 'canvas-create') {
+        const r = createCanvasNamed(dlg.projectId || S.activeId, v);
+        if (!r.ok) { update((s) => { if (s.projectDialog) s.projectDialog.error = r.error; }); return r; }
+      } else if (dlg.mode === 'canvas-rename') {
+        const r = renameCanvasNamed(dlg.projectId || S.activeId, dlg.canvasId, v);
+        if (!r.ok) { update((s) => { if (s.projectDialog) s.projectDialog.error = r.error; }); return r; }
+      } else if (dlg.mode === 'rename' && S.activeId) {
         update((s) => {
           const p = s.projects.find((x) => x.id === s.activeId);
           if (p) { p.name = v.slice(0, 80); p.updatedAt = Date.now(); }
@@ -10730,7 +10946,7 @@ window.__ModuleLoader__.load({
         lsSet(LS_PROJECTS, S.projects);
         try {
           const doc = loadGraphDoc(S.activeId) || emptyGraph();
-          hostRpc('projectsPut', { id: S.activeId, name: v, doc }).catch(() => { /* 静默 */ });
+          hostRpc('projectsPut', { id: S.activeId, name: v, canvases: projectCanvases(S.activeId), doc }).catch(() => { /* 静默 */ });
         } catch { /* 忽略 */ }
       } else {
         const r = createProjectNamed(v);
@@ -10831,8 +11047,8 @@ window.__ModuleLoader__.load({
     }
 
     // ============================================================
-    // 顶部工具栏：最左项目名（下拉切换 / 新建 / 重命名）
-    // 说明：添节点在左侧图标列，运行工作流也在图标列；快捷键/帮助/检查更新在右侧面板。
+    // 顶部工具栏：最左「返回」图标 → 项目名（下拉切换 / 双击或铅笔重命名 / 新建）
+    // 说明：添节点在左侧图标列，运行工作流也在图标列；快捷键/帮助/检查更新是右上角纯图标按钮。
     // ============================================================
     function Toolbar() {
       const proj = S.projects.find((p) => p.id === S.activeId);
@@ -10854,18 +11070,41 @@ window.__ModuleLoader__.load({
         const r = e.currentTarget.getBoundingClientRect();
         toggleProjectMenuAt(r.left, (r.bottom || 44) + 4);
       };
+      const renameProject = (e) => {
+        if (e) { e.stopPropagation(); }
+        if (!proj) return;
+        closeProjectMenu();
+        openProjectDialog('rename', proj.name);
+      };
       return [
         h('div', { key: 'bar', className: 'dshic-toolbar' },
-          h('button', {
-            key: 'proj', type: 'button', ref: btnRef, className: 'dshic-btn dshic-proj-switch',
-            'data-role': 'project-switcher', title: T('switchProject'),
-            onPointerDown: (e) => e.stopPropagation(),
-            onClick: toggleMenu,
-          },
-            Ic('folder', 13),
-            h('span', { className: 'dshic-proj-name', 'data-role': 'project-name' }, proj ? proj.name : T('newProject')),
-            h('span', { className: 'dshic-proj-car' }, '▾')),
-          h(Btn, { onClick: () => CTX && CTX.layout.selectPanel(null), title: T('back') }, Ic('back', 13), h('span', { className: 'dshic-toolbar-title' }, T('back'))),
+          // 「返回会话」：只有图标，放在项目名左边（回到对话面板）
+          h(Btn, {
+            key: 'back', onClick: () => CTX && CTX.layout && CTX.layout.selectPanel(null), title: T('back'),
+            'data-action': 'back-to-chat',
+          }, Ic('back', 14)),
+          h('div', { key: 'projwrap', className: 'dshic-proj-switch-wrap' },
+            h('button', {
+              key: 'proj', type: 'button', ref: btnRef, className: 'dshic-btn dshic-proj-switch',
+              'data-role': 'project-switcher', title: T('switchProject'),
+              onPointerDown: (e) => e.stopPropagation(),
+              onClick: toggleMenu,
+            },
+              Ic('folder', 13),
+              h('span', {
+                className: 'dshic-proj-name', 'data-role': 'project-name',
+                title: T('renameHint'),
+                onDoubleClick: renameProject,
+              }, proj ? proj.name : T('newProject')),
+              h('span', { className: 'dshic-proj-car' }, '▾')),
+            proj
+              ? h('button', {
+                  key: 'edit', type: 'button', className: 'dshic-iconbtn dshic-proj-edit',
+                  'data-action': 'rename-project-icon', title: T('rename'),
+                  onPointerDown: (e) => e.stopPropagation(),
+                  onClick: renameProject,
+                }, Ic('pencil', 12))
+              : null),
           h('div', { className: 'dshic-toolbar-sep' }),
           h(Btn, { onClick: fitView, title: T('fit') }, Ic('fit', 13)),
           h(Btn, { onClick: undo, title: T('undo'), disabled: history.idx <= 0 }, Ic('undoIc', 13)),
@@ -10876,6 +11115,19 @@ window.__ModuleLoader__.load({
             h('button', { type: 'button', className: 'dshic-zoom-val', title: T('zoomReset'), onClick: () => resetZoom() }, Math.round(V.scale * 100) + '%'),
             h(Btn, { onClick: () => zoomStep(1.18), title: T('zoomIn') }, Ic('zoomIn', 12)),
           ),
+          h('div', { className: 'dshic-toolbar-sep' }),
+          // 快捷键 / 帮助反馈 / 检查更新：右上角纯图标按钮（hover 显示 tooltip，无文字）
+          h('div', { key: 'tools', className: 'dshic-toolbar-tools' },
+            h(ShortcutsPanel, { compact: true }),
+            h(Btn, {
+              key: 'help', 'data-action': 'toolbar-help', title: T('supportBtn'),
+              onClick: () => update((s) => { s.supportOpen = true; }),
+            }, Ic('help', 13)),
+            h(Btn, {
+              key: 'update', 'data-action': 'toolbar-update', disabled: S.updateChecking,
+              title: T('updateBtn') + ((S.updateInfo && S.updateInfo.runningVersion) ? '（当前 v' + S.updateInfo.runningVersion + '）' : ''),
+              onClick: () => { checkUpdate(false).then((info) => { if (info && info.upToDate) toast(T('updateUpToDate') + (info.runningVersion ? ' v' + info.runningVersion : '')); }); },
+            }, S.updateChecking ? h('span', { className: 'dshic-spin' }) : ((S.updateInfo && !S.updateInfo.upToDate) ? '⬆' : Ic('download', 13)))),
           h('div', { className: 'dshic-toolbar-sep' }),
           h(Btn, {
             active: S.rightOpen, title: T('toggleRight'),
@@ -10897,11 +11149,6 @@ window.__ModuleLoader__.load({
                 key: 'new', type: 'button', className: 'dshic-proj-menu-item', 'data-action': 'new-project-main',
                 onClick: () => { closeProjectMenu(); openProjectDialog('create', ''); },
               }, Ic('plus', 12), T('newProject') + '…'),
-              h('button', {
-                key: 'rename', type: 'button', className: 'dshic-proj-menu-item', 'data-action': 'rename-project-main',
-                disabled: !proj,
-                onClick: () => { closeProjectMenu(); openProjectDialog('rename', proj ? proj.name : ''); },
-              }, Ic('pencil', 12), T('renameProject')),
             )
           : null,
       ];
@@ -10919,19 +11166,25 @@ window.__ModuleLoader__.load({
         return () => window.removeEventListener('keydown', onKey);
       }, [dlg]);
       if (!dlg) return null;
-      const isRename = dlg.mode === 'rename';
+      const isCanvasMode = dlg.mode === 'canvas-create' || dlg.mode === 'canvas-rename';
+      const isRename = dlg.mode === 'rename' || dlg.mode === 'canvas-rename';
+      const title = isCanvasMode ? (isRename ? T('renameCanvas') : T('newCanvas').replace('…', '')) : (isRename ? T('renameProject') : T('newProject'));
+      const label = isCanvasMode ? T('canvasName') : T('projectName');
+      const placeholder = isCanvasMode ? T('canvasName') : T('projectName');
+      const submitLabel = isCanvasMode ? (isRename ? T('renameCanvas') : T('newCanvas').replace('…', '')) : (isRename ? T('renameProject') : T('newProject'));
       const submit = () => { submitProjectDialog(); };
       return h('div', {
         className: 'dshic-modal-overlay', 'data-role': 'project-dialog',
         onPointerDown: (e) => { if (e.target === e.currentTarget) closeProjectDialog(); },
       },
         h('div', { className: 'dshic-modal', style: { width: 380 }, onPointerDown: (e) => e.stopPropagation() },
-          h('div', { className: 'dshic-modal-title' }, isRename ? T('renameProject') : T('newProject')),
+          h('div', { className: 'dshic-modal-title', 'data-role': 'project-dialog-title' }, title),
           h('div', { className: 'dshic-field' },
-            h('span', { className: 'dshic-field-label' }, T('projectName')),
+            h('span', { className: 'dshic-field-label' }, label),
             h('input', {
               className: 'dshic-input', autoFocus: true, value: dlg.value || '',
-              placeholder: T('projectName'), 'data-role': 'project-name-input',
+              placeholder,
+              'data-role': isCanvasMode ? 'canvas-name-input' : 'project-name-input',
               onChange: (e) => update((s) => { if (s.projectDialog) { s.projectDialog.value = e.target.value; s.projectDialog.error = null; } }),
               onKeyDown: (e) => { if (e.key === 'Enter') submit(); if (e.key === 'Escape') closeProjectDialog(); },
               onPointerDown: (e) => e.stopPropagation(),
@@ -10942,7 +11195,7 @@ window.__ModuleLoader__.load({
             h('button', {
               type: 'button', className: 'dshic-btn dshic-primary',
               'data-action': 'project-dialog-submit', onClick: submit,
-            }, isRename ? T('renameProject') : T('newProject')))),
+            }, submitLabel))),
       );
     }
 
@@ -10952,35 +11205,20 @@ window.__ModuleLoader__.load({
     function ProjectsTab() {
       const [creating, setCreating] = useState(false);
       const [name, setName] = useState('');
-      const [editId, setEditId] = useState(null);
-      const [editName, setEditName] = useState('');
       const [delTarget, setDelTarget] = useState(null);
       const [delName, setDelName] = useState('');
       const [delCount, setDelCount] = useState(0);
+      const [canvasDel, setCanvasDel] = useState(null); // { pid, cid, name }：画布删除的二次确认（行内）
 
       const create = () => {
         const nm = name.trim() || (T('projectName') + ' ' + (S.projects.length + 1));
-        const p = { id: uid('p'), name: nm, createdAt: Date.now(), updatedAt: Date.now() };
+        const p = { id: uid('p'), name: nm, createdAt: Date.now(), updatedAt: Date.now(), canvases: [] };
         update((s) => { s.projects.push(p); });
         switchProject(p.id);
-        try { hostRpc('projectsPut', { id: p.id, name: nm, doc: emptyGraph() }).catch(() => { /* 静默 */ }); } catch { /* 忽略 */ }
+        try { hostRpc('projectsPut', { id: p.id, name: nm, canvases: [], doc: emptyGraph() }).catch(() => { /* 静默 */ }); } catch { /* 忽略 */ }
         setCreating(false); setName('');
       };
-      const commitRename = () => {
-        const v = editName.trim();
-        if (v && editId) {
-          update((s) => {
-            const p = s.projects.find((x) => x.id === editId);
-            if (p) { p.name = v; p.updatedAt = Date.now(); }
-          });
-          lsSet(LS_PROJECTS, S.projects);
-          try {
-            const doc = loadGraphDoc(editId) || emptyGraph();
-            hostRpc('projectsPut', { id: editId, name: v, doc }).catch(() => { /* 静默 */ });
-          } catch { /* 忽略 */ }
-        }
-        setEditId(null);
-      };
+      const renameProject = (p) => { openProjectDialog('rename', p.name, { projectId: p.id }); };
       const openDel = (p) => {
         setDelTarget(p);
         setDelName('');
@@ -10994,6 +11232,9 @@ window.__ModuleLoader__.load({
         // 只刷"非待删项目"的待存文档：flushSave 推的是 S.activeId 的全量文档，
         // 若推的正是待删项目，会与 projectsDelete 竞速把项目原地复活（资产/设定集已清的残废形态）
         if (pid !== S.activeId) flushSave();
+        const doomed = S.projects.find((p) => p.id === pid);
+        const doomedCanvasKeys = [LS_GRAPH + canvasDocKey(pid, DEFAULT_CANVAS_ID)];
+        for (const c of (doomed && Array.isArray(doomed.canvases) ? doomed.canvases : [])) doomedCanvasKeys.push(LS_GRAPH + canvasDocKey(pid, c.id));
         update((s) => {
           s.projects = s.projects.filter((p) => p.id !== pid);
           try { localStorage.removeItem(LS_GRAPH + pid); } catch { /* 忽略 */ }
@@ -11002,9 +11243,11 @@ window.__ModuleLoader__.load({
             if (s.projects.length === 0) {
               // OBS-UI-1：删光后进入空态，不再自动建「我的画布」占位（同 initStore 口径）
               s.activeId = null;
+              s.activeCanvasId = DEFAULT_CANVAS_ID;
               s.graph = emptyGraph();
             } else {
               s.activeId = s.projects[0].id;
+              s.activeCanvasId = DEFAULT_CANVAS_ID;
               const doc = loadGraphDoc(s.activeId) || emptyGraph();
               s.graph = { nodes: doc.nodes || {}, edges: doc.edges || [], view: doc.view || { x: 60, y: 40, scale: 1 } };
             }
@@ -11027,6 +11270,9 @@ window.__ModuleLoader__.load({
           const diskErrs = del && del.disk && Array.isArray(del.disk.errors) ? del.disk.errors : [];
           if (diskErrs.length) toast('项目已删除，但磁盘清理有 ' + diskErrs.length + ' 项失败：' + diskErrs.join('；'));
         } catch (e) { toast('删除请求失败（本地已移除，刷新后可能复现）：' + String((e && e.message) || e)); }
+        for (const k of doomedCanvasKeys) {
+          try { localStorage.removeItem(k); } catch { /* 忽略 */ }
+        }
         if (!S.store) {
           // IndexedDB 模式（未设数据目录）：本地逐个清理
           try {
@@ -11039,6 +11285,61 @@ window.__ModuleLoader__.load({
           assetMem.clear(); // 服务端随项目删除资产行；清本地元数据缓存
         }
         setDelTarget(null);
+      };
+      /** 画布行（目录树的子节点）：默认画布 + 子画布；点击切换、双击/铅笔重命名、垃圾桶删除（行内二次确认）。 */
+      const canvasRow = (p, c) => {
+        const isActiveCanvas = p.id === S.activeId && activeCanvasId() === (c.id || DEFAULT_CANVAS_ID);
+        const deleting = canvasDel && canvasDel.pid === p.id && canvasDel.cid === (c.id || DEFAULT_CANVAS_ID);
+        const pick = () => {
+          if (p.id !== S.activeId) switchProject(p.id);
+          if (c.isDefault) { if (activeCanvasId() !== DEFAULT_CANVAS_ID) switchCanvas(DEFAULT_CANVAS_ID); }
+          else if (activeCanvasId() !== c.id) switchCanvas(c.id);
+        };
+        return h('div', {
+          key: 'cv-' + (c.id || 'default'),
+          className: cls('dshic-canvas-row', isActiveCanvas && 'is-active'),
+          onClick: pick,
+          title: T('switchProject') + ' · ' + (c.isDefault ? T('defaultCanvas') : T('renameCanvasHint')),
+        },
+          h('span', { className: 'dshic-canvas-branch' }, c.isDefault ? '•' : '↳'),
+          h('span', {
+            className: 'dshic-canvas-name',
+            onDoubleClick: (e) => {
+              e.stopPropagation();
+              if (!c.isDefault) openProjectDialog('canvas-rename', c.name, { projectId: p.id, canvasId: c.id });
+            },
+          }, c.name),
+          c.isDefault
+            ? h('span', { className: 'dshic-canvas-tag' }, T('defaultCanvas'))
+            : null,
+          deleting
+            ? [
+                h('button', {
+                  key: 'ok', type: 'button', className: 'dshic-iconbtn is-danger', title: T('doDelete'),
+                  onPointerDown: (e) => e.stopPropagation(),
+                  onClick: (e) => { e.stopPropagation(); deleteCanvasNamed(p.id, c.id); setCanvasDel(null); },
+                }, '✓'),
+                h('button', {
+                  key: 'no', type: 'button', className: 'dshic-iconbtn', title: T('cancel'),
+                  onPointerDown: (e) => e.stopPropagation(),
+                  onClick: (e) => { e.stopPropagation(); setCanvasDel(null); },
+                }, '✕'),
+              ]
+            : (c.isDefault ? null : [
+                h('button', {
+                  key: 'rn', type: 'button', className: 'dshic-iconbtn', title: T('renameCanvas'),
+                  'data-action': 'rename-canvas-' + c.id,
+                  onPointerDown: (e) => e.stopPropagation(),
+                  onClick: (e) => { e.stopPropagation(); openProjectDialog('canvas-rename', c.name, { projectId: p.id, canvasId: c.id }); },
+                }, Ic('pencil', 11)),
+                h('button', {
+                  key: 'del', type: 'button', className: 'dshic-iconbtn is-danger', title: T('delCanvasHint'),
+                  'data-action': 'delete-canvas-' + c.id,
+                  onPointerDown: (e) => e.stopPropagation(),
+                  onClick: (e) => { e.stopPropagation(); setCanvasDel({ pid: p.id, cid: c.id, name: c.name }); },
+                }, Ic('trash', 11)),
+              ]),
+        );
       };
       return [
         creating
@@ -11061,47 +11362,45 @@ window.__ModuleLoader__.load({
           ? h('div', { key: 'emptystate', className: 'dshic-hint', style: { alignSelf: 'flex-start', padding: '6px 2px', maxWidth: 260 } },
               T('emptyProjectHint'))
           : null,
+        h('div', { key: 'treehint', className: 'dshic-hint', 'data-role': 'canvas-tree-hint' }, T('canvasHint')),
         ...S.projects.map((p) => {
-          const editing = editId === p.id;
-          return h('div', {
-            key: p.id,
-            className: cls('dshic-proj', p.id === S.activeId && 'is-active'),
-            onClick: () => { if (!editing) switchProject(p.id); },
-            title: editing ? undefined : T('renameHint'),
-          },
-            Ic('folder', 13),
-            editing
-              ? h('input', {
-                  className: 'dshic-input', autoFocus: true, value: editName,
-                  onChange: (e) => setEditName(e.target.value),
-                  onKeyDown: (e) => {
-                    if (e.key === 'Enter') commitRename();
-                    if (e.key === 'Escape') setEditId(null);
-                  },
-                  onBlur: commitRename,
-                  onPointerDown: (e) => e.stopPropagation(),
-                  onClick: (e) => e.stopPropagation(),
-                  style: { flex: 1, minWidth: 0 },
-                })
-              : h('div', { style: { flex: 1, minWidth: 0 } },
-                  h('div', { className: 'dshic-proj-name' }, p.name),
-                  h('div', { className: 'dshic-proj-meta' }, T('projCreatedAt') + ' ' + fmtTime(p.createdAt))),
-            editing
-              ? h('button', {
-                  type: 'button', className: 'dshic-iconbtn', title: '✓',
-                  onPointerDown: (e) => e.stopPropagation(),
-                  onClick: (e) => { e.stopPropagation(); commitRename(); },
-                }, '✓')
-              : h('button', {
-                  type: 'button', className: 'dshic-iconbtn', title: T('rename'),
-                  onPointerDown: (e) => e.stopPropagation(),
-                  onClick: (e) => { e.stopPropagation(); setEditId(p.id); setEditName(p.name); },
-                }, Ic('pencil', 11)),
-            h('button', {
-              type: 'button', className: 'dshic-iconbtn is-danger', title: T('doDelete'),
-              onPointerDown: (e) => e.stopPropagation(),
-              onClick: (e) => { e.stopPropagation(); openDel(p); },
-            }, Ic('trash', 12)),
+          const canvases = listCanvases(p.id);
+          return h('div', { key: p.id, className: cls('dshic-tree-proj', p.id === S.activeId && 'is-active') },
+            h('div', {
+              className: cls('dshic-proj', p.id === S.activeId && 'is-active'),
+              onClick: () => {
+                if (p.id !== S.activeId) switchProject(p.id);
+                else if (activeCanvasId() !== DEFAULT_CANVAS_ID) switchCanvas(DEFAULT_CANVAS_ID);
+              },
+              title: T('renameHint'),
+            },
+              Ic('folder', 13),
+              h('div', { style: { flex: 1, minWidth: 0 } },
+                h('div', {
+                  className: 'dshic-proj-name', 'data-role': 'tree-project-name',
+                  onDoubleClick: (e) => { e.stopPropagation(); renameProject(p); },
+                }, p.name),
+                h('div', { className: 'dshic-proj-meta' }, T('projCreatedAt') + ' ' + fmtTime(p.createdAt))),
+              h('button', {
+                type: 'button', className: 'dshic-iconbtn', title: T('newCanvas'),
+                'data-action': 'new-canvas-' + p.id,
+                onPointerDown: (e) => e.stopPropagation(),
+                onClick: (e) => { e.stopPropagation(); openProjectDialog('canvas-create', '', { projectId: p.id }); },
+              }, Ic('plus', 11)),
+              h('button', {
+                type: 'button', className: 'dshic-iconbtn', title: T('rename'),
+                'data-action': 'rename-project-' + p.id,
+                onPointerDown: (e) => e.stopPropagation(),
+                onClick: (e) => { e.stopPropagation(); renameProject(p); },
+              }, Ic('pencil', 11)),
+              h('button', {
+                type: 'button', className: 'dshic-iconbtn is-danger', title: T('doDelete'),
+                onPointerDown: (e) => e.stopPropagation(),
+                onClick: (e) => { e.stopPropagation(); openDel(p); },
+              }, Ic('trash', 12)),
+            ),
+            h('div', { className: 'dshic-canvas-list' },
+              canvases.map((c) => canvasRow(p, c))),
           );
         }),
         delTarget ? h(DeleteProjectModal, {
@@ -12527,7 +12826,8 @@ window.__ModuleLoader__.load({
 
     function Rightbar() {
       // 资产 / 设定集已合并进统一弹窗（左下图标列打开），右侧面板只保留项目 / 设置。
-      // 多画布预留：项目页签（ProjectsTab）是将来「项目下多张画布」列表的挂载位置。
+      // 项目页签 = 多画布目录树（项目为根，子画布为子节点）。
+      // 快捷键/帮助反馈/检查更新已回到右上角工具栏（纯图标按钮）——右侧面板不再有动作行。
       const tabs = [
         { id: 'projects', label: T('projects'), icon: 'folder' },
         { id: 'settings', label: T('settings'), icon: 'settings' },
@@ -12541,20 +12841,6 @@ window.__ModuleLoader__.load({
             'data-tab': t.id,
             onClick: () => update((s) => { s.rightTab = t.id; }),
           }, t.label)),
-        ),
-        // 快捷键 / 帮助反馈 / 检查更新：从顶部工具栏迁移到右侧面板（行为不变）
-        h('div', { className: 'dshic-rb-actions' },
-          h(ShortcutsPanel),
-          h('button', {
-            type: 'button', className: 'dshic-btn', 'data-action': 'rightbar-help', title: T('supportBtn'),
-            onClick: () => update((s) => { s.supportOpen = true; }),
-          }, Ic('help', 13)),
-          h('button', {
-            type: 'button', className: 'dshic-btn', 'data-action': 'rightbar-update',
-            title: T('updateBtn') + ((S.updateInfo && S.updateInfo.runningVersion) ? '（当前 v' + S.updateInfo.runningVersion + '）' : ''),
-            disabled: S.updateChecking,
-            onClick: () => { checkUpdate(false).then((info) => { if (info && info.upToDate) toast(T('updateUpToDate') + (info.runningVersion ? ' v' + info.runningVersion : '')); }); },
-          }, S.updateChecking ? h('span', { className: 'dshic-spin' }) : ((S.updateInfo && !S.updateInfo.upToDate) ? '⬆' : Ic('download', 13))),
         ),
         h('div', { className: 'dshic-rb-body' },
           active === 'projects' ? h(ProjectsTab) : null,
@@ -12849,7 +13135,7 @@ window.__ModuleLoader__.load({
     //   纯展示、不持久化；点面板外或再点按钮或 Esc 收起。
     //   内容与代码里**真实存在**的快捷键一一对应（改快捷键时同步这里）。
     // ============================================================
-    function ShortcutsPanel() {
+    function ShortcutsPanel({ compact } = {}) {
       const open = !!S.keysOpen;
       const wrapRef = useRef(null);
       // 打开时：Esc 关闭 + 点击面板外关闭（都只在打开期间挂监听，避免常年占用全局事件）
@@ -12877,14 +13163,19 @@ window.__ModuleLoader__.load({
       const group = (title, items) => h('div', { className: 'dshic-keys-group', key: title },
         h('div', { className: 'dshic-keys-group-title' }, title),
         ...items.map(([k, v], i) => row(k + '|' + i, k, v)));
-      return h('div', { className: 'dshic-keys-wrap', ref: wrapRef },
+      return h('div', { className: cls('dshic-keys-wrap', compact && 'is-compact'), ref: wrapRef },
         h('button', {
           type: 'button',
-          className: cls('dshic-keys-btn', open && 'is-open'),
+          className: cls('dshic-keys-btn', compact && 'dshic-btn', open && 'is-open'),
           title: T('keysBtn'),
+          'data-action': compact ? 'toolbar-shortcuts' : 'shortcuts-toggle',
           onPointerDown: (e) => e.stopPropagation(), // 不触发放大/拖拽等工具栏行为
           onClick: (e) => { e.stopPropagation(); update((s) => { s.keysOpen = !s.keysOpen; }); },
-        }, h('span', { className: 'dshic-keys-btn-label' }, T('keysBtn')), h('span', { className: 'dshic-keys-caret' }, open ? '▴' : '▾')),
+        },
+          compact
+            ? Ic('keyboard', 13)
+            : [h('span', { key: 'lb', className: 'dshic-keys-btn-label' }, T('keysBtn')), h('span', { key: 'car', className: 'dshic-keys-caret' }, open ? '▴' : '▾')],
+        ),
         open
           ? h('div', {
               className: 'dshic-keys-pop',
@@ -13261,7 +13552,7 @@ window.__ModuleLoader__.load({
             tailFrameScore,
           };
           window.__DSH_IC_SYNC__ = {
-            hostSyncTick, mergeHostDoc, loadBible, loadGraphDoc,
+            hostSyncTick, mergeHostDoc, loadBible, loadGraphDoc, flushSave, pushAllProjectsToHost,
             removeNodes, ungroupNode, undo, redo, pushHistory,
             graph: () => JSON.parse(JSON.stringify(S.graph)),
             // 生成面板挂靠节点（纯 UI 状态）：供 test-node-layout 断言「只有点击内容区才打开面板」。
@@ -13286,6 +13577,7 @@ window.__ModuleLoader__.load({
             IconRail, StudioModal, Toolbar, Rightbar, AssetCard, ProjectNameDialog,
             openStudioModal, setStudioModalTab, closeStudioModal, handleStudioModalKey,
             openProjectDialog, closeProjectDialog, submitProjectDialog, createProjectNamed,
+            createCanvasNamed, renameCanvasNamed, deleteCanvasNamed, listCanvases, canvasNameFor,
             setProjectDialogValue: (v) => { if (S.projectDialog) S.projectDialog.value = String(v == null ? '' : v); },
             openProjectMenuAt, closeProjectMenu, toggleProjectMenuAt,
             state: () => ({
@@ -13294,14 +13586,25 @@ window.__ModuleLoader__.load({
               projectDialog: S.projectDialog ? { ...S.projectDialog } : null,
               rightTab: S.rightTab,
               activeId: S.activeId,
-              projects: S.projects.map((p) => ({ id: p.id, name: p.name })),
+              activeCanvasId: activeCanvasId(),
+              projects: S.projects.map((p) => ({ id: p.id, name: p.name, canvases: Array.isArray(p.canvases) ? p.canvases.map((c) => ({ ...c })) : [] })),
               keysOpen: S.keysOpen,
               supportOpen: !!S.supportOpen,
             }),
           };
-          // 多画布预留接口：文档 key 抽象（当前 canvasId=null → key 就是 projectId）
+          // 多画布：文档 key 抽象 + 画布清单/切换/增删改（canvasId=null → key 就是 projectId，旧数据零迁移）
           window.__DSH_IC_CANVAS__ = {
             DEFAULT_CANVAS_ID, canvasDocKey, activeCanvasId, activeGraphKey, listCanvases, switchCanvas,
+            switchProject, projectCanvases, canvasNameFor, createCanvasNamed, renameCanvasNamed, deleteCanvasNamed,
+            hydrateCanvasFromHost,
+            state: () => ({
+              activeId: S.activeId,
+              activeCanvasId: activeCanvasId(),
+              activeGraphKey: activeGraphKey(),
+              projects: S.projects.map((p) => ({ id: p.id, name: p.name, canvases: Array.isArray(p.canvases) ? p.canvases.map((c) => ({ ...c })) : [] })),
+              canvases: listCanvases(S.activeId),
+              graphNodeIds: Object.keys((S.graph && S.graph.nodes) || {}),
+            }),
           };
           // BLK-02：ArtCraft 目录基准相关的纯函数出口（供 scripts/test-craft-base.mjs 断言）
           window.__DSH_IC_CRAFT__ = { craftBaseDir, craftBaseDirRequired, joinLocal, craftFolderOf, craft };

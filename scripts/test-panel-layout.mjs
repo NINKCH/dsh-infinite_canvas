@@ -1,13 +1,14 @@
 // 面板结构重构回归测试（dev-only）：
 //   1) 顶部无空白：.dshic-page 不再吃 --dsh-frame-top-clearance / padding-top，画布第一块就是工具栏
 //   2) 左侧图标列（单列）：顺序 = 文本/剧本/分镜表/图片/视频/成片/资产/设定集/运行工作流，
-//      点节点图标 → 在视口中心添加该类型节点；资产/设定集图标与弹窗当前标签页联动高亮
+//      点节点图标 → 在视口中心添加该类型节点；整列垂直居中（不是贴左上角）；资产/设定集与弹窗联动高亮
 //   3) 资产 + 设定集统一弹窗：两个标签页、资产页用 assetsForPicker 数据源 + 网格卡片、
 //      Esc / 遮罩关闭、右侧面板不再有资产/设定集页签
-//   4) 顶部工具栏：最左是项目名（下拉列出项目 + 新建项目…），不存在「添加节点」「运行工作流」；
-//      新建必须命名、空名被拒
-//   5) 快捷键 / 帮助反馈 / 检查更新移动到右侧面板
-//   6) 多画布预留：文档 key 抽象 canvasDocKey / activeGraphKey / listCanvases
+//   4) 顶部工具栏：最左「返回会话」纯 < 图标 → 项目名（下拉列出项目 + 新建项目…；双击/铅笔重命名；
+//      下拉里没有「重命名项目…」）；新建/重命名必须命名、空名被拒
+//   5) 快捷键 / 帮助反馈 / 检查更新回到右上角：三个纯图标按钮（hover tooltip），右侧面板不再有动作行
+//   6) 多画布：项目为根、子画布为目录；新建必须命名；切换读写不同 key；删除回默认画布；
+//      默认画布 canvasId=null（key 仍等于 projectId，旧数据零迁移）
 // 运行：node scripts/test-panel-layout.mjs（退出码 0=通过）
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
@@ -184,6 +185,8 @@ function fnBody(name) {
   eq(acts.join(','), 'add-text,add-script,add-storyboard,add-image,add-video,add-finalcut,open-assets,open-bible,run-workflow',
     '左侧图标列顺序/动作不符合要求');
   ok(/\.dshic-rail\{[^}]*flex:none/.test((LAYOUT.CSS || '')), '图标列不是固定 flex:none 列（会随画布布局变化）');
+  // 第 2 条：图标列整列垂直居中（不是贴左上角）
+  ok(/\.dshic-rail\{[^}]*justify-content:center/.test((LAYOUT.CSS || '')), '图标列没有垂直居中（justify-content:center）');
   ok(/h\(IconRail\)/.test(fnBody('CanvasPage')), 'IconRail 未挂到画布主区域');
   // 点「文本」→ 在视口中心添加文本节点（沿用 addNodeAt：默认尺寸/选中/历史）
   const before = Object.keys(sync.graph().nodes).length;
@@ -257,29 +260,58 @@ function fnBody(name) {
 }
 
 // ============================================================
-// 4) 顶部工具栏：最左项目名 + 下拉切换/新建；无「添加节点」「运行工作流」
+// 4) 顶部工具栏：最左「返回会话」纯图标 → 项目名（下拉切换/新建；双击/铅笔改名）
 // ============================================================
 {
   const tb = all(TABS.Toolbar());
   const bar = tb.find((e) => clsOf(e).includes('dshic-toolbar'));
   ok(!!bar, '未渲染顶部工具栏');
   const barKids = (bar.props.children || []).filter(Boolean);
-  ok(barKids[0] && barKids[0].props && barKids[0].props['data-role'] === 'project-switcher', '工具栏最左不是项目名切换按钮');
-  const nameEl = barKids[0].props.children && (Array.isArray(barKids[0].props.children) ? barKids[0].props.children : [barKids[0].props.children]).find((c) => c && c.props && c.props['data-role'] === 'project-name');
+  // 第 1 条：返回会话 = 只有 < 图标，且位于项目名左边（工具栏最左）
+  const backBtn = barKids[0];
+  ok(backBtn && backBtn.props && backBtn.props['data-action'] === 'back-to-chat', '工具栏最左不是「返回会话」按钮');
+  ok(stringsOf(backBtn).join('').trim() === '', '「返回会话」按钮仍有文字（应为纯 < 图标）');
+  ok(!/dshic-toolbar-title/.test(src), '仍存在 .dshic-toolbar-title（返回会话文字样式/文字未删除）');
+  const projWrap = barKids[1];
+  ok(projWrap && clsOf(projWrap).includes('dshic-proj-switch-wrap'), '项目切换器不在返回按钮右边');
+  const switcher = (projWrap.props.children || []).filter(Boolean)[0];
+  ok(switcher && switcher.props && switcher.props['data-role'] === 'project-switcher', '工具栏项目名切换按钮缺失');
+  const nameEl = ((switcher.props.children || []).filter(Boolean)).find((c) => c && c.props && c.props['data-role'] === 'project-name');
   ok(nameEl && String(nameEl.props.children) === '项目甲', '工具栏项目名未显示当前项目（实际：' + (nameEl && nameEl.props.children) + '）');
+  // 第 3 条：双击项目名 → 预填当前名字的重命名弹窗
+  ok(typeof nameEl.props.onDoubleClick === 'function', '项目名不支持双击重命名');
+  nameEl.props.onDoubleClick({ stopPropagation: noop });
+  eq(PANEL.state().projectDialog && PANEL.state().projectDialog.mode, 'rename', '双击项目名未进入重命名');
+  eq(PANEL.state().projectDialog && PANEL.state().projectDialog.value, '项目甲', '双击重命名未预填当前项目名');
+  PANEL.setProjectDialogValue('');
+  const emptyRename = PANEL.submitProjectDialog();
+  ok(emptyRename && emptyRename.ok === false && emptyRename.error, '重命名空名未被拒绝');
+  eq(PANEL.state().projects.find((p) => p.id === PANEL.state().activeId).name, '项目甲', '空名重命名仍改掉了项目名');
+  ok(!!(PANEL.state().projectDialog && PANEL.state().projectDialog.error), '重命名空名没有显示校验错误');
+  PANEL.setProjectDialogValue('项目甲改');
+  ok(PANEL.submitProjectDialog().ok === true, '合法重命名失败');
+  eq(PANEL.state().projects.find((p) => p.id === PANEL.state().activeId).name, '项目甲改', '合法重命名未生效');
+  // 第 3 条：项目名右侧有编辑图标，点击同样进入重命名
+  const editBtn = act(all(TABS.Toolbar()), 'rename-project-icon');
+  ok(!!editBtn, '项目名右侧缺少编辑（重命名）图标');
+  editBtn.props.onClick({ stopPropagation: noop });
+  eq(PANEL.state().projectDialog && PANEL.state().projectDialog.mode, 'rename', '编辑图标未打开重命名弹窗');
+  PANEL.closeProjectDialog();
+  // 工具栏没有「添加节点」「运行工作流」
   const tbStrings = stringsOf([[bar], [tb]]).join('|');
   ok(!tbStrings.includes('添加节点'), '工具栏仍存在「添加节点」按钮');
   ok(!tbStrings.includes('运行工作流'), '工具栏仍存在「运行工作流」按钮');
   ok(!/['"]addNode['"]/.test(fnBody('Toolbar')), '工具栏仍引用 addNode 入口');
   ok(!/runWorkflow/.test(fnBody('Toolbar')), '工具栏仍引用 runWorkflow');
-  // 点项目名 → 下拉项目列表 + 新建项目…
-  const switcher = barKids[0];
+  // 点项目名 → 下拉项目列表 + 新建项目…；下拉里**没有**「重命名项目…」（改名只走双击/铅笔）
   switcher.props.onClick({ stopPropagation: noop, currentTarget: { getBoundingClientRect: () => ({ left: 10, bottom: 44 }) } });
   ok(!!PANEL.state().projectMenu, '点击项目名没有弹出项目下拉');
   const menuEls = all(TABS.Toolbar());
   ok(menuEls.some((e) => clsOf(e).includes('dshic-proj-menu')), '项目下拉未渲染');
   ok(!!act(menuEls, 'switch-project-' + P2), '项目下拉没有列出现有项目');
   ok(!!act(menuEls, 'new-project-main'), '项目下拉没有「新建项目…」');
+  ok(!act(menuEls, 'rename-project-main'), '项目下拉仍有「重命名项目…」入口（应只保留 项目列表 + 新建项目…）');
+  ok(!stringsOf(menuEls).join('|').includes('重命名项目'), '项目下拉仍渲染「重命名项目…」文字');
   // 切换项目
   act(menuEls, 'switch-project-' + P2).props.onClick();
   eq(PANEL.state().activeId, P2, '点击项目项未切换项目');
@@ -308,29 +340,98 @@ function fnBody(name) {
 }
 
 // ============================================================
-// 5) 快捷键 / 帮助 / 检查更新 在右侧面板
+// 5) 快捷键 / 帮助 / 检查更新：右上角三个纯图标按钮；右侧面板无动作行
 // ============================================================
 {
+  const tb = all(TABS.Toolbar());
+  ok(tb.some((e) => e.type === TABS.ShortcutsPanel), '右上角缺少快捷键入口');
+  ok(/h\(ShortcutsPanel, \{ compact: true \}\)/.test(fnBody('Toolbar')), '右上角快捷键入口不是纯图标（compact）形态');
+  const scEls = all(TABS.ShortcutsPanel({ compact: true }));
+  const shortcutsBtn = act(scEls, 'toolbar-shortcuts');
+  ok(!!shortcutsBtn, '快捷键入口不是右上角的图标按钮');
+  ok(stringsOf(shortcutsBtn).join('').trim() === '', '快捷键图标按钮仍带文字（应为纯图标）');
+  ok(!!act(tb, 'toolbar-help'), '右上角缺少帮助与反馈入口');
+  ok(stringsOf(act(tb, 'toolbar-help')).join('').trim() === '', '帮助按钮仍带文字（应为纯图标）');
+  ok(!!act(tb, 'toolbar-update'), '右上角缺少检查更新入口');
+  // hover tooltip 保留（title 文案来自 i18n 键）
+  ok(/title: T\('supportBtn'\)/.test(fnBody('Toolbar')), '帮助按钮丢失 hover tooltip');
+  ok(/title: T\('updateBtn'\)/.test(fnBody('Toolbar')), '检查更新按钮丢失 hover tooltip');
+  shortcutsBtn.props.onClick({ stopPropagation: noop });
+  eq(PANEL.state().keysOpen, true, '点击快捷键图标没有展开快捷键面板');
+  act(all(TABS.ShortcutsPanel({ compact: true })), 'toolbar-shortcuts').props.onClick({ stopPropagation: noop });
+  eq(PANEL.state().keysOpen, false, '再次点击快捷键图标没有收起面板');
+  act(tb, 'toolbar-help').props.onClick();
+  ok(PANEL.state().supportOpen === true, '「帮助入口」行为改变（未打开帮助弹窗）');
+  // 右侧面板不再有动作行
   const rb = all(TABS.Rightbar());
-  ok(rb.some((e) => e.type === TABS.ShortcutsPanel), '右侧面板缺少快捷键入口');
-  ok(!!act(rb, 'rightbar-help'), '右侧面板缺少帮助与反馈入口');
-  ok(!!act(rb, 'rightbar-update'), '右侧面板缺少检查更新入口');
-  act(rb, 'rightbar-help').props.onClick();
-  ok(PANEL.state().supportOpen === true, '右侧面板「帮助入口」行为改变（未打开帮助弹窗）');
-  ok(!/supportBtn|updateBtn/.test(fnBody('Toolbar')), '工具栏仍保留帮助/检查更新入口');
+  ok(!rb.some((e) => e.type === TABS.ShortcutsPanel), '右侧面板仍有快捷键入口');
+  ok(!act(rb, 'rightbar-help'), '右侧面板仍有帮助入口');
+  ok(!act(rb, 'rightbar-update'), '右侧面板仍有检查更新入口');
+  ok(!/dshic-rb-actions/.test(src), '右侧面板动作行样式未删除');
 }
 
 // ============================================================
-// 6) 多画布预留接口
+// 6) 多画布：默认画布兼容 + 新建/切换/改名/删除（每个子目录 = 独立画布）
 // ============================================================
 {
   eq(CANVAS.DEFAULT_CANVAS_ID, null, '默认画布 id 应为 null（单画布兼容）');
   eq(CANVAS.canvasDocKey('proj1'), 'proj1', '默认画布文档 key 必须等于 projectId（旧数据兼容）');
   eq(CANVAS.canvasDocKey('proj1', 'canvas2'), 'proj1::canvas2', '多画布文档 key 约定不符');
-  eq(CANVAS.activeGraphKey(), CANVAS.canvasDocKey(PANEL.state().activeId, null), 'activeGraphKey 与实际项目不匹配');
-  const lc = CANVAS.listCanvases('proj1');
-  ok(Array.isArray(lc) && lc.length === 1 && lc[0].id === null, 'listCanvases 未返回默认画布');
-  ok(/function switchCanvas\(/.test(src), '缺少 switchCanvas 预留接口');
+  const pid = PANEL.state().activeId;
+  eq(CANVAS.activeCanvasId(), null, '打开项目应先落在默认画布（canvasId=null）');
+  eq(CANVAS.activeGraphKey(), CANVAS.canvasDocKey(pid, null), 'activeGraphKey 与默认画布不匹配');
+  const lc0 = CANVAS.listCanvases(pid);
+  ok(Array.isArray(lc0) && lc0.length === 1 && lc0[0].id === null, '旧项目应只有默认画布（零迁移）');
+  // 新建必须命名
+  const badNew = CANVAS.createCanvasNamed(pid, '   ');
+  ok(badNew && badNew.ok === false && badNew.error, '新建画布空名未被拒绝');
+  eq(CANVAS.listCanvases(pid).length, 1, '空名新建画布仍创建了画布');
+  // 合法名字 → 创建并切到新画布；数据层 key 变成 pid::cid
+  const made = CANVAS.createCanvasNamed(pid, '第二画布');
+  ok(made && made.ok === true && made.canvasId, '新建画布失败');
+  eq(CANVAS.activeCanvasId(), made.canvasId, '新建画布后未切换过去');
+  eq(CANVAS.activeGraphKey(), CANVAS.canvasDocKey(pid, made.canvasId), '新画布未使用独立文档 key');
+  eq(CANVAS.listCanvases(pid).length, 2, '项目画布清单没有包含新画布');
+  // 画布隔离：在新画布加节点，切回默认画布看不到
+  const rail2 = all(TABS.IconRail());
+  act(rail2, 'add-text').props.onClick();
+  eq(CANVAS.state().graphNodeIds.length, 1, '新画布加节点失败');
+  CANVAS.switchCanvas(null);
+  eq(CANVAS.activeCanvasId(), null, '切回默认画布失败');
+  eq(CANVAS.state().graphNodeIds.length, 0, '不同画布的节点互相串了');
+  // 切换回新画布 → 节点还在（按 key 读写）
+  CANVAS.switchCanvas(made.canvasId);
+  eq(CANVAS.state().graphNodeIds.length, 1, '切回子画布后节点丢失（文档 key 未按画布隔离）');
+  // 切画布要重置撤销栈：新画布上不能 Ctrl+Z 把另一个画布的节点写进来
+  ok(/history\.stack = \[\]/.test(fnBody('switchCanvas')), '切画布没有重置撤销栈');
+  // 重命名（空名/同名拒绝，合法生效）
+  ok(CANVAS.renameCanvasNamed(pid, made.canvasId, '').ok === false, '重命名画布空名未被拒绝');
+  ok(CANVAS.renameCanvasNamed(pid, made.canvasId, '第二画布').ok === true, '同名重命名应保持原名成功');
+  ok(CANVAS.renameCanvasNamed(pid, made.canvasId, '改名画布').ok === true, '重命名画布失败');
+  eq(CANVAS.canvasNameFor(pid, made.canvasId), '改名画布', '重命名画布未生效');
+  eq(CANVAS.canvasNameFor(pid, null), '默认画布', '默认画布名称不对');
+  // 删除当前画布 → 回默认画布，清缓存
+  ok(CANVAS.deleteCanvasNamed(pid, made.canvasId).ok === true, '删除画布失败');
+  eq(CANVAS.activeCanvasId(), null, '删除当前画布后未回到默认画布');
+  eq(CANVAS.listCanvases(pid).length, 1, '删除画布后清单未更新');
+  eq(sync.loadGraphDoc(pid, made.canvasId), null, '删除画布后本地文档缓存未清理');
+  // 资产/设定集是项目级：key 不带画布维度（不随画布分割）
+  ok(/LS_BIBLE \+ pid/.test(src) && !/LS_BIBLE \+ canvasDocKey/.test(src), '设定集被按画布分割（应按项目共享）');
+  ok(/assetsForPicker\(/.test(src) && !/canvasDocKey\([^)]*\)[^)]*asset/.test(src), '资产被按画布分割（应按项目共享）');
+  // 目录树：ProjectsTab 里项目下要列出每个画布行，且项目节点有「新建画布」入口
+  const projTabSrc = fnBody('ProjectsTab');
+  ok(/listCanvases\(/.test(projTabSrc), '「项目」页签没有列出画布（目录树缺失）');
+  ok(/new-canvas-/.test(projTabSrc), '「项目」页签没有新建画布入口');
+  ok(/delete-canvas-/.test(projTabSrc) && /renameCanvas/.test(projTabSrc), '「项目」页签缺少画布重命名/删除入口');
+  // 新建画布弹窗走命名校验（必须命名）
+  PANEL.openProjectDialog('canvas-create', '', { projectId: pid });
+  eq(PANEL.state().projectDialog && PANEL.state().projectDialog.mode, 'canvas-create', '新建画布没有走命名弹窗');
+  const canvasBad = PANEL.submitProjectDialog();
+  ok(canvasBad && canvasBad.ok === false && canvasBad.error, '新建画布弹窗空名未被拒绝');
+  eq(CANVAS.listCanvases(pid).length, 1, '新建画布弹窗空名仍创建了画布');
+  PANEL.setProjectDialogValue('弹窗新画布');
+  ok(PANEL.submitProjectDialog().ok === true, '新建画布弹窗合法名字创建失败');
+  eq(CANVAS.listCanvases(pid).length, 2, '新建画布弹窗没有创建画布');
 }
 
 if (errs.length) {
@@ -338,5 +439,5 @@ if (errs.length) {
   for (const e of errs) console.error('  - ' + e);
   process.exit(1);
 }
-console.log('✓ 面板结构测试通过（顶部无空白 / 左侧图标列顺序与动作 / 资产+设定集统一弹窗 / 工具栏项目切换与空名校验 / 右侧面板动作 / 多画布 key 接口）');
+console.log('✓ 面板结构测试通过（返回图标/图标列垂直居中/资产+设定集统一弹窗/项目名双击与铅笔改名/下拉无重命名项/右上角纯图标按钮/多画布目录树）');
 process.exit(0);

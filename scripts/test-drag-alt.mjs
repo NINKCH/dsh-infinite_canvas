@@ -79,7 +79,13 @@ plugin.apply({ effect(fn) { fn(); }, locale: { register: noop, subscribe: () => 
 const fnBody = (name) => {
   const start = src.indexOf('function ' + name + '(');
   if (start < 0) return '';
-  let i = src.indexOf('{', start), depth = 0;
+  // 跳过参数列表（可能含解构 `{ compact }`）：从配对的 `)` 之后再找函数体 `{`
+  let i = src.indexOf('(', start), parens = 0;
+  for (; i < src.length; i++) {
+    if (src[i] === '(') parens++;
+    else if (src[i] === ')') { parens--; if (parens === 0) { i++; break; } }
+  }
+  let depth = 0;
   for (; i < src.length; i++) {
     if (src[i] === '{') depth++;
     else if (src[i] === '}') { depth--; if (depth === 0) return src.slice(start, i + 1); }
@@ -146,15 +152,16 @@ const run = (movers) => {
 
 // ---------------- 3) 快捷键面板 ----------------
 ok(/function ShortcutsPanel\(/.test(src), '未找到 ShortcutsPanel 组件');
-ok(/h\(ShortcutsPanel\)/.test(src), 'ShortcutsPanel 未挂载');
-// 位置契约：入口在**右侧面板**（面板结构重构：快捷键/帮助/检查更新从顶部工具栏移到右侧面板），
-// 不在顶部工具栏、也不在画布容器里 —— 防止后续重构又挪回去。
+ok(/h\(ShortcutsPanel[,)]/.test(src), 'ShortcutsPanel 未挂载');
+// 位置契约：入口在**顶部工具栏右上角**（纯图标按钮；项目结构第 4 条把快捷键/帮助/检查更新
+// 从右侧面板动作区挪回右上角），不在右侧面板、也不在画布容器里 —— 防止后续重构又挪回去。
 const rightbarBody = fnBody('Rightbar');
-ok(/h\(ShortcutsPanel\)/.test(rightbarBody), '快捷键入口不在右侧面板里（应放在右侧面板动作区）');
+ok(!/h\(ShortcutsPanel[,)]/.test(rightbarBody), '快捷键入口又回到右侧面板里（应在顶部工具栏右上角）');
 const toolbarBody = fnBody('Toolbar');
-ok(!/h\(ShortcutsPanel\)/.test(toolbarBody), '快捷键入口仍在顶部工具栏里（应已移到右侧面板）');
+ok(/h\(ShortcutsPanel[,)]/.test(toolbarBody), '快捷键入口不在顶部工具栏里（应在右上角）');
+ok(/compact: true/.test(toolbarBody), '顶部工具栏的快捷键入口不是纯图标（compact）形态');
 const canvasPageBody = fnBody('CanvasPage');
-ok(!/h\(ShortcutsPanel\)/.test(canvasPageBody), '快捷键入口仍挂在画布内（应已移到右侧面板）');
+ok(!/h\(ShortcutsPanel[,)]/.test(canvasPageBody), '快捷键入口仍挂在画布内（应在顶部工具栏）');
 // 下拉面板要相对按钮定位（否则挪进工具栏后会飘到页面左上角）
 ok(/\.dshic-keys-wrap\{position:relative/.test(src), '.dshic-keys-wrap 不是相对定位（下拉面板会脱离按钮）');
 ok(/\.dshic-keys-pop\{position:absolute;right:0;top:calc\(100% \+ 6px\)/.test(src), '下拉面板未相对按钮右对齐定位');

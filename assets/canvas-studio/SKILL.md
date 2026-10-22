@@ -97,6 +97,16 @@ description: 用无限画布（Infinite Canvas）做短剧/视频创作时使用
     - **术语统一**：汇报与改写一律用「**大特写**」「**调度**」；景别必须具体（大特写/特写/近景/中景/
       全景/远景），不写"镜头""画面"；`motion` 不写"平移/推近/拉远"这类空模板。完整勘误表见
       `canvas-craft`「术语勘误」。
+17. **多画布：一个项目可以有多个画布（右侧「项目」页签里项目为根、子画布为子目录）。**
+    - `canvas_list_projects` 会在每个项目下列出 `canvasId=…` 的画布清单；**缺省 `canvasId` = 项目默认画布**，
+      旧项目只有默认画布，照旧只传 `projectId` 即可。
+    - 用户指明"在某某画布/第二个画布"里操作时，读和写都必须**显式带 `canvasId`**：
+      `canvas_list_projects` → 找到目标 `canvasId` 后，`canvas_create_node` / `canvas_write_node` /
+      `canvas_run_node` / `canvas_node_status` / `canvas_update_node` / `canvas_connect` /
+      `canvas_relayout` / `canvas_delete_node` / `canvas_open` 全部支持该参数；
+      **不带 = 默认画布**，会"报节点不存在"或写错画布。
+    - 画布之间节点/连线互相隔离；**资产与设定集按项目共享**（所有画布同一份设定集、同一资产库），
+      不要为不同画布重建设定集或重复上传资产。
     - **专家人设给方向，技能判据是准绳**：内置分镜专家的 persona 已写入六要素 / 每场 1 个大特写 /
       motion「起点→方式→终点」/ 同场连续三镜不同运动 / 每场冲撞点等硬规则，但仍以 `canvas-craft`
       的完整判据与自检表为准；两者冲突时，**以技能判据为准**。
