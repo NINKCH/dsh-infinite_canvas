@@ -121,6 +121,7 @@ const COVERAGE = [
   { sha: '3ae252b', keys: [/pager|page-jump|plus icon|magnifier|页码/i] },
   { sha: '9d39aa0', keys: [/expert selector|whole skill set|skill pickers|专家/i] },
   { sha: '07bfda3', keys: [/icon rail|rail is a fixed column|float|图标列/i] },
+  { sha: '1af1e55', keys: [/redundant expert field label|skill boost card|expert|专家/i] },
 ];
 for (const c of COVERAGE) {
   ok(c.keys.some((re) => re.test(section)), '未发版提交 ' + c.sha + ' 在 Unreleased 段里找不到对应记录（补记不全）');
