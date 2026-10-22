@@ -120,7 +120,7 @@ const COVERAGE = [
   { sha: '11fbc15', keys: [/pager sits on the same row|search field|rail|storage|icon rail/i] },
   { sha: '3ae252b', keys: [/pager|page-jump|plus icon|magnifier|页码/i] },
   { sha: '9d39aa0', keys: [/expert selector|whole skill set|skill pickers|专家/i] },
-  { sha: '07bfda3', keys: [/icon rail truly float|transparent spacer|absolutely centred|图标列/i] },
+  { sha: '07bfda3', keys: [/icon rail|rail is a fixed column|float|图标列/i] },
 ];
 for (const c of COVERAGE) {
   ok(c.keys.some((re) => re.test(section)), '未发版提交 ' + c.sha + ' 在 Unreleased 段里找不到对应记录（补记不全）');
