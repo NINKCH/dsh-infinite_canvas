@@ -1,11 +1,14 @@
 // 节点排版/生成面板的用户实测缺陷回归测试（几何规则已按用户纠正版重写，上一轮的错误断言全部替换）：
-//   ① 媒体节点三段几何：标题栏 NODE_HDR_H（固定）+ 预览区（盒比 = 媒体比例，短边 360、长边 ≤800）
-//      + 操作栏 NODE_FOOT_H（固定，有结果才渲染）。节点宽 = 预览宽；节点高 = 预览高 + 标题栏 +（有操作栏时的）操作栏。
+//   ① 媒体节点三段几何：标题栏 NODE_HDR_H（固定，原型 34px）+ 预览区（盒比 = 媒体比例，短边 360、长边 ≤800）
+//      + 操作栏 NODE_FOOT_H（固定，原型 7+24+7+1=39px；有结果才渲染）。节点宽 = 预览宽；
+//      节点高 = 预览高 + 标题栏 +（有操作栏时的）操作栏。
 //      旧文档加载时按记录比例（缺省资产像素，再缺省 16:9）重算外框（幂等）；用户等比拉伸过的尺寸不被回收。
 //   ② 渲染结构：媒体 body 内从上到下依次「标题栏 / 预览区 / 操作栏」，标题栏/操作栏 flex:none 固定高度、
 //      预览区 flex:1；预览**不裁切**（`.dshic-media-fill` 不得再有 object-fit:cover）。
 //   ③ 用户拉伸媒体节点 = 等比缩放预览区（标题栏/操作栏高度恒定）；文本/剧本/分镜固定 360×360、内容区 flex 撑满。
-//   ④ 点击节点任意位置（标题栏/预览图/空白/空态/正文）都打开生成面板；生成面板固定宽度/单行控件（上一轮缺陷不许复发）。
+//   ④ 点击区域：只有内容区（媒体预览/空态、正文、镜头清单）弹面板；标题栏（拖动/重命名）与底部操作栏（按钮区）不弹。
+//   ⑤ 视觉契约（源码级）：节点/生成面板的每个视觉值都必须来自 CSS 变量 --dshic-*（逐值对齐已验收原型
+//      node-redesign-mockup.html，不许在规则里写死同一字面量）。
 // 运行：node scripts/test-node-layout.mjs（退出码 0=通过）
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
@@ -167,7 +170,8 @@ const barsOn = () => HDR() + FOOT();
 // ============================================================
 {
   eq({ w: LAYOUT.NODE_W, h: LAYOUT.NODE_H }, { w: 360, h: 360 }, '节点默认尺寸必须是 360×360（文本/剧本/分镜）');
-  eq({ hdr: LAYOUT.NODE_HDR_H, foot: LAYOUT.NODE_FOOT_H }, { hdr: 32, foot: 32 }, '固定栏高度常量：NODE_HDR_H=NODE_FOOT_H=32');
+  // 固定栏高度来自原型：标题栏 34px（.hd）、操作栏 39px（.foot = 7+24+7 + 1px border-top）
+  eq({ hdr: LAYOUT.NODE_HDR_H, foot: LAYOUT.NODE_FOOT_H }, { hdr: 34, foot: 39 }, '固定栏高度常量：NODE_HDR_H=34 / NODE_FOOT_H=39（逐值对齐原型）');
   eq({ short: LAYOUT.MEDIA_PREVIEW_SHORT, long: LAYOUT.MEDIA_MAX_LONG }, { short: 360, long: 800 }, '预览区短边 360 / 长边上限 800');
   // sizeForRatio = 预览区尺寸（不含标题栏/操作栏）
   eq(LAYOUT.sizeForRatio('16:9'), { w: 640, h: 360 }, "sizeForRatio('16:9') 预览区");
@@ -182,12 +186,12 @@ const barsOn = () => HDR() + FOOT();
   eq(LAYOUT.sizeForRatio(undefined), { w: 360, h: 360 }, 'undefined 比例回落 360×360');
 
   // nodeSizeForRatio = 预览区 + 固定栏：w = 预览宽、h = 预览高 + HDR + (hasFooter ? FOOT : 0)
-  // 手写数字断言（16:9 有操作栏 → 640 × (360+32+32)）
-  eq(LAYOUT.nodeSizeForRatio('16:9', { hasFooter: true }), { w: 640, h: 424 }, "nodeSizeForRatio('16:9', 有操作栏) 必须是 {640,424}");
-  eq(LAYOUT.nodeSizeForRatio('16:9', { hasFooter: false }), { w: 640, h: 392 }, "nodeSizeForRatio('16:9', 空态无操作栏) 必须是 {640,392}（不凭空多出操作栏高度）");
-  eq(LAYOUT.nodeSizeForRatio('9:16', { hasFooter: true }), { w: 360, h: 704 }, "nodeSizeForRatio('9:16', 有操作栏)");
-  eq(LAYOUT.nodeSizeForRatio('9:16', { hasFooter: false }), { w: 360, h: 672 }, "nodeSizeForRatio('9:16', 空态)");
-  eq(LAYOUT.nodeSizeForRatio('1:1', { hasFooter: true }), { w: 360, h: 424 }, "nodeSizeForRatio('1:1', 有操作栏)");
+  // 手写数字断言（16:9 有操作栏 → 640 × (360+34+39)）
+  eq(LAYOUT.nodeSizeForRatio('16:9', { hasFooter: true }), { w: 640, h: 433 }, "nodeSizeForRatio('16:9', 有操作栏) 必须是 {640,433}");
+  eq(LAYOUT.nodeSizeForRatio('16:9', { hasFooter: false }), { w: 640, h: 394 }, "nodeSizeForRatio('16:9', 空态无操作栏) 必须是 {640,394}（不凭空多出操作栏高度）");
+  eq(LAYOUT.nodeSizeForRatio('9:16', { hasFooter: true }), { w: 360, h: 713 }, "nodeSizeForRatio('9:16', 有操作栏)");
+  eq(LAYOUT.nodeSizeForRatio('9:16', { hasFooter: false }), { w: 360, h: 674 }, "nodeSizeForRatio('9:16', 空态)");
+  eq(LAYOUT.nodeSizeForRatio('1:1', { hasFooter: true }), { w: 360, h: 433 }, "nodeSizeForRatio('1:1', 有操作栏)");
   {
     const sz = LAYOUT.nodeSizeForRatio('16:9', { hasFooter: true });
     ok(sz.w === LAYOUT.sizeForRatio('16:9').w, 'nodeSizeForRatio 的宽必须 = 预览区宽（节点宽就是预览宽）');
@@ -211,20 +215,20 @@ const barsOn = () => HDR() + FOOT();
 // 2) 旧文档加载：按记录比例重算「预览区 + 固定栏」外框（幂等）；用户拉伸过的尺寸不被回收
 // ============================================================
 {
-  // 16:9 有结果：预览 640×360 + 标题栏 32 + 操作栏 32 = 640×424
-  eq({ w: nodeOf('n_img').w, h: nodeOf('n_img').h }, { w: 640, h: 424 }, '旧 360×360 的 16:9 图片节点加载后应为 640×424');
-  // 9:16 有结果：预览 360×640 + 64 = 360×704
-  eq({ w: nodeOf('n_vid').w, h: nodeOf('n_vid').h }, { w: 360, h: 704 }, '旧 360×360 的 9:16 视频节点加载后应为 360×704');
-  // 没有 ratio 的旧资产：从实测尺寸推断（1024×1024 → 1:1），外框 360×(360+64)
+  // 16:9 有结果：预览 640×360 + 标题栏 34 + 操作栏 39 = 640×433
+  eq({ w: nodeOf('n_img').w, h: nodeOf('n_img').h }, { w: 640, h: 433 }, '旧 360×360 的 16:9 图片节点加载后应为 640×433');
+  // 9:16 有结果：预览 360×640 + 73 = 360×713
+  eq({ w: nodeOf('n_vid').w, h: nodeOf('n_vid').h }, { w: 360, h: 713 }, '旧 360×360 的 9:16 视频节点加载后应为 360×713');
+  // 没有 ratio 的旧资产：从实测尺寸推断（1024×1024 → 1:1），外框 360×(360+73)
   eq(nodeOf('n_square').data.ratio, '1:1', '没有 ratio 的旧资产应从实测尺寸推断比例');
-  eq({ w: nodeOf('n_square').w, h: nodeOf('n_square').h }, { w: 360, h: 424 }, '1:1 旧资产外框应为 360×424（预览 360×360 + 固定栏）');
+  eq({ w: nodeOf('n_square').w, h: nodeOf('n_square').h }, { w: 360, h: 433 }, '1:1 旧资产外框应为 360×433（预览 360×360 + 固定栏）');
   // 既无 ratio 也无尺寸：缺省 16:9
-  eq({ w: nodeOf('n_legacy').w, h: nodeOf('n_legacy').h }, { w: 640, h: 424 }, '既无 ratio 也无尺寸的旧资产缺省 16:9（640×424）');
-  // 用户等比拉伸过的（预览 960×540）→ 原样保留，不能回收到 640×424
+  eq({ w: nodeOf('n_legacy').w, h: nodeOf('n_legacy').h }, { w: 640, h: 433 }, '既无 ratio 也无尺寸的旧资产缺省 16:9（640×433）');
+  // 用户等比拉伸过的（预览 960×540，旧固定栏 64 → 604）→ 不得被回收到标准 640 宽
   eq({ w: nodeOf('n_scaled').w, h: nodeOf('n_scaled').h }, { w: 960, h: 604 }, '用户等比拉伸过的媒体节点加载后不得被回收尺寸');
-  // 空媒体节点：按记录比例给外框，但没有操作栏 → 16:9 = 640×392、9:16 = 360×672
-  eq({ w: nodeOf('n_empty_img').w, h: nodeOf('n_empty_img').h }, { w: 640, h: 392 }, '空态 16:9 图片节点外框 = 预览 640×360 + 标题栏（无操作栏）');
-  eq({ w: nodeOf('n_empty_vid').w, h: nodeOf('n_empty_vid').h }, { w: 360, h: 672 }, '空态 9:16 视频节点外框 = 预览 360×640 + 标题栏（无操作栏）');
+  // 空媒体节点：按记录比例给外框，但没有操作栏 → 16:9 = 640×394、9:16 = 360×674
+  eq({ w: nodeOf('n_empty_img').w, h: nodeOf('n_empty_img').h }, { w: 640, h: 394 }, '空态 16:9 图片节点外框 = 预览 640×360 + 标题栏（无操作栏）');
+  eq({ w: nodeOf('n_empty_vid').w, h: nodeOf('n_empty_vid').h }, { w: 360, h: 674 }, '空态 9:16 视频节点外框 = 预览 360×640 + 标题栏（无操作栏）');
   // 文本/剧本/分镜/成片：尺寸固定 360×360，不随内容变化
   for (const id of ['n_text', 'n_script', 'n_sb', 'n_fc']) {
     eq({ w: nodeOf(id).w, h: nodeOf(id).h }, { w: 360, h: 360 }, id + ' 文本类/成片节点尺寸必须固定 360×360');
@@ -236,11 +240,11 @@ const barsOn = () => HDR() + FOOT();
   // 上一轮的旧盒子（节点框 = 画面框）必须被纠正
   const oldBox = { type: 'image', w: 640, h: 360, data: { assetId: 'a', ratio: '16:9' } };
   LAYOUT.normalizeMediaNodeSize(oldBox);
-  eq({ w: oldBox.w, h: oldBox.h }, { w: 640, h: 424 }, '上一轮「节点框 = 画面框」的旧盒子必须重算为 640×424');
+  eq({ w: oldBox.w, h: oldBox.h }, { w: 640, h: 433 }, '上一轮「节点框 = 画面框」的旧盒子必须重算为 640×433');
   // 空态（无 assetId）：按比例给外框，不加操作栏高度
   const empty = { type: 'video', w: 360, h: 360, data: { assetId: null, ratio: '9:16' } };
   LAYOUT.normalizeMediaNodeSize(empty);
-  eq({ w: empty.w, h: empty.h }, { w: 360, h: 672 }, '空态媒体节点归一：360×672（不加操作栏高度）');
+  eq({ w: empty.w, h: empty.h }, { w: 360, h: 674 }, '空态媒体节点归一：360×674（不加操作栏高度）');
   // 文档级归一必须幂等
   const doc = { nodes: JSON.parse(JSON.stringify(SEED_NODES)) };
   LAYOUT.normalizeGraphDoc(doc);
@@ -257,7 +261,7 @@ const barsOn = () => HDR() + FOOT();
 // 3) 渲染结构：媒体 body 内「标题栏 / 预览区 / 操作栏」三段，固定栏 flex:none，预览不裁切
 // ============================================================
 {
-  const imgNode = { id: 'n_render_img', type: 'image', x: 0, y: 0, w: 640, h: 424, data: { label: '图片', prompt: 'x', assetId: 'a1', ratio: '16:9', status: 'done' } };
+  const imgNode = { id: 'n_render_img', type: 'image', x: 0, y: 0, w: 640, h: 433, data: { label: '图片', prompt: 'x', assetId: 'a1', ratio: '16:9', status: 'done' } };
   const tree = NODES.MediaNodeBody({ n: imgNode, kind: 'image' });
   const els = findAll(tree);
   const wrap = els.find((e) => hasClass(e, 'dshic-media-wrap'));
@@ -269,7 +273,7 @@ const barsOn = () => HDR() + FOOT();
   const imgs = els.filter((e) => e.type === 'img');
   ok(imgs.every((im) => !im.props.alt), '未就绪时不得渲染 <img> 破图 alt 占位');
   // 视频节点同样：未就绪 → 骨架
-  const vidNode = { id: 'n_render_vid', type: 'video', x: 0, y: 0, w: 360, h: 704, data: { label: '视频', prompt: 'x', assetId: 'a2', ratio: '9:16', resolution: '720P', status: 'done' } };
+  const vidNode = { id: 'n_render_vid', type: 'video', x: 0, y: 0, w: 360, h: 713, data: { label: '视频', prompt: 'x', assetId: 'a2', ratio: '9:16', resolution: '720P', status: 'done' } };
   const vels = findAll(NODES.MediaNodeBody({ n: vidNode, kind: 'video' }));
   ok(vels.some((e) => hasClass(e, 'dshic-media-skeleton')), '视频未就绪时也必须渲染中性骨架');
   // —— NodeShell 真实结构：body 内从上到下 = 标题栏 / 预览区 / 操作栏 ——
@@ -283,7 +287,7 @@ const barsOn = () => HDR() + FOOT();
         '媒体 body 内必须依次是「标题栏 / 预览区 / 操作栏」');
     }
     // 空态：没有操作栏，body 只有「标题栏 / 预览区」两段（节点高度里也不加操作栏）
-    const emptyNode = { id: 'n_render_empty', type: 'image', x: 0, y: 0, w: 640, h: 392, data: { label: '空', prompt: '', assetId: null, status: 'idle', ratio: '16:9' } };
+    const emptyNode = { id: 'n_render_empty', type: 'image', x: 0, y: 0, w: 640, h: 394, data: { label: '空', prompt: '', assetId: null, status: 'idle', ratio: '16:9' } };
     const shellEls2 = expand(NODES.NodeShell({ n: emptyNode }));
     const body2 = shellEls2.find((e) => hasClass(e, 'dshic-node-body') && hasClass(e, 'is-media'));
     if (body2) {
@@ -300,11 +304,11 @@ const barsOn = () => HDR() + FOOT();
   // —— CSS 契约：标题栏/操作栏 flex:none + 明确 height 常量；预览区 flex:1；预览不裁切 ——
   const headRule = cssRule('.dshic-node-head');
   ok(/flex:none/.test(headRule), '.dshic-node-head 必须 flex:none（标题栏不参与拉伸）');
-  ok(headRule.includes('height:${NODE_HDR_H}px'), '.dshic-node-head 高度必须是常量 NODE_HDR_H（实际规则：' + headRule.slice(0, 120) + '）');
+  ok(headRule.includes('height:var(--dshic-head-h)'), '.dshic-node-head 高度必须引用变量 --dshic-head-h（实际规则：' + headRule.slice(0, 120) + '）');
   ok(/box-sizing:border-box/.test(headRule), '.dshic-node-head 必须 border-box（height 常量才能精确等于 32）');
   const footRule = cssRule('.dshic-media-foot');
   ok(/flex:none/.test(footRule), '.dshic-media-foot 必须 flex:none（操作栏不参与拉伸）');
-  ok(footRule.includes('height:${NODE_FOOT_H}px'), '.dshic-media-foot 高度必须是常量 NODE_FOOT_H（实际规则：' + footRule.slice(0, 120) + '）');
+  ok(footRule.includes('height:var(--dshic-foot-h)'), '.dshic-media-foot 高度必须引用变量 --dshic-foot-h（实际规则：' + footRule.slice(0, 120) + '）');
   ok(/box-sizing:border-box/.test(footRule), '.dshic-media-foot 必须 border-box（height 常量才能精确等于 32）');
   const wrapRule = cssRule('.dshic-media-wrap');
   ok(/flex:1/.test(wrapRule), '.dshic-media-wrap 必须 flex:1 撑满剩余高度（预览区吃剩余空间）');
@@ -331,34 +335,87 @@ const barsOn = () => HDR() + FOOT();
 }
 
 // ============================================================
-// 4) 点击节点任意位置都打开生成面板（不依赖只有边框才触发）
+// 4) 点击区域规则（用户明确要求）：只有内容区弹面板；标题栏/底部操作栏不弹；
+//    视频双击画面播放、圆形播放键只播放不弹面板；拖动只从标题栏/节点空白发起
 // ============================================================
 {
-  const noHit = { closest: () => null };
-  const evt = () => ({ target: noHit, stopPropagation: noop, preventDefault: noop, button: 0 });
-  // 先彻底关闭面板
+  /** 把「点击目标」伪装成某个渲染出来的区域元素：closest 只认它自己身上的 data-* 标记。 */
+  const targetOn = (el) => {
+    const p = (el && el.props) || {};
+    return {
+      stopPropagation: noop, preventDefault: noop,
+      closest: (sel) => {
+        const s = String(sel);
+        if (s === LAYOUT.NODE_INTERACTIVE_SELECTOR) return null; // 区域容器本身不是交互控件
+        if (s === LAYOUT.NODE_NON_OPEN_SELECTOR) return (p['data-node-head'] || p['data-node-foot']) ? {} : null;
+        if (s === LAYOUT.NODE_CONTENT_SELECTOR) return p['data-node-content'] ? {} : null;
+        return null;
+      },
+    };
+  };
+  const clickOn = (shell, el) => shell.props.onClick({ target: targetOn(el), stopPropagation: noop, preventDefault: noop });
+  /** 渲染 NodeShell 并按 data-* 区域标记取出「标题栏 / 内容区 / 底部操作栏」。 */
+  const zonesOf = (id) => {
+    const shell = NODES.NodeShell({ n: nodeOf(id) });
+    const els = expand(shell);
+    const props = (e) => (e && e.props) || {};
+    return {
+      shell,
+      head: els.find((e) => hasClass(e, 'dshic-node-head')),
+      content: els.find((e) => props(e)['data-node-content']),
+      foot: els.find((e) => props(e)['data-node-foot']),
+      body: els.find((e) => hasClass(e, 'dshic-node-body')),
+    };
+  };
+  eq(LAYOUT.NODE_CONTENT_SELECTOR, '[data-node-content]', '内容区标记选择器必须是 [data-node-content]');
+  ok(LAYOUT.NODE_NON_OPEN_SELECTOR.includes('[data-node-head]') && LAYOUT.NODE_NON_OPEN_SELECTOR.includes('[data-node-foot]'),
+    '不弹面板的区域选择器必须同时覆盖 [data-node-head]（标题栏）与 [data-node-foot]（底部操作栏）');
   ok(SYNC.composerId() == null, '初始不应有打开的面板');
-  for (const id of ['n_text', 'n_script', 'n_sb', 'n_img', 'n_vid', 'n_fc']) {
-    const n = nodeOf(id);
-    const shell = NODES.NodeShell({ n });
-    ok(!!(shell && shell.__el), 'NodeShell(' + id + ') 未渲染出根节点');
-    ok(typeof shell.props.onClick === 'function', id + ' 节点根缺少点击入口（onClick）——只有边框可点会复发');
-    shell.props.onClick(evt());
-    eq(SYNC.composerId(), id, '点击 ' + id + ' 节点任意位置（标题/预览/正文区）未打开生成面板');
-    // 面板渲染条件是 composerId ∈ S.sel：点击后节点必须被选中，否则面板不会出现（缺陷 2 的真实表现）
-    ok(SYNC.selectedIds().includes(id), '点击 ' + id + ' 后节点未被选中——面板会因为 sel 不匹配而不显示');
+  // 6 类节点 + 空媒体节点：标题栏/操作栏不弹，内容区弹
+  for (const id of ['n_img', 'n_empty_img', 'n_vid', 'n_text', 'n_script', 'n_sb', 'n_fc']) {
+    const z = zonesOf(id);
+    ok(!!(z.shell && z.shell.__el), 'NodeShell(' + id + ') 未渲染出根节点');
+    ok(typeof z.shell.props.onClick === 'function', id + ' 节点根缺少点击入口（onClick）');
+    ok(!!z.head, id + ' 节点缺少标题栏（data-node-head）——拖动/重命名区必须可识别');
+    ok(!!z.content, id + ' 节点缺少内容区（data-node-content）——内容区缺失会变成"点了没反应"');
+    if (!z.head || !z.content) continue;
+    const before = SYNC.composerId();
+    clickOn(z.shell, z.head);
+    eq(SYNC.composerId(), before, '点击 ' + id + ' 标题栏不应弹生成面板（标题栏是拖动/重命名区）');
+    if (z.foot) {
+      clickOn(z.shell, z.foot);
+      eq(SYNC.composerId(), before, '点击 ' + id + ' 底部操作栏不应弹生成面板（操作栏是按钮区）');
+    }
+    clickOn(z.shell, z.content);
+    eq(SYNC.composerId(), id, '点击 ' + id + ' 内容区未打开生成面板（媒体预览/空态/正文/镜头清单）');
+    // 面板渲染条件是 composerId ∈ S.sel：点击后节点必须被选中，否则面板不会出现
+    ok(SYNC.selectedIds().includes(id), '点击 ' + id + ' 内容区后节点未被选中——面板会因为 sel 不匹配而不显示');
   }
-  // 真正的交互控件（按钮/下拉/视频控件/可编辑输入）保留拦截：点击它们不重新打开面板
-  const shell = NODES.NodeShell({ n: nodeOf('n_text') });
-  shell.props.onClick(evt()); // 面板挂到文本节点
-  const buttonTarget = { closest: (sel) => (String(sel).includes('button') ? {} : null) };
-  shell.props.onClick({ target: buttonTarget, stopPropagation: noop, preventDefault: noop });
-  eq(SYNC.composerId(), 'n_text', '点击节点内按钮不应被当成"点击节点打开面板"（控件保留 stopPropagation 语义）');
-  // 交互控件选择器必须覆盖按钮/下拉/视频控件/可编辑输入
+  // 底部操作栏只在「有结果/有底部动作」的节点上出现：图片、视频、剧本、分镜
+  for (const id of ['n_img', 'n_vid', 'n_script', 'n_sb']) {
+    ok(!!zonesOf(id).foot, id + ' 有底部操作栏却没渲染 data-node-foot（点击按钮区会被误判为内容区）');
+  }
+  for (const id of ['n_text', 'n_empty_img', 'n_fc']) {
+    ok(!zonesOf(id).foot, id + ' 没有底部操作栏却渲染了 data-node-foot（区域标记错误）');
+  }
+  // 交互控件（按钮/下拉/视频控件/可编辑输入）仍保留拦截语义
+  {
+    const z = zonesOf('n_text');
+    clickOn(z.shell, z.content);
+    eq(SYNC.composerId(), 'n_text', '文本内容区点击应打开面板');
+    const buttonTarget = { closest: (sel) => (String(sel).includes('button') ? {} : null), stopPropagation: noop, preventDefault: noop };
+    z.shell.props.onClick({ target: buttonTarget, stopPropagation: noop, preventDefault: noop });
+    eq(SYNC.composerId(), 'n_text', '点击节点内按钮不应被当成"点击节点打开面板"（控件保留 stopPropagation 语义）');
+  }
   for (const sel of ['button', 'select', 'video', 'textarea', 'input']) {
     ok(LAYOUT.NODE_INTERACTIVE_SELECTOR.includes(sel), '节点交互控件选择器缺少 ' + sel + '（会被误判为可打开面板区域）');
   }
-  // 图片预览不再拦截 pointerdown：源码里 img 预览块不得出现 stopPropagation/data-no-drag
+  // 拖动只从标题栏/节点空白发起：内容区 pointerdown 不得进入拖动分支
+  const npd = fnSrc('onNodePointerDown');
+  ok(!!npd, '未找到 onNodePointerDown（拖动入口被改名？）');
+  ok(/isNodeContentTarget\(t\)/.test(npd), 'onNodePointerDown 未排除内容区：内容区按下会开始拖动节点');
+  ok(!/openComposerFor/.test(npd), 'onNodePointerDown 里仍在打开面板：点标题栏会弹面板（应只在内容区 onClick 里打开）');
+  // 图片预览不拦 pointerdown（点了要能弹面板）：只允许 onDoubleClick 做灯箱
   const imgBlock = /key: 'img', className: 'dshic-media-fill'[\s\S]{0,700}?\n\s*\}\)/.exec(src);
   ok(!!imgBlock, '未找到图片预览渲染块（源码契约失效）');
   if (imgBlock) {
@@ -367,8 +424,7 @@ const barsOn = () => HDR() + FOOT();
   }
   // 空态区点击（尚未生成的媒体节点）→ 选中 + 打开面板
   {
-    const emptyNode = nodeOf('n_empty_img');
-    const els = findAll(NODES.MediaNodeBody({ n: emptyNode, kind: 'image' }));
+    const els = findAll(NODES.MediaNodeBody({ n: nodeOf('n_empty_img'), kind: 'image' }));
     const empty = els.find((e) => hasClass(e, 'dshic-media-empty') && typeof e.props.onClick === 'function');
     ok(!!empty, '空媒体节点没有可点击的空态区（点击描述画面生成）');
     if (empty) {
@@ -377,6 +433,26 @@ const barsOn = () => HDR() + FOOT();
       ok(SYNC.selectedIds().includes('n_empty_img'), '点击空态区后面板挂靠的节点未被选中（面板不会显示）');
     }
   }
+  // 视频：单击画面 → 面板；双击画面 → 播放；圆形播放键 → 只播放（自身 stopPropagation，不弹面板）
+  const vidI = src.indexOf("key: 'vid', ref: videoRef");
+  ok(vidI > 0, '未找到视频渲染块（视频交互契约失效）');
+  if (vidI > 0) {
+    const vidBlock = src.slice(vidI, src.indexOf("key: 'play'", vidI) + 1);
+    ok(/onDoubleClick/.test(vidBlock), '视频画面缺少双击播放处理（onDoubleClick）');
+    ok(/detail > 1/.test(vidBlock), '视频双击时不应再打开面板（应按 e.detail 跳过单击逻辑）');
+    ok(/openPanel\(\)/.test(vidBlock), '视频单击画面应打开生成面板');
+  }
+  ok(/const togglePlay = \(\) => \{[\s\S]{0,500}?\.play\(\)/.test(src), '视频播放没有调用 <video>.play()');
+  {
+    const playI = src.indexOf("key: 'play'");
+    const playEnd = playI > 0 ? src.indexOf("}, h('i', {}))", playI) : -1;
+    ok(playI > 0 && playEnd > playI, '缺少原型式圆形半透明播放键（dshic-media-play）');
+    const playBlock = (playI > 0 && playEnd > playI) ? src.slice(playI, playEnd + 20) : '';
+    ok(/dshic-media-play/.test(playBlock), '播放键必须用 dshic-media-play 样式（原型圆形半透明播放钮）');
+    ok(/stopPropagation/.test(playBlock), '播放键自身必须 stopPropagation（点播放不弹面板）');
+    ok(!/openPanel/.test(playBlock), '播放键不得调用 openPanel（点播放不应弹面板）');
+  }
+  ok(/\.dshic-media-play\{[^}]*pointer-events:none/.test(src), '播放键覆盖层必须 pointer-events:none（只有圆钮可点，其余画面点击仍开面板）');
 }
 
 // ============================================================
@@ -455,11 +531,11 @@ const barsOn = () => HDR() + FOOT();
   const a916 = LAYOUT.mediaAspectOf({ type: 'video', data: { ratio: '9:16' } });
   // 初始外框 = 640×(360+64)；拖角/拖边后：预览盒比误差 ≤1%，固定栏高度恒定
   const cases = [
-    ['e', 640, 424, 120, 0],
-    ['w', 640, 424, -120, 0],
-    ['s', 640, 424, 0, 90],
-    ['n', 640, 424, 0, -90],
-    ['se', 640, 424, 80, 20],
+    ['e', 640, 433, 120, 0],
+    ['w', 640, 433, -120, 0],
+    ['s', 640, 433, 0, 90],
+    ['n', 640, 433, 0, -90],
+    ['se', 640, 433, 80, 20],
   ];
   for (const [dir, w0, h0, dx, dy] of cases) {
     const box = LAYOUT.resizeBoxFor(dir, w0, h0, dx, dy, a169, { hasFooter: true });
@@ -470,21 +546,21 @@ const barsOn = () => HDR() + FOOT();
     // 固定栏不被拉伸：节点高 - 预览宽/比例 ≈ 固定栏高度（允许 1px 圆整）
     ok(Math.abs((box.h - box.w / a169) - barsOn()) <= 1.5, '拖 ' + dir + ' 后标题栏/操作栏被拉伸了：' + (box.h - box.w / a169));
   }
-  // 9:16 视频拖宽：预览 360×640 → 450×800，外框 450×864（固定栏 64）
+  // 9:16 视频拖宽：预览 360×640 → 450×800，外框 450×873（固定栏 73）
   {
-    const b = LAYOUT.resizeBoxFor('e', 360, 704, 90, 0, a916, { hasFooter: true });
-    eq({ w: b.w, h: b.h }, { w: 450, h: 864 }, '9:16 视频拖宽后外框应为 450×864（预览 450×800 + 64）');
+    const b = LAYOUT.resizeBoxFor('e', 360, 713, 90, 0, a916, { hasFooter: true });
+    eq({ w: b.w, h: b.h }, { w: 450, h: 873 }, '9:16 视频拖宽后外框应为 450×873（预览 450×800 + 73）');
     ok(Math.abs(b.w / (b.h - barsOn()) - 9 / 16) / (9 / 16) <= 0.01, '9:16 视频拖宽后预览比例失真：' + b.w + '×' + (b.h - barsOn()));
   }
   // 空态媒体节点（无操作栏）：只扣标题栏，绝不扣操作栏
   {
-    const e = LAYOUT.resizeBoxFor('s', 360, 672, 0, 90, a916, { hasFooter: false });
+    const e = LAYOUT.resizeBoxFor('s', 360, 674, 0, 90, a916, { hasFooter: false });
     ok(Math.abs((e.h - e.w / a916) - HDR()) <= 1.5, '空态媒体节点缩放后固定栏应只有标题栏：' + (e.h - e.w / a916));
     ok(Math.abs(e.w / (e.h - HDR()) - a916) / a916 <= 0.01, '空态媒体节点缩放后预览比例失真：' + e.w + '×' + (e.h - HDR()));
   }
   // 缩放后的外框经 normalize 仍是幂等的（用户拉伸过的尺寸在重载后不被回收）
   {
-    const box = LAYOUT.resizeBoxFor('e', 640, 424, 300, 0, a169, { hasFooter: true });
+    const box = LAYOUT.resizeBoxFor('e', 640, 433, 300, 0, a169, { hasFooter: true });
     const n = { type: 'image', w: box.w, h: box.h, data: { assetId: 'a', ratio: '16:9' } };
     const before = JSON.stringify(n);
     LAYOUT.normalizeMediaNodeSize(n);
@@ -501,10 +577,209 @@ const barsOn = () => HDR() + FOOT();
   eq(LAYOUT.mediaRatioForDims('', 1080, 1920), '9:16', '没有记录比例时应从实测尺寸推断');
 }
 
+// ============================================================
+// 8) 视觉契约（源码级）：节点 + 生成面板的视觉值逐项对齐已验收原型
+//    （原型 node-redesign-mockup.html；每个值只允许出现在 --dshic-* 变量里一次，规则必须引用变量）
+// ============================================================
+{
+  const css = LAYOUT.CSS;
+  ok(typeof css === 'string' && css.length > 2000, '未暴露 CSS 字符串（视觉契约无法断言）');
+  /** 取 .dshic-page 的第一条规则体（= 变量块；变量是节点与面板的唯一取值来源） */
+  const varsText = (() => {
+    const i = css.indexOf('.dshic-page{');
+    if (i < 0) return '';
+    let depth = 0;
+    for (let j = i + '.dshic-page'.length; j < css.length; j++) {
+      if (css[j] === '{') depth++;
+      else if (css[j] === '}') { depth--; if (depth === 0) return css.slice(i, j + 1); }
+    }
+    return '';
+  })();
+  const cssVar = (name) => {
+    const m = new RegExp('--dshic-' + name + ':([^;]+);').exec(varsText);
+    return m ? m[1].trim() : '';
+  };
+  /** 精确取某条规则体：按顶层选择器精确匹配（避免 `.dshic-pick` 命中 `.dshic-composer-controls .dshic-pick`） */
+  const rules = (() => {
+    const text = css.replace(/\/\*[\s\S]*?\*\//g, ''); // 去注释：注释里的括号不参与规则切分
+    const out = [];
+    let depth = 0, selStart = 0, bodyStart = -1;
+    for (let i = 0; i < text.length; i++) {
+      const ch = text[i];
+      if (ch === '{') {
+        if (depth === 0) { bodyStart = i + 1; out.push({ sel: text.slice(selStart, i).trim(), body: '' }); }
+        depth++;
+      } else if (ch === '}') {
+        depth--;
+        if (depth === 0 && out.length) { out[out.length - 1].body = text.slice(bodyStart, i); selStart = i + 1; }
+      }
+    }
+    return out;
+  })();
+  const cssOf = (sel) => {
+    const want = String(sel).split(',').map((x) => x.trim()).filter(Boolean);
+    const hit = rules.find((r) => {
+      const got = r.sel.split(',').map((x) => x.trim());
+      return want.every((w) => got.includes(w)) && got.length === want.length;
+    });
+    return hit ? hit.body : '';
+  };
+  // —— 变量值：与原型 :root 逐项一致 ——
+  eq(cssVar('ink'), '#1b1c1f', '--dshic-ink 必须 = 原型 --ink #1b1c1f');
+  eq(cssVar('ink2'), '#5b5f66', '--dshic-ink2 必须 = 原型 --ink2 #5b5f66');
+  eq(cssVar('ink3'), '#8b9098', '--dshic-ink3 必须 = 原型 --ink3 #8b9098');
+  eq(cssVar('line'), '#e4e5e9', '--dshic-line 必须 = 原型 --line #e4e5e9');
+  eq(cssVar('line2'), '#d3d5da', '--dshic-line2 必须 = 原型 --line2 #d3d5da');
+  eq(cssVar('line-hover'), '#b9c0cc', '节点 hover 边框必须 = 原型 #b9c0cc（.node:hover）');
+  eq(cssVar('card'), '#ffffff', '--dshic-card 必须 = #ffffff');
+  eq(cssVar('preview-bg'), '#eef0f4', '预览区底色必须 = 原型 .media #eef0f4');
+  eq(cssVar('accent'), '#2b6dfd', '--dshic-accent 必须 = 原型 --accent #2b6dfd');
+  eq(cssVar('accent-soft'), '#eaf1ff', '--dshic-accent-soft 必须 = 原型 --accent-soft #eaf1ff');
+  eq(cssVar('ok'), '#12a150', '已生成绿点必须 = 原型 --ok #12a150');
+  eq(cssVar('shadow'), '0 1px 2px rgba(16,18,22,.06),0 8px 24px rgba(16,18,22,.08)', '--dshic-shadow 必须 = 原型 --shadow');
+  eq(cssVar('shadow-lg'), '0 12px 40px rgba(16,18,22,.16),0 2px 6px rgba(16,18,22,.08)', '--dshic-shadow-lg 必须 = 原型 --shadow-lg');
+  eq(cssVar('node-r'), '14px', '节点圆角必须 14px（原型 --r）');
+  eq(cssVar('head-h'), '34px', '标题栏高度必须 34px（原型 .hd）');
+  eq(cssVar('foot-h'), '39px', '操作栏高度必须 39px（原型 .foot：7+24+7+1 border-top）');
+  eq(cssVar('foot-pad'), '7px', '操作栏上/下内距必须 7px（原型 .foot padding:7px 9px）');
+  eq(cssVar('foot-pad-x'), '9px', '操作栏左/右内距必须 9px（原型 .foot padding:7px 9px）');
+  eq(cssVar('mini-h'), '24px', '操作栏按钮高度必须 24px（原型 .mini）');
+  eq(cssVar('dash-color'), '#d6d9df', '虚线空态/参考图 + 的虚色必须 #d6d9df');
+  eq(cssVar('body-size'), '12px', '文本类正文必须 12px（原型 .scroll）');
+  eq(cssVar('body-lh'), '1.65', '文本类正文行高必须 1.65（原型 .scroll）');
+  eq(cssVar('body-pad'), '10px', '文本类正文纵向内距必须 10px（原型 .scroll padding:10px 12px）');
+  eq(cssVar('body-pad-x'), '12px', '文本类正文横向内距必须 12px（原型 .scroll padding:10px 12px）');
+  eq(cssVar('empty-text'), '11.5px', '空态文案必须 11.5px（原型 .empty .t）');
+  eq(cssVar('panel-r'), '18px', '生成面板圆角必须 18px（任务书指定；原型 #composer 为 16px）');
+  eq(cssVar('pick-h'), '28px', '面板控件按钮高度必须 28px（原型 .pick）');
+  eq(cssVar('pick-r'), '8px', '面板控件按钮圆角必须 8px（原型 .pick）');
+  eq(cssVar('pick-size'), '11.5px', '面板控件按钮字号必须 11.5px（原型 .pick）');
+  eq(cssVar('send-size'), '34px', '发送按钮必须 34px（原型 .send）');
+  eq(cssVar('send-bg'), 'var(--dshic-ink)', '发送按钮黑底（#1b1c1f）必须取自 --dshic-ink');
+  eq(cssVar('panel-font'), '13px', '面板提示词字号必须 13px（原型 .pw）');
+  ok(/^1\.6/.test(cssVar('panel-lh')), '面板提示词行高必须 1.6（原型 1.62）');
+  eq(cssVar('panel-pad'), '9px 14px', '面板提示词内距必须 9px 14px（原型 .pw）');
+  eq(cssVar('ref-thumb'), '50px', '参考图缩略图必须 50px（任务书）');
+  eq(cssVar('ref-r'), '9px', '参考图缩略图圆角必须 9px（任务书）');
+  // —— 规则必须引用变量（同一字面量不得在规则里重复写死）——
+  const nodeRule = cssOf('.dshic-node');
+  ok(/border-radius:var\(--dshic-node-r\)/.test(nodeRule), '.dshic-node 圆角必须引用 --dshic-node-r');
+  ok(/border:1px solid var\(--dshic-line2\)/.test(nodeRule), '.dshic-node 必须是 1px solid --dshic-line2 边框');
+  ok(/box-shadow:var\(--dshic-shadow\)/.test(nodeRule), '.dshic-node 阴影必须引用 --dshic-shadow');
+  ok(!/border-left:/.test(nodeRule), '.dshic-node 不得再有类型色条左边框（原型节点四边同色）');
+  ok(!/border-radius:\s*\d/.test(nodeRule), '.dshic-node 圆角不得写死数字');
+  ok(/border-color:var\(--dshic-line-hover\)/.test(cssOf('.dshic-node:hover')), '节点 hover 边框必须引用 --dshic-line-hover');
+  {
+    const selRule = cssOf('.dshic-node.is-selected');
+    ok(/border-color:var\(--dshic-accent\)/.test(selRule), '选中节点边框必须 var(--dshic-accent)');
+    ok(/box-shadow:var\(--dshic-shadow-sel\),var\(--dshic-shadow\)/.test(selRule), '选中节点必须有 3px accent 光圈 + 常驻阴影');
+    eq(cssVar('shadow-sel'), '0 0 0 3px rgba(43,109,253,.16)', '选中光圈必须是 0 0 0 3px rgba(43,109,253,.16)');
+  }
+  const headRule2 = cssOf('.dshic-node-head');
+  ok(/height:var\(--dshic-head-h\)/.test(headRule2), '标题栏高度必须引用 --dshic-head-h');
+  ok(/background:var\(--dshic-head-bg\)/.test(headRule2), '标题栏背景必须引用 --dshic-head-bg');
+  ok(/border-bottom:1px solid var\(--dshic-line\)/.test(headRule2), '标题栏必须 1px solid --dshic-line 下边框');
+  ok(/padding:var\(--dshic-head-pad\)/.test(headRule2), '标题栏内距必须引用 --dshic-head-pad（0 9px 0 10px）');
+  ok(cssVar('head-bg') === 'linear-gradient(#fff,var(--dshic-subtle))', '标题栏背景必须是从 #fff 到 --dshic-subtle(#fcfcfd) 的渐变');
+  ok(/width:var\(--dshic-head-ic\)[^}]*height:var\(--dshic-head-ic\)/.test(cssOf('.dshic-head-ic')), '标题栏图标必须 16px 且来自变量');
+  ok(/color:var\(--dshic-ink3\)/.test(cssOf('.dshic-head-ic')), '标题栏图标必须是灰色（--ink3）');
+  ok(/font-size:var\(--dshic-title-size\)/.test(cssOf('.dshic-node-title')) && /color:var\(--dshic-ink\)/.test(cssOf('.dshic-node-title')),
+    '标题名必须 12px/600 且为 --ink 色');
+  ok(/font-size:var\(--dshic-legacy-size\)/.test(cssOf('.dshic-node-legacy')) && /border:1px solid var\(--dshic-line2\)/.test(cssOf('.dshic-node-legacy')) && /border-radius:5px/.test(cssOf('.dshic-node-legacy')),
+    '旧类型小标签必须 10px / 圆角 5 / 1px --line2 边框');
+  // 预览区 + 右下信息条 + 状态胶囊 + 参考图角标 + 播放键
+  ok(/background:var\(--dshic-preview-bg\)/.test(cssOf('.dshic-media-wrap')), '预览区底色必须引用 --dshic-preview-bg');
+  ok(/background:var\(--dshic-meta-bg\)/.test(cssOf('.dshic-media-meta')) && /font-size:var\(--dshic-meta-size\)/.test(cssOf('.dshic-media-meta'))
+    && /border-radius:var\(--dshic-meta-r\)/.test(cssOf('.dshic-media-meta')) && /backdrop-filter:blur\(4px\)/.test(cssOf('.dshic-media-meta')),
+    '右下信息条必须深色半透明 / 白字 10px / 圆角 6 / blur(4px)');
+  eq(cssVar('meta-bg'), 'rgba(20,22,26,.6)', '信息条底色必须 rgba(20,22,26,.6)');
+  {
+    const badge = cssOf('.dshic-status-badge');
+    ok(/background:var\(--dshic-badge-bg\)/.test(badge) && /border:1px solid var\(--dshic-line\)/.test(badge)
+      && /border-radius:var\(--dshic-badge-r\)/.test(badge) && /backdrop-filter:blur\(6px\)/.test(badge),
+      '状态胶囊必须白底 92% / 1px --line / 胶囊圆角 / blur(6px)');
+    eq(cssVar('badge-bg'), 'rgba(255,255,255,.92)', '状态胶囊白底必须 92% 不透明');
+    ok(/\.dshic-status-dot\{[^}]*width:6px[^}]*height:6px/.test(src), '状态圆点必须 6px');
+    ok(/\.dshic-status-badge\.is-done \.dshic-status-dot\{background:var\(--dshic-ok\);?\}/.test(src), '已生成绿点必须引用 --dshic-ok');
+    ok(/\.dshic-status-badge\.is-run \.dshic-status-dot\{background:var\(--dshic-run\);animation:dshic-pulse/.test(src), '生成中蓝点必须 pulse');
+  }
+  {
+    const rb = cssOf('.dshic-refbadge');
+    ok(/background:var\(--dshic-refbadge-bg\)/.test(rb) && /right:7px/.test(rb) && /top:7px/.test(rb), '参考图角标必须深色半透明胶囊、右上 7px');
+    eq(cssVar('refbadge-bg'), 'rgba(20,22,26,.66)', '参考图角标底色必须 rgba(20,22,26,.66)');
+    ok(/\.dshic-refbadge-thumb\{[^}]*width:16px[^}]*height:16px[^}]*border-radius:5px/.test(src), '参考图角标缩略图必须 16px / 圆角 5');
+  }
+  ok(/\.dshic-media-play i\{[^}]*width:44px[^}]*height:44px[^}]*border-radius:50%/.test(src), '播放键圆钮必须 44px 圆形（原型 .play i）');
+  // 空态
+  {
+    const empty = cssOf('.dshic-media-empty');
+    ok(/border:var\(--dshic-dash-w\) dashed var\(--dshic-dash-color\)/.test(empty), '空态必须是 1.5px 虚线（变量）');
+    ok(/border-radius:10px/.test(empty), '空态虚线框圆角必须 10px');
+    ok(/gap:7px/.test(empty), '空态图标与文案间距必须 7px');
+    eq(cssVar('dash-w'), '1.5px', '虚线宽度必须 1.5px');
+    ok(/\.dshic-media-empty-ic\{[^}]*width:30px[^}]*height:30px[^}]*border-radius:9px[^}]*background:var\(--dshic-preview-bg\)/.test(src),
+      '空态 + 图标必须 30px / 圆角 9 / #eef0f4 底');
+    ok(/\.dshic-media-empty-t\{[^}]*font-size:var\(--dshic-empty-text\)/.test(src), '空态文案必须 11.5px');
+    ok(/\.dshic-media-empty:hover\{border-color:var\(--dshic-empty-hover\)/.test(src), '空态 hover 边框必须 #bcc4d2');
+  }
+  // 底部操作栏：固定高度 + border-top + 7px 9px 内距（按钮与画面不贴边）
+  {
+    const foot = cssOf('.dshic-media-foot');
+    ok(/flex:none/.test(foot), '操作栏必须 flex:none');
+    ok(/height:var\(--dshic-foot-h\)/.test(foot), '操作栏高度必须引用 --dshic-foot-h');
+    ok(/padding:var\(--dshic-foot-pad\) var\(--dshic-foot-pad-x\)/.test(foot), '操作栏内距必须是 7px 9px（来自变量）');
+    ok(/border-top:1px solid var\(--dshic-line\)/.test(foot), '操作栏必须有 border-top：把按钮与画面隔开');
+    ok(/background:var\(--dshic-foot-bg\)/.test(foot), '操作栏底色必须引用 --dshic-foot-bg');
+    ok(/\.dshic-node \.dshic-mini,\.dshic-composer \.dshic-mini\{[^}]*height:var\(--dshic-mini-h\)/.test(src), '节点/面板按钮高度必须引用 --dshic-mini-h（24px）');
+    ok(/\.dshic-node \.dshic-mini,\.dshic-composer \.dshic-mini\{[^}]*border-radius:var\(--dshic-mini-r\)/.test(src), '节点/面板按钮圆角必须引用 --dshic-mini-r（7px）');
+    ok(/\.dshic-node \.dshic-mini,\.dshic-composer \.dshic-mini\{[^}]*font-size:var\(--dshic-mini-size\)/.test(src), '节点/面板按钮字号必须引用 --dshic-mini-size（11px）');
+    ok(/\.dshic-node \.dshic-mini\.pri,\.dshic-composer \.dshic-mini\.pri\{[^}]*background:var\(--dshic-ink\)/.test(src), 'primary 按钮必须黑底白字');
+    ok(/\.dshic-node \.dshic-mini\.is-ghost,\.dshic-composer \.dshic-mini\.is-ghost\{border-color:transparent;background:transparent;?\}/.test(src), 'ghost 按钮必须无边框');
+  }
+  // 生成面板：白底 / 圆角 18 / --shadow-lg / 小三角 / 控件 28 / 发送 34 黑底
+  {
+    const panel = cssOf('.dshic-composer');
+    ok(/background:var\(--dshic-card\)/.test(panel), '面板底色必须白（--dshic-card）');
+    ok(/border:1px solid var\(--dshic-line2\)/.test(panel), '面板边框必须 1px solid --dshic-line2');
+    ok(/border-radius:var\(--dshic-panel-r\)/.test(panel), '面板圆角必须引用 --dshic-panel-r');
+    ok(/box-shadow:var\(--dshic-shadow-lg\)/.test(panel), '面板阴影必须引用 --dshic-shadow-lg');
+    ok(!/border-radius:\s*\d/.test(panel), '面板圆角不得写死数字');
+    const caret = cssOf('.dshic-composer-caret');
+    ok(/width:11px/.test(caret) && /height:11px/.test(caret) && /rotate\(45deg\)/.test(caret), '面板小三角必须 11px 旋转 45deg');
+    ok(/background:var\(--dshic-card\)/.test(caret), '小三角底色必须白（与面板一致）');
+    const pick = cssOf('.dshic-pick');
+    ok(/height:var\(--dshic-pick-h\)/.test(pick) && /border-radius:var\(--dshic-pick-r\)/.test(pick) && /font-size:var\(--dshic-pick-size\)/.test(pick),
+      '面板控件按钮必须 28px / 圆角 8 / 11.5px（引用变量）');
+    ok(/border:1px solid var\(--dshic-line2\)/.test(pick), '面板控件按钮必须有 1px --line2 边框');
+    const send = cssOf('.dshic-send');
+    ok(/width:var\(--dshic-send-size\)/.test(send) && /height:var\(--dshic-send-size\)/.test(send), '发送按钮尺寸必须引用 --dshic-send-size（34px）');
+    ok(/border-radius:50%/.test(send), '发送按钮必须圆角 50%');
+    ok(/background:var\(--dshic-send-bg\)/.test(send), '发送按钮必须黑底（--dshic-send-bg = --dshic-ink #1b1c1f）');
+    ok(/\.dshic-composer \.dshic-prompt-back,\.dshic-composer \.dshic-prompt-input\{[^}]*font-size:var\(--dshic-panel-font\)[^}]*line-height:var\(--dshic-panel-lh\)[^}]*padding:var\(--dshic-panel-pad\)/.test(src),
+      '面板提示词必须 13px / 行高 1.62 / 内距 9px 14px（且全部来自变量）');
+  }
+  // 文本类正文与 @实体 高亮
+  {
+    const body = cssOf('.dshic-scroll-preview');
+    ok(/font-size:var\(--dshic-body-size\)/.test(body) && /line-height:var\(--dshic-body-lh\)/.test(body), '正文必须 12px / 1.65（引用变量）');
+    ok(/padding:var\(--dshic-body-pad\) var\(--dshic-body-pad-x\)/.test(body), '正文内距必须 10px 12px（引用变量）');
+    ok(/color:var\(--dshic-ink2\)/.test(body), '正文颜色必须 #5b5f66（--ink2）');
+    ok(/\.dshic-scroll-preview \.dshic-mention,[\s\S]{0,200}?color:var\(--dshic-accent\);font-weight:600/.test(src), '正文 @实体 必须蓝色加粗');
+    ok(/\.dshic-mention\{color:var\(--dshic-accent\);?\}/.test(src), '@实体 基础色必须 #2b6dfd');
+  }
+  // —— 同一字面量只允许在变量块出现一次（规则全部引用变量，不许散落魔法值）——
+  for (const lit of ['#e4e5e9', '#d3d5da', '#2b6dfd', '#eef0f4', '#d6d9df', '#1b1c1f', '#b9c0cc', '#12a150', '#5b5f66', '#8b9098', '#fcfcfd']) {
+    eq(css.split(lit).length - 1, 1, '视觉字面量 ' + lit + ' 只允许出现在 --dshic-* 变量定义里一次（规则必须引用变量）');
+  }
+  for (const lit of ['0 8px 24px rgba(16,18,22,.08)', '0 12px 40px rgba(16,18,22,.16)', 'rgba(43,109,253,.16)']) {
+    eq(css.split(lit).length - 1, 1, '阴影字面量 ' + lit + ' 只允许出现一次（必须收进 --dshic-* 变量）');
+  }
+}
+
 if (errs.length) {
   console.error('✗ 节点排版/生成面板测试未通过（' + errs.length + ' 项）：');
   for (const e of errs) console.error('  - ' + e);
   process.exit(1);
 }
-console.log('✓ 节点排版/生成面板测试通过（预览区盒比=媒体比·标题栏/操作栏固定高度·节点高=预览高+固定栏·旧文档幂等归一·用户拉伸不回收·body 三段结构·预览不裁切·文本类 flex 撑满·点击任意位置开面板·面板 ≥520 nowrap 发送不换行）');
+console.log('✓ 节点排版/生成面板测试通过（预览区盒比=媒体比·标题栏 34/操作栏 39 固定高度·节点高=预览高+固定栏·旧文档幂等归一·用户拉伸不回收·body 三段结构·预览不裁切·文本类 flex 撑满·只有内容区开面板·视频双击播放·视觉值全部来自 --dshic-* 变量）');
 process.exit(0);

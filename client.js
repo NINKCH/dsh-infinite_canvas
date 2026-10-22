@@ -24,10 +24,11 @@ window.__ModuleLoader__.load({
     //   ③ 操作栏 NODE_FOOT_H —— 固定高度（有结果才渲染），不参与画面比例、不被拉伸。
     // 于是：节点宽 = 预览区宽；节点高 = 预览区高 + NODE_HDR_H +（有操作栏 ? NODE_FOOT_H : 0）。
     // 旧实现把节点 w/h 直接当成画面框，标题栏/操作栏从画面里吃掉几十像素 → 预览被 cover 裁掉约 10%。
+    // 视觉值来源：已验收原型 node-redesign-mockup.html（.hd 34px；.foot 7+24+7 + 1px border-top = 39px）。
     const NODE_W = 360;
     const NODE_H = 360;
-    const NODE_HDR_H = 32; // 标题栏固定高度（.dshic-node-head 的高度，border-box 含 1px 下边框）
-    const NODE_FOOT_H = 32; // 媒体节点操作栏固定高度（24px 按钮 + 8px 下内距；沿用改版前按钮行高度）
+    const NODE_HDR_H = 34; // 标题栏固定高度（原型 .hd 高度，border-box 含 1px 下边框）
+    const NODE_FOOT_H = 39; // 媒体节点操作栏固定高度 = 上下内距 7×2 + 按钮 24 + border-top 1（原型 .foot，border-box）
     const MEDIA_PREVIEW_SHORT = 360; // 媒体预览区短边固定 360
     const MEDIA_MAX_LONG = 800; // 媒体预览区长边上限 800
     // 生成面板宽度：控件行必须单行不换行（模型 → 类型控件 → @ → 发送），所以有**最小宽度**；
@@ -250,6 +251,18 @@ window.__ModuleLoader__.load({
     function isNodeInteractiveTarget(t) {
       return !!(t && typeof t.closest === 'function' && t.closest(NODE_INTERACTIVE_SELECTOR));
     }
+    // 点击区域规则（与原型一致）：
+    //   · 只有「内容区」弹生成面板（媒体预览/空态 / 文本正文 / 分镜镜头清单）；
+    //   · 标题栏是拖动/重命名区、底部操作栏是按钮区，都不弹面板；
+    //   · 拖动只从标题栏 / 节点空白（非内容区）发起。
+    const NODE_CONTENT_SELECTOR = '[data-node-content]';
+    const NODE_NON_OPEN_SELECTOR = '[data-node-head],[data-node-foot]';
+    function isNodeContentTarget(t) {
+      return !!(t && typeof t.closest === 'function' && t.closest(NODE_CONTENT_SELECTOR));
+    }
+    function isNodeNonOpenTarget(t) {
+      return !!(t && typeof t.closest === 'function' && t.closest(NODE_NON_OPEN_SELECTOR));
+    }
     // 允许多条入线的输入端口（参考图类），其余输入端口保持单线
     const MULTI_INPUT_PORTS = new Set(['ref', 'char', 'scene', 'prop']);
     // 分镜端口期望的资产分类（仅用于连接时的非阻断提示）
@@ -360,6 +373,7 @@ window.__ModuleLoader__.load({
       'run': '运行工作流',
       'running': '运行中…',
       'stop': '停止',
+      'playVideo': '播放',
       'fit': '适应视图',
       'zoomIn': '放大',
       'zoomOut': '缩小',
@@ -846,6 +860,7 @@ window.__ModuleLoader__.load({
       'run': 'Run workflow',
       'running': 'Running…',
       'stop': 'Stop',
+      'playVideo': 'Play',
       'fit': 'Fit view',
       'zoomIn': 'Zoom in',
       'zoomOut': 'Zoom out',
@@ -1328,9 +1343,49 @@ window.__ModuleLoader__.load({
     };
 
     // ============================================================
-    // 样式（只使用 --dsw-alias-* 主题 token，深浅色自动适配）
+    // 样式：节点 / 生成面板的视觉值照抄已验收原型 node-redesign-mockup.html
+    //（统一收在 --dshic-* 变量里，规则只引用变量）；其余外壳沿用 --dsw-alias-* 主题 token
     // ============================================================
     const CSS = `
+/* ────────────────────────────────────────────────────────────────
+   节点 / 生成面板视觉变量：逐值对齐已验收原型 node-redesign-mockup.html。
+   所有节点与面板的视觉值只能从这里取（规则里不许再出现同一字面量）。
+   ──────────────────────────────────────────────────────────────── */
+.dshic-page{
+  --dshic-ink:#1b1c1f; --dshic-ink2:#5b5f66; --dshic-ink3:#8b9098;
+  --dshic-line:#e4e5e9; --dshic-line2:#d3d5da; --dshic-line-hover:#b9c0cc;
+  --dshic-card:#ffffff; --dshic-preview-bg:#eef0f4; --dshic-subtle:#fcfcfd;
+  --dshic-accent:#2b6dfd; --dshic-accent-soft:#eaf1ff;
+  --dshic-ok:#12a150; --dshic-run:var(--dshic-accent);
+  --dshic-shadow:0 1px 2px rgba(16,18,22,.06),0 8px 24px rgba(16,18,22,.08);
+  --dshic-shadow-lg:0 12px 40px rgba(16,18,22,.16),0 2px 6px rgba(16,18,22,.08);
+  --dshic-shadow-sel:0 0 0 3px rgba(43,109,253,.16);
+  --dshic-node-r:14px;           /* 节点卡片圆角（原型 --r） */
+  --dshic-panel-r:18px;          /* 生成面板圆角（任务书 18px；原型 #composer 为 16px，见交付报告） */
+  --dshic-head-h:${NODE_HDR_H}px;
+  --dshic-head-pad:0 9px 0 10px; /* 原型 .hd：padding:0 9px 0 10px */
+  --dshic-head-ic:16px;
+  --dshic-head-bg:linear-gradient(#fff,var(--dshic-subtle));
+  --dshic-title-size:12px;
+  --dshic-legacy-size:10px; --dshic-legacy-ink:#9aa0aa;
+  --dshic-foot-h:${NODE_FOOT_H}px;
+  --dshic-foot-pad:7px; --dshic-foot-pad-x:9px;
+  --dshic-foot-bg:var(--dshic-subtle);
+  --dshic-mini-h:24px; --dshic-mini-r:7px; --dshic-mini-size:11px;
+  --dshic-body-size:12px; --dshic-body-lh:1.65;
+  --dshic-body-pad:10px; --dshic-body-pad-x:12px;
+  --dshic-empty-text:11.5px;
+  --dshic-dash-color:#d6d9df; --dshic-dash-w:1.5px;
+  --dshic-empty-hover:#bcc4d2; --dshic-empty-hover-bg:#f7f9fc;
+  --dshic-field-bg:#fafafb; --dshic-field-hint:#a4aab4;
+  --dshic-meta-size:10px; --dshic-meta-bg:rgba(20,22,26,.6); --dshic-meta-r:6px;
+  --dshic-badge-bg:rgba(255,255,255,.92); --dshic-badge-r:999px;
+  --dshic-refbadge-bg:rgba(20,22,26,.66);
+  --dshic-panel-font:13px; --dshic-panel-lh:1.62; --dshic-panel-pad:9px 14px;
+  --dshic-pick-h:28px; --dshic-pick-r:8px; --dshic-pick-size:11.5px;
+  --dshic-send-size:34px; --dshic-send-bg:var(--dshic-ink);
+  --dshic-ref-thumb:50px; --dshic-ref-r:9px;
+}
 .dshic-page{position:relative;height:100%;display:flex;flex-direction:column;box-sizing:border-box;
   padding-top:var(--dsh-frame-top-clearance,0px);background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-primary);
   font-size:14px;line-height:22px;overflow:hidden;user-select:none;-webkit-user-select:none;}
@@ -1362,23 +1417,30 @@ window.__ModuleLoader__.load({
 .dshic-edge.is-selected{stroke-width:3.5;filter:drop-shadow(0 0 3px color-mix(in srgb,var(--dsw-alias-brand-primary) 60%,transparent));}
 .dshic-edge-hit{fill:none;stroke:transparent;stroke-width:14;pointer-events:stroke;cursor:pointer;}
 .dshic-edge-temp{fill:none;stroke:var(--dsw-alias-label-secondary);stroke-width:2;stroke-dasharray:6 5;pointer-events:none;}
-.dshic-node{position:absolute;box-sizing:border-box;width:${NODE_W}px;background:var(--dsw-alias-bg-layer-1);
-  border:1px solid var(--dsw-alias-border-l2);border-radius:12px;box-shadow:0 4px 14px color-mix(in srgb,var(--dsw-alias-bg-base) 40%,transparent);
-  cursor:grab;min-height:96px;display:flex;flex-direction:column;}
+/* ── 节点卡片（原型 .node）：圆角 14 / 1px --line2 边框 / 柔和投影 ── */
+.dshic-node{position:absolute;box-sizing:border-box;width:${NODE_W}px;background:var(--dshic-card);
+  border:1px solid var(--dshic-line2);border-radius:var(--dshic-node-r);box-shadow:var(--dshic-shadow);
+  cursor:grab;min-height:96px;display:flex;flex-direction:column;
+  transition:border-color .18s,box-shadow .18s;}
 .dshic-node:active{cursor:grabbing;}
-.dshic-node.is-selected{border-color:var(--dsw-alias-brand-primary);box-shadow:0 0 0 2px color-mix(in srgb,var(--dsw-alias-brand-primary) 35%,transparent);}
-.dshic-node.st-running{border-color:var(--dsw-alias-brand-primary);}
-.dshic-node.st-done{border-color:var(--dsw-alias-state-success-primary);}
-.dshic-node.st-error{border-color:var(--dsw-alias-state-error-primary);}
-.dshic-node-head{display:flex;align-items:center;gap:6px;flex:none;height:${NODE_HDR_H}px;box-sizing:border-box;padding:0 8px;border-bottom:1px solid var(--dsw-alias-border-l1);
-  border-radius:12px 12px 0 0;background:color-mix(in srgb,var(--dsw-alias-label-primary) 4%,transparent);cursor:grab;}
+.dshic-node:hover{border-color:var(--dshic-line-hover);}
+.dshic-node.is-selected{border-color:var(--dshic-accent);box-shadow:var(--dshic-shadow-sel),var(--dshic-shadow);}
+/* 标题栏（原型 .hd）：34px / 白到 --subtle 渐变 / 1px --line 下边框 / 图标 16px 灰 */
+.dshic-node-head{display:flex;align-items:center;gap:7px;flex:none;height:var(--dshic-head-h);box-sizing:border-box;
+  padding:var(--dshic-head-pad);border-bottom:1px solid var(--dshic-line);
+  border-radius:var(--dshic-node-r) var(--dshic-node-r) 0 0;background:var(--dshic-head-bg);cursor:grab;}
+.dshic-head-ic{width:var(--dshic-head-ic);height:var(--dshic-head-ic);flex:none;color:var(--dshic-ink3);
+  display:grid;place-items:center;}
 .dshic-dot{width:8px;height:8px;border-radius:50%;flex:none;}
-.dshic-dot.k-text{background:var(--dsw-alias-label-secondary);}
-.dshic-dot.k-image{background:var(--dsw-alias-brand-primary);}
-.dshic-dot.k-video{background:var(--dsw-alias-state-success-primary);}
-.dshic-node-title{flex:1;min-width:0;font-size:12px;font-weight:600;color:var(--dsw-alias-label-secondary);
+.dshic-dot.k-text{background:var(--dshic-ink3);}
+.dshic-dot.k-image{background:var(--dshic-accent);}
+.dshic-dot.k-video{background:var(--dshic-ok);}
+.dshic-node-title{flex:1;min-width:0;font-size:var(--dshic-title-size);font-weight:600;color:var(--dshic-ink);
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
-.dshic-node-x{flex:none;width:18px;height:18px;border:none;border-radius:6px;background:transparent;color:var(--dsw-alias-label-secondary);
+/* 旧类型小标签（原型 .legacy）：10px / 圆角 5 / 1px --line2 边框 */
+.dshic-node-legacy{flex:none;font-size:var(--dshic-legacy-size);color:var(--dshic-legacy-ink);
+  border:1px solid var(--dshic-line2);border-radius:5px;padding:0 4px;white-space:nowrap;}
+.dshic-node-x{flex:none;width:18px;height:18px;border:none;border-radius:6px;background:transparent;color:var(--dshic-ink3);
   cursor:pointer;font-size:13px;line-height:18px;padding:0;display:inline-flex;align-items:center;justify-content:center;}
 .dshic-node-x:hover{background:color-mix(in srgb,var(--dsw-alias-state-error-primary) 16%,transparent);color:var(--dsw-alias-state-error-primary);}
 /* 节点尺寸把手：上下左右四条边 + 右下角；双击底边恢复随内容自适应 */
@@ -1416,6 +1478,17 @@ window.__ModuleLoader__.load({
 .dshic-mini:hover{background:color-mix(in srgb,var(--dsw-alias-brand-primary) 28%,transparent);}
 .dshic-mini:disabled{opacity:.45;cursor:default;}
 .dshic-mini.is-ghost{background:color-mix(in srgb,var(--dsw-alias-label-primary) 8%,transparent);color:var(--dsw-alias-label-secondary);}
+/* 节点内 / 生成面板内的按钮：逐值照抄原型 .mini（24px / 7px / 11px；ghost 无边框；primary 黑底白字） */
+.dshic-node .dshic-mini,.dshic-composer .dshic-mini{display:inline-flex;align-items:center;gap:4px;
+  height:var(--dshic-mini-h);padding:0 8px;border-radius:var(--dshic-mini-r);border:1px solid var(--dshic-line2);
+  background:var(--dshic-card);color:var(--dshic-ink2);font:inherit;font-size:var(--dshic-mini-size);cursor:pointer;
+  white-space:nowrap;flex:none;}
+.dshic-node .dshic-mini:hover,.dshic-composer .dshic-mini:hover{background:#f4f5f7;color:var(--dshic-ink);}
+.dshic-node .dshic-mini.is-ghost,.dshic-composer .dshic-mini.is-ghost{border-color:transparent;background:transparent;}
+.dshic-node .dshic-mini.is-ghost:hover,.dshic-composer .dshic-mini.is-ghost:hover{background:#f0f1f4;color:var(--dshic-ink);}
+.dshic-node .dshic-mini.pri,.dshic-composer .dshic-mini.pri{background:var(--dshic-ink);border-color:var(--dshic-ink);color:#fff;}
+.dshic-node .dshic-mini.pri:hover,.dshic-composer .dshic-mini.pri:hover{background:#000;color:#fff;}
+.dshic-node .dshic-mini:disabled,.dshic-composer .dshic-mini:disabled{opacity:.45;cursor:default;background:var(--dshic-card);}
 .dshic-tag{display:inline-flex;align-items:center;height:16px;padding:0 6px;border-radius:5px;font-size:10px;line-height:16px;flex:none;white-space:nowrap;}
 .dshic-tag.demo{background:color-mix(in srgb,var(--dsw-alias-state-warn-primary) 20%,transparent);color:var(--dsw-alias-state-warn-primary);}
 .dshic-tag.api{background:color-mix(in srgb,var(--dsw-alias-brand-primary) 18%,transparent);color:var(--dsw-alias-brand-primary);}
@@ -1551,8 +1624,9 @@ window.__ModuleLoader__.load({
 /* 隐藏输入框滚动条：滚动条占位会让透明输入框与背层的换行点不一致（错位的另一来源）；滚轮滚动不受影响 */
 .dshic-prompt-input::-webkit-scrollbar{width:0;height:0;}
 .dshic-prompt-input::placeholder{color:transparent;}
-.dshic-mention{color:#2f7cf6;}
-/* 注意：@名称 高亮不能加粗——加粗字形更宽，背层与透明输入框宽度不一致会导致逐字错位 */
+/* @实体 基础色与原型一致（--accent）；加粗只加在展示区（见下方 .dshic-scroll-preview 规则） */
+.dshic-mention{color:var(--dshic-accent);}
+/* 注意：@名称 高亮不能在这里加粗——加粗字形更宽，背层与透明输入框宽度不一致会导致逐字错位 */
 /* 生成中的一行思考内容：单行、省略号，让用户看到"在动"而不是卡住 */
 .dshic-stream{display:flex;align-items:center;gap:5px;font-size:10px;line-height:14px;color:var(--dsw-alias-label-secondary);
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding:0 2px;font-variant-numeric:tabular-nums;}
@@ -1560,23 +1634,12 @@ window.__ModuleLoader__.load({
 @keyframes dshic-pulse{0%,100%{opacity:.25;}50%{opacity:1;}}
 .dshic-projchip{flex:none;height:15px;padding:0 5px;border-radius:4px;font-size:9px;line-height:15px;
   background:color-mix(in srgb,var(--dsw-alias-state-warn-primary) 16%,transparent);color:var(--dsw-alias-state-warn-primary);max-width:72px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
-/* 节点类型色条：左缘 accent */
-.dshic-node{border-left:3px solid var(--acc, var(--dsw-alias-label-secondary));}
-.dshic-node.type-text{--acc:var(--dsw-alias-label-secondary);}
-.dshic-node.type-script{--acc:var(--dsw-alias-brand-primary);}
-.dshic-node.type-shot, .dshic-node.type-storyboard{--acc:var(--dsw-alias-state-warn-primary);}
-.dshic-node.type-image{--acc:var(--dsw-alias-brand-primary);}
-.dshic-node.type-video{--acc:var(--dsw-alias-state-success-primary);}
-.dshic-node-head .dshic-head-ic{color:var(--acc);}
-/* 主操作按钮 */
-.dshic-gen{width:100%;height:30px;border-radius:8px;border:none;background:var(--dsw-alias-brand-primary);
-  color:var(--dsw-alias-bg-base);font:inherit;font-size:12px;font-weight:600;cursor:pointer;
-  display:inline-flex;align-items:center;justify-content:center;gap:6px;white-space:nowrap;}
+/* 主操作按钮：原型 .mini.pri —— 黑底白字（节点内主操作只有这一种"重"按钮） */
+.dshic-gen{width:100%;height:30px;border-radius:var(--dshic-mini-r);border:none;background:var(--dshic-ink);
+  color:#fff;font:inherit;font-size:var(--dshic-mini-size);font-weight:600;cursor:pointer;
+  display:inline-flex;align-items:center;justify-content:center;gap:6px;white-space:nowrap;flex:none;}
+.dshic-gen:hover:not(:disabled){background:#000;}
 .dshic-gen:disabled{opacity:.5;cursor:default;}
-.dshic-gen:hover:not(:disabled){filter:brightness(1.1);}
-/* 节点悬停阴影 */
-.dshic-node{transition:box-shadow .15s, border-color .15s;}
-.dshic-node:hover{box-shadow:0 8px 22px color-mix(in srgb,var(--dsw-alias-bg-base) 55%,transparent);}
 /* 媒体历史 */
 .dshic-hist{display:flex;gap:4px;overflow-x:auto;}
 .dshic-hist-thumb{width:44px;height:44px;border-radius:6px;border:2px solid var(--dsw-alias-border-l2);overflow:hidden;cursor:pointer;flex:none;
@@ -1664,121 +1727,180 @@ window.__ModuleLoader__.load({
   font-variant-numeric:tabular-nums;cursor:pointer;background:transparent;border:none;height:26px;font:inherit;font-size:12px;}
 .dshic-zoom-val:hover{background:color-mix(in srgb,var(--dsw-alias-label-primary) 8%,transparent);color:var(--dsw-alias-label-primary);}
 
-/* ── 视觉精修层（统一质感；追加在基础规则之后生效）──────────────── */
-.dshic-node{border-radius:14px;box-shadow:0 1px 2px rgba(0,0,0,.10),0 6px 18px rgba(0,0,0,.10);}
-.dshic-node:hover{box-shadow:0 2px 4px rgba(0,0,0,.10),0 10px 26px rgba(0,0,0,.14);}
-.dshic-node.is-selected{box-shadow:0 0 0 2px color-mix(in srgb,var(--dsw-alias-brand-primary) 38%,transparent),0 10px 26px rgba(0,0,0,.14);}
-.dshic-node.st-running{box-shadow:0 0 0 2px color-mix(in srgb,var(--dsw-alias-brand-primary) 45%,transparent),0 8px 22px rgba(0,0,0,.12);}
-/* 标题栏高度由常量 NODE_HDR_H 决定（基础规则里 flex:none + height）；这里只调内距，不要再写死高度 */
-.dshic-node-head{padding:0 10px;}
-.dshic-node-head .dshic-node-label,.dshic-node-head strong{font-weight:600;letter-spacing:.2px;}
-.dshic-node-body{padding:10px;display:flex;flex-direction:column;gap:8px;}
-.dshic-gen{height:32px;font-weight:600;letter-spacing:.3px;box-shadow:0 1px 3px rgba(0,0,0,.18);}
-.dshic-gen:hover:not(:disabled){box-shadow:0 2px 6px rgba(0,0,0,.22);}
-.dshic-textarea:focus,.dshic-input:focus,.dshic-prompt-input:focus{border-color:var(--dsw-alias-brand-primary);
-  box-shadow:0 0 0 3px color-mix(in srgb,var(--dsw-alias-brand-primary) 18%,transparent);}
+/* ── 组件细节（保留原交互态；节点/面板的视觉值全部取自上面的 --dshic-* 变量）──── */
+.dshic-textarea:focus,.dshic-input:focus,.dshic-prompt-input:focus{border-color:var(--dshic-accent);
+  box-shadow:var(--dshic-shadow-sel);}
 /* 高亮框自己 overflow:hidden，子元素的光圈会被裁掉；光圈画在外层，外层自己的阴影不受自身 overflow 影响 */
-.dshic-prompt:focus-within{box-shadow:0 0 0 3px color-mix(in srgb,var(--dsw-alias-brand-primary) 18%,transparent);}
+.dshic-prompt:focus-within{box-shadow:var(--dshic-shadow-sel);}
 .dshic-prompt:focus-within .dshic-prompt-input{box-shadow:none;}
-.dshic-shot-label{font-size:10px;letter-spacing:.4px;color:var(--dsw-alias-label-secondary);}
 .dshic-hint{line-height:15px;}
 .dshic-card{border-radius:12px;box-shadow:0 1px 2px rgba(0,0,0,.06);}
-.dshic-mini{border-radius:7px;}
 .dshic-toolbar{backdrop-filter:blur(6px);}
 .dshic-node .dshic-textarea,.dshic-node .dshic-input{border-radius:8px;}
-.dshic-preview{border-radius:10px;}
-/* ── 统一媒体节点（节点内只显示结果）────────────────────────────── */
+/* ── 统一媒体节点（节点内只显示结果；原型 .node / .body / .media / .foot）────── */
 /* body 是媒体节点的三段容器（标题栏 / 预览区 / 操作栏），三段各自不滚动；高度公式见 nodeSizeForRatio：
    节点高 = 预览高 + NODE_HDR_H +（有操作栏 ? NODE_FOOT_H : 0）。 */
-.dshic-node-body.is-media{padding:0;gap:0;overflow:hidden;}
-.dshic-node-body.is-media > .dshic-node-head{flex:none;border-radius:14px 14px 0 0;}
-.dshic-media-wrap{position:relative;flex:1;min-height:0;display:flex;flex-direction:column;background:var(--dsw-alias-bg-layer-2);overflow:hidden;}
+.dshic-node-body.is-media{padding:0;gap:0;overflow:hidden;
+  border-radius:0 0 var(--dshic-node-r) var(--dshic-node-r);}
+.dshic-node-body.is-media > .dshic-node-head{flex:none;border-radius:var(--dshic-node-r) var(--dshic-node-r) 0 0;}
+/* 文本类节点（文本/剧本/分镜）：内距交给正文/清单自己（原型 .scroll 的 10px 12px），body 不再叠加一层 */
+.dshic-node-body.is-textual{padding:0;gap:6px;overflow:hidden;
+  border-radius:0 0 var(--dshic-node-r) var(--dshic-node-r);}
+.dshic-node-body.is-textual > .dshic-shot-summary,
+.dshic-node-body.is-textual > .dshic-hint,
+.dshic-node-body.is-textual > .dshic-node-row,
+.dshic-node-body.is-textual > .dshic-card{margin-left:var(--dshic-body-pad-x);margin-right:var(--dshic-body-pad-x);}
+/* 预览区（原型 .media）：flex:1 + 相对定位 + 项目底色；画面贴边，不与边框留内距 */
+.dshic-media-wrap{position:relative;flex:1;min-height:0;background:var(--dshic-preview-bg);overflow:hidden;}
 /* 预览**不裁切**：预览盒比例已严格等于画面比例（nodeSizeForRatio 保证），
    所以用 fill 既不会裁切（旧 cover 会裁掉约 10%）也不会 letterbox；比例一致时 fill == contain。 */
-.dshic-media-fill{position:absolute;inset:0;width:100%;height:100%;object-fit:fill;background:var(--dsw-alias-bg-layer-2);display:block;}
-/* 操作栏（第三段）：固定高度 NODE_FOOT_H，flex:none 不参与画面比例、不被正文拉伸 */
-.dshic-media-foot{flex:none;height:${NODE_FOOT_H}px;box-sizing:border-box;display:flex;align-items:center;gap:6px;flex-wrap:nowrap;
-  padding:0 8px 8px;width:100%;max-width:100%;overflow:hidden;}
+.dshic-media-fill{position:absolute;inset:0;width:100%;height:100%;object-fit:fill;background:var(--dshic-preview-bg);display:block;}
+/* 右下角小信息条（原型 .media .meta）：深色半透明胶囊 / 白字 10px / 圆角 6 */
+.dshic-media-meta{position:absolute;right:6px;bottom:6px;z-index:3;background:var(--dshic-meta-bg);color:#fff;
+  border-radius:var(--dshic-meta-r);padding:1px 6px;font-size:var(--dshic-meta-size);
+  backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px);font-variant-numeric:tabular-nums;pointer-events:none;}
+/* 视频播放键（原型 .play）：画面中心 44px 圆形半透明播放钮；只有圆钮本身接收点击 */
+.dshic-media-play{position:absolute;inset:0;z-index:3;display:grid;place-items:center;border:0;background:transparent;
+  padding:0;pointer-events:none;}
+.dshic-media-play i{pointer-events:auto;cursor:pointer;width:44px;height:44px;border-radius:50%;
+  background:rgba(255,255,255,.86);display:grid;place-items:center;box-shadow:0 2px 10px rgba(0,0,0,.2);}
+.dshic-media-play i::before{content:"";width:0;height:0;border-left:12px solid #22252b;
+  border-top:8px solid transparent;border-bottom:8px solid transparent;margin-left:3px;}
+.dshic-media-wrap.is-running .dshic-media-fill{animation:dshic-sheen 1.4s infinite;}
+@keyframes dshic-sheen{0%{filter:brightness(.92)}50%{filter:brightness(1.06)}100%{filter:brightness(.92)}}
+/* 操作栏（第三段，原型 .foot）：固定高度 NODE_FOOT_H = 7 + 24 + 7 + 1px border-top；
+   border-top + 上下内距保证按钮与画面之间有明显间距（不贴边），且 flex:none 不参与画面比例 */
+.dshic-media-foot{flex:none;height:var(--dshic-foot-h);box-sizing:border-box;display:flex;align-items:center;gap:6px;
+  flex-wrap:nowrap;padding:var(--dshic-foot-pad) var(--dshic-foot-pad-x);width:100%;max-width:100%;overflow:hidden;
+  border-top:1px solid var(--dshic-line);background:var(--dshic-foot-bg);
+  border-radius:0 0 var(--dshic-node-r) var(--dshic-node-r);}
 .dshic-media-foot .dshic-flex{flex:1;min-width:0;}
 /* 未就绪（加载中 / 资产暂时取不到 / 加载失败）→ 中性骨架，绝不渲染 <img> 破图占位 */
-.dshic-media-skeleton{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:var(--dsw-alias-bg-layer-2);overflow:hidden;}
+.dshic-media-skeleton{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:var(--dshic-preview-bg);overflow:hidden;}
 .dshic-media-skeleton::after{content:"";position:absolute;inset:0;background:linear-gradient(100deg,
-  color-mix(in srgb,var(--dsw-alias-label-primary) 4%,transparent) 20%,
-  color-mix(in srgb,var(--dsw-alias-label-primary) 10%,transparent) 42%,
-  color-mix(in srgb,var(--dsw-alias-label-primary) 4%,transparent) 64%);
+  color-mix(in srgb,var(--dshic-ink) 4%,transparent) 20%,
+  color-mix(in srgb,var(--dshic-ink) 10%,transparent) 42%,
+  color-mix(in srgb,var(--dshic-ink) 4%,transparent) 64%);
   background-size:220% 100%;animation:dshic-skeleton 1.3s linear infinite;}
 @keyframes dshic-skeleton{0%{background-position:120% 0}100%{background-position:-120% 0}}
-.dshic-media-skeleton.is-error{background:color-mix(in srgb,var(--dsw-alias-state-error-primary) 6%,var(--dsw-alias-bg-layer-2));}
+.dshic-media-skeleton.is-error{background:color-mix(in srgb,var(--dsw-alias-state-error-primary) 6%,var(--dshic-preview-bg));}
 .dshic-media-skeleton.is-error::after{animation:none;background:transparent;}
-.dshic-media-empty{position:absolute;inset:10px;border:1.5px dashed var(--dsw-alias-border-l2);border-radius:10px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:7px;color:var(--dsw-alias-label-secondary);cursor:pointer;background:color-mix(in srgb,var(--dsw-alias-bg-layer-1) 70%,transparent);}
-.dshic-media-empty:hover{border-color:var(--dsw-alias-brand-primary);color:var(--dsw-alias-label-primary);}
-.dshic-media-empty-ic{width:32px;height:32px;border-radius:9px;display:flex;align-items:center;justify-content:center;background:color-mix(in srgb,var(--dsw-alias-label-primary) 8%,transparent);}
-.dshic-media-empty-t{font-size:11.5px;line-height:16px;text-align:center;padding:0 10px;}
+/* 空态（原型 .empty）：1.5px 虚线 / 圆角 10 / 10px 内距 / 居中；+ 图标在 30px 圆角 9 的底色上 */
+.dshic-media-empty{position:absolute;inset:10px;border:var(--dshic-dash-w) dashed var(--dshic-dash-color);border-radius:10px;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:7px;color:var(--dshic-ink3);
+  cursor:pointer;background:linear-gradient(var(--dshic-subtle),var(--dshic-field-bg));padding:10px;}
+.dshic-media-empty:hover{border-color:var(--dshic-empty-hover);background:var(--dshic-empty-hover-bg);color:var(--dshic-ink2);}
+.dshic-media-empty-ic{width:30px;height:30px;border-radius:9px;display:flex;align-items:center;justify-content:center;
+  background:var(--dshic-preview-bg);color:var(--dshic-ink3);}
+.dshic-media-empty-t{font-size:var(--dshic-empty-text);line-height:16px;text-align:center;padding:0 10px;}
 .dshic-media-err{position:absolute;left:0;right:0;bottom:0;padding:4px 8px;font-size:10.5px;line-height:14px;color:var(--dsw-alias-state-error-primary);background:color-mix(in srgb,var(--dsw-alias-bg-overlay) 85%,transparent);max-height:42px;overflow:hidden;text-overflow:ellipsis;}
-.dshic-status-badge{position:absolute;left:8px;top:8px;z-index:3;display:inline-flex;align-items:center;gap:5px;background:rgba(255,255,255,.92);border:1px solid var(--dsw-alias-border-l1);border-radius:999px;padding:2px 8px 2px 6px;font-size:10.5px;color:var(--dsw-alias-label-secondary);backdrop-filter:blur(6px);}
-.dshic-status-dot{width:6px;height:6px;border-radius:50%;background:var(--dsw-alias-label-secondary);flex:none;}
-.dshic-status-badge.is-done .dshic-status-dot{background:var(--dsw-alias-state-success-primary);}
+/* 左上状态胶囊（原型 .status）：白底 92% / blur 6 / 圆点 6px；已生成绿、生成中蓝并 pulse */
+.dshic-status-badge{position:absolute;left:8px;top:8px;z-index:3;display:inline-flex;align-items:center;gap:5px;
+  background:var(--dshic-badge-bg);border:1px solid var(--dshic-line);border-radius:var(--dshic-badge-r);
+  padding:2px 8px 2px 6px;font-size:10.5px;color:var(--dshic-ink2);
+  backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);}
+.dshic-status-dot{width:6px;height:6px;border-radius:50%;background:var(--dshic-ink3);flex:none;}
+.dshic-status-badge.is-done .dshic-status-dot{background:var(--dshic-ok);}
 .dshic-status-badge.is-err .dshic-status-dot{background:var(--dsw-alias-state-error-primary);}
-.dshic-status-badge.is-run .dshic-status-dot{background:var(--dsw-alias-brand-primary);animation:dshic-pulse 1s infinite;}
+.dshic-status-badge.is-run .dshic-status-dot{background:var(--dshic-run);animation:dshic-pulse 1s infinite;}
 @keyframes dshic-pulse{0%,100%{opacity:.35}50%{opacity:1}}
-.dshic-refbadge{position:absolute;right:8px;top:8px;z-index:3;display:inline-flex;align-items:center;gap:3px;background:rgba(20,22,26,.66);color:#fff;border:0;border-radius:999px;padding:2px 6px 2px 3px;font-size:10.5px;cursor:pointer;backdrop-filter:blur(6px);}
+/* 右上参考图角标（原型 .refbadge）：深色半透明胶囊 + 16px 圆角 5 缩略图 */
+.dshic-refbadge{position:absolute;right:7px;top:7px;z-index:3;display:inline-flex;align-items:center;gap:3px;
+  background:var(--dshic-refbadge-bg);color:#fff;border:0;border-radius:var(--dshic-badge-r);
+  padding:2px 6px 2px 3px;font-size:10.5px;cursor:pointer;
+  backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);}
 .dshic-refbadge:hover{background:rgba(20,22,26,.82);}
 .dshic-refbadge-thumb{width:16px;height:16px;border-radius:5px;object-fit:cover;border:1px solid rgba(255,255,255,.5);background:linear-gradient(135deg,#9aa4b2,#6b7686);display:block;}
 .dshic-refbadge-thumb.is-empty{display:inline-block;}
-/* ── 纯结果文本节点（文本/剧本）──────────────────────────────── */
+/* ── 纯结果文本节点（文本/剧本/分镜；原型 .scroll / .kv / .shots）──────── */
 /* 节点被拉高时：多出来的空间由内容区（正文/镜头清单）撑满，绝不留下空白带。
    body 是 flex 列（flex:1 + min-height:0），滚动区占满剩余高度，末尾操作行自然贴在左下角。
    操作行同样 flex:none 固定高度：不参与拉伸（与媒体节点标题栏/操作栏同一条纪律）。 */
 .dshic-node-body > .dshic-scroll-preview{flex:1 1 auto;min-height:0;}
 .dshic-node-body > .dshic-node-row{flex:none;}
-.dshic-scroll-preview{flex:1;min-height:0;overflow:auto;font-size:12px;line-height:1.65;color:var(--dsw-alias-label-primary);white-space:pre-wrap;word-break:break-word;}
-.dshic-scroll-preview.is-empty{display:flex;align-items:center;justify-content:center;border:1.5px dashed var(--dsw-alias-border-l2);border-radius:10px;color:var(--dsw-alias-label-secondary);}
-.dshic-shot-summary{padding:2px 0;font-size:12px;color:var(--dsw-alias-label-secondary);flex:none;}
-.dshic-shot-summary b{color:var(--dsw-alias-label-primary);font-size:13px;}
+/* 正文（原型 .scroll）：12px / 行高 1.65 / 内距 10px 12px / 次级墨色 */
+.dshic-scroll-preview{flex:1;min-height:0;overflow:auto;padding:var(--dshic-body-pad) var(--dshic-body-pad-x);
+  font-size:var(--dshic-body-size);line-height:var(--dshic-body-lh);color:var(--dshic-ink2);
+  white-space:pre-wrap;word-break:break-word;background:var(--dshic-card);}
+.dshic-scroll-preview.is-empty{margin:var(--dshic-body-pad);padding:0;display:flex;align-items:center;justify-content:center;
+  border:var(--dshic-dash-w) dashed var(--dshic-dash-color);border-radius:10px;color:var(--dshic-ink3);}
+/* @实体 在展示区：蓝色加粗（--accent）；提示词透明叠层不加粗（加粗会改变字宽导致光标错位） */
+.dshic-scroll-preview .dshic-mention,
+.dshic-shot-item .dshic-mention,
+.dshic-shot-label .dshic-mention{color:var(--dshic-accent);font-weight:600;}
+.dshic-shot-summary{padding:2px 0;font-size:var(--dshic-body-size);color:var(--dshic-ink2);flex:none;}
+.dshic-shot-summary b{color:var(--dshic-ink);font-size:13px;}
 /* 分镜镜头清单：占满分镜节点剩余高度并内部滚动（固定 max-height 会在节点拉高时留白） */
 .dshic-node-fill{display:flex;flex-direction:column;flex:1 1 auto;min-height:0;}
-.dshic-shot-list.is-fill{flex:1 1 auto;min-height:0;max-height:none;overflow-y:auto;}
-/* ── 生成面板（浮层单例；紧贴选中节点下方）──────────────────── */
-.dshic-composer{position:fixed;z-index:200;left:0;top:0;background:var(--dsw-alias-bg-overlay);border:1px solid var(--dsw-alias-border-l2);border-radius:16px;box-shadow:0 12px 40px rgba(0,0,0,.16),0 2px 6px rgba(0,0,0,.08);display:flex;flex-direction:column;max-height:calc(100vh - 24px);box-sizing:border-box;}
-.dshic-composer-caret{position:absolute;top:-6px;width:11px;height:11px;background:var(--dsw-alias-bg-overlay);border-left:1px solid var(--dsw-alias-border-l2);border-top:1px solid var(--dsw-alias-border-l2);transform:rotate(45deg);border-radius:2px 0 0 0;z-index:1;}
-.dshic-composer-head{display:flex;align-items:center;gap:8px;padding:10px 12px 4px;flex:none;}
-.dshic-composer-title{font-size:12.5px;font-weight:600;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
-.dshic-composer-tag{font-size:10px;color:var(--dsw-alias-label-secondary);border:1px solid var(--dsw-alias-border-l2);border-radius:5px;padding:0 5px;flex:none;}
-.dshic-composer-head .dshic-iconbtn{margin-left:auto;}
-.dshic-composer-body{flex:1 1 auto;min-height:0;overflow-y:auto;display:flex;flex-direction:column;gap:7px;padding:4px 12px 6px;}
-.dshic-composer-refs{display:flex;align-items:center;gap:7px;overflow-x:auto;flex:none;min-height:36px;}
-.dshic-ref-add{flex:none;width:34px;height:34px;border-radius:9px;border:1.5px dashed var(--dsw-alias-border-l2);background:color-mix(in srgb,var(--dsw-alias-label-primary) 4%,transparent);color:var(--dsw-alias-label-secondary);cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:17px;line-height:1;}
-.dshic-ref-add:hover{border-color:var(--dsw-alias-brand-primary);color:var(--dsw-alias-brand-primary);}
-.dshic-ref-thumb{flex:none;width:34px;height:34px;border-radius:9px;overflow:hidden;border:1px solid var(--dsw-alias-border-l1);}
-.dshic-ref-thumb .dshic-hist-thumb{width:100%;height:100%;border:none;margin:0;}
-.dshic-composer-refhint{font-size:10px;color:var(--dsw-alias-label-secondary);line-height:14px;}
-.dshic-composer-prompt{flex:none;}
-.dshic-composer-extra{display:flex;flex-direction:column;gap:6px;}
-.dshic-composer-controls{display:flex;align-items:center;gap:6px;flex-wrap:nowrap;padding:6px 12px 11px;flex:none;border-top:1px solid var(--dsw-alias-border-l1);}
+.dshic-shot-list.is-fill{flex:1 1 auto;min-height:0;max-height:none;overflow-y:auto;padding:2px var(--dshic-body-pad-x) var(--dshic-body-pad);}
+/* 镜头行（原型 .shot）：清单内是纯文字行，不再套卡片；标题深色、其余次级墨色 */
+.dshic-shot-list.is-fill .dshic-shot-item{border:0;background:transparent;padding:1px 0;
+  font-size:11.5px;line-height:1.45;color:var(--dshic-ink2);}
+.dshic-shot-list.is-fill .dshic-shot-item strong{color:var(--dshic-ink);font-size:11.5px;font-weight:600;}
+/* ── 生成面板（原型 #composer）：白底 / 圆角 18 / --shadow-lg / 顶部小三角 ── */
+.dshic-composer{position:fixed;z-index:200;left:0;top:0;background:var(--dshic-card);
+  border:1px solid var(--dshic-line2);border-radius:var(--dshic-panel-r);box-shadow:var(--dshic-shadow-lg);
+  display:flex;flex-direction:column;max-height:calc(100vh - 24px);box-sizing:border-box;}
+.dshic-composer-caret{position:absolute;top:-6px;width:11px;height:11px;background:var(--dshic-card);
+  border-left:1px solid var(--dshic-line2);border-top:1px solid var(--dshic-line2);
+  transform:rotate(45deg);border-radius:2px 0 0 0;z-index:1;}
+.dshic-composer-head{display:flex;align-items:center;gap:8px;padding:9px 12px 0;flex:none;}
+.dshic-composer-title{font-size:var(--dshic-title-size);font-weight:600;color:var(--dshic-ink);min-width:0;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.dshic-composer-tag{font-size:var(--dshic-legacy-size);color:var(--dshic-ink3);border:1px solid var(--dshic-line2);
+  border-radius:5px;padding:0 5px;flex:none;}
+.dshic-composer-head .dshic-iconbtn{margin-left:auto;width:26px;height:26px;border-radius:8px;color:var(--dshic-ink3);}
+.dshic-composer-head .dshic-iconbtn:hover{background:#f2f3f6;color:var(--dshic-ink);}
+.dshic-composer-body{flex:1 1 auto;min-height:0;overflow-y:auto;display:flex;flex-direction:column;gap:0;padding:0;}
+.dshic-composer-refs{display:flex;align-items:center;gap:7px;overflow-x:auto;flex:none;padding:9px 12px 0;
+  min-height:calc(var(--dshic-ref-thumb) + 9px);}
+.dshic-ref-add{flex:none;width:var(--dshic-ref-thumb);height:var(--dshic-ref-thumb);box-sizing:border-box;
+  border-radius:var(--dshic-ref-r);border:var(--dshic-dash-w) dashed var(--dshic-dash-color);
+  background:var(--dshic-field-bg);color:var(--dshic-field-hint);cursor:pointer;display:flex;align-items:center;
+  justify-content:center;font-size:17px;line-height:1;}
+.dshic-ref-add:hover{border-color:var(--dshic-empty-hover);color:var(--dshic-ink2);}
+.dshic-ref-thumb{flex:none;width:var(--dshic-ref-thumb);height:var(--dshic-ref-thumb);border-radius:var(--dshic-ref-r);
+  overflow:hidden;border:1px solid var(--dshic-line2);}
+.dshic-ref-thumb .dshic-hist-thumb{width:100%;height:100%;border:none;margin:0;border-radius:0;}
+.dshic-composer-refhint{font-size:10px;color:var(--dshic-field-hint);line-height:1.45;}
+.dshic-composer-prompt{flex:none;padding:9px 0 0;}
+/* 分镜面板第二个提示词（额外要求）与上一个之间保留间距 */
+.dshic-composer-prompt + .dshic-prompt{margin-top:7px;}
+/* 提示词：13px / 行高 1.62 / 内距 9px 14px（原型 .pw）；面板里是白底无边框的直接书写区 */
+.dshic-composer .dshic-prompt-back,.dshic-composer .dshic-prompt-input{font-size:var(--dshic-panel-font);
+  line-height:var(--dshic-panel-lh);padding:var(--dshic-panel-pad);}
+.dshic-composer .dshic-prompt-input{background:transparent;border-color:transparent;}
+.dshic-composer-extra{display:flex;flex-direction:column;gap:6px;padding:6px 12px 0;}
+.dshic-composer-controls{display:flex;align-items:center;gap:6px;flex-wrap:nowrap;padding:4px 12px 11px;flex:none;}
 /* 控件行单行不换行：空间不足时只让「模型下拉」收缩（省略号），发送按钮永远在行内、绝不换行 */
 .dshic-composer-controls .dshic-flex{flex:1 1 6px;min-width:6px;}
 .dshic-composer-controls .dshic-pick-wrap{flex:0 1 auto;min-width:0;}
 .dshic-composer-controls .dshic-pick{max-width:100%;min-width:0;}
 .dshic-pick-wrap{display:inline-flex;flex:none;}
-.dshic-pick{display:inline-flex;align-items:center;gap:5px;height:28px;padding:0 8px;border-radius:8px;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font:inherit;font-size:11.5px;cursor:pointer;box-sizing:border-box;justify-content:space-between;}
-.dshic-pick:hover,.dshic-pick.is-open{background:color-mix(in srgb,var(--dsw-alias-label-primary) 7%,transparent);}
+/* 控件按钮（原型 .pick）：28px / 圆角 8 / 1px --line2 / 11.5px */
+.dshic-pick{display:inline-flex;align-items:center;gap:5px;height:var(--dshic-pick-h);padding:0 8px;
+  border-radius:var(--dshic-pick-r);border:1px solid var(--dshic-line2);background:var(--dshic-card);color:var(--dshic-ink);
+  font:inherit;font-size:var(--dshic-pick-size);cursor:pointer;box-sizing:border-box;justify-content:space-between;}
+.dshic-pick:hover,.dshic-pick.is-open{background:#f6f7f9;}
 .dshic-pick-val{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;}
-.dshic-pick-car{color:var(--dsw-alias-label-secondary);font-size:9px;flex:none;}
-.dshic-pick-menu{position:fixed;z-index:240;background:var(--dsw-alias-bg-overlay);border:1px solid var(--dsw-alias-border-l2);border-radius:12px;box-shadow:0 12px 40px rgba(0,0,0,.18);display:flex;flex-direction:column;max-height:280px;overflow:hidden;box-sizing:border-box;}
-.dshic-pick-search{padding:7px;border-bottom:1px solid var(--dsw-alias-border-l1);flex:none;}
+.dshic-pick-car{color:var(--dshic-field-hint);font-size:9px;flex:none;}
+.dshic-pick-menu{position:fixed;z-index:240;background:var(--dshic-card);border:1px solid var(--dshic-line2);border-radius:12px;box-shadow:var(--dshic-shadow-lg);display:flex;flex-direction:column;max-height:280px;overflow:hidden;box-sizing:border-box;}
+.dshic-pick-search{padding:7px;border-bottom:1px solid var(--dshic-line);flex:none;}
 .dshic-pick-search .dshic-input{height:26px;font-size:12px;}
 .dshic-pick-list{overflow-y:auto;padding:5px;flex:1;}
-.dshic-pick-item{display:flex;align-items:center;gap:8px;width:100%;padding:6px 8px;border:0;border-radius:7px;background:transparent;color:var(--dsw-alias-label-primary);font:inherit;font-size:12px;cursor:pointer;text-align:left;box-sizing:border-box;}
-.dshic-pick-item:hover{background:color-mix(in srgb,var(--dsw-alias-label-primary) 7%,transparent);}
-.dshic-pick-item.is-on{background:color-mix(in srgb,var(--dsw-alias-brand-primary) 14%,transparent);color:var(--dsw-alias-brand-primary);font-weight:600;}
+.dshic-pick-item{display:flex;align-items:center;gap:8px;width:100%;padding:6px 8px;border:0;border-radius:7px;background:transparent;color:var(--dshic-ink);font:inherit;font-size:12px;cursor:pointer;text-align:left;box-sizing:border-box;}
+.dshic-pick-item:hover{background:#f4f5f7;}
+.dshic-pick-item.is-on{background:var(--dshic-accent-soft);color:var(--dshic-accent);font-weight:600;}
 .dshic-pick-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
-.dshic-pick-sub{margin-left:auto;color:var(--dsw-alias-label-secondary);font-size:10px;flex:none;max-width:45%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
-.dshic-pick-item.is-on .dshic-pick-sub{color:color-mix(in srgb,var(--dsw-alias-brand-primary) 70%,var(--dsw-alias-label-secondary));}
-.dshic-pick-empty{padding:14px 10px;font-size:11.5px;color:var(--dsw-alias-label-secondary);text-align:center;}
-.dshic-pick.dshic-at{padding:0 9px;justify-content:center;font-weight:600;}
-.dshic-send{width:34px;height:34px;border-radius:50%;border:0;background:var(--dsw-alias-label-primary);color:var(--dsw-alias-bg-base);cursor:pointer;display:flex;align-items:center;justify-content:center;flex:none;}
-.dshic-send:hover{filter:brightness(1.2);}
-.dshic-send:disabled{background:var(--dsw-alias-border-l2);cursor:default;filter:none;}
+.dshic-pick-sub{margin-left:auto;color:var(--dshic-ink3);font-size:10px;flex:none;max-width:45%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.dshic-pick-item.is-on .dshic-pick-sub{color:color-mix(in srgb,var(--dshic-accent) 70%,var(--dshic-ink3));}
+.dshic-pick-empty{padding:14px 10px;font-size:var(--dshic-empty-text);color:var(--dshic-ink3);text-align:center;}
+.dshic-pick.dshic-at{padding:0 7px;justify-content:center;font-weight:600;}
+/* 发送按钮（原型 .send）：34px 圆形 / 黑底白箭头 */
+.dshic-send{width:var(--dshic-send-size);height:var(--dshic-send-size);border-radius:50%;border:0;
+  background:var(--dshic-send-bg);color:#fff;cursor:pointer;display:flex;align-items:center;justify-content:center;flex:none;}
+.dshic-send:hover{background:#000;}
+.dshic-send:disabled{background:#d9dbe1;cursor:default;}
 `;
 
     // ============================================================
@@ -7381,17 +7503,10 @@ window.__ModuleLoader__.load({
     // 注意每次 pointermove 都重新读 e.altKey，所以拖动中途按下/松开 Alt 会实时切换。
     const drag = { mode: null, sx: 0, sy: 0, moved: false, nodeStarts: null, marquee: null, linkFrom: null, shift: false, altNoPush: false };
 
-    /** 生成面板单例：点击节点任意位置 → 打开（文本/剧本/分镜/图片/视频/成片各有自己的控件）。 */
-    function openComposerFor(nodeId) {
-      const nd = nodeId ? S.graph.nodes[nodeId] : null;
-      const next = nd && COMPOSER_TYPES.has(nd.type) ? nodeId : null;
-      if (S.composerId === next) return;
-      S.composerId = next;
-      notify();
-    }
-    /** 点击节点正文/预览打开面板：面板渲染条件要求 composerId ∈ S.sel，
+    /** 点击节点内容区打开面板：面板渲染条件要求 composerId ∈ S.sel，
      *  而视频控件/分镜清单会在 pointerdown 里 stopPropagation（不经节点根选中），
-     *  所以这里补一次"未选中则选中"（已选中时不动，保留 Shift 多选）。 */
+     *  所以这里补一次"未选中则选中"（已选中时不动，保留 Shift 多选）。
+     *  只有内容区（媒体预览/空态、正文、镜头清单）会走到这里——标题栏与底部操作栏不弹面板。 */
     function selectAndOpenComposer(nodeId) {
       const nd = nodeId ? S.graph.nodes[nodeId] : null;
       const next = nd && COMPOSER_TYPES.has(nd.type) ? nodeId : null;
@@ -7436,7 +7551,7 @@ window.__ModuleLoader__.load({
       if (e.button === 2 || e.button === 1) return;
       const t = e.target;
       // 真正的交互控件（按钮/下拉/视频控件/可编辑输入）保留原生行为；
-      // 图片/视频预览不再被拦成"点了没反应"——点节点任意位置都能打开生成面板（见 NodeShell onClick）。
+      // 内容区（图片/视频预览、文本正文、镜头清单）只负责选中 + 弹面板，不再从这里发起拖动。
       if (isNodeInteractiveTarget(t)) return;
       e.stopPropagation();
       closeMenu();
@@ -7455,7 +7570,8 @@ window.__ModuleLoader__.load({
       } else if (!S.sel.has(n.id)) {
         update((s) => { s.sel = new Set([n.id]); s.selEdge = null; });
       }
-      openComposerFor(n.id);
+      // 拖动只从标题栏 / 节点空白（非内容区）发起；内容区 pointerdown 到此为止（点击由 onClick 弹面板）
+      if (isNodeContentTarget(t) && !isNodeNonOpenTarget(t)) return;
       drag.mode = 'node';
       drag.sx = e.clientX; drag.sy = e.clientY;
       drag.moved = false;
@@ -7750,6 +7866,7 @@ window.__ModuleLoader__.load({
       undoIc: 'M9 14L4 9l5-5M4 9h10a6 6 0 016 6v1',
       redoIc: 'M15 14l5-5-5-5M20 9H10a6 6 0 00-6 6v1',
       plus: 'M12 5v14M5 12h14',
+      arrowUp: 'M12 19V5M5 12l7-7 7 7',
       play: 'M8 5.5v13l10-6.5-10-6.5z',
       stop: 'M7 7h10v10H7z',
       fit: 'M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5',
@@ -8041,8 +8158,9 @@ window.__ModuleLoader__.load({
       const outKind = (PORTS[nt] && PORTS[nt].outputs && PORTS[nt].outputs[0] && PORTS[nt].outputs[0].kind) || 'text';
       // 标题栏（固定高度 NODE_HDR_H，不参与画面比例）：媒体节点把它放进 body 内，
       // 让 body 里从上到下严格是「标题栏 / 预览区 / 操作栏」三段（几何 = nodeSizeForRatio 的公式）。
-      const headEl = h('div', { className: 'dshic-node-head' },
-        h('span', { className: 'dshic-head-ic' }, Ic(TYPE_ICON[nt] || 'text', 12)),
+      // data-node-head：点击区域规则用——标题栏是拖动/重命名区，点它不弹生成面板。
+      const headEl = h('div', { className: 'dshic-node-head', 'data-node-head': '1' },
+        h('span', { className: 'dshic-head-ic' }, Ic(TYPE_ICON[nt] || 'text', 16)),
         renaming
           ? h('input', {
               className: 'dshic-input', style: { height: 22, flex: 1, minWidth: 0 }, autoFocus: true, value: nameVal,
@@ -8059,6 +8177,10 @@ window.__ModuleLoader__.load({
               className: 'dshic-node-title', title: T('renameHint'),
               onDoubleClick: (e) => { e.stopPropagation(); startRename(); },
             }, n.data.label || TYPE_LABEL()[nt]),
+        // 旧类型小标签（原型 .legacy）：只有旧项目里记录了原始类型时才显示
+        n.data.legacyType
+          ? h('span', { className: 'dshic-node-legacy' }, '旧:' + String(n.data.legacyType))
+          : null,
         (n.data.status === 'running' || n.data.aiStatus === 'running') ? h('span', { className: 'dshic-spin' }) : null,
         h('button', {
           type: 'button', className: 'dshic-node-x', title: T('renameHint'),
@@ -8070,24 +8192,33 @@ window.__ModuleLoader__.load({
           onPointerDown: (e) => e.stopPropagation(),
           onClick: () => removeNodes([n.id]),
         }, '✕'));
+      // 点击区域规则（用户明确要求）：只有**内容区**弹生成面板——
+      //   图片/视频 = 预览区（有图）或空态区；文本/剧本/分镜 = 正文/镜头清单区；成片 = 配置区。
+      // 标题栏是拖动/重命名区、底部操作栏是按钮区，点它们都不弹面板（拖动也只从这两处/节点空白发起）。
+      // 真正的交互控件（按钮/下拉/视频控件/可编辑输入）由各自的 stopPropagation 拦下。
+      const isTextual = nt === 'text' || nt === 'script' || nt === 'storyboard';
       return h('div', {
         'data-node-id': n.id,
         className: cls('dshic-node', 'type-' + nt, 'st-' + st, selected && 'is-selected'),
         style: { left: n.x, top: n.y, width: n.w || NODE_W, height: n.h || NODE_H, zIndex: Number(n.z) || 1 },
         ref: refCb,
         onPointerDown: (e) => onNodePointerDown(e, n),
-        // 点击节点**任意位置**（标题栏 / 预览图 / 空白区 / 空态区 / 正文区）都打开生成面板；
-        // 只有真正的交互控件（按钮、下拉、视频控件、可编辑输入）由各自的 stopPropagation 拦下。
         onClick: (e) => {
-          if (isNodeInteractiveTarget(e && e.target)) return;
+          const t = e && e.target;
+          if (isNodeInteractiveTarget(t)) return;
+          if (isNodeNonOpenTarget(t)) return;
+          if (!isNodeContentTarget(t)) return;
           selectAndOpenComposer(n.id);
         },
       },
         isMedia ? null : headEl,
         // 媒体节点：body 内三段（标题栏 / 预览区 / 操作栏），标题栏与操作栏 flex:none 固定高度，
         // 预览区 flex:1 吃掉剩余高度 —— 剩余高度正是 sizeForRatio 算出的画面盒。
-        // 用展开参数而不是数组作为 children：避免 React 对数组子节点要求 key 的告警。
-        h('div', { className: cls('dshic-node-body', isMedia && 'is-media') },
+        // 非媒体节点：body 整体就是内容区（data-node-content），点正文/清单/配置区打开面板。
+        h('div', {
+          className: cls('dshic-node-body', isMedia && 'is-media', !isMedia && isTextual && 'is-textual'),
+          ...(isMedia ? null : { 'data-node-content': '1' }),
+        },
           ...(isMedia ? [headEl, nodeBody(n)] : [nodeBody(n)])),
         // 尺寸把手：右/左/下/上四条边 + 右下角（双击底边回到默认 360 高）
         h('div', { className: 'dshic-rs dshic-rs-e', title: T('resizeHint'), onPointerDown: (e) => startResize(e, 'e') }),
@@ -8736,7 +8867,7 @@ window.__ModuleLoader__.load({
           h('input', { ref: fileRef, type: 'file', accept: 'image/*', style: { display: 'none' }, onChange: onFile }),
           h('div', { className: 'dshic-composer-prompt' },
             h(PromptArea, {
-              value: promptVal, minHeight: 66, readOnly: isStoryboard && wiredScript,
+              value: promptVal, minHeight: 70, readOnly: isStoryboard && wiredScript,
               inputRef: taRef,
               placeholder: (isStoryboard && wiredScript) ? T('connected') : promptPlaceholder(),
               onChange: setPrompt,
@@ -8905,7 +9036,7 @@ window.__ModuleLoader__.load({
             onClick: send,
           }, running
             ? (isTextLike ? h('span', { className: 'dshic-spin' }) : Ic('stop', 16))
-            : Ic(kind === 'finalcut' ? 'film' : 'spark', 16))),
+            : Ic('arrowUp', 16))),
         atOpen
           ? h('div', {
               className: 'dshic-pick-menu', style: { left: atPos.left, top: atPos.top, width: 220 },
@@ -8985,8 +9116,11 @@ window.__ModuleLoader__.load({
       }, [n.id, S.assetsTick, S.store]);
       const assetUrlV = useAssetUrl(n.data.assetId);
       const [mediaState, setMediaState] = useState('idle'); // idle | ready | error（未就绪一律骨架，绝不破图）
+      // 视频播放状态：圆形播放键是否显示（双击画面 / 点播放键都会切换）
+      const videoRef = useRef(null);
+      const [playing, setPlaying] = useState(false);
       // 换了资产（重新生成/历史切换）→ 回到未就绪：旧图不残留、新图加载期间有骨架兜底
-      useEffect(() => { setMediaState('idle'); }, [n.data.assetId]);
+      useEffect(() => { setMediaState('idle'); setPlaying(false); }, [n.data.assetId]);
       const refEdges = S.graph.edges.filter((x) => x.toNode === n.id && x.toPort === 'ref');
       const firstRefSrc = refEdges.length ? S.graph.nodes[refEdges[0].fromNode] : null;
       const firstRefAid = firstRefSrc ? servedAssetId(firstRefSrc, refEdges[0].fromPort) : null;
@@ -9016,8 +9150,27 @@ window.__ModuleLoader__.load({
       };
       const imgShown = done && !!assetUrlV && kind === 'image' && mediaState !== 'error';
       const vidShown = done && !!assetUrlV && kind === 'video' && mediaState !== 'error';
+      /** 视频播放/暂停：真实 <video> 执行，播放键自身 stopPropagation——点它只播放、不弹面板。 */
+      const togglePlay = () => {
+        const v = videoRef.current;
+        if (!v) return;
+        if (v.paused) {
+          try { const p = v.play(); if (p && typeof p.catch === 'function') p.catch(() => { /* 自动播放被拦：保留播放键 */ }); } catch { /* 忽略 */ }
+        } else {
+          try { v.pause(); } catch { /* 忽略 */ }
+        }
+      };
+      const mediaInfo = (() => {
+        if (!done) return '';
+        const ratio = mediaRatioOf(n);
+        const w = Math.round(Number(n.w) || 0);
+        const h = Math.round(Number(n.h) || 0);
+        const cnt = Number(n.data.imageCount) > 1 ? ' · ' + n.data.imageCount + ' 张' : '';
+        return w > 0 && h > 0 ? (ratio + ' · ' + w + '×' + h + cnt) : (ratio + cnt);
+      })();
       return [
-        h('div', { key: 'media', className: cls('dshic-media-wrap', running && 'is-running') },
+        // data-node-content：预览区（含空态）是唯一会弹生成面板的点击区域
+        h('div', { key: 'media', className: cls('dshic-media-wrap', running && 'is-running'), 'data-node-content': '1' },
           // 骨架层永远铺满内容区：图片/视频未就绪（加载中、资产暂取不到、解码失败）显示中性骨架，
           // 绝不出现 <img alt> 破图占位，也绝不出现 letterbox 空白带。图片加载完成后骨架自动撤掉。
           done && mediaState !== 'ready'
@@ -9033,19 +9186,34 @@ window.__ModuleLoader__.load({
             : null,
           vidShown
             ? h('video', {
-                key: 'vid', className: 'dshic-media-fill', src: assetUrlV, controls: true, preload: 'metadata',
-                // 视频控件保留 stopPropagation（拖动/选择不被视频吃掉），但**仍要打开生成面板**：
-                // 点击视频任意位置先拦住节点拖动，再调用 openPanel（"拦截后仍调用打开"）。
-                onPointerDown: (e) => { e.stopPropagation(); openPanel(); },
-                onClick: (e) => e.stopPropagation(),
+                key: 'vid', ref: videoRef, className: 'dshic-media-fill', src: assetUrlV, preload: 'metadata',
+                // 视频控件保留 stopPropagation（拖动/选择不被视频吃掉），单击画面打开生成面板；
+                // 双击画面 = 播放/暂停（原型行为）；播放键自身另行 stopPropagation。
+                onPointerDown: (e) => { e.stopPropagation(); },
+                onClick: (e) => { e.stopPropagation(); if (e && e.detail > 1) return; openPanel(); },
+                onDoubleClick: (e) => { e.stopPropagation(); togglePlay(); },
+                onPlay: () => setPlaying(true),
+                onPause: () => setPlaying(false),
                 onLoadedMetadata: (e) => { setMediaState('ready'); const el = e && e.currentTarget; recordMediaDims(el && el.videoWidth, el && el.videoHeight); },
                 onError: () => setMediaState('error'),
               })
             : null,
+          // 原型 .play：画面中心圆形半透明播放钮（只在暂停时出现）
+          vidShown && !playing
+            ? h('button', {
+                key: 'play', type: 'button', className: 'dshic-media-play', title: T('playVideo'),
+                onPointerDown: (e) => e.stopPropagation(),
+                onClick: (e) => { e.stopPropagation(); togglePlay(); },
+              }, h('i', {}))
+            : null,
           !done
-            ? h('div', { key: 'empty', className: 'dshic-media-empty', onClick: openPanel },
-                h('span', { className: 'dshic-media-empty-ic' }, Ic(kind === 'video' ? 'video' : 'image', 18)),
+            ? h('div', { key: 'empty', className: 'dshic-media-empty', 'data-node-content': '1', onClick: openPanel },
+                h('span', { className: 'dshic-media-empty-ic' }, Ic('plus', 17)),
                 h('span', { className: 'dshic-media-empty-t' }, T(kind === 'video' ? 'clickToGenVideo' : 'clickToGenImage')))
+            : null,
+          // 右下角小信息条（原型 .meta）：比例 · 节点尺寸
+          done && mediaInfo
+            ? h('div', { key: 'meta', className: 'dshic-media-meta' }, mediaInfo)
             : null,
           statusLabel
             ? h('div', { key: 'st', className: cls('dshic-status-badge', running ? 'is-run' : done ? 'is-done' : 'is-err') },
@@ -9068,7 +9236,7 @@ window.__ModuleLoader__.load({
         // 高度固定 NODE_FOOT_H（CSS flex:none + height），不参与画面比例、不被正文拉伸；
         // 空态（done=false）不渲染这一栏，节点高度里也不加 NODE_FOOT_H。
         done
-          ? h('div', { key: 'acts', className: 'dshic-media-foot', style: { alignSelf: 'flex-start' } },
+          ? h('div', { key: 'acts', className: 'dshic-media-foot', 'data-node-foot': '1' },
               h('button', {
                 type: 'button', className: 'dshic-mini is-ghost', disabled: !assetUrlV,
                 onPointerDown: (e) => e.stopPropagation(),
@@ -9410,8 +9578,9 @@ window.__ModuleLoader__.load({
           : h('div', { key: 'none', className: 'dshic-scroll-preview is-empty' },
               h('span', { className: 'dshic-media-empty-t' }, running ? T('aiRunning') : T('emptyScriptHint'))),
         // 结果相关操作放节点末尾左下角（与分镜节点同一规范：内容之后 + alignSelf:flex-start）
+        // data-node-foot：底部操作栏是按钮区，点击不弹生成面板。
         output
-          ? h('div', { key: 'acts', className: 'dshic-node-row', style: { alignSelf: 'flex-start' } },
+          ? h('div', { key: 'acts', className: 'dshic-node-row', 'data-node-foot': '1', style: { alignSelf: 'flex-start' } },
               h('button', {
                 type: 'button', className: 'dshic-mini is-ghost', title: T('saveTextAsset'),
                 onPointerDown: (e) => e.stopPropagation(),
@@ -9508,7 +9677,7 @@ window.__ModuleLoader__.load({
             )
           : null,
         shots.length
-          ? h('div', { key: 'acts', className: 'dshic-node-row', style: { alignSelf: 'flex-start' } },
+          ? h('div', { key: 'acts', className: 'dshic-node-row', 'data-node-foot': '1', style: { alignSelf: 'flex-start' } },
               h('button', {
                 key: 'copy', type: 'button', className: 'dshic-mini is-ghost', title: T('copyAll'),
                 onPointerDown: (e) => e.stopPropagation(),
@@ -11814,7 +11983,7 @@ window.__ModuleLoader__.load({
               h('div', { className: 'dshic-guide-h', style: { display: 'none', zIndex: 9999 }, ref: (el) => { hGuidEl = el; } }),
             ),
             h(Minimap),
-            // 生成面板（单例）：紧贴选中节点下方弹出；点节点任意位置打开
+            // 生成面板（单例）：紧贴选中节点下方弹出；只有点击节点内容区才打开
             (S.composerId && S.sel.has(S.composerId) && S.graph.nodes[S.composerId])
               ? h(GenComposer, { key: S.composerId, nodeId: S.composerId })
               : null,
@@ -12135,7 +12304,7 @@ window.__ModuleLoader__.load({
           window.__DSH_IC_TABS__ = { ProjectsTab, AssetsTab, BibleTab, SettingsTab, CanvasPage, ShortcutsPanel, CanvasHostedApp };
           // 节点体/生成面板组件出口：供 scripts/test-node-actions.mjs 断言「结果操作按钮必须在节点末尾左下角」，
           // 并供 smoke-render 直接渲染新组件（MediaNodeBody / GenComposer）抓渲染期崩溃；
-          // NodeShell 用于断言「点击节点任意位置都能打开生成面板」不止边框可点。
+          // NodeShell 用于断言「点击区域规则」：标题栏/底部操作栏不弹面板，只有内容区弹。
           window.__DSH_IC_NODES__ = { ScriptNodeBody, StoryboardNodeBody, MediaNodeBody, GenComposer, FinalCutNodeBody, TextNodeBody, ShotNodeBody, NodeShell };
           // 排版纯函数/常量出口：预览区比例、节点外框公式、等比缩放、面板宽度（供 scripts/test-node-layout.mjs 断言）
           window.__DSH_IC_LAYOUT__ = {
@@ -12144,7 +12313,9 @@ window.__ModuleLoader__.load({
             sizeForRatio, nodeSizeForRatio, mediaBarsHeight, mediaHasFooter,
             ratioIsValid, ratioAspect, ratioFromDims, mediaRatioOf, mediaAspectOf, mediaRatioForDims,
             normalizeMediaNodeSize, normalizeGraphDoc, resizeBoxFor, composerWidthFor,
-            NODE_INTERACTIVE_SELECTOR,
+            NODE_INTERACTIVE_SELECTOR, NODE_CONTENT_SELECTOR, NODE_NON_OPEN_SELECTOR,
+            isNodeInteractiveTarget, isNodeContentTarget, isNodeNonOpenTarget,
+            CSS,
           };
           // 成片合成（composeFinalCut）纯函数级出口：浏览器录制链路无法在 Node 端跑，
           // 但合成主循环（分段推进/裁剪/转场/字幕）可以用假的 video/MediaRecorder 真实执行——
@@ -12163,7 +12334,7 @@ window.__ModuleLoader__.load({
             hostSyncTick, mergeHostDoc, loadBible, loadGraphDoc,
             removeNodes, ungroupNode, undo, redo, pushHistory,
             graph: () => JSON.parse(JSON.stringify(S.graph)),
-            // 生成面板挂靠节点（纯 UI 状态）：供 test-node-layout 断言「点击节点任意位置 → 面板打开」。
+            // 生成面板挂靠节点（纯 UI 状态）：供 test-node-layout 断言「只有点击内容区才打开面板」。
             composerId: () => S.composerId,
             selectedIds: () => [...S.sel],
             // 冒烟测试用：切换「快捷键面板」展开态，让展开后的列表也走一次真实渲染
