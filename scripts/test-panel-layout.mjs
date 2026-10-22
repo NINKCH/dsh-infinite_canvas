@@ -8,8 +8,8 @@
 //   4) 顶部工具栏：最左「返回会话」纯 < 图标 → 项目名（下拉列出项目 + 新建项目…；双击项目名就地编辑；
 //      下拉每行右侧「修改」按钮在该行就地编辑（当前项目行同样可点，pointerdown/click 都不触发行切换），
 //      当前项目只用蓝底/蓝字标选中、不再渲染 ✓；顶部不再有铅笔、也不再有当前画布名 chip；下拉里没有「重命名项目…」；
-//      下拉行单行「项目名 · 画布名」；≤5 项列表高 = 实际行数（不留空白），>5 项才固定 5 行 + 分页；
-//      搜索/分页先结清进行中的就地改名）
+//      下拉行单行「项目名 · 画布名」；≤5 项列表高 = 实际行数（不留空白），>5 项才固定 5 行；
+//      分页控件在搜索行右侧（同一行，列表下方无分页行），搜索/分页先结清进行中的就地改名）
 //   5) 快捷键 / 帮助反馈 / 检查更新回到右上角：三个纯图标按钮（hover tooltip），右侧面板不再有动作行
 //   6) 多画布：项目为根、子画布为目录；新建必须命名；切换读写不同 key；删除回默认画布；
 //      默认画布 canvasId=null（key 仍等于 projectId，旧数据零迁移）
@@ -18,6 +18,8 @@
 //      + 比例协调 + 只剩一个画布时删除按钮隐藏
 //   8) 全局去「灰蓝」：所有弹层容器实底主题背景 / 1px 线框 / 14–16px 圆角 / --dshic-shadow-lg，
 //      无 --dsw-alias-bg-overlay / rgba / backdrop-filter；弹层内部无固定色字面量
+//   9) 项目下拉：自适应高度（≤5 行）/ >5 行固定 5 行 + 分页（分页在搜索行右侧）/ 搜索 / 行内编辑结清
+//  10) 设置页存储实况：默认一行精简状态 + ⓘ 折叠详情（路径/统计）；详情容器实底主题
 // 运行：node scripts/test-panel-layout.mjs（退出码 0=通过）
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
@@ -172,6 +174,18 @@ function cssRule(selector) {
     from = end + 1;
   }
   return all.join(';');
+}
+/** 取 CSS 中所有「选择器命中该类名（含组合选择器）」的规则：用于全量反向扫描，避免只看第一条。 */
+function cssRulesMatchingClass(name) {
+  const css = LAYOUT.CSS || '';
+  const out = [];
+  const re = /([^{}@][^{}]*)\{([^{}]*)\}/g;
+  const needle = new RegExp('\\.' + String(name).replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '(?![-\\w])');
+  let m;
+  while ((m = re.exec(css))) {
+    if (needle.test(m[1])) out.push({ sel: m[1].trim(), body: m[2] });
+  }
+  return out;
 }
 
 // ============================================================
@@ -864,10 +878,45 @@ function cssRule(selector) {
   ok(!/(^|;)background(-[a-z-]+)?:/.test(rail), '图标列容器仍有 background 声明（应完全去掉底色）:' + rail.slice(0, 140));
   ok(!/(^|;)box-shadow:/.test(rail), '图标列容器仍有 box-shadow（应去掉卡片投影）');
   ok(!/(^|;)border-radius:/.test(rail), '图标列容器仍有 border-radius（应去掉卡片圆角）');
-  // 渲染级：rail 容器只有布局类，没有内联边框样式
-  const railEl = all(TABS.IconRail()).find((e) => clsOf(e).split(/\s+/).includes('dshic-rail'));
+  // 渲染级：rail 容器只有布局类，没有内联边框样式；内联归零保证宿主全局样式也画不出框
+  const railTree = TABS.IconRail();
+  const railEl = all(railTree).find((e) => clsOf(e).split(/\s+/).includes('dshic-rail'));
   ok(!!railEl, '渲染树里找不到图标列容器');
   ok(!/(^|[^-])border/.test(String(clsOf(railEl))), '图标列容器渲染时带了边框样式类');
+  const railStyle = (railEl && railEl.props && railEl.props.style) || {};
+  eq(railStyle.border, 0, '图标列渲染 style 的 border 不是 0');
+  eq(railStyle.background, 'transparent', '图标列渲染 style 的 background 不是 transparent');
+  eq(railStyle.boxShadow, 'none', '图标列渲染 style 的 boxShadow 不是 none');
+  eq(railStyle.borderRadius, 0, '图标列渲染 style 的 borderRadius 不是 0');
+  eq(railStyle.height, 'auto', '图标列渲染 style 没有 height:auto');
+  eq(railStyle.alignSelf, 'center', '图标列渲染 style 没有 align-self:center');
+  // 全量扫描：所有命中 `.dshic-rail` 类名的规则（不只第一条）都不得声明边框/底色/投影/圆角
+  const railRules = cssRulesMatchingClass('dshic-rail');
+  ok(railRules.length >= 1, '找不到任何命中 .dshic-rail 的 CSS 规则');
+  for (const r of railRules) {
+    ok(!/(^|;)\s*border(-[a-z-]+)?\s*:/.test(r.body), '规则「' + r.sel + '」仍声明 border');
+    ok(!/(^|;)\s*background(-[a-z-]+)?\s*:/.test(r.body), '规则「' + r.sel + '」仍声明 background');
+    ok(!/(^|;)\s*box-shadow\s*:/.test(r.body), '规则「' + r.sel + '」仍声明 box-shadow');
+    ok(!/(^|;)\s*border-radius\s*:/.test(r.body), '规则「' + r.sel + '」仍声明 border-radius');
+    ok(!/(^|;)\s*(height\s*:\s*(100%|100vh)|inset\s*:|position\s*:\s*absolute)/.test(r.body), '规则「' + r.sel + '」仍会让图标列撑满/脱离中缝');
+  }
+  // 布局模型（fake DOM 无真实排版，按盒模型计算）：内容高 ≈ 图标+分隔线+间距，远小于父高且上下留白充足
+  const railBtns = all(railTree).filter((e) => clsOf(e).split(/\s+/).includes('dshic-rail-btn'));
+  const railSeps = all(railTree).filter((e) => clsOf(e).split(/\s+/).includes('dshic-rail-sep'));
+  const railKids = (railTree.props.children || []).filter(Boolean);
+  ok(railBtns.length >= 9, '图标列按钮数量不足（应含 9 个动作图标）');
+  const contentH = 12 + railBtns.length * 34 + railSeps.length * 1 + (railKids.length - 1) * 3;
+  const parentH = 800;
+  ok(contentH < parentH * 0.8, '图标列内容高度未明显小于父高：' + contentH + ' vs ' + parentH);
+  ok((parentH - contentH) / 2 > 20, '图标列上下留白不足（未真正悬浮）：' + ((parentH - contentH) / 2).toFixed(1));
+  // 父容器直接挂 rail + canvas (+右侧栏)，没有额外 wrapper 把 rail 撑成满高
+  const pageTree = TABS.CanvasPage();
+  const mainEl = all(pageTree).find((e) => clsOf(e).split(/\s+/).includes('dshic-main'));
+  ok(!!mainEl, '画布主区域 .dshic-main 不存在');
+  const mainKids = (mainEl.props.children || []).filter(Boolean);
+  ok(mainKids[0] && mainKids[0].type === TABS.IconRail, '.dshic-main 第一个子节点不是图标列（不应有包边 wrapper）');
+  eq(mainKids.filter((k) => k && k.type === TABS.IconRail).length, 1, '.dshic-main 里出现重复图标列');
+  ok(mainKids.some((k) => k && k.props && String(k.props.className || '').includes('dshic-canvas')), '.dshic-main 缺少画布区域');
   ok(/h\(IconRail\)/.test(fnBody('CanvasPage')), 'IconRail 未挂到画布主区域');
 }
 
@@ -895,6 +944,30 @@ function cssRule(selector) {
   ok(/overflow:hidden/.test(pagedCss), '>5 项时列表没有固定高度裁切（项目多时会撑高下拉）');
   ok(clsOf(listEl()).includes('is-paged'), '>5 项时列表没有命中 is-paged（仍会自适应）');
   eq(listEl().props['data-paged'], '1', '>5 项时列表 data-paged 标记不对');
+  // 分页在搜索行右侧（同一行），不再位于列表下方
+  const tbNow = all(TABS.Toolbar());
+  const srEl = tbNow.find((e) => e.props && e.props['data-role'] === 'project-menu-searchrow');
+  ok(!!srEl, '>5 项时缺少搜索行容器');
+  const srKids = (srEl.props.children || []).filter(Boolean);
+  eq(srKids.length, 2, '>5 项时搜索行应只有「搜索框 + 分页」两个子节点');
+  ok(clsOf(srKids[0]).includes('dshic-proj-menu-search'), '搜索行第一个子节点不是搜索框');
+  ok(clsOf(srKids[1]).includes('dshic-proj-menu-pager'), '搜索行第二个子节点不是分页控件（分页没有放在搜索框右侧）');
+  const menuRootEl = tbNow.find((e) => clsOf(e).split(/\s+/).includes('dshic-proj-menu'));
+  ok(!!menuRootEl, '找不到项目下拉根节点');
+  const menuRootKids = (menuRootEl.props.children || []).filter(Boolean);
+  ok(!menuRootKids.some((k) => k && k.props && k.props['data-role'] === 'project-menu-pager'),
+    '分页控件仍是下拉根的直接子节点（仍在列表下方）');
+  const pagerEls = tbNow.filter((e) => e.props && e.props['data-role'] === 'project-menu-pager');
+  eq(pagerEls.length, 1, '分页控件应只出现一次');
+  ok(all(srEl).some((e) => e === pagerEls[0]), '分页控件不在搜索行内部');
+  const listEl0 = tbNow.find((e) => e.props && e.props['data-role'] === 'project-menu-list');
+  const listIdx = menuRootKids.indexOf(listEl0);
+  const afterList = menuRootKids[listIdx + 1];
+  ok(!(afterList && afterList.props && afterList.props['data-role'] === 'project-menu-pager'), '列表下方仍跟着分页行');
+  // CSS：搜索行横向布局，搜索框 flex:1 占满剩余宽度，分页紧邻
+  const srCss = cssRule('.dshic-proj-menu-searchrow');
+  ok(/display:flex/.test(srCss) && /align-items:center/.test(srCss), '搜索行不是横向一行布局');
+  ok(/flex:1/.test(cssRule('.dshic-proj-menu-search')), '搜索框没有占满剩余宽度（flex:1）');
   const totalPages = Math.ceil(PANEL.state().projects.length / 5);
   ok(totalPages > 1, '构造的项目数不足，无法验证分页');
   eq(pageText(), '1/' + totalPages, '分页页码显示不对');
@@ -958,6 +1031,11 @@ function cssRule(selector) {
   ok(!clsOf(adaptiveList).includes('is-paged'), '≤5 项时列表仍固定 5 行高（is-paged）');
   eq(adaptiveList.props['data-paged'], '0', '≤5 项时列表应标记 data-paged=0（高度自适应）');
   eq((adaptiveList.props.children || []).filter(Boolean).length, 3, '≤5 项时列表高度应等于实际 3 行（不应补空行占位）');
+  const srAdaptive = all(TABS.Toolbar()).find((e) => e.props && e.props['data-role'] === 'project-menu-searchrow');
+  ok(!!srAdaptive, '≤5 项时缺少搜索行');
+  eq((srAdaptive.props.children || []).filter(Boolean).length, 1, '≤5 项时搜索行不应给分页留占位（只应有搜索框）');
+  eq(all(TABS.Toolbar()).filter((e) => e.props && e.props['data-role'] === 'project-menu-pager').length, 0,
+    '≤5 项时仍渲染分页控件');
   // 无匹配空态
   PANEL.setProjectMenuSearch('不存在的项目');
   eq(rows().length, 0, '无匹配时仍渲染项目行');
@@ -983,6 +1061,54 @@ function cssRule(selector) {
   act(all(TABS.Toolbar()), 'project-menu-next').props.onClick();
   eq(PANEL.state().inlineEdit, null, '切换分页时没有先提交/取消进行中的就地改名');
   PANEL.closeProjectMenu();
+}
+
+// ============================================================
+// 10) 设置页「存储实况」：默认一行精简状态，详情收进 ⓘ 折叠（UI-RULES 第 8 条）
+// ============================================================
+{
+  PANEL.setStorageInfoOpen(false);
+  PANEL.setDbStats({
+    store: 'sqlite', dbExists: true, dbBytes: 60 * 1048576, walBytes: 2 * 1048576,
+    projects: 7, assets: 58, fts: 'trigram', dbPath: 'D:\\data\\canvas-data\\canvas.db',
+  });
+  const settingsTree = all(TABS.SettingsTab());
+  ok(settingsTree.some((e) => e.type === TABS.DataRootCard), '设置页没有挂载数据目录/存储卡片');
+  const card = () => all(TABS.DataRootCard());
+  const s0 = card();
+  const summary = s0.find((e) => e.props && e.props['data-role'] === 'storage-summary');
+  ok(!!summary, '设置页缺少存储精简状态行');
+  const summaryTxt = stringsOf(summary).join('');
+  ok(/SQLite/.test(summaryTxt), '精简状态没有显示存储类型 SQLite：' + summaryTxt);
+  ok(/62MB/.test(summaryTxt), '精简状态没有显示容量（60+2=62MB）：' + summaryTxt);
+  // 默认不展开：详情节点不存在，且整页不再平铺大段存储说明
+  ok(!s0.some((e) => e.props && e.props['data-role'] === 'storage-details'), '默认就展开了存储详情（应默认收起）');
+  const settingsText = stringsOf(settingsTree).join('|') + '|' + stringsOf(s0).join('|');
+  ok(!settingsText.includes('存储实况'), '设置页仍平铺「存储实况」大段说明');
+  ok(!settingsText.includes('库文件'), '设置页默认仍显示库文件路径');
+  ok(!settingsText.includes('trigram'), '设置页默认仍显示检索统计');
+  ok(!settingsText.includes('WAL'), '设置页默认仍显示 WAL 明细');
+  const toggle = s0.find((e) => e.props && e.props['data-action'] === 'toggle-storage-info');
+  ok(!!toggle, '缺少存储详情展开按钮（ⓘ）');
+  eq(stringsOf(toggle).join(''), 'ⓘ', '展开按钮不是 ⓘ 图标');
+  toggle.props.onClick({ stopPropagation: noop });
+  const s1 = card();
+  const details = s1.find((e) => e.props && e.props['data-role'] === 'storage-details');
+  ok(!!details, '点击 ⓘ 后没有出现存储详情区');
+  const detTxt = stringsOf(details).join('|');
+  ok(detTxt.includes('D:\\data\\canvas-data\\canvas.db'), '详情缺少库文件路径：' + detTxt.slice(0, 120));
+  ok(detTxt.includes('58') && detTxt.includes('7'), '详情缺少资产/项目统计');
+  ok(detTxt.includes('trigram'), '详情缺少检索统计');
+  // 再次点击收起
+  const toggle2 = s1.find((e) => e.props && e.props['data-action'] === 'toggle-storage-info');
+  toggle2.props.onClick({ stopPropagation: noop });
+  ok(!card().some((e) => e.props && e.props['data-role'] === 'storage-details'), '再次点击 ⓘ 没有收起详情');
+  // 详情样式：实底主题 + 线框，不是高亮/半透明框
+  const detCss = cssRule('.dshic-storage-details');
+  ok(/background:var\(--dsw-alias-bg-layer-1\)/.test(detCss), '详情区不是实底主题背景');
+  ok(/border:1px solid var\(--dshic-line2\)/.test(detCss), '详情区缺少 1px --dshic-line2 线框');
+  ok(!/background:rgba|background:color-mix|box-shadow:var\(--dshic-shadow-sel\)/.test(detCss), '详情区出现高亮/半透明底');
+  ok(/white-space:nowrap/.test(cssRule('.dshic-storage-summary')), '精简状态不是单行（缺少 nowrap）');
 }
 
 if (errs.length) {

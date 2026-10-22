@@ -760,6 +760,18 @@ window.__ModuleLoader__.load({
       'dataRootMigrating': '迁移中',
       'dataRootUnsupported': '当前插件后台版本较旧（不支持数据根目录）：重启 Harness 后可用',
       'dataRootSaved': '数据根目录已设置',
+      'storageInfo': '存储',
+      'storageDetails': '存储详情',
+      'storageLoading': '读取中…',
+      'storageUnavailable': '不可用',
+      'storageJson': 'JSON 模式',
+      'storageJsonHint': '宿主运行时缺少 node:sqlite，数据保存在数据目录的文件里',
+      'storageIdb': 'IndexedDB',
+      'storageRefresh': '重新检测存储实况',
+      'storageProjects': '项目',
+      'storageAssets': '资产',
+      'storageSearch': '检索',
+      'storageDbFile': '库文件',
       'resizeHint': '拖动左右上下边可调宽高（右键头调宽、底边调高、右下角同时）',
       'resizeHeightHint': '拖动调高；双击恢复「随内容自适应」',
       'aiEmptyResult': '模型返回了空内容——请检查画布设置里的文本模型，或换一个模型重试',
@@ -1284,6 +1296,18 @@ window.__ModuleLoader__.load({
       'dataRootMigrating': 'Migrating',
       'dataRootUnsupported': 'The plugin backend is older and lacks data-root support — restart Harness to enable',
       'dataRootSaved': 'Data root set',
+      'storageInfo': 'Storage',
+      'storageDetails': 'Storage details',
+      'storageLoading': 'loading…',
+      'storageUnavailable': 'unavailable',
+      'storageJson': 'JSON mode',
+      'storageJsonHint': 'The host runtime lacks node:sqlite; data lives in files under the data root',
+      'storageIdb': 'IndexedDB',
+      'storageRefresh': 'Re-check storage',
+      'storageProjects': 'projects',
+      'storageAssets': 'assets',
+      'storageSearch': 'search',
+      'storageDbFile': 'Database file',
       'resizeHint': 'Drag any edge to resize (top/bottom = height, left/right = width, corner = both)',
       'resizeHeightHint': 'Drag to set height; double-click to fit content again',
       'aiEmptyResult': 'The model returned empty content — check the text model in canvas settings or try another model',
@@ -1503,8 +1527,9 @@ window.__ModuleLoader__.load({
   max-height:min(60vh,calc(100vh - 64px));overflow-y:auto;overscroll-behavior:contain;padding:6px;
   background:var(--dsw-alias-bg-layer-1);border:1px solid var(--dshic-line2);border-radius:15px;
   box-shadow:var(--dshic-shadow-lg);display:flex;flex-direction:column;gap:2px;box-sizing:border-box;}
-/* 搜索框（下拉顶部）：输入即过滤项目名 */
-.dshic-proj-menu-search{flex:none;padding:2px 2px 5px;}
+/* 搜索行：搜索框占满剩余宽度；分页控件（>5 项才有）紧贴搜索框右侧、同一行 */
+.dshic-proj-menu-searchrow{display:flex;align-items:center;gap:6px;flex:none;padding:2px 2px 5px;}
+.dshic-proj-menu-search{flex:1;min-width:0;padding:0;}
 .dshic-proj-menu-search .dshic-input{height:28px;font-size:12px;box-sizing:border-box;width:100%;}
 /* 列表：≤5 项时高度 = 实际行数（无空白）；只有 >5 项才固定 5 行高（.is-paged）并分页 */
 .dshic-proj-menu-list{flex:none;height:auto;overflow:visible;display:flex;flex-direction:column;gap:2px;}
@@ -1513,8 +1538,8 @@ window.__ModuleLoader__.load({
 /* 无匹配空态：按内容高度，不制造空白 */
 .dshic-proj-menu-empty{flex:none;padding:18px 8px;display:flex;align-items:center;justify-content:center;
   font-size:12px;color:var(--dsw-alias-label-secondary);}
-/* 分页（>5 项才出现）：上一页 / 页码 1/3 / 下一页 */
-.dshic-proj-menu-pager{flex:none;display:flex;align-items:center;justify-content:flex-end;gap:6px;padding:2px 4px;}
+/* 分页（>5 项才出现，位于搜索行右侧）：上一页 / 页码 1/3 / 下一页 */
+.dshic-proj-menu-pager{flex:none;display:flex;align-items:center;gap:4px;padding:0;}
 .dshic-proj-menu-pager-btn{display:inline-flex;align-items:center;justify-content:center;width:24px;height:22px;
   border:none;border-radius:6px;background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;
   font-size:14px;line-height:1;cursor:pointer;padding:0;}
@@ -1972,6 +1997,16 @@ window.__ModuleLoader__.load({
 .dshic-prompt:focus-within .dshic-prompt-input{box-shadow:none;}
 .dshic-hint{line-height:15px;}
 .dshic-card{border-radius:12px;box-shadow:0 1px 2px rgba(0,0,0,.06);}
+/* 设置页「存储实况」：默认一行精简状态 + ⓘ 折叠；详情为实底主题样式（无高亮框） */
+.dshic-storage-summary{flex:1;min-width:0;font-size:11px;line-height:16px;color:var(--dsw-alias-label-secondary);
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.dshic-storage-toggle{width:22px;height:22px;font-size:13px;line-height:1;opacity:.7;}
+.dshic-storage-toggle.is-active{opacity:1;color:var(--dsw-alias-brand-primary);}
+.dshic-storage-details{background:var(--dsw-alias-bg-layer-1);border:1px solid var(--dshic-line2);border-radius:12px;
+  padding:8px 10px;display:flex;flex-direction:column;gap:3px;font-size:11px;line-height:16px;
+  color:var(--dsw-alias-label-secondary);box-sizing:border-box;user-select:text;-webkit-user-select:text;}
+.dshic-storage-line{word-break:break-all;}
+@media (prefers-color-scheme:dark){.dshic-storage-details{border-color:var(--dsw-alias-border-l2);}}
 .dshic-node .dshic-textarea,.dshic-node .dshic-input{border-radius:8px;}
 /* ── 统一媒体节点（节点内只显示结果；原型 .node / .body / .media / .foot）────── */
 /* body 是媒体节点的三段容器（标题栏 / 预览区 / 操作栏），三段各自不滚动；高度公式见 nodeSizeForRatio：
@@ -7063,6 +7098,8 @@ window.__ModuleLoader__.load({
       tick: 0,
       craftStatus: null, // {at, data} | {at, error}
       dataRoot: null,        // 数据根目录（Host 配置）；null = 未设置（资产走 IndexedDB）
+      dbStats: null,         // 存储实况（dbStats RPC 缓存）：设置页默认只显示精简状态，详情折叠
+      storageInfoOpen: false, // 设置页「存储实况」详情是否展开（纯 UI 状态）
       store: null,           // 服务端存储模式：'sqlite'（0.18 主路径）| 'json'（降级）| null（未就绪/未设置）
       dataRootExists: false,
       dataRootSupported: true,
@@ -11350,7 +11387,10 @@ window.__ModuleLoader__.load({
         // 与工具栏/空态「添加节点」同一入口：addNodeAt 负责默认数据、360×360 尺寸、选中与历史
         addNodeAt(type, { x: Math.round(c.x - NODE_W / 2), y: Math.round(c.y - NODE_H / 2) });
       };
-      return h('div', { className: 'dshic-rail', 'data-role': 'icon-rail' },
+      // 容器零外观 + 只占内容高度：内联归零作为最后一道保险（防宿主全局样式/旧样式表残留把它画成
+      // 满高描边卡片）；布局仍由 .dshic-rail 规则提供（height:auto/align-self:center/margin:auto 0）。
+      const railReset = { border: 0, background: 'transparent', boxShadow: 'none', borderRadius: 0, height: 'auto', alignSelf: 'center' };
+      return h('div', { className: 'dshic-rail', 'data-role': 'icon-rail', style: railReset },
         RAIL_NODE_TYPES.map((it) => h('button', {
           key: 'add-' + it.type, type: 'button', className: 'dshic-rail-btn',
           'data-action': 'add-' + it.type, title: labels[it.type] || it.type,
@@ -11528,22 +11568,40 @@ window.__ModuleLoader__.load({
         ),
         menu
           ? h('div', { key: 'menu', className: 'dshic-proj-menu', style: menuStyle, onPointerDown: (e) => e.stopPropagation() },
-              // 搜索：输入即过滤项目名（过滤后仍按 5 行分页）
-              h('div', { key: 'search', className: 'dshic-proj-menu-search' },
-                h('input', {
-                  className: 'dshic-input', type: 'search', value: S.projectMenuSearch || '',
-                  placeholder: T('searchProjectPh'), 'data-role': 'project-menu-search',
-                  onChange: (e) => setProjectMenuSearch(e.target.value),
-                  onPointerDown: (e) => e.stopPropagation(),
-                  onKeyDown: (e) => {
-                    if (e.key === 'Escape') { e.stopPropagation(); closeProjectMenu(); return; }
-                    if (e.key === 'Enter' && menuShown[0]) {
-                      e.preventDefault();
-                      closeProjectMenu();
-                      if (menuShown[0].id !== S.activeId) switchProject(menuShown[0].id);
-                    }
-                  },
-                })),
+              // 搜索行：搜索框占满剩余宽度，分页控件（>5 项才有）紧贴搜索框右侧、同一行
+              h('div', { key: 'searchrow', className: 'dshic-proj-menu-searchrow', 'data-role': 'project-menu-searchrow' },
+                h('div', { key: 'search', className: 'dshic-proj-menu-search' },
+                  h('input', {
+                    className: 'dshic-input', type: 'search', value: S.projectMenuSearch || '',
+                    placeholder: T('searchProjectPh'), 'data-role': 'project-menu-search',
+                    onChange: (e) => setProjectMenuSearch(e.target.value),
+                    onPointerDown: (e) => e.stopPropagation(),
+                    onKeyDown: (e) => {
+                      if (e.key === 'Escape') { e.stopPropagation(); closeProjectMenu(); return; }
+                      if (e.key === 'Enter' && menuShown[0]) {
+                        e.preventDefault();
+                        closeProjectMenu();
+                        if (menuShown[0].id !== S.activeId) switchProject(menuShown[0].id);
+                      }
+                    },
+                  })),
+                menuTotalPages > 1
+                  ? h('div', { key: 'pager', className: 'dshic-proj-menu-pager', 'data-role': 'project-menu-pager' },
+                      h('button', {
+                        type: 'button', className: 'dshic-proj-menu-pager-btn', 'data-action': 'project-menu-prev',
+                        title: T('prevPage'), disabled: menuPage <= 0,
+                        onPointerDown: (e) => e.stopPropagation(),
+                        onClick: () => setProjectMenuPage(menuPage - 1),
+                      }, '‹'),
+                      h('span', { key: 'page', className: 'dshic-proj-menu-page', 'data-role': 'project-menu-page' },
+                        (menuPage + 1) + '/' + menuTotalPages),
+                      h('button', {
+                        type: 'button', className: 'dshic-proj-menu-pager-btn', 'data-action': 'project-menu-next',
+                        title: T('nextPage'), disabled: menuPage >= menuTotalPages - 1,
+                        onPointerDown: (e) => e.stopPropagation(),
+                        onClick: () => setProjectMenuPage(menuPage + 1),
+                      }, '›'))
+                  : null),
               // 列表：≤5 项按实际行数自适应（不留空白）；>5 项固定 5 行高 + 分页
               menuShown.length
                 ? h('div', {
@@ -11613,24 +11671,6 @@ window.__ModuleLoader__.load({
                     }))
                 : h('div', { key: 'empty', className: 'dshic-proj-menu-empty', 'data-role': 'project-menu-empty' },
                     T('noProjectMatch')),
-              // 超过 5 项才出现分页（页码形如 1/3）
-              menuTotalPages > 1
-                ? h('div', { key: 'pager', className: 'dshic-proj-menu-pager', 'data-role': 'project-menu-pager' },
-                    h('button', {
-                      type: 'button', className: 'dshic-proj-menu-pager-btn', 'data-action': 'project-menu-prev',
-                      title: T('prevPage'), disabled: menuPage <= 0,
-                      onPointerDown: (e) => e.stopPropagation(),
-                      onClick: () => setProjectMenuPage(menuPage - 1),
-                    }, '‹'),
-                    h('span', { key: 'page', className: 'dshic-proj-menu-page', 'data-role': 'project-menu-page' },
-                      (menuPage + 1) + '/' + menuTotalPages),
-                    h('button', {
-                      type: 'button', className: 'dshic-proj-menu-pager-btn', 'data-action': 'project-menu-next',
-                      title: T('nextPage'), disabled: menuPage >= menuTotalPages - 1,
-                      onPointerDown: (e) => e.stopPropagation(),
-                      onClick: () => setProjectMenuPage(menuPage + 1),
-                    }, '›'))
-                : null,
               S.projects.length ? h('div', { key: 'sep', className: 'dshic-proj-menu-sep' }) : null,
               h('button', {
                 key: 'new', type: 'button', className: 'dshic-proj-menu-item', 'data-action': 'new-project-main',
@@ -12865,15 +12905,52 @@ window.__ModuleLoader__.load({
         ));
     }
 
+    /** 存储实况：默认只显示一行精简状态（SQLite · 58MB），详情收进 ⓘ 折叠区（UI-RULES 第 8 条）。 */
+    function storageSummary(stats) {
+      if (!stats) return T('storageInfo') + ' · ' + T('storageLoading');
+      if (stats.error) return T('storageInfo') + ' · ' + T('storageUnavailable');
+      if (stats.store === 'sqlite') {
+        const mb = Math.max(0, Number(stats.dbBytes) || 0) + Math.max(0, Number(stats.walBytes) || 0);
+        return T('storageInfo') + ' · SQLite' + (mb > 0 ? ' · ' + Math.round(mb / 1048576) + 'MB' : '');
+      }
+      if (stats.store === 'json') return T('storageInfo') + ' · ' + T('storageJson');
+      return T('storageInfo') + ' · ' + T('storageIdb');
+    }
+    /** 存储实况详情（仅展开时渲染）：完整说明 + 统计 + 库文件路径。 */
+    function storageDetailLines(stats) {
+      if (!stats) return [T('storageInfo') + '：' + T('storageLoading')];
+      if (stats.error) return [T('storageInfo') + '：' + T('storageUnavailable')];
+      if (stats.store === 'sqlite') {
+        const db = Math.max(0, Number(stats.dbBytes) || 0) / 1048576;
+        const wal = Math.max(0, Number(stats.walBytes) || 0) / 1048576;
+        return [
+          'SQLite' + (stats.dbExists ? '（' + db.toFixed(2) + ' MB' + (wal > 0 ? ' + WAL ' + wal.toFixed(2) + ' MB' : '') + '）' : '（未创建）'),
+          (Number(stats.projects) || 0) + ' ' + T('storageProjects') + ' · ' + (Number(stats.assets) || 0) + ' ' + T('storageAssets') + ' · ' + T('storageSearch') + ' ' + (stats.fts || '-'),
+          ...(stats.dbPath ? [T('storageDbFile') + '：' + stats.dbPath] : []),
+        ];
+      }
+      if (stats.store === 'json') return [T('storageJson'), T('storageJsonHint')];
+      return [T('storageIdb')];
+    }
+    function setDbStats(v) {
+      S.dbStats = v || null;
+      notify();
+    }
+    function toggleStorageInfo() {
+      S.storageInfoOpen = !S.storageInfoOpen;
+      notify();
+      return S.storageInfoOpen;
+    }
+
     /** 数据根目录卡片：设置/打开/迁移历史资产。 */
     function DataRootCard() {
       const [val, setVal] = useState('');
       const [busy, setBusy] = useState(false);
       const [picking, setPicking] = useState(false);
-      const [stats, setStats] = useState(null); // 存储实况：是否真在用 SQLite、库在哪、多少数据
-      const loadStats = () => { hostRpc('dbStats').then((r) => setStats(r || null)).catch(() => setStats({ error: true })); };
+      const loadStats = () => { hostRpc('dbStats').then((r) => setDbStats(r || null)).catch(() => setDbStats({ error: true })); };
       useEffect(() => { if (S.dataRoot) setVal(S.dataRoot); }, [S.dataRoot]);
       useEffect(() => { loadStats(); }, [S.dataRoot, S.assetsTick]);
+      const stats = S.dbStats;
       const save = async () => {
         if (busy) return;
         setBusy(true);
@@ -12960,21 +13037,26 @@ window.__ModuleLoader__.load({
                 h('button', { type: 'button', className: 'dshic-mini', disabled: busy || picking, onPointerDown: (e) => e.stopPropagation(), onClick: save }, T('dataRootSave')),
               ),
               picking ? h('div', { className: 'dshic-hint', key: 'picking' }, T('dataRootPicking')) : null,
-              h('div', { className: 'dshic-row', key: 'stats', style: { alignItems: 'center', gap: 6 } },
-                h('span', { className: 'dshic-hint', style: { flex: 1, minWidth: 0 } },
-                  !stats ? '存储实况：读取中…'
-                    : stats.error ? '存储实况：无法读取（后端未提供该接口）'
-                    : (stats.store === 'sqlite'
-                      ? '存储实况：SQLite 库' + (stats.dbExists ? '（' + (stats.dbBytes / 1048576).toFixed(2) + ' MB' + (stats.walBytes ? ' + WAL ' + (stats.walBytes / 1048576).toFixed(2) + ' MB' : '') + '）' : '（未创建）') + ' · ' + stats.projects + ' 项目 · ' + stats.assets + ' 资产 · 检索 ' + (stats.fts || '-')
-                      : stats.store === 'json'
-                        ? '存储实况：JSON 降级模式（宿主运行时缺 node:sqlite，数据仍在数据目录的文件里）'
-                        : '存储实况：未设置数据目录（资产存浏览器本地 IndexedDB）')),
+              // 精简状态一行：「存储 · SQLite · 58MB」；详情（完整统计 + 库文件路径）收进 ⓘ 折叠区
+              h('div', { className: 'dshic-row', key: 'stats', style: { alignItems: 'center', gap: 4 } },
+                h('span', {
+                  className: 'dshic-storage-summary', 'data-role': 'storage-summary', title: T('storageDetails'),
+                }, storageSummary(stats)),
                 h('button', {
-                  type: 'button', className: 'dshic-mini is-ghost', title: '重新检测存储实况',
+                  type: 'button', className: cls('dshic-iconbtn dshic-storage-toggle', S.storageInfoOpen && 'is-active'),
+                  'data-action': 'toggle-storage-info', title: T('storageDetails'), 'aria-expanded': S.storageInfoOpen ? 'true' : 'false',
+                  onPointerDown: (e) => e.stopPropagation(), onClick: toggleStorageInfo,
+                }, 'ⓘ'),
+                h('button', {
+                  type: 'button', className: 'dshic-mini is-ghost', 'data-action': 'storage-refresh', title: T('storageRefresh'),
                   onPointerDown: (e) => e.stopPropagation(), onClick: loadStats,
                 }, '↻'),
               ),
-              stats && stats.dbPath ? h('div', { key: 'dbpath', className: 'dshic-hint' }, '库文件：' + stats.dbPath) : null,
+              S.storageInfoOpen
+                ? h('div', {
+                    key: 'storage-details', className: 'dshic-storage-details', 'data-role': 'storage-details',
+                  }, storageDetailLines(stats).map((line, i) => h('div', { key: 'l' + i, className: 'dshic-storage-line' }, line)))
+                : null,
               h('div', { className: 'dshic-row', key: 'row2' },
                 S.dataRoot ? h('button', { type: 'button', className: 'dshic-mini', onPointerDown: (e) => e.stopPropagation(), onClick: openDir }, T('dataRootOpen')) : null,
                 h('button', { type: 'button', className: 'dshic-mini is-ghost', disabled: busy || picking, title: T('dataRootImportHint'), onPointerDown: (e) => e.stopPropagation(), onClick: importFromRoot }, Ic('folder', 11), T('dataRootImportBtn')),
@@ -14012,7 +14094,7 @@ window.__ModuleLoader__.load({
         // 直接暴露各页签组件与同步入口，让测试能逐个渲染/驱动，抓白屏与同步断链问题
         if (typeof window !== 'undefined' && window.__DSH_IC_SMOKE__) {
           window.__DSH_IC_TABS__ = {
-            ProjectsTab, AssetsTab, BibleTab, SettingsTab, CanvasPage, ShortcutsPanel, CanvasHostedApp, SkillPalette,
+            ProjectsTab, AssetsTab, BibleTab, SettingsTab, DataRootCard, CanvasPage, ShortcutsPanel, CanvasHostedApp, SkillPalette,
             // 面板结构重构（左侧图标列 / 顶部工具栏 / 右侧面板 / 统一弹窗）
             Toolbar, Rightbar, IconRail, StudioModal, ProjectNameDialog,
           };
@@ -14076,6 +14158,8 @@ window.__ModuleLoader__.load({
             beginInlineRename, setInlineEditValue, commitInlineRename, cancelInlineRename, inlineEditValue,
             setCanvasSearch, toggleCanvasCollapsed,
             setProjectMenuSearch, setProjectMenuPage, PROJECT_MENU_PAGE_SIZE,
+            setDbStats, toggleStorageInfo,
+            setStorageInfoOpen: (v) => { S.storageInfoOpen = !!v; notify(); },
             createCanvasNamed, renameCanvasNamed, deleteCanvasNamed, listCanvases, canvasNameFor,
             setProjectDialogValue: (v) => { if (S.projectDialog) S.projectDialog.value = String(v == null ? '' : v); },
             setInlineValue: (v) => setInlineEditValue(v),
@@ -14090,6 +14174,8 @@ window.__ModuleLoader__.load({
               inlineEdit: S.inlineEdit ? { ...S.inlineEdit } : null,
               canvasSearch: S.canvasSearch,
               canvasCollapsed: !!S.canvasCollapsed,
+              dbStats: S.dbStats ? { ...S.dbStats } : null,
+              storageInfoOpen: !!S.storageInfoOpen,
               rightTab: S.rightTab,
               activeId: S.activeId,
               activeCanvasId: activeCanvasId(),
