@@ -228,7 +228,7 @@ function cssRulesMatchingClass(name) {
   const acts = els.filter((e) => e.props && e.props['data-action']).map((e) => e.props['data-action']);
   eq(acts.join(','), 'add-text,add-script,add-storyboard,add-image,add-video,add-finalcut,open-assets,open-bible,run-workflow',
     '左侧图标列顺序/动作不符合要求');
-  ok(/\.dshic-rail\{[^}]*flex:none/.test((LAYOUT.CSS || '')), '图标列不是固定 flex:none 列（会随画布布局变化）');
+  ok(/\.dshic-rail\{[^}]*position:absolute/.test((LAYOUT.CSS || '')), '图标列不再是绝对定位悬浮层');
   // 第 2 条：图标列整列垂直居中（内层绝对定位居中，不是贴左上角/撑满整列）
   ok(/\.dshic-rail-inner\{[^}]*justify-content:center/.test((LAYOUT.CSS || '')), '图标列没有垂直居中（内层缺 justify-content:center）');
   ok(/\.dshic-rail-inner\{[^}]*top:50%[^}]*translateY\(-50%\)/.test((LAYOUT.CSS || '')), '图标列内层没有垂直居中（缺 top:50% + translateY(-50%)）');
@@ -889,7 +889,8 @@ function cssRulesMatchingClass(name) {
   // 左侧图标栏：外层只占位、内层绝对定位垂直居中（真正悬浮，上下留白）
   const rail = cssRule('.dshic-rail');
   const railInnerCss = cssRule('.dshic-rail-inner');
-  ok(/position:relative/.test(rail), '图标列外层没有 position:relative（内层无定位基准）');
+  ok(/position:absolute/.test(rail) && /left:0/.test(rail) && /top:0/.test(rail) && /bottom:0/.test(rail), '图标列外层不是绝对定位覆盖层（left:0/top:0/bottom:0）');
+  ok(/pointer-events:none/.test(rail), '图标列外层没有 pointer-events:none（空白区应穿透到画布）');
   ok(!/flex:1/.test(rail), '图标列仍用 flex:1 撑满');
   // 内层必须是绝对定位 + top:50% + translateY 居中，且高度自适应内容
   ok(/position:absolute/.test(railInnerCss), '图标列内层不是绝对定位（仍会被 flex 拉伸）');

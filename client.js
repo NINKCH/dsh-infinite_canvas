@@ -1503,12 +1503,12 @@ window.__ModuleLoader__.load({
 .dshic-zoom{min-width:56px;text-align:center;font-size:12px;color:var(--dsw-alias-label-secondary);font-variant-numeric:tabular-nums;}
 .dshic-main{flex:1;display:flex;min-height:0;position:relative;}
 /* ── 左侧图标列（单列；固定，不随画布平移缩放）──────────────────── */
-/* 左侧图标列：完全无容器外观（无 border/background/box-shadow/border-radius），只留图标本身。
-   用「外层占位（46px 宽，参与 flex 布局，透明）+ 内层绝对定位垂直居中」实现真正悬浮：
-   - 外层 .dshic-rail 只负责占位，不撑高、无色；
-   - 内层 .dshic-rail-inner 绝对定位到父容器垂直中线，高度=内容高度，四周留白。 */
-.dshic-rail{flex:none;width:46px;position:relative;align-self:stretch;background:transparent;border:0;box-shadow:none;}
-.dshic-rail-inner{position:absolute;left:0;top:50%;transform:translateY(-50%);width:46px;
+/* 左侧图标列：**悬浮在画布左缘之上**（即梦式）——图标列不再是 flex 流里的一条白色占位列，
+   而是绝对定位覆盖在画布上：画布铺满 .dshic-main 全宽，点阵背景一直延伸到最左；
+   图标列悬浮其中，上下留白由定位自然形成（垂直居中），没有任何底色/边框/投影。
+   pointer-events:none 外层 + auto 内层：空白区域点击/拖拽直接穿透到画布，只有图标可点。 */
+.dshic-rail{position:absolute;left:0;top:0;bottom:0;width:46px;z-index:30;pointer-events:none;background:transparent;border:0;box-shadow:none;}
+.dshic-rail-inner{position:absolute;left:0;top:50%;transform:translateY(-50%);width:46px;pointer-events:auto;
   display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;padding:6px 0;box-sizing:border-box;z-index:25;
   background:transparent;border:0;box-shadow:none;border-radius:0;}
 .dshic-rail-btn{width:34px;height:34px;flex:none;display:flex;align-items:center;justify-content:center;border:none;border-radius:9px;
