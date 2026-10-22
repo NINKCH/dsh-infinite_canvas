@@ -403,7 +403,7 @@ window.__ModuleLoader__.load({
       'finalNotePlaceholder': '成片说明（可选）：转场、字幕与配音设置在各片段节点上',
       'refBadgeTitle': '已连接参考图',
       'refCount': '参考图 {n}',
-      'refNoneHint': '暂无参考图：把图片节点连到本节点的参考图输入，或在提示词里 @资产',
+      'refNoneHint': '暂无参考图：把图片节点连到本节点的参考图输入（@资产 只注入文字设定，不会自动追加资产库里的图片）',
       'refUploadTitle': '上传参考图（新增一个上游图片节点并自动连线）',
       'countLabel': '张数',
       'contNone': '不衔接',
@@ -767,7 +767,7 @@ window.__ModuleLoader__.load({
       'bibleOrderHint': '设定集先行：世界观/风格/角色/场景/道具先定好 → 生成剧本 → 为角色/场景/道具生成参考图 → 再拆解分镜',
       'bibleLinkAssets': '链接资产',
       'bibleLinkTitle': '链接资产到设定条目',
-      'bibleLinkHint': '勾选要绑定的图片/音频/视频（可多选）；@引用该条目时会优先把这些资产作为参考图',
+      'bibleLinkHint': '勾选要绑定的图片/音频/视频（可多选）；@引用该条目时注入设定文字、音频作声音参考；图片参考图只认连线，不会自动上送',
       'bibleLinkApply': '完成',
       'generalProject': '通用项目',
       'moved': '已移动到指定项目',
@@ -776,9 +776,9 @@ window.__ModuleLoader__.load({
       'bibleAutoAdd': '已把 {n} 个新元素补进设定集（描述待补充）',
       'kindAudio': '音频',
       'mentionRefs': '@引用命中',
-      'mentionAssets': '可用参考图 {n} 张',
-      'mentionNoAsset': '暂无参考图',
-      'mentionNoAssetHint': '该实体还没有参考图：先建一个图片节点生成（建议命名「角色-名称 多视图」），之后所有 @名称 的提示词都会自动带上它',
+      'mentionAssets': '已绑定资产 {n} 项（图片不自动上送，参考图请用连线）',
+      'mentionNoAsset': '无绑定资产',
+      'mentionNoAssetHint': '该实体没有绑定资产：@名称 只注入设定描述文字（外观/声音）；参考图必须用图片节点连线到 ref 口，资产库里的图不会自动追加',
       'craftTimeout': 'Craft 任务超时（可在任务面板重试或取消）',
       'errNoImageApi': '未配置图片 API：请到画布设置里添加（未配置时可用演示模式）',
       'photoCmd': 'Craft 命令',
@@ -894,7 +894,7 @@ window.__ModuleLoader__.load({
       'finalNotePlaceholder': 'Final-cut note (optional): transitions, subtitles and voice live on the segment nodes',
       'refBadgeTitle': 'Connected reference images',
       'refCount': 'Refs {n}',
-      'refNoneHint': 'No reference images yet: wire an image node into the reference input, or mention @asset in the prompt',
+      'refNoneHint': 'No reference images yet: wire an image node into the reference input (@asset only injects bible text; it never auto-adds library images)',
       'refUploadTitle': 'Upload a reference image (creates an upstream image node and wires it)',
       'countLabel': 'Count',
       'contNone': 'No predecessor',
@@ -1259,7 +1259,7 @@ window.__ModuleLoader__.load({
       'bibleOrderHint': 'Bible first: set worldview/style/characters/scenes/props → generate the script → generate reference images → then break down the storyboard',
       'bibleLinkAssets': 'Link assets',
       'bibleLinkTitle': 'Link assets to this bible entry',
-      'bibleLinkHint': 'Pick images/audio/video to bind (multi-select); @mentions of this entry will use them as references first',
+      'bibleLinkHint': 'Pick images/audio/video to bind (multi-select); @mentions inject bible text and audio as a voice reference; image references come from wires only and are never auto-sent',
       'bibleLinkApply': 'Done',
       'generalProject': 'General',
       'moved': 'Moved to the target project',
@@ -1268,9 +1268,9 @@ window.__ModuleLoader__.load({
       'bibleAutoAdd': 'Added {n} new entries to the bible (descriptions pending)',
       'kindAudio': 'Audio',
       'mentionRefs': '@mention hits',
-      'mentionAssets': '{n} reference image(s) available',
-      'mentionNoAsset': 'no reference image yet',
-      'mentionNoAssetHint': 'No reference image for this entity yet: create an image node (name it like "角色-张山 多视图") and every later @mention will pick it up automatically',
+      'mentionAssets': '{n} asset(s) bound (images are not auto-sent; wire references explicitly)',
+      'mentionNoAsset': 'no bound asset',
+      'mentionNoAssetHint': 'No asset bound to this entity: @name only injects bible text (looks/voice); reference images must be wired into the ref port — library images are never auto-added',
       'craftTimeout': 'Craft job timed out (retry or cancel it in the job panel)',
       'errNoImageApi': 'No image API configured — add one in canvas settings (demo mode is available without one)',
       'photoCmd': 'Craft command',
@@ -2171,7 +2171,9 @@ window.__ModuleLoader__.load({
     }
 
     // ============================================================
-    // @ 引用（mention）：提示词里写 @张山 → 自动带上该实体的设定集描述与其参考图资产
+    // @ 引用（mention）：提示词里写 @张山 → 自动把该实体的**设定集文字**（外观/声音）注入提示词。
+    // 【铁律】@引用**不注入图片**：发给厂商的参考图严格等于连进该节点 ref 口的连线（见 collectRefs），
+    // 资产库里该实体的其它图（设定集绑定/历史生成/多视图）绝不自动追加——否则会出现"只连 6 张却报 9 张超限"。
     // 以下为纯函数（无副作用），供 scripts/test-mentions.mjs 抽取单测
     // <<<MENTION_PURE_BEGIN>>>
     /** @资产名@ 的词法（双 @ 精确包裹）：终止符是闭合 @，绝不可能把后文吞进名称；
@@ -2254,6 +2256,8 @@ window.__ModuleLoader__.load({
           if (String((it && it.name) || '').trim().toLowerCase() === want) {
             return {
               kind, name: String(it.name).trim(), desc: String((it.desc || '')).trim(),
+              // 声音设定：既支持写进 desc 的「声音：…」，也支持条目上的 voice 字段（视频台词音色）
+              voice: String(it.voice || '').trim(),
               assetIds: Array.isArray(it.assetIds) ? it.assetIds.map(String).filter(Boolean) : [],
             };
           }
@@ -2289,7 +2293,17 @@ window.__ModuleLoader__.load({
         }
         return `[图${i + 1 + picOffset}] ${catLabel(r.category)}：${r.name}`;
       }).join('；');
-      const entLines = light ? [] : entities.map((e) => `${entityLabelOf(e.kind)} ${e.name}：${e.desc}`);
+      // 设定集文本注入（视频路径）：外观 desc 必须带；声音设定（voice 字段或 desc 里的「声音：…」）
+      // 若没写进 desc 就补一句，保证「台词按这个音色说」的约束不依赖分镜是否手写了 voice。
+      // 只注入文字，绝不追加图片（参考图严格等于 ref 连线）。
+      const entLines = light ? [] : entities.map((e) => {
+        const desc = String((e && e.desc) || '');
+        const voice = String((e && e.voice) || '').trim() || voiceFromDesc(desc);
+        const voiceLine = voice && !desc.includes(voice)
+          ? (zh ? '（声音：' + voice + '）' : ' (voice: ' + voice + ')')
+          : '';
+        return `${entityLabelOf(e.kind)} ${e.name}：${desc}${voiceLine}`;
+      });
       return [
         (bible.style || '').trim() ? (zh ? '风格：' : 'Style: ') + bible.style.trim() : '',
         bind ? (zh ? '参考图 → ' : 'Refs -> ') + bind : '',
@@ -2600,6 +2614,37 @@ window.__ModuleLoader__.load({
       return m ? m[1].trim() : '';
     }
     /**
+     * 视频提示词用的「设定集文字」块（缺陷 3）：@引用命中的实体把 desc（外观/声音）注入提示词，
+     * 与图片路径的注入口径一致。**只出文字，不出图片**——参考图严格等于 ref 连线（缺陷 1），
+     * 这里绝不返回 assetIds 或任何图片引用。
+     * @param entities 命中实体（{name, kind, desc, voice?}）
+     * @param bible 设定集（以设定集为准重新匹配，防止调用方传了过期对象）
+     * @param zh 中文（false → 英文）
+     */
+    function entityBibleBlock(entities, bible, zh) {
+      const lines = [];
+      const seen = new Set();
+      for (const e of entities || []) {
+        const name = String((e && e.name) || '').trim();
+        if (!name) continue;
+        const key = name.toLowerCase();
+        if (seen.has(key)) continue;
+        seen.add(key);
+        const ent = matchBibleEntity(name, bible) || e;
+        const desc = String((ent && ent.desc) || '').trim();
+        const voice = String((ent && ent.voice) || '').trim() || voiceFromDesc(desc);
+        if (!desc && !voice) continue;
+        const voiceLine = voice && !desc.includes(voice)
+          ? (zh ? '（声音：' + voice + '）' : ' (voice: ' + voice + ')')
+          : '';
+        lines.push(entityLabelOf((ent && ent.kind) || (e && e.kind)) + ' ' + name + (zh ? '：' : ': ') + desc + voiceLine);
+      }
+      if (!lines.length) return '';
+      return zh
+        ? 'series_bible（设定集文字约束：以下只约束角色/场景/道具的外观与声音，不要据此新增参考图）:\n' + lines.join('\n')
+        : 'series_bible (text constraints only; do not add references from it):\n' + lines.join('\n');
+    }
+    /**
      * 由分镜表 + 参考图生成「参考生成」结构化提示词。
      * 段名保持英文（与厂商优化后的协议一致），正文用中文；没有参考图时返回 ''（调用方回退到普通提示词）。
      * @param shots 分镜镜头（visual/motion/duration/dialogue/sfx/title/characters/scene/props）
@@ -2632,6 +2677,12 @@ window.__ModuleLoader__.load({
         if (!sub.pics.includes(i + 1 + picOffset)) sub.pics.push(i + 1 + picOffset);
       });
       if (!subjects.length) return '';
+      // @引用命中但没有连线参考图的实体：**只注入设定集文字**（外观/声音）。
+      // 绝不因为提示词里提到它就给它造一个 <Picture N>——参考图只能来自用户连线（缺陷 1）。
+      const textOnly = (o.entities || []).filter((e) => {
+        const nm = String((e && e.name) || '').trim().toLowerCase();
+        return !!nm && !subjects.some((sub) => sub.name.toLowerCase() === nm);
+      });
       const sid = (sub) => subjects.indexOf(sub) + 1;
       const pic = (n2) => '<Picture ' + n2 + '>';
       // 名称 → <Subject N>（长名优先，避免"瓦力"吃掉"瓦力的铃铛"）；顺带清掉 @引用@ 的包裹符号，
@@ -2685,6 +2736,10 @@ window.__ModuleLoader__.load({
         outs.push('<Subject ' + (i + 1) + '> 是 ' + sub.pics.map(pic).join('、') + ' 中的 ' + sub.name
           + (brief ? '：' + brief : (sub.kind ? '（' + entityLabelOf(sub.kind) + '）' : '')));
       });
+      // ①b 没连图的 @实体@：注入完整设定文本（外观/声音），与图片路径同一口径。
+      // 放在主体定义之后：主体仍只绑定真实参考图，文字补充不改变素材数量。
+      const bibleBlock = entityBibleBlock(textOnly, bible, zh);
+      if (bibleBlock) outs.push(bibleBlock);
       // ② 总述（只写事实，不臆造剧情）
       const first = String(list[0].title || '').trim();
       const last = String(list[list.length - 1].title || '').trim();
@@ -2735,12 +2790,19 @@ window.__ModuleLoader__.load({
             const sp = speakerId(d.role);
             const sub = subjects.find((x) => x.name === d.role);
             const spk = speakers.find((x) => x.name === d.role);
-            const useVoice = !!(sub && sub.voice && spk && !spk.voiced);
+            // 音色来源：① 连了参考图的主体（设定集匹配到 voice）② 没连图但被 @引用 的实体 →
+            // 从设定集 textOnly/角色条目取声音（缺陷 3：分镜台词里的 @角色@ 也要带上声音要求）。
+            let voice = sub ? sub.voice : '';
+            if (!voice && d.role) {
+              const bent = matchBibleEntity(d.role, bible);
+              if (bent) voice = String(bent.voice || '').trim() || voiceFromDesc(bent.desc);
+            }
+            const useVoice = !!(voice && spk && !spk.voiced);
             if (useVoice) spk.voiced = true;
             const who = sub ? ('<Subject ' + sid(sub) + '>（' + sp + '）') : (d.role ? d.role + '（' + sp + '）' : sp);
             const lang = /[\u4e00-\u9fa5]/.test(d.line) ? 'Chinese' : 'English';
             const said = useVoice
-              ? (zh ? ' 用' + sub.voice + '说' : ' says (voice: ' + sub.voice + ')')
+              ? (zh ? ' 用' + voice + '说' : ' says (voice: ' + voice + ')')
               : (zh ? ' 说' : ' says');
             return who + said + '：<d>[' + lang + '] ' + d.line + '</d>';
           }).join('；');
@@ -2874,9 +2936,11 @@ window.__ModuleLoader__.load({
     }
 // <<<MENTION_PURE_END>>>
 
-      /** 解析提示词里的 @引用：返回命中实体 + 其名下的参考图资产与**声音参考资产**（按实体出现顺序、各实体内按生成时间）。
+      /** 解析提示词里的 @引用：返回命中实体 + 其名下的图片/声音资产（按实体出现顺序、各实体内按生成时间）。
        *  实体的参考资产来源：① 设定条目里**链接的资产**（assetIds，绑定关系优先）
-       *                  ② 其次按命名/实体字段匹配的资产（角色-张山 多视图 / 角色-张山 声音 等）。 */
+       *                  ② 其次按命名/实体字段匹配的资产（角色-张山 多视图 / 角色-张山 声音 等）。
+       *  ⚠ 这里返回的 refs **只用于面板预览/绑定展示**；生成时参考图严格只取连线（collectRefs），
+       *  绝不把这些资产自动塞进厂商请求——@引用只注入文字设定。 */
       async function resolveMentionBundle(prompt, bible, projectId) {
         const entities = [];
         for (const m of parseMentions(prompt)) {
@@ -2932,7 +2996,11 @@ window.__ModuleLoader__.load({
       arr.splice(dest, 0, moved);
       return arr;
     }
-    /** 合成参考图列表：连线（用户显式顺序）优先，其后追加 @引用命中的设定集资产（去重）。 */
+    /** 合成参考图列表：**只取连进本节点 ref 口的连线**（顺序 = refOrder），
+     *  绝不把 @引用命中的设定集资产 / 历史生成 / 多视图自动追加进参考列表——
+     *  参考图是用户显式决策，自动追加会造成"只连 6 张却按 9 张报厂商超限"（两处统计口径打架）。
+     *  @引用只负责两件事：① 注入设定集**文字**（外观/声音，见 entityBibleBlock）② 提供声音参考资产。
+     *  唯一事实源：连线 + refOrder（面板角标 [图N]、提示词绑定与厂商上送都用这同一份列表）。 */
     async function collectRefs(n, prompt, bible) {
       const out = [];
       const edges = S.graph.edges.filter((x) => x.toNode === n.id && x.toPort === 'ref');
@@ -2949,15 +3017,8 @@ window.__ModuleLoader__.load({
           if (blob) out.push({ assetId: aid, blob, name: (rec && rec.name) || '', category: (rec && rec.category) || 'general', source: 'wired' });
         } catch { /* 单个失败不影响其余 */ }
       }
+      // @引用解析：只取实体（文字设定注入）与声音参考资产；**命中的图片列表刻意不用**
       const bundle = await resolveMentionBundle(prompt, bible, S.activeId);
-      for (const r of bundle.refs) {
-        if (out.some((x) => x.assetId === r.assetId)) continue;
-        try {
-          const rec = await idbGet(r.assetId);
-          const blob = await assetBlob(r.assetId);
-          if (blob) out.push({ assetId: r.assetId, blob, name: (rec && rec.name) || r.name, category: (rec && rec.category) || 'general', source: 'mention', entity: r.entity });
-        } catch { /* 忽略 */ }
-      }
       // 声音参考：@引用命中实体名下的音频资产（角色音色一致性用），视频生成时作为 audios[] 传出
       const audioBlobs = [];
       for (const r of (bundle.audioRefs || [])) {
@@ -3072,6 +3133,39 @@ window.__ModuleLoader__.load({
         const locals = await idbByProjectRaw(pid);
         const have = new Set(out.map((x) => x.id));
         for (const l of locals) if (l && !have.has(l.id)) out.push(l);
+      } catch { /* 忽略 */ }
+      return out.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+    }
+    /** 资产选择器数据源（设定集「链接资产」弹窗用）：**完整拉取全部资产**。
+     *  0.18 起服务端是资产库唯一事实源；本地 IndexedDB 只剩迁移期遗留记录，只读本地会让
+     *  「较早生成 / 多视图 / 尾帧 / 声音 / 其它设备生成」的资产凭空消失（实测弹窗只看到 1/1·12，
+     *  项目里却有几倍于此的资产）。这里按 200/页循环 nextCursor 拉到底 → 合并本地遗留（去重）
+     *  → 按生成时间倒序。分页上限由服务端 nextCursor 决定，客户端不截断。 */
+    async function assetsForPicker() {
+      const out = [];
+      const seen = new Set();
+      const seenCursor = new Set();
+      try {
+        let cursor = null;
+        for (;;) {
+          const r = await hostRpc('assetsList', { projectId: '', limit: 200, cursor }).catch(() => null);
+          if (!r || !Array.isArray(r.items)) break;
+          for (const rec of r.items) {
+            if (!rec || !rec.id || seen.has(rec.id)) continue;
+            seen.add(rec.id);
+            out.push(rec);
+            assetMem.set(rec.id, rec);
+            assetNameCache.set(rec.id, rec.name);
+          }
+          // 防御：游标为空或原地打转（服务端异常）时结束，绝不无限循环
+          if (!r.nextCursor || seenCursor.has(r.nextCursor)) break;
+          seenCursor.add(r.nextCursor);
+          cursor = r.nextCursor;
+        }
+      } catch { /* 服务端不可用 → 本地兜底 */ }
+      try {
+        const locals = await idbAll();
+        for (const l of locals) if (l && l.id && !seen.has(l.id)) { seen.add(l.id); out.push(l); }
       } catch { /* 忽略 */ }
       return out.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
     }
@@ -6889,7 +6983,7 @@ window.__ModuleLoader__.load({
     // 输入解析：生成节点的实际 prompt（文本节点 / 分镜节点的画面、动作输出）
     /** 分镜表 → 一次多镜头视频生成的提示词：所有镜头按顺序、按时长写进同一条提示词，
      *  由支持多镜头的视频模型**一次性生成整段视频**（而不是一镜一视频再拼接）。
-     *  各镜内的 @实体 引用原样保留，collectRefs 会自动挂上对应参考图资产。 */
+     *  各镜内的 @实体 引用原样保留：@引用只注入设定集文字，参考图仍只取连进 ref 口的连线。 */
     function buildStoryboardVideoPrompt(sb) {
       const shots = ((sb && sb.data && sb.data.shots) || []).filter((s) => s && (String(s.visual || '').trim() || String(s.motion || '').trim()));
       if (!shots.length) return '';
@@ -7251,7 +7345,7 @@ window.__ModuleLoader__.load({
         const _fixed = repairUnclosedMentions(prompt, bibleNames(bible));
         if (_fixed !== prompt) { prompt = _fixed; update((s) => { const nd = s.graph.nodes[n.id]; if (nd) nd.data.prompt = _fixed; }); }
         if (type === 'image') {
-          // 参考图 = 连线（用户顺序）+ @引用命中的设定集资产（按出现顺序）
+          // 参考图 = **只取连进 ref 口的连线**（顺序 refOrder）；@引用只注入文字设定，不追加图片
           const { refs, entities } = await collectRefs(n, prompt, bible);
           const metas = refs.map((r) => ({ blob: r.blob, name: r.name, category: r.category, assetId: r.assetId }));
           const p = buildEffectivePrompt(prompt, refs, entities, bible, true); // light：图片不内联设定全文（防文字渲染污染 + 参考图约束稀释）
@@ -7366,9 +7460,17 @@ window.__ModuleLoader__.load({
           const effOpts = { picOffset: (useFrame && anchorRole === 'reference_image') ? 1 : 0 };
           if (handWritten.includes('subject_definitions')) {
             p = handWritten; // 高级用法：手写结构化提示词，原样发送
+            // 手写结构化提示词也要注入 @实体@ 的设定文字（外观/声音）——缺陷 3 的第三条路径。
+            // 只追加 series_bible 文字块：不动用户写好的主体/镜头结构，也不追加任何参考图。
+            if (!/series_bible/i.test(p)) {
+              const bb = entityBibleBlock(entities, bible, zh);
+              if (bb) p = p + '\n' + bb;
+            }
           } else if (shotList.length) {
             p = buildStructuredVideoPrompt(shotList, refs, bible, {
               zh, prompt: handWritten, music, hasFrame: useFrame, frameRole: anchorRole, continuity,
+              // @引用命中实体的设定文字（外观/声音）：只注入文本，参考图仍严格只取 ref 连线
+              entities,
             });
             if (!p) p = buildEffectivePrompt(prompt, refs, entities, bible, false, effOpts); // 无参考图时回退
           } else {
@@ -11807,7 +11909,9 @@ window.__ModuleLoader__.load({
       );
     }
 
-    /** 设定条目 ↔ 资产绑定对话框：项目可切换、搜索、分页（资产会越来越多）。 */
+    /** 设定条目 ↔ 资产绑定对话框：项目可切换、搜索、分页（资产会越来越多）。
+     *  数据源 = assetsForPicker（服务端分页拉全 + 本地遗留合并，按生成时间倒序），
+     *  绝不只读本地 IndexedDB —— 否则较早生成/多视图/尾帧/声音等资产会看不到。 */
     function BibleLinkDialog({ entry, onApply, onClose }) {
       const PAGE_SIZE = 24;
       const [assets, setAssets] = useState(null);
@@ -11819,7 +11923,7 @@ window.__ModuleLoader__.load({
         let ok = true;
         (async () => {
           try {
-            const all = await idbAll();
+            const all = await assetsForPicker();
             if (ok) setAssets(all.filter((a) => a.kind !== 'text'));
           } catch { if (ok) setAssets([]); }
         })();
@@ -11837,7 +11941,9 @@ window.__ModuleLoader__.load({
         if (scope === 'all') return true;
         return a.projectId === scope || a.projectId === GENERAL_PID; // 项目视图含通用资产（多项目共用）
       });
-      const list = scoped.filter((a) => !ql || String(a.name || '').toLowerCase().includes(ql));
+      // 搜索命中名称、提示词与 id：资产多起来后用户常记得画面描述而不是文件命名
+      const list = scoped.filter((a) => !ql || [a.name, a.prompt, a.id]
+        .some((v) => String(v == null ? '' : v).toLowerCase().includes(ql)));
       const pages = Math.max(1, Math.ceil(list.length / PAGE_SIZE));
       const pageSafe = Math.min(page, pages - 1);
       const pageItems = list.slice(pageSafe * PAGE_SIZE, pageSafe * PAGE_SIZE + PAGE_SIZE);
@@ -11909,7 +12015,8 @@ window.__ModuleLoader__.load({
             onChange: (e) => { const arr = [...bible[key]]; arr[i] = { ...arr[i], name: e.target.value }; persist({ ...bible, [key]: arr }); },
             onPointerDown: (e) => e.stopPropagation(),
           }),
-          // 链接资产栏：把该条目绑定到资产库的图片/音频/视频（多选），@引用与参考图解析会优先用它
+          // 链接资产栏：把该条目绑定到资产库的图片/音频/视频（多选）；@引用时注入设定文字、
+          // 音频作声音参考。参考图只认连线，绑定关系不会让图片自动上送（缺陷 1 的口径）
           h('button', {
             type: 'button', className: cls('dshic-mini', (item.assetIds || []).length && 'is-active'),
             title: T('bibleLinkAssets'),

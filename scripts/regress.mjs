@@ -64,6 +64,7 @@ const SUITE = [
   { name: 'test-compose.mjs', desc: '成片合成主循环（dur is not defined 事故的网兜）' },
   { name: 'test-tools.mjs', desc: '对话工具 schema 与返回值契约' },
   { name: 'test-mentions.mjs', desc: '@引用解析（设定集匹配 / [图N] 绑定 / 资产设定图提示词）' },
+  { name: 'test-ref-ownership.mjs', desc: '参考图严格=连线 / 绑定弹窗分页拉全 / 设定文字注入视频提示词' },
   { name: 'test-expand-assets.mjs', desc: '铺开到画布：缺资产→带设定图提示词的图片节点' },
   { name: 'test-node-merge.mjs', desc: '节点类型合并：旧文档迁移 / 连线与 data 不丢 / 幂等' },
   { name: 'test-node-actions.mjs', desc: '结果操作按钮统一在节点末尾左下角' },

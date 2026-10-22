@@ -46,8 +46,8 @@ function grab(name) {
   throw new Error('配平失败 ' + name);
 }
 const fnSrc = ['shotVisualText', 'shotContinuityPlan', 'shotContinuityBlock', 'storyboardContinuityNote',
-  'frameAnchorText', 'subjectInfoFromRef', 'condenseDesc', 'voiceFromDesc', 'buildStructuredVideoPrompt',
-  'matchBibleEntity', 'entityLabelOf'].map(grab).join('\n\n');
+  'frameAnchorText', 'subjectInfoFromRef', 'condenseDesc', 'voiceFromDesc', 'entityBibleBlock',
+  'buildStructuredVideoPrompt', 'matchBibleEntity', 'entityLabelOf'].map(grab).join('\n\n');
 
 // 复刻 runGenNode 里的 plan IIFE（与源码同逻辑，逐字搬运）
 const planSrc = `
