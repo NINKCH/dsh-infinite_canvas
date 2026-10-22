@@ -899,7 +899,7 @@ function cssRulesMatchingClass(name) {
   ok(!/flex:1/.test(railInnerCss), '图标列内层仍用 flex:1 撑满');
   // 内层 = 悬浮工具条本体：实底白（主题变量）+ 圆角 + 轻投影（即梦式），托住图标；外层保持透明占位
   ok(/background:var\(--dsw-alias-bg-layer-1\)/.test(railInnerCss), '图标列内层缺少实底白背景（悬浮工具条要有白底）');
-  ok(/border-radius:14px/.test(railInnerCss), '图标列内层缺少圆角');
+  ok(!/border-radius/.test(railInnerCss), '图标列内层不应声明圆角（用户要求四角直角）');
   ok(/box-shadow:var\(--dshic-shadow\)/.test(railInnerCss), '图标列内层缺少轻投影');
   // 渲染级：外层与内层都不带边框/底色样式
   const railTree = TABS.IconRail();

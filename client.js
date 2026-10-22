@@ -1508,9 +1508,9 @@ window.__ModuleLoader__.load({
    图标列悬浮其中，上下留白由定位自然形成（垂直居中），没有任何底色/边框/投影。
    pointer-events:none 外层 + auto 内层：空白区域点击/拖拽直接穿透到画布，只有图标可点。 */
 .dshic-rail{position:absolute;left:0;top:0;bottom:0;width:46px;z-index:30;pointer-events:none;background:transparent;border:0;box-shadow:none;}
-.dshic-rail-inner{position:absolute;left:0;top:50%;transform:translateY(-50%);width:46px;pointer-events:auto;
+.dshic-rail-inner{position:absolute;left:0;top:50%;transform:translateY(-50%);width:38px;pointer-events:auto;
   display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;padding:6px 0;box-sizing:border-box;z-index:25;
-  background:var(--dsw-alias-bg-layer-1);border:1px solid var(--dshic-line2);border-radius:14px;box-shadow:var(--dshic-shadow);}
+  background:var(--dsw-alias-bg-layer-1);border:1px solid var(--dshic-line2);box-shadow:var(--dshic-shadow);}
 .dshic-rail-btn{width:34px;height:34px;flex:none;display:flex;align-items:center;justify-content:center;border:none;border-radius:9px;
   background:transparent;color:var(--dsw-alias-label-secondary);cursor:pointer;position:relative;padding:0;}
 .dshic-rail-btn:hover{background:color-mix(in srgb,var(--dsw-alias-label-primary) 8%,transparent);color:var(--dsw-alias-label-primary);}
