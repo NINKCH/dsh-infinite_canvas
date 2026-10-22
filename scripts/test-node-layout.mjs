@@ -701,25 +701,29 @@ const barsOn = () => HDR() + FOOT();
   ok(/font-size:var\(--dshic-legacy-size\)/.test(cssOf('.dshic-node-legacy')) && /border:1px solid var\(--dshic-line2\)/.test(cssOf('.dshic-node-legacy')) && /border-radius:5px/.test(cssOf('.dshic-node-legacy')),
     '旧类型小标签必须 10px / 圆角 5 / 1px --line2 边框');
   // 预览区 + 右下信息条 + 状态胶囊 + 参考图角标 + 播放键
+  // 全局去灰蓝：这些浮层一律实底主题背景（浅色白 / 深色跟随）+ 1px 线框，不再用半透明 + blur。
   ok(/background:var\(--dshic-preview-bg\)/.test(cssOf('.dshic-media-wrap')), '预览区底色必须引用 --dshic-preview-bg');
   ok(/background:var\(--dshic-meta-bg\)/.test(cssOf('.dshic-media-meta')) && /font-size:var\(--dshic-meta-size\)/.test(cssOf('.dshic-media-meta'))
-    && /border-radius:var\(--dshic-meta-r\)/.test(cssOf('.dshic-media-meta')) && /backdrop-filter:blur\(4px\)/.test(cssOf('.dshic-media-meta')),
-    '右下信息条必须深色半透明 / 白字 10px / 圆角 6 / blur(4px)');
-  eq(cssVar('meta-bg'), 'rgba(20,22,26,.6)', '信息条底色必须 rgba(20,22,26,.6)');
+    && /border-radius:var\(--dshic-meta-r\)/.test(cssOf('.dshic-media-meta')) && /border:1px solid var\(--dshic-line2\)/.test(cssOf('.dshic-media-meta'))
+    && !/backdrop-filter/.test(cssOf('.dshic-media-meta')),
+    '右下信息条必须实底 / 10px / 圆角 6 / 1px --dshic-line2 边框（不得再用 blur 半透明）');
+  eq(cssVar('meta-bg'), 'var(--dsw-alias-bg-layer-1)', '信息条底色必须走主题实底 --dsw-alias-bg-layer-1');
   {
     const badge = cssOf('.dshic-status-badge');
-    ok(/background:var\(--dshic-badge-bg\)/.test(badge) && /border:1px solid var\(--dshic-line\)/.test(badge)
-      && /border-radius:var\(--dshic-badge-r\)/.test(badge) && /backdrop-filter:blur\(6px\)/.test(badge),
-      '状态胶囊必须白底 92% / 1px --line / 胶囊圆角 / blur(6px)');
-    eq(cssVar('badge-bg'), 'rgba(255,255,255,.92)', '状态胶囊白底必须 92% 不透明');
+    ok(/background:var\(--dshic-badge-bg\)/.test(badge) && /border:1px solid var\(--dshic-line2\)/.test(badge)
+      && /border-radius:var\(--dshic-badge-r\)/.test(badge) && !/backdrop-filter/.test(badge),
+      '状态胶囊必须实底 / 1px --dshic-line2 / 胶囊圆角（不得再用 blur 半透明）');
+    eq(cssVar('badge-bg'), 'var(--dsw-alias-bg-layer-1)', '状态胶囊底色必须走主题实底 --dsw-alias-bg-layer-1');
     ok(/\.dshic-status-dot\{[^}]*width:6px[^}]*height:6px/.test(src), '状态圆点必须 6px');
     ok(/\.dshic-status-badge\.is-done \.dshic-status-dot\{background:var\(--dshic-ok\);?\}/.test(src), '已生成绿点必须引用 --dshic-ok');
     ok(/\.dshic-status-badge\.is-run \.dshic-status-dot\{background:var\(--dshic-run\);animation:dshic-pulse/.test(src), '生成中蓝点必须 pulse');
   }
   {
     const rb = cssOf('.dshic-refbadge');
-    ok(/background:var\(--dshic-refbadge-bg\)/.test(rb) && /right:7px/.test(rb) && /top:7px/.test(rb), '参考图角标必须深色半透明胶囊、右上 7px');
-    eq(cssVar('refbadge-bg'), 'rgba(20,22,26,.66)', '参考图角标底色必须 rgba(20,22,26,.66)');
+    ok(/background:var\(--dshic-refbadge-bg\)/.test(rb) && /right:7px/.test(rb) && /top:7px/.test(rb)
+      && /border:1px solid var\(--dshic-line2\)/.test(rb) && !/backdrop-filter/.test(rb),
+      '参考图角标必须实底胶囊 + 1px 线框、右上 7px（不得再用 blur 半透明）');
+    eq(cssVar('refbadge-bg'), 'var(--dsw-alias-bg-layer-1)', '参考图角标底色必须走主题实底 --dsw-alias-bg-layer-1');
     ok(/\.dshic-refbadge-thumb\{[^}]*width:16px[^}]*height:16px[^}]*border-radius:5px/.test(src), '参考图角标缩略图必须 16px / 圆角 5');
   }
   ok(/\.dshic-media-play i\{[^}]*width:44px[^}]*height:44px[^}]*border-radius:50%/.test(src), '播放键圆钮必须 44px 圆形（原型 .play i）');

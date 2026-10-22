@@ -14,6 +14,7 @@ window.__ModuleLoader__.load({
     const LS_ACTIVE = 'dsh-ic:active';
     const LS_GRAPH = 'dsh-ic:graph:';
     const LS_SETTINGS = 'dsh-ic:settings';
+    const LS_CANVAS_COLLAPSED = 'dsh-ic:canvas-collapsed'; // 右栏「项目」页签里子画布列表的折叠状态
     const DB_NAME = 'dsh-infinite-canvas';
     const GENERAL_PID = 'general'; // 通用项目：多项目共用的资产挂在这里
     const DB_STORE = 'assets';
@@ -450,6 +451,11 @@ window.__ModuleLoader__.load({
       'canvasHint': '每个子目录是一张独立画布；资产与设定集按项目共享',
       'renameCanvasHint': '双击画布名重命名',
       'delCanvasHint': '删除画布及其节点',
+      'keepOneCanvas': '至少要保留一个画布',
+      'expandCanvases': '展开子画布',
+      'collapseCanvases': '折叠子画布',
+      'searchCanvasPh': '搜索画布…',
+      'noCanvasMatch': '没有匹配的画布',
       'emptyProjectHint': '还没有项目。点上方「新建项目」创建第一个项目，或直接在对话里说「创建一个项目叫…」。',
       'projectName': '项目名称',
       'renameHint': '双击名称重命名',
@@ -964,6 +970,11 @@ window.__ModuleLoader__.load({
       'canvasHint': 'Each subfolder is an independent canvas; assets and the bible are shared per project',
       'renameCanvasHint': 'Double-click the canvas name to rename',
       'delCanvasHint': 'Delete canvas and its nodes',
+      'keepOneCanvas': 'At least one canvas must remain',
+      'expandCanvases': 'Expand canvases',
+      'collapseCanvases': 'Collapse canvases',
+      'searchCanvasPh': 'Search canvases…',
+      'noCanvasMatch': 'No matching canvases',
       'emptyProjectHint': 'No projects yet. Click "New project" above to create the first one, or just say "create a project called…" in the chat.',
       'projectName': 'Project name',
       'renameHint': 'Double-click to rename',
@@ -1432,9 +1443,9 @@ window.__ModuleLoader__.load({
   --dshic-dash-color:#d6d9df; --dshic-dash-w:1.5px;
   --dshic-empty-hover:#bcc4d2; --dshic-empty-hover-bg:#f7f9fc;
   --dshic-field-bg:#fafafb; --dshic-field-hint:#a4aab4;
-  --dshic-meta-size:10px; --dshic-meta-bg:rgba(20,22,26,.6); --dshic-meta-r:6px;
-  --dshic-badge-bg:rgba(255,255,255,.92); --dshic-badge-r:999px;
-  --dshic-refbadge-bg:rgba(20,22,26,.66);
+  --dshic-meta-size:10px; --dshic-meta-bg:var(--dsw-alias-bg-layer-1); --dshic-meta-r:6px;
+  --dshic-badge-bg:var(--dsw-alias-bg-layer-1); --dshic-badge-r:999px;
+  --dshic-refbadge-bg:var(--dsw-alias-bg-layer-1);
   --dshic-panel-font:13px; --dshic-panel-lh:1.62; --dshic-panel-pad:9px 14px;
   --dshic-pick-h:28px; --dshic-pick-r:8px; --dshic-pick-size:11.5px;
   --dshic-send-size:34px; --dshic-send-bg:var(--dshic-ink);
@@ -1460,8 +1471,11 @@ window.__ModuleLoader__.load({
 .dshic-zoom{min-width:56px;text-align:center;font-size:12px;color:var(--dsw-alias-label-secondary);font-variant-numeric:tabular-nums;}
 .dshic-main{flex:1;display:flex;min-height:0;}
 /* ── 左侧图标列（单列；固定，不随画布平移缩放）──────────────────── */
-.dshic-rail{flex:none;width:46px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;padding:6px 0;
-  background:var(--dsw-alias-bg-layer-1);border-right:1px solid var(--dsw-alias-border-l1);z-index:25;box-sizing:border-box;}
+/* 左侧图标列：只占中间一段（height:auto + align-self:center + margin:auto 0），
+   不再 flex:1 撑满整列；内部仍垂直居中。 */
+.dshic-rail{flex:none;width:46px;height:auto;align-self:center;margin:auto 0;display:flex;flex-direction:column;
+  align-items:center;justify-content:center;gap:3px;padding:6px 0;
+  background:var(--dsw-alias-bg-layer-1);border:1px solid var(--dsw-alias-border-l1);border-radius:14px;z-index:25;box-sizing:border-box;}
 .dshic-rail-btn{width:34px;height:34px;flex:none;display:flex;align-items:center;justify-content:center;border:none;border-radius:9px;
   background:transparent;color:var(--dsw-alias-label-secondary);cursor:pointer;position:relative;padding:0;}
 .dshic-rail-btn:hover{background:color-mix(in srgb,var(--dsw-alias-label-primary) 8%,transparent);color:var(--dsw-alias-label-primary);}
@@ -1472,27 +1486,44 @@ window.__ModuleLoader__.load({
 /* ── 顶部工具栏：返回图标 → 项目切换（双击/铅笔改名）→ 右侧纯图标按钮 ── */
 .dshic-proj-switch-wrap{display:inline-flex;align-items:center;gap:2px;min-width:0;}
 .dshic-proj-switch{max-width:220px;}
-.dshic-proj-edit{width:22px;height:22px;flex:none;opacity:.55;}
-.dshic-proj-edit:hover{opacity:1;}
 .dshic-toolbar-tools{display:inline-flex;align-items:center;gap:2px;flex:none;}
 .dshic-toolbar-tools .dshic-btn{width:28px;padding:0;justify-content:center;}
 .dshic-proj-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600;}
 .dshic-proj-car{color:var(--dsw-alias-label-secondary);font-size:9px;flex:none;}
-.dshic-proj-menu{position:fixed;z-index:320;min-width:220px;max-width:320px;max-height:60vh;overflow-y:auto;padding:5px;
-  background:var(--dsw-alias-bg-overlay);border:1px solid var(--dsw-alias-border-l2);border-radius:12px;
-  box-shadow:0 12px 40px rgba(0,0,0,.18);display:flex;flex-direction:column;gap:2px;box-sizing:border-box;}
-.dshic-proj-menu-item{display:flex;align-items:center;gap:8px;width:100%;min-height:30px;padding:0 9px;border:none;border-radius:7px;
-  background:transparent;color:var(--dsw-alias-label-primary);font:inherit;font-size:12px;cursor:pointer;text-align:left;box-sizing:border-box;}
-.dshic-proj-menu-item:hover{background:color-mix(in srgb,var(--dsw-alias-label-primary) 8%,transparent);}
-.dshic-proj-menu-item.is-active{background:color-mix(in srgb,var(--dsw-alias-brand-primary) 14%,transparent);color:var(--dsw-alias-brand-primary);font-weight:600;}
-.dshic-proj-menu-item .dshic-proj-menu-meta{margin-left:auto;font-size:10px;color:var(--dsw-alias-label-secondary);}
-.dshic-proj-menu-sep{height:1px;background:var(--dsw-alias-border-l1);margin:4px 2px;}
+/* 项目下拉：与生成面板（.dshic-composer）同一套容器语言——主题背景（浅色=白/深色自动跟随）、
+   1px --dshic-line2 边框、15px 圆角、--dshic-shadow-lg；不含任何灰蓝/固定浅色填充。 */
+.dshic-proj-menu{position:fixed;z-index:320;min-width:220px;max-width:320px;
+  max-height:min(60vh,calc(100vh - 64px));overflow-y:auto;overscroll-behavior:contain;padding:6px;
+  background:var(--dsw-alias-bg-layer-1);border:1px solid var(--dshic-line2);border-radius:15px;
+  box-shadow:var(--dshic-shadow-lg);display:flex;flex-direction:column;gap:2px;box-sizing:border-box;}
+.dshic-proj-menu-item{display:flex;align-items:center;gap:8px;width:100%;min-height:32px;padding:0 10px;
+  border:none;border-radius:9px;background:transparent;color:var(--dsw-alias-label-primary);
+  font:inherit;font-size:var(--dshic-panel-font);line-height:1.4;cursor:pointer;text-align:left;box-sizing:border-box;}
+.dshic-proj-menu-item:hover{background:var(--dsw-alias-interactive-bg-hover,color-mix(in srgb,var(--dsw-alias-label-primary) 8%,transparent));}
+/* 当前项目：浅色主题用已验收原型的 accent-soft（与生成面板选中态同色），文字用 accent；
+   深色主题改用主题变量（brand-primary 轻混合 + 主题文字色），不出现固定浅色块。 */
+.dshic-proj-menu-item.is-active{background:var(--dshic-accent-soft);color:var(--dshic-accent);font-weight:600;}
+.dshic-proj-menu-item .dshic-proj-menu-meta{margin-left:auto;font-size:11px;color:var(--dsw-alias-label-secondary);}
+.dshic-proj-menu-item.is-active .dshic-proj-menu-meta{color:inherit;}
+.dshic-proj-menu-item .dshic-proj-name{font-weight:inherit;}
+/* 每行右侧「修改」按钮（铅笔）：点它 → 该行项目名原地变输入框 */
+.dshic-proj-menu-edit{width:22px;height:22px;opacity:.55;}
+.dshic-proj-menu-item:hover .dshic-proj-menu-edit,.dshic-proj-menu-item.is-active .dshic-proj-menu-edit{opacity:1;}
+.dshic-proj-menu-item.is-editing{background:var(--dsw-alias-interactive-bg-hover,color-mix(in srgb,var(--dsw-alias-label-primary) 8%,transparent));}
+.dshic-proj-menu-sep{height:1px;background:var(--dshic-line);margin:5px 4px;flex:none;}
+@media (prefers-color-scheme:dark){
+  /* 深色主题：边框跟主题走（浅色 --dshic-line2 在深底上会发亮），当前项改成主题 brand 轻混合 */
+  .dshic-proj-menu{border-color:var(--dsw-alias-border-l2);}
+  .dshic-proj-menu-item.is-active{background:color-mix(in srgb,var(--dsw-alias-brand-primary) 15%,transparent);
+    color:var(--dsw-alias-brand-primary);}
+}
 /* ── 统一弹窗（资产 + 设定集）────────────────────────────────── */
-.dshic-studio-overlay{position:fixed;inset:0;z-index:300;background:color-mix(in srgb,var(--dsw-alias-bg-base) 58%,transparent);
-  display:flex;align-items:center;justify-content:center;padding:24px;box-sizing:border-box;backdrop-filter:blur(2px);}
+.dshic-studio-overlay{position:fixed;inset:0;z-index:300;background:color-mix(in srgb,var(--dsw-alias-label-primary) 30%,transparent);
+  display:flex;align-items:center;justify-content:center;padding:24px;box-sizing:border-box;}
 .dshic-studio-modal{width:min(1080px,calc(100vw - 48px));height:min(780px,calc(100vh - 48px));display:flex;flex-direction:column;
-  background:var(--dsw-alias-bg-overlay);border:1px solid var(--dsw-alias-border-l2);border-radius:16px;
-  box-shadow:0 24px 64px rgba(0,0,0,.24);overflow:hidden;box-sizing:border-box;}
+  background:var(--dsw-alias-bg-layer-1);border:1px solid var(--dshic-line2);border-radius:16px;
+  box-shadow:var(--dshic-shadow-lg);overflow:hidden;box-sizing:border-box;}
+@media (prefers-color-scheme:dark){.dshic-studio-modal{border-color:var(--dsw-alias-border-l2);}}
 .dshic-studio-head{flex:none;display:flex;align-items:center;gap:10px;padding:10px 14px;border-bottom:1px solid var(--dsw-alias-border-l1);}
 .dshic-studio-tabs{display:flex;gap:4px;}
 .dshic-studio-tab{height:30px;padding:0 14px;border:none;border-radius:8px;background:transparent;color:var(--dsw-alias-label-secondary);
@@ -1516,19 +1547,39 @@ window.__ModuleLoader__.load({
   background:var(--dsw-alias-bg-layer-2);display:inline-flex;align-items:center;justify-content:center;color:var(--dsw-alias-brand-primary);cursor:zoom-in;}
 .dshic-bible-thumb.is-audio{cursor:default;}
 .dshic-bible-thumb.is-empty{opacity:.4;}
-/* ── 右侧面板「项目」页签：目录树（项目为根 / 子画布为子节点）────────── */
-.dshic-tree-proj{display:flex;flex-direction:column;gap:1px;flex:none;}
-.dshic-tree-proj>.dshic-proj{margin:1px 0 0;}
-.dshic-canvas-list{display:flex;flex-direction:column;gap:1px;padding:0 0 2px 10px;}
-.dshic-canvas-row{display:flex;align-items:center;gap:5px;min-height:24px;padding:1px 6px 1px 4px;border-radius:7px;
-  cursor:pointer;color:var(--dsw-alias-label-secondary);font-size:12px;box-sizing:border-box;}
-.dshic-canvas-row:hover{background:color-mix(in srgb,var(--dsw-alias-label-primary) 7%,transparent);color:var(--dsw-alias-label-primary);}
+/* ── 右侧面板「项目」页签：只显示当前项目（项目行 38px / 画布行 33px：同一套字号/行高/内距，层级接近）
+      + 折叠箭头 + 搜索框 + 子画布列表（缩进 18px） ───────────────────────── */
+.dshic-tree-proj{display:flex;flex-direction:column;gap:2px;flex:none;}
+.dshic-tree-project{display:flex;align-items:center;gap:6px;height:38px;min-height:38px;padding:0 8px;
+  border-radius:9px;border:1px solid transparent;box-sizing:border-box;cursor:default;}
+.dshic-tree-project .dshic-proj-name{font-size:13px;line-height:18px;}
+.dshic-fold-btn{flex:none;display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;
+  border:none;border-radius:6px;background:transparent;color:var(--dsw-alias-label-secondary);cursor:pointer;padding:0;}
+.dshic-fold-btn:hover{background:var(--dsw-alias-interactive-bg-hover,color-mix(in srgb,var(--dsw-alias-label-primary) 8%,transparent));color:var(--dsw-alias-label-primary);}
+.dshic-fold-car{font-size:10px;line-height:1;}
+.dshic-canvas-search{padding:2px 0 4px;}
+.dshic-canvas-search .dshic-input{height:28px;font-size:12px;box-sizing:border-box;}
+.dshic-canvas-list{display:flex;flex-direction:column;gap:1px;padding:0 0 2px 18px;}
+.dshic-canvas-row{display:flex;align-items:center;gap:5px;height:33px;min-height:33px;padding:0 6px;border-radius:8px;
+  cursor:pointer;color:var(--dsw-alias-label-secondary);font-size:12.5px;line-height:17px;box-sizing:border-box;}
+.dshic-canvas-row:hover{background:var(--dsw-alias-interactive-bg-hover,color-mix(in srgb,var(--dsw-alias-label-primary) 7%,transparent));color:var(--dsw-alias-label-primary);}
 .dshic-canvas-row.is-active{background:color-mix(in srgb,var(--dsw-alias-brand-primary) 14%,transparent);color:var(--dsw-alias-brand-primary);}
 .dshic-canvas-branch{flex:none;width:12px;text-align:center;font-size:10px;opacity:.65;}
 .dshic-canvas-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
-.dshic-canvas-row .dshic-iconbtn{width:20px;height:20px;opacity:.65;}
+.dshic-canvas-row .dshic-iconbtn{width:22px;height:22px;opacity:.65;}
 .dshic-canvas-row:hover .dshic-iconbtn{opacity:1;}
+.dshic-canvas-row .dshic-iconbtn:disabled{opacity:.25;cursor:default;background:transparent;}
 .dshic-canvas-tag{flex:none;font-size:10px;opacity:.6;}
+.dshic-canvas-newrow{padding:2px 0 2px 18px;}
+/* 就地改名输入框（顶部项目名 / 下拉行 / 右栏项目行 / 画布行） */
+.dshic-inline-input{height:26px;min-width:0;box-sizing:border-box;border:1px solid var(--dshic-line2);border-radius:7px;
+  background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font:inherit;font-size:13px;line-height:1;
+  padding:0 7px;outline:none;}
+.dshic-inline-input:focus{border-color:var(--dshic-accent);box-shadow:var(--dshic-shadow-sel);}
+.dshic-inline-input.is-toolbar{height:26px;border-radius:8px;}
+.dshic-inline-input.is-menu{flex:1;min-width:0;height:26px;}
+.dshic-inline-input.is-panel{flex:1;min-width:0;height:26px;}
+@media (prefers-color-scheme:dark){.dshic-inline-input{border-color:var(--dsw-alias-border-l2);}}
 .dshic-canvas{flex:1;position:relative;overflow:hidden;background-color:var(--dsw-alias-bg-base);
   background-image:radial-gradient(color-mix(in srgb,var(--dsw-alias-border-l2) 55%,transparent) 1px,transparent 1px);
   outline:none;}
@@ -1673,15 +1724,17 @@ window.__ModuleLoader__.load({
 .dshic-asset-project{width:100%;box-sizing:border-box;height:22px;margin:0 0 6px;border:1px solid var(--dsw-alias-border-l2);
   border-radius:6px;background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-secondary);font:inherit;font-size:10px;
   padding:0 5px;outline:none;cursor:pointer;text-align:left;}
-.dshic-asset-actions .dshic-iconbtn{width:20px;height:20px;background:color-mix(in srgb,var(--dsw-alias-bg-base) 70%,transparent);
-  color:var(--dsw-alias-label-primary);backdrop-filter:blur(4px);}
+.dshic-asset-actions .dshic-iconbtn{width:20px;height:20px;background:var(--dsw-alias-bg-layer-1);border:1px solid var(--dsw-alias-border-l2);
+  color:var(--dsw-alias-label-primary);}
 .dshic-field{display:flex;flex-direction:column;gap:3px;}
 .dshic-field-label{font-size:11px;color:var(--dsw-alias-label-secondary);}
-.dshic-menu{position:fixed;z-index:60;min-width:168px;background:var(--dsw-alias-bg-overlay);border:1px solid var(--dsw-alias-border-l2);
-  border-radius:10px;box-shadow:0 10px 30px color-mix(in srgb,var(--dsw-alias-bg-base) 55%,transparent);padding:4px;display:flex;flex-direction:column;}
-.dshic-menu-item{display:flex;align-items:center;gap:8px;height:30px;padding:0 9px;border:none;border-radius:7px;background:transparent;
+/* 节点/空白处右键菜单、双击空白菜单：与生成面板同一套实底容器语言（无半透明/无灰蓝）。 */
+.dshic-menu{position:fixed;z-index:60;min-width:180px;background:var(--dsw-alias-bg-layer-1);border:1px solid var(--dshic-line2);
+  border-radius:14px;box-shadow:var(--dshic-shadow-lg);padding:6px;display:flex;flex-direction:column;gap:2px;box-sizing:border-box;}
+.dshic-menu-item{display:flex;align-items:center;gap:8px;height:32px;padding:0 10px;border:none;border-radius:9px;background:transparent;
   color:var(--dsw-alias-label-primary);font:inherit;font-size:13px;cursor:pointer;text-align:left;white-space:nowrap;}
-.dshic-menu-item:hover{background:color-mix(in srgb,var(--dsw-alias-label-primary) 8%,transparent);}
+.dshic-menu-item:hover{background:var(--dsw-alias-interactive-bg-hover,color-mix(in srgb,var(--dsw-alias-label-primary) 8%,transparent));}
+@media (prefers-color-scheme:dark){.dshic-menu{border-color:var(--dsw-alias-border-l2);}}
 .dshic-overlay{position:fixed;inset:0;z-index:50;background:transparent;}
 .dshic-empty{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none;}
 .dshic-empty-card{pointer-events:auto;text-align:center;display:flex;flex-direction:column;gap:10px;align-items:center;
@@ -1702,14 +1755,20 @@ window.__ModuleLoader__.load({
 .dshic-chip.is-active{background:color-mix(in srgb,var(--dsw-alias-brand-primary) 14%,transparent);border-color:var(--dsw-alias-brand-primary);color:var(--dsw-alias-brand-primary);}
 .dshic-cat{height:20px;max-width:76px;border:1px solid var(--dsw-alias-border-l1);border-radius:6px;background:var(--dsw-alias-bg-layer-2);
   color:var(--dsw-alias-label-secondary);font:inherit;font-size:10px;padding:0 2px;outline:none;cursor:pointer;}
-.dshic-modal-overlay{position:fixed;inset:0;z-index:80;background:color-mix(in srgb,var(--dsw-alias-bg-base) 55%,transparent);
+.dshic-modal-overlay{position:fixed;inset:0;z-index:80;background:color-mix(in srgb,var(--dsw-alias-label-primary) 30%,transparent);
   display:flex;align-items:center;justify-content:center;}
-.dshic-modal{width:340px;max-width:calc(100vw - 48px);background:var(--dsw-alias-bg-overlay);border:1px solid var(--dsw-alias-border-l2);
-  border-radius:14px;box-shadow:0 18px 50px color-mix(in srgb,var(--dsw-alias-bg-base) 60%,transparent);padding:16px;display:flex;flex-direction:column;gap:10px;}
+.dshic-modal{width:340px;max-width:calc(100vw - 48px);background:var(--dsw-alias-bg-layer-1);border:1px solid var(--dshic-line2);
+  border-radius:16px;box-shadow:var(--dshic-shadow-lg);padding:16px;display:flex;flex-direction:column;gap:10px;box-sizing:border-box;}
+@media (prefers-color-scheme:dark){.dshic-modal{border-color:var(--dsw-alias-border-l2);}}
 .dshic-modal-title{font-size:14px;font-weight:600;}
 .dshic-modal-warn{font-size:12px;line-height:18px;color:var(--dsw-alias-label-secondary);}
 .dshic-modal-name{font-weight:600;color:var(--dsw-alias-label-primary);user-select:text;-webkit-user-select:text;cursor:text;}
 .dshic-modal-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:2px;}
+/* Toast：实底 + 1px 线框 + 14px 圆角 + --dshic-shadow-lg（不再用 bg-overlay 半透明/灰蓝） */
+.dshic-toast{position:fixed;bottom:22px;left:50%;transform:translateX(-50%);z-index:70;max-width:420px;
+  background:var(--dsw-alias-bg-layer-1);border:1px solid var(--dshic-line2);border-radius:14px;
+  box-shadow:var(--dshic-shadow-lg);padding:8px 14px;font-size:12px;color:var(--dsw-alias-label-primary);box-sizing:border-box;}
+@media (prefers-color-scheme:dark){.dshic-toast{border-color:var(--dsw-alias-border-l2);}}
 .dshic-btn-outline{border:1px solid var(--dsw-alias-border-l2);background:transparent;color:var(--dsw-alias-label-primary);}
 .dshic-btn-outline:hover{background:color-mix(in srgb,var(--dsw-alias-label-primary) 8%,transparent);}
 .dshic-select{width:100%;box-sizing:border-box;height:28px;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;
@@ -1724,7 +1783,7 @@ window.__ModuleLoader__.load({
   color:var(--dsw-alias-label-secondary);font-size:13px;line-height:1;cursor:ns-resize;opacity:.6;user-select:none;-webkit-user-select:none;
   background:var(--dsw-alias-bg-layer-2);border:1px solid var(--dsw-alias-border-l1);border-radius:4px;}
 .dshic-shot-grip:hover{opacity:1;color:var(--dsw-alias-label-primary);}
-.dshic-lightbox{position:fixed;inset:0;z-index:360;background:rgba(0,0,0,.82);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;padding:24px;}
+.dshic-lightbox{position:fixed;inset:0;z-index:360;background:#000;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;padding:24px;}
 .dshic-lightbox img,.dshic-lightbox video{max-width:92vw;max-height:80vh;border-radius:8px;background:#000;box-shadow:0 12px 48px rgba(0,0,0,.5);}
 .dshic-lightbox-cap{font-size:12px;color:#eee;user-select:text;-webkit-user-select:text;max-width:80vw;word-break:break-all;text-align:center;}
 .dshic-textcard{width:100%;height:86px;box-sizing:border-box;border:none;background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-secondary);
@@ -1774,17 +1833,18 @@ window.__ModuleLoader__.load({
 .dshic-group{position:absolute;box-sizing:border-box;border:1.5px dashed var(--dsw-alias-brand-primary);border-radius:14px;
   background:color-mix(in srgb,var(--dsw-alias-brand-primary) 6%,transparent);cursor:grab;pointer-events:auto;}
 .dshic-group.is-selected{box-shadow:0 0 0 2px color-mix(in srgb,var(--dsw-alias-brand-primary) 30%,transparent);}
-.dshic-group.is-collapsed{background:var(--dsw-alias-bg-overlay);}
+.dshic-group.is-collapsed{background:var(--dsw-alias-bg-layer-1);}
 .dshic-group-head{display:flex;align-items:center;gap:6px;height:34px;padding:0 8px;color:var(--dsw-alias-brand-primary);
   cursor:grab;user-select:none;-webkit-user-select:none;}
 /* 对齐参考线 */
 .dshic-guide-v{position:absolute;top:-5000px;width:1px;height:12000px;background:var(--dsw-alias-brand-primary);opacity:.65;pointer-events:none;z-index:40;}
 .dshic-guide-h{position:absolute;left:-5000px;height:1px;width:12000px;background:var(--dsw-alias-brand-primary);opacity:.65;pointer-events:none;z-index:40;}
 /* 蒙版编辑器 */
-.dshic-mask-overlay{position:fixed;inset:0;z-index:90;background:color-mix(in srgb,var(--dsw-alias-bg-base) 62%,transparent);
+.dshic-mask-overlay{position:fixed;inset:0;z-index:90;background:color-mix(in srgb,var(--dsw-alias-label-primary) 30%,transparent);
   display:flex;align-items:center;justify-content:center;padding:16px;}
-.dshic-mask-card{width:min(720px, 94vw);max-height:92vh;overflow:auto;background:var(--dsw-alias-bg-overlay);
-  border:1px solid var(--dsw-alias-border-l2);border-radius:14px;padding:14px;display:flex;flex-direction:column;gap:10px;}
+.dshic-mask-card{width:min(720px, 94vw);max-height:92vh;overflow:auto;background:var(--dsw-alias-bg-layer-1);
+  border:1px solid var(--dshic-line2);border-radius:16px;box-shadow:var(--dshic-shadow-lg);
+  padding:14px;display:flex;flex-direction:column;gap:10px;box-sizing:border-box;}
 .dshic-mask-stage{position:relative;display:inline-block;align-self:center;max-width:100%;line-height:0;
   border:1px solid var(--dsw-alias-border-l2);}
 .dshic-mask-stage img{max-width:100%;max-height:52vh;display:block;}
@@ -1800,13 +1860,14 @@ window.__ModuleLoader__.load({
 .dshic-keys-wrap.is-compact .dshic-keys-btn{width:28px;padding:0;justify-content:center;}
 .dshic-keys-btn-label{line-height:1;}
 .dshic-keys-caret{font-size:9px;opacity:.75;line-height:1;}
-/* 面板右对齐：按钮位于工具栏右半侧，向左展开才不会出屏；窄屏换行时也跟随按钮 */
+/* 快捷键速查弹层：实底（浅色纯白 / 深色跟随）+ 线框 + 15px 圆角 + --dshic-shadow-lg，
+   与生成面板同一套语言；不再用半透明 mix + 模糊滤镜。 */
 .dshic-keys-pop{position:absolute;right:0;top:calc(100% + 6px);z-index:30;
   width:330px;max-height:min(70vh,520px);overflow:auto;box-sizing:border-box;padding:10px 12px;
-  border-radius:10px;border:1px solid var(--dsw-alias-border-l2);
-  background:color-mix(in srgb,var(--dsw-alias-bg-overlay) 72%,transparent);
-  backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);
-  box-shadow:0 8px 24px color-mix(in srgb,var(--dsw-alias-bg-base) 50%,transparent);}
+  border-radius:15px;border:1px solid var(--dshic-line2);
+  background:var(--dsw-alias-bg-layer-1);
+  box-shadow:var(--dshic-shadow-lg);}
+@media (prefers-color-scheme:dark){.dshic-keys-pop{border-color:var(--dsw-alias-border-l2);}}
 .dshic-keys-title{font-size:12px;font-weight:600;color:var(--dsw-alias-label-primary);margin-bottom:8px;}
 .dshic-keys-group{margin-bottom:9px;}
 .dshic-keys-group-title{font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;
@@ -1840,9 +1901,12 @@ window.__ModuleLoader__.load({
 .dshic-host-taken-hint{font-size:12px;line-height:18px;color:var(--dsw-alias-label-secondary);}
 .dshic-pane-tab-title{font-size:12px;font-weight:500;}
 /* 小地图 */
-.dshic-minimap{position:absolute;right:12px;bottom:12px;width:160px;height:100px;background:var(--dsw-alias-bg-overlay);
-  border:1px solid var(--dsw-alias-border-l2);border-radius:8px;z-index:15;overflow:hidden;cursor:pointer;box-sizing:border-box;
-  box-shadow:0 6px 18px color-mix(in srgb,var(--dsw-alias-bg-base) 45%,transparent);touch-action:none;}
+.dshic-minimap{position:absolute;right:12px;bottom:12px;width:160px;height:100px;background:var(--dsw-alias-bg-layer-1);
+  border:1px solid var(--dshic-line2);border-radius:12px;z-index:15;overflow:hidden;cursor:pointer;box-sizing:border-box;
+  box-shadow:var(--dshic-shadow-lg);touch-action:none;}
+@media (prefers-color-scheme:dark){
+  .dshic-mask-card,.dshic-minimap{border-color:var(--dsw-alias-border-l2);}
+}
 .dshic-mm-node{position:absolute;background:color-mix(in srgb,var(--dsw-alias-label-primary) 40%,transparent);border-radius:1px;}
 .dshic-mm-node.is-sel{background:var(--dsw-alias-brand-primary);}
 .dshic-mm-view{position:absolute;border:1.5px solid var(--dsw-alias-brand-primary);border-radius:2px;
@@ -1850,7 +1914,7 @@ window.__ModuleLoader__.load({
 /* 连线悬停删除 */
 .dshic-edge-delwrap{opacity:0;cursor:pointer;pointer-events:all;transition:opacity .12s;}
 .dshic-edge-g:hover .dshic-edge-delwrap{opacity:1;}
-.dshic-edge-delbg{fill:var(--dsw-alias-bg-overlay);stroke:var(--dsw-alias-border-l2);stroke-width:1;}
+.dshic-edge-delbg{fill:var(--dsw-alias-bg-layer-1);stroke:var(--dshic-line2);stroke-width:1;}
 .dshic-edge-delx{stroke:var(--dsw-alias-state-error-primary);stroke-width:1.6;stroke-linecap:round;pointer-events:none;}
 /* 兼容端口高亮 */
 .dshic-port{transition:transform .12s, box-shadow .12s, background .12s, border-color .12s;}
@@ -1870,7 +1934,6 @@ window.__ModuleLoader__.load({
 .dshic-prompt:focus-within .dshic-prompt-input{box-shadow:none;}
 .dshic-hint{line-height:15px;}
 .dshic-card{border-radius:12px;box-shadow:0 1px 2px rgba(0,0,0,.06);}
-.dshic-toolbar{backdrop-filter:blur(6px);}
 .dshic-node .dshic-textarea,.dshic-node .dshic-input{border-radius:8px;}
 /* ── 统一媒体节点（节点内只显示结果；原型 .node / .body / .media / .foot）────── */
 /* body 是媒体节点的三段容器（标题栏 / 预览区 / 操作栏），三段各自不滚动；高度公式见 nodeSizeForRatio：
@@ -1890,34 +1953,35 @@ window.__ModuleLoader__.load({
 /* 预览**不裁切**：预览盒比例已严格等于画面比例（nodeSizeForRatio 保证），
    所以用 fill 既不会裁切（旧 cover 会裁掉约 10%）也不会 letterbox；比例一致时 fill == contain。 */
 .dshic-media-fill{position:absolute;inset:0;width:100%;height:100%;object-fit:fill;background:var(--dshic-preview-bg);display:block;}
-/* 右下角小信息条（原型 .media .meta）：深色半透明胶囊 / 白字 10px / 圆角 6 */
-.dshic-media-meta{position:absolute;right:6px;bottom:6px;z-index:3;background:var(--dshic-meta-bg);color:#fff;
+/* 右下角小信息条（原型 .media .meta）：实底胶囊（浅色白/深色跟随）/ 主题文字 10px / 圆角 6 */
+.dshic-media-meta{position:absolute;right:6px;bottom:6px;z-index:3;background:var(--dshic-meta-bg);color:var(--dsw-alias-label-secondary);
+  border:1px solid var(--dshic-line2);
   border-radius:var(--dshic-meta-r);padding:1px 6px;font-size:var(--dshic-meta-size);
-  backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px);font-variant-numeric:tabular-nums;pointer-events:none;}
-/* 视频播放键（原型 .play）：画面中心 44px 圆形半透明播放钮；只有圆钮本身接收点击 */
+  font-variant-numeric:tabular-nums;pointer-events:none;}
+/* 视频播放键（原型 .play）：画面中心 44px 圆形实底播放钮；只有圆钮本身接收点击 */
 .dshic-media-play{position:absolute;inset:0;z-index:3;display:grid;place-items:center;border:0;background:transparent;
   padding:0;pointer-events:none;}
 .dshic-media-play i{pointer-events:auto;cursor:pointer;width:44px;height:44px;border-radius:50%;
-  background:rgba(255,255,255,.86);display:grid;place-items:center;box-shadow:0 2px 10px rgba(0,0,0,.2);}
-.dshic-media-play i::before{content:"";width:0;height:0;border-left:12px solid #22252b;
+  background:var(--dsw-alias-bg-layer-1);border:1px solid var(--dshic-line2);display:grid;place-items:center;
+  box-shadow:var(--dshic-shadow-lg);}
+.dshic-media-play i::before{content:"";width:0;height:0;border-left:12px solid var(--dsw-alias-label-primary);
   border-top:8px solid transparent;border-bottom:8px solid transparent;margin-left:3px;}
 /* 播放结束：圆形按钮里换成「重播」（圆环 + 三角；仍只有圆钮本身可点） */
 .dshic-media-play.is-replay i{position:relative;}
-.dshic-media-play.is-replay i::before{width:0;height:0;border-left:9px solid #22252b;
+.dshic-media-play.is-replay i::before{width:0;height:0;border-left:9px solid var(--dsw-alias-label-primary);
   border-top:6px solid transparent;border-bottom:6px solid transparent;margin-left:2px;}
 .dshic-media-play.is-replay i::after{content:"";position:absolute;width:22px;height:22px;border-radius:50%;
-  border:2px solid #22252b;border-left-color:transparent;transform:rotate(-40deg);}
-/* 播放中的控件条（底部浮层）：与生成面板同一套视觉语言——白底 92% + 1px --line + 胶囊圆角 + blur。
-   显隐状态机：未播放/暂停/播放结束 → 只有画面中央圆形播放键；播放中 → 才出现本条。 */
+  border:2px solid var(--dsw-alias-label-primary);border-left-color:transparent;transform:rotate(-40deg);}
+/* 播放中的控件条（底部浮层）：实底 + 1px 线框 + 胶囊圆角（无 blur / 无半透明）。 */
 .dshic-media-ctl{position:absolute;left:8px;right:8px;bottom:8px;z-index:4;display:flex;align-items:center;gap:7px;
   height:var(--dshic-ctl-h);box-sizing:border-box;padding:0 8px;border-radius:var(--dshic-badge-r);
-  background:var(--dshic-badge-bg);border:1px solid var(--dshic-line);color:var(--dshic-ink2);
-  backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);font-size:var(--dshic-meta-size);
+  background:var(--dsw-alias-bg-layer-1);border:1px solid var(--dshic-line2);color:var(--dsw-alias-label-secondary);
+  font-size:var(--dshic-meta-size);
   font-variant-numeric:tabular-nums;}
 .dshic-ctl-btn{flex:none;display:grid;place-items:center;width:20px;height:20px;border:0;border-radius:6px;
-  background:transparent;color:var(--dshic-ink);cursor:pointer;padding:0;}
+  background:transparent;color:var(--dsw-alias-label-primary);cursor:pointer;padding:0;}
 .dshic-ctl-btn:hover{background:var(--dshic-accent-soft);color:var(--dshic-accent);}
-.dshic-ctl-time{flex:none;font-size:var(--dshic-meta-size);color:var(--dshic-ink2);white-space:nowrap;}
+.dshic-ctl-time{flex:none;font-size:var(--dshic-meta-size);color:var(--dsw-alias-label-secondary);white-space:nowrap;}
 .dshic-ctl-track{flex:1 1 40px;min-width:36px;display:flex;align-items:center;}
 .dshic-ctl-vol{flex:none;width:56px;display:flex;align-items:center;}
 .dshic-ctl-range{-webkit-appearance:none;appearance:none;width:100%;height:14px;margin:0;background:transparent;cursor:pointer;}
@@ -1956,24 +2020,22 @@ window.__ModuleLoader__.load({
 .dshic-media-empty-ic{width:30px;height:30px;border-radius:9px;display:flex;align-items:center;justify-content:center;
   background:var(--dshic-preview-bg);color:var(--dshic-ink3);}
 .dshic-media-empty-t{font-size:var(--dshic-empty-text);line-height:16px;text-align:center;padding:0 10px;}
-.dshic-media-err{position:absolute;left:0;right:0;bottom:0;padding:4px 8px;font-size:10.5px;line-height:14px;color:var(--dsw-alias-state-error-primary);background:color-mix(in srgb,var(--dsw-alias-bg-overlay) 85%,transparent);max-height:42px;overflow:hidden;text-overflow:ellipsis;}
-/* 左上状态胶囊（原型 .status）：白底 92% / blur 6 / 圆点 6px；已生成绿、生成中蓝并 pulse */
+.dshic-media-err{position:absolute;left:0;right:0;bottom:0;padding:4px 8px;font-size:10.5px;line-height:14px;color:var(--dsw-alias-state-error-primary);background:var(--dsw-alias-bg-layer-1);max-height:42px;overflow:hidden;text-overflow:ellipsis;}
+/* 左上状态胶囊（原型 .status）：实底 / 圆点 6px；已生成绿、生成中蓝并 pulse */
 .dshic-status-badge{position:absolute;left:8px;top:8px;z-index:3;display:inline-flex;align-items:center;gap:5px;
-  background:var(--dshic-badge-bg);border:1px solid var(--dshic-line);border-radius:var(--dshic-badge-r);
-  padding:2px 8px 2px 6px;font-size:10.5px;color:var(--dshic-ink2);
-  backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);}
+  background:var(--dshic-badge-bg);border:1px solid var(--dshic-line2);border-radius:var(--dshic-badge-r);
+  padding:2px 8px 2px 6px;font-size:10.5px;color:var(--dsw-alias-label-secondary);}
 .dshic-status-dot{width:6px;height:6px;border-radius:50%;background:var(--dshic-ink3);flex:none;}
 .dshic-status-badge.is-done .dshic-status-dot{background:var(--dshic-ok);}
 .dshic-status-badge.is-err .dshic-status-dot{background:var(--dsw-alias-state-error-primary);}
 .dshic-status-badge.is-run .dshic-status-dot{background:var(--dshic-run);animation:dshic-pulse 1s infinite;}
 @keyframes dshic-pulse{0%,100%{opacity:.35}50%{opacity:1}}
-/* 右上参考图角标（原型 .refbadge）：深色半透明胶囊 + 16px 圆角 5 缩略图 */
+/* 右上参考图角标（原型 .refbadge）：实底胶囊 + 16px 圆角 5 缩略图 */
 .dshic-refbadge{position:absolute;right:7px;top:7px;z-index:3;display:inline-flex;align-items:center;gap:3px;
-  background:var(--dshic-refbadge-bg);color:#fff;border:0;border-radius:var(--dshic-badge-r);
-  padding:2px 6px 2px 3px;font-size:10.5px;cursor:pointer;
-  backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);}
-.dshic-refbadge:hover{background:rgba(20,22,26,.82);}
-.dshic-refbadge-thumb{width:16px;height:16px;border-radius:5px;object-fit:cover;border:1px solid rgba(255,255,255,.5);background:linear-gradient(135deg,#9aa4b2,#6b7686);display:block;}
+  background:var(--dshic-refbadge-bg);color:var(--dsw-alias-label-primary);border:1px solid var(--dshic-line2);border-radius:var(--dshic-badge-r);
+  padding:2px 6px 2px 3px;font-size:10.5px;cursor:pointer;}
+.dshic-refbadge:hover{background:var(--dsw-alias-interactive-bg-hover,color-mix(in srgb,var(--dsw-alias-label-primary) 8%,transparent));}
+.dshic-refbadge-thumb{width:16px;height:16px;border-radius:5px;object-fit:cover;border:1px solid var(--dsw-alias-border-l2);background:var(--dshic-preview-bg);display:block;}
 .dshic-refbadge-thumb.is-empty{display:inline-block;}
 /* ── 纯结果文本节点（文本/剧本/分镜；原型 .scroll / .kv / .shots）──────── */
 /* 节点被拉高时：多出来的空间由内容区（正文/镜头清单）撑满，绝不留下空白带。
@@ -2027,13 +2089,13 @@ window.__ModuleLoader__.load({
 .dshic-ref-thumb .dshic-hist-thumb{width:100%;height:100%;border:none;margin:0;border-radius:0;}
 /* 缩略图左上角 [图N] 序号角标：与提示词/厂商上送顺序同源（refOrder 的第 N 项） */
 .dshic-ref-idx{position:absolute;left:2px;top:2px;z-index:2;padding:0 3px;border-radius:4px;
-  background:var(--dshic-refbadge-bg);color:var(--dshic-card);font-size:8.5px;line-height:12px;
+  background:var(--dshic-refbadge-bg);border:1px solid var(--dshic-line2);color:var(--dsw-alias-label-secondary);font-size:8.5px;line-height:12px;
   font-variant-numeric:tabular-nums;pointer-events:none;}
 /* 缩略图右上角小 ×：解除该参考图连线（原文字列表里的删除按钮） */
 .dshic-ref-del{position:absolute;right:1px;top:1px;z-index:3;width:14px;height:14px;box-sizing:border-box;
-  border:0;border-radius:50%;background:var(--dshic-badge-bg);color:var(--dshic-ink2);
+  border:1px solid var(--dshic-line2);border-radius:50%;background:var(--dshic-badge-bg);color:var(--dsw-alias-label-secondary);
   display:grid;place-items:center;font-size:11px;line-height:1;padding:0;cursor:pointer;}
-.dshic-ref-del:hover{background:var(--dsw-alias-state-error-primary);color:var(--dshic-card);}
+.dshic-ref-del:hover{background:var(--dsw-alias-state-error-primary);color:var(--dsw-alias-bg-layer-1);}
 .dshic-ref-thumb-empty{display:grid;place-items:center;width:100%;height:100%;font-size:11px;
   color:var(--dshic-ink3);background:var(--dshic-preview-bg);}
 /* 拖拽排序：正在拖的源缩略图半透明；插入位置（目标缩略图）用 accent 描边高亮 */
@@ -2068,17 +2130,23 @@ window.__ModuleLoader__.load({
 .dshic-pick:hover,.dshic-pick.is-open{background:#f6f7f9;}
 .dshic-pick-val{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;}
 .dshic-pick-car{color:var(--dshic-field-hint);font-size:9px;flex:none;}
-.dshic-pick-menu{position:fixed;z-index:240;background:var(--dshic-card);border:1px solid var(--dshic-line2);border-radius:12px;box-shadow:var(--dshic-shadow-lg);display:flex;flex-direction:column;max-height:280px;overflow:hidden;box-sizing:border-box;}
+/* 模型/比例等下拉：实底容器（浅色白 / 深色跟随）+ 线框 + 14px 圆角 + --dshic-shadow-lg */
+.dshic-pick-menu{position:fixed;z-index:240;background:var(--dsw-alias-bg-layer-1);border:1px solid var(--dshic-line2);border-radius:14px;box-shadow:var(--dshic-shadow-lg);display:flex;flex-direction:column;max-height:280px;overflow:hidden;box-sizing:border-box;}
+@media (prefers-color-scheme:dark){.dshic-pick-menu{border-color:var(--dsw-alias-border-l2);}}
 .dshic-pick-search{padding:7px;border-bottom:1px solid var(--dshic-line);flex:none;}
 .dshic-pick-search .dshic-input{height:26px;font-size:12px;}
 .dshic-pick-list{overflow-y:auto;padding:5px;flex:1;}
-.dshic-pick-item{display:flex;align-items:center;gap:8px;width:100%;padding:6px 8px;border:0;border-radius:7px;background:transparent;color:var(--dshic-ink);font:inherit;font-size:12px;cursor:pointer;text-align:left;box-sizing:border-box;}
-.dshic-pick-item:hover{background:#f4f5f7;}
+/* 弹层内部统一主题色（不出现固定色字面量）；当前项浅色 accent-soft、深色 brand 轻混合 */
+.dshic-pick-item{display:flex;align-items:center;gap:8px;width:100%;padding:6px 8px;border:0;border-radius:7px;background:transparent;color:var(--dsw-alias-label-primary);font:inherit;font-size:12px;cursor:pointer;text-align:left;box-sizing:border-box;}
+.dshic-pick-item:hover{background:var(--dsw-alias-interactive-bg-hover,color-mix(in srgb,var(--dsw-alias-label-primary) 8%,transparent));}
 .dshic-pick-item.is-on{background:var(--dshic-accent-soft);color:var(--dshic-accent);font-weight:600;}
 .dshic-pick-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
-.dshic-pick-sub{margin-left:auto;color:var(--dshic-ink3);font-size:10px;flex:none;max-width:45%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
-.dshic-pick-item.is-on .dshic-pick-sub{color:color-mix(in srgb,var(--dshic-accent) 70%,var(--dshic-ink3));}
-.dshic-pick-empty{padding:14px 10px;font-size:var(--dshic-empty-text);color:var(--dshic-ink3);text-align:center;}
+.dshic-pick-sub{margin-left:auto;color:var(--dsw-alias-label-secondary);font-size:10px;flex:none;max-width:45%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.dshic-pick-item.is-on .dshic-pick-sub{color:inherit;opacity:.8;}
+.dshic-pick-empty{padding:14px 10px;font-size:var(--dshic-empty-text);color:var(--dsw-alias-label-secondary);text-align:center;}
+@media (prefers-color-scheme:dark){
+  .dshic-pick-item.is-on{background:color-mix(in srgb,var(--dsw-alias-brand-primary) 15%,transparent);color:var(--dsw-alias-brand-primary);}
+}
 .dshic-pick.dshic-at{padding:0 7px;justify-content:center;font-weight:600;}
 /* 发送按钮（原型 .send）：34px 圆形 / 黑底白箭头 */
 .dshic-send{width:var(--dshic-send-size);height:var(--dshic-send-size);border-radius:50%;border:0;
@@ -2308,6 +2376,7 @@ window.__ModuleLoader__.load({
         s.activeCanvasId = next;
         s.graph = { nodes: doc.nodes || {}, edges: doc.edges || [], view: doc.view || { x: 60, y: 40, scale: 1 } };
         s.sel = new Set(); s.selEdge = null; s.composerId = null;
+        s.inlineEdit = null; // 切画布取消未提交的就地改名（它属于上一张画布）
         s.panelModal = null;
         V.x = s.graph.view.x; V.y = s.graph.view.y; V.scale = s.graph.view.scale;
         applyViewToDom();
@@ -6831,8 +6900,14 @@ window.__ModuleLoader__.load({
       panelModal: null,
       // 工具栏项目下拉（位置由按钮真实矩形计算）：{left, top} | null；纯 UI 状态
       projectMenu: null,
-      // 工具栏「新建项目… / 重命名项目…」命名弹窗：{ mode:'create'|'rename', value, error } | null
+      // 工具栏「新建项目…」命名弹窗（重命名已改为就地编辑，不再走弹窗）：{ mode:'create'|'canvas-create', value, error } | null
       projectDialog: null,
+      // 就地改名（顶部项目名 / 下拉项目行 / 右栏项目行 / 右栏画布行同一套状态）：
+      // { kind:'project'|'canvas', projectId, canvasId, value, error } | null
+      inlineEdit: null,
+      // 右栏「项目」页签：搜索与折叠（纯 UI；折叠状态持久化到 localStorage）
+      canvasSearch: '',
+      canvasCollapsed: false,
       menu: null,          // {x, y, kind:'add'}
       composerId: null,    // 生成面板当前挂靠的节点 id（单例；纯 UI 状态，不持久化）
       assetsTick: 0,
@@ -6915,6 +6990,7 @@ window.__ModuleLoader__.load({
       // 多画布：旧项目没有 canvases 字段 → 归一为空数组（只有默认画布，旧数据零迁移）
       for (const p of S.projects) { if (p && !Array.isArray(p.canvases)) p.canvases = []; }
       S.activeCanvasId = DEFAULT_CANVAS_ID;
+      S.canvasCollapsed = !!lsGet(LS_CANVAS_COLLAPSED, false); // 子画布列表折叠状态：跨会话记住
       // OBS-UI-1：不再自动创建「我的画布」空项目——干净客户端每次打开面板都会
       // 经 pushAllProjectsToHost 把它写进 canvas.db（QA 实测 13→14 持续累积）。
       // 空列表 = 空态：画布显示"新建项目"引导，用户显式点击才真正建项目。
@@ -6955,6 +7031,7 @@ window.__ModuleLoader__.load({
         s.graph = { nodes: doc.nodes || {}, edges: doc.edges || [], view: doc.view || { x: 60, y: 40, scale: 1 } };
         s.sel = new Set(); s.selEdge = null;
         s.composerId = null;
+        s.inlineEdit = null; // 切项目取消未提交的就地改名（它属于上一个项目）
         // 注意：不复位 s.running —— 否则运行中切项目会让"运行工作流"重新可点，并发跑同一节点
         V.x = s.graph.view.x; V.y = s.graph.view.y; V.scale = s.graph.view.scale;
         applyViewToDom();
@@ -10881,7 +10958,8 @@ window.__ModuleLoader__.load({
       if (e && e.key === 'Escape' && S.panelModal) { closeStudioModal(); return true; }
       return false;
     }
-    const DIALOG_MODES = ['create', 'rename', 'canvas-create', 'canvas-rename'];
+    // 命名弹窗只用于「新建」：重命名项目/画布一律就地编辑（inline input），不再弹窗。
+    const DIALOG_MODES = ['create', 'canvas-create'];
     function openProjectDialog(mode, initial, opts) {
       const m = DIALOG_MODES.includes(mode) ? mode : 'create';
       const o = opts || {};
@@ -10898,8 +10976,123 @@ window.__ModuleLoader__.load({
     function closeProjectDialog() {
       update((s) => { s.projectDialog = null; });
     }
+    /** 项目改名（就地编辑的唯一提交入口）：空名拒绝且保留原名；同步本地存储 + Host。 */
+    function renameProjectTo(projectId, rawName) {
+      const pid = String(projectId || '');
+      const name = String(rawName == null ? '' : rawName).trim();
+      const p = S.projects.find((x) => x.id === pid);
+      if (!p) return { ok: false, error: T('projectNameRequired') };
+      if (!name) return { ok: false, error: T('projectNameRequired') };
+      const next = name.slice(0, 80);
+      if (p.name === next) return { ok: true, unchanged: true };
+      update((s) => {
+        const pp = s.projects.find((x) => x.id === pid);
+        if (pp) { pp.name = next; pp.updatedAt = Date.now(); }
+      });
+      lsSet(LS_PROJECTS, S.projects);
+      try {
+        const doc = loadGraphDoc(pid) || emptyGraph();
+        hostRpc('projectsPut', { id: pid, name: next, canvases: projectCanvases(pid), doc }).catch(() => { /* 静默：下次同步重试 */ });
+      } catch { /* 忽略 */ }
+      return { ok: true, name: next };
+    }
+    // ---- 就地编辑（项目名 / 画布名）：顶部项目名、下拉项目行、右栏项目行、右栏画布行共用同一套状态 ----
+    /** 开始就地改名：kind='project' 时 ref={projectId, value}；kind='canvas' 时 ref={projectId, canvasId, value}。
+     *  纯 UI 状态：直接改 S 后 notify（不走 update/scheduleSave，避免每敲一个字就把文档推回 Host）。 */
+    function beginInlineRename(kind, ref) {
+      const r = ref || {};
+      S.inlineEdit = {
+        kind: kind === 'canvas' ? 'canvas' : 'project',
+        projectId: r.projectId || S.activeId || null,
+        canvasId: r.canvasId || null,
+        value: String(r.value == null ? '' : r.value),
+        error: null,
+      };
+      notify();
+    }
+    function setInlineEditValue(v) {
+      if (!S.inlineEdit) return;
+      S.inlineEdit.value = String(v == null ? '' : v);
+      S.inlineEdit.error = null;
+      notify();
+    }
+    /** 当前是否正在就地编辑某个对象（返回其值，便于组件决定渲染 input）。 */
+    function inlineEditValue(kind, projectId, canvasId) {
+      const e = S.inlineEdit;
+      if (!e || e.kind !== kind || e.projectId !== projectId) return null;
+      if (kind === 'canvas' && e.canvasId !== canvasId) return null;
+      return String(e.value == null ? '' : e.value);
+    }
+    function cancelInlineRename() {
+      if (!S.inlineEdit) return { ok: true };
+      S.inlineEdit = null;
+      notify();
+      return { ok: true };
+    }
+    /** 就地改名提交：Enter / 失焦走这里；空名拒绝（保留原名并退出编辑），成功则退出编辑。 */
+    function commitInlineRename() {
+      const e = S.inlineEdit;
+      if (!e) return { ok: true };
+      const v = String(e.value == null ? '' : e.value).trim();
+      if (!v) {
+        cancelInlineRename(); // 空名：放弃本次编辑，原名保留
+        return { ok: false, error: e.kind === 'canvas' ? T('canvasNameRequired') : T('projectNameRequired') };
+      }
+      let r;
+      if (e.kind === 'canvas') r = renameCanvasNamed(e.projectId, e.canvasId, v);
+      else r = renameProjectTo(e.projectId, v);
+      if (!r || !r.ok) {
+        e.error = (r && r.error) || T('projectNameRequired');
+        notify();
+        return r || { ok: false };
+      }
+      S.inlineEdit = null;
+      notify();
+      return { ok: true };
+    }
+    /** 就地改名输入框（顶部项目名 / 下拉项目行 / 右栏项目行 / 右栏画布行共用）：
+     *  值由 S.inlineEdit 控制；Enter 提交、Esc 取消、失焦提交（提交/取消路径见 commitInlineRename）。 */
+    function inlineNameInput(opts) {
+      const o = opts || {};
+      return h('input', {
+        className: cls('dshic-inline-input', o.className),
+        type: 'text',
+        value: String((S.inlineEdit && S.inlineEdit.value != null) ? S.inlineEdit.value : (o.value || '')),
+        autoFocus: true,
+        spellCheck: false,
+        'data-role': o.dataRole || 'inline-rename-input',
+        'data-inline-kind': o.kind || 'project',
+        style: o.style || null,
+        onPointerDown: (e) => e.stopPropagation(),
+        onClick: (e) => e.stopPropagation(),
+        onChange: (e) => setInlineEditValue(e.target.value),
+        onKeyDown: (e) => {
+          if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); commitInlineRename(); }
+          else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); cancelInlineRename(); }
+        },
+        onBlur: () => commitInlineRename(),
+      });
+    }
+    /** 右栏「项目」页签：搜索 / 折叠（纯 UI；直接 notify，避免每次输入触发文档推送）。 */
+    function setCanvasSearch(v) {
+      S.canvasSearch = String(v == null ? '' : v);
+      notify();
+    }
+    function toggleCanvasCollapsed() {
+      S.canvasCollapsed = !S.canvasCollapsed;
+      try { lsSet(LS_CANVAS_COLLAPSED, !!S.canvasCollapsed); } catch { /* 忽略 */ }
+      notify();
+      return S.canvasCollapsed;
+    }
+    /** 项目下拉的视口约束：右侧/底部各留安全边距，项目多时靠 max-height + 内部滚动，绝不溢出视口。 */
     function openProjectMenuAt(left, top) {
-      update((s) => { s.projectMenu = { left: Math.max(8, Number(left) || 8), top: Math.max(8, Number(top) || 48) }; });
+      const vw = (typeof window !== 'undefined' && Number(window.innerWidth)) || 1200;
+      const vh = (typeof window !== 'undefined' && Number(window.innerHeight)) || 800;
+      const MENU_MIN_W = 220; // 与 .dshic-proj-menu 的 min-width 一致
+      const MENU_SAFE_BOTTOM = 96; // 菜单至少留出顶部位置 + 一小段可见高度
+      const l = Math.min(Math.max(8, Number(left) || 8), Math.max(8, vw - MENU_MIN_W - 8));
+      const t = Math.min(Math.max(8, Number(top) || 48), Math.max(8, vh - MENU_SAFE_BOTTOM));
+      update((s) => { s.projectMenu = { left: l, top: t }; });
     }
     function closeProjectMenu() {
       if (!S.projectMenu) return;
@@ -10913,41 +11106,28 @@ window.__ModuleLoader__.load({
     function createProjectNamed(rawName) {
       const name = String(rawName == null ? '' : rawName).trim();
       if (!name) return { ok: false, error: T('projectNameRequired') };
-      const p = { id: uid('p'), name: name.slice(0, 80), createdAt: Date.now(), updatedAt: Date.now() };
+      const p = { id: uid('p'), name: name.slice(0, 80), createdAt: Date.now(), updatedAt: Date.now(), canvases: [] };
       update((s) => { s.projects.push(p); });
       switchProject(p.id);
-      try { hostRpc('projectsPut', { id: p.id, name: p.name, doc: emptyGraph() }).catch(() => { /* 静默：下次同步重试 */ }); } catch { /* 忽略 */ }
+      try { hostRpc('projectsPut', { id: p.id, name: p.name, canvases: [], doc: emptyGraph() }).catch(() => { /* 静默：下次同步重试 */ }); } catch { /* 忽略 */ }
       lsSet(LS_PROJECTS, S.projects);
       lsSet(LS_ACTIVE, p.id);
       return { ok: true, project: p };
     }
-    /** 提交命名弹窗：新建/重命名项目、新建/重命名画布共用；空名一律拒绝并写入错误提示。 */
+    /** 提交命名弹窗：只处理「新建项目 / 新建画布」；重命名走就地编辑（commitInlineRename）。 */
     function submitProjectDialog() {
       const dlg = S.projectDialog;
       if (!dlg) return { ok: false };
-      const isCanvasMode = dlg.mode === 'canvas-create' || dlg.mode === 'canvas-rename';
+      const isCanvasMode = dlg.mode === 'canvas-create';
       const v = String(dlg.value || '').trim();
       if (!v) {
         const err = isCanvasMode ? T('canvasNameRequired') : T('projectNameRequired');
         update((s) => { if (s.projectDialog) s.projectDialog.error = err; });
         return { ok: false, error: err };
       }
-      if (dlg.mode === 'canvas-create') {
+      if (isCanvasMode) {
         const r = createCanvasNamed(dlg.projectId || S.activeId, v);
         if (!r.ok) { update((s) => { if (s.projectDialog) s.projectDialog.error = r.error; }); return r; }
-      } else if (dlg.mode === 'canvas-rename') {
-        const r = renameCanvasNamed(dlg.projectId || S.activeId, dlg.canvasId, v);
-        if (!r.ok) { update((s) => { if (s.projectDialog) s.projectDialog.error = r.error; }); return r; }
-      } else if (dlg.mode === 'rename' && S.activeId) {
-        update((s) => {
-          const p = s.projects.find((x) => x.id === s.activeId);
-          if (p) { p.name = v.slice(0, 80); p.updatedAt = Date.now(); }
-        });
-        lsSet(LS_PROJECTS, S.projects);
-        try {
-          const doc = loadGraphDoc(S.activeId) || emptyGraph();
-          hostRpc('projectsPut', { id: S.activeId, name: v, canvases: projectCanvases(S.activeId), doc }).catch(() => { /* 静默 */ });
-        } catch { /* 忽略 */ }
       } else {
         const r = createProjectNamed(v);
         if (!r.ok) { update((s) => { if (s.projectDialog) s.projectDialog.error = r.error; }); return r; }
@@ -11070,12 +11250,41 @@ window.__ModuleLoader__.load({
         const r = e.currentTarget.getBoundingClientRect();
         toggleProjectMenuAt(r.left, (r.bottom || 44) + 4);
       };
-      const renameProject = (e) => {
-        if (e) { e.stopPropagation(); }
-        if (!proj) return;
-        closeProjectMenu();
-        openProjectDialog('rename', proj.name);
-      };
+      // 顶部项目名：双击就地编辑（不再有铅笔图标）；编辑态整个切换按钮换成 inline input（button 里不能塞 input）
+      const editingTop = !!proj && inlineEditValue('project', proj.id, null) !== null;
+      const nameText = proj ? proj.name : T('newProject');
+      const topName = editingTop
+        ? inlineNameInput({
+            kind: 'project', dataRole: 'inline-project-name-input', className: 'is-toolbar',
+            style: { width: Math.max(96, Math.min(220, String(nameText).length * 13 + 30)) },
+          })
+        : h('button', {
+            key: 'proj', type: 'button', ref: btnRef, className: 'dshic-btn dshic-proj-switch',
+            'data-role': 'project-switcher', title: T('switchProject'),
+            onPointerDown: (e) => e.stopPropagation(),
+            onClick: toggleMenu,
+          },
+            Ic('folder', 13),
+            h('span', {
+              className: 'dshic-proj-name', 'data-role': 'project-name',
+              title: T('renameHint'),
+              onDoubleClick: (e) => {
+                e.stopPropagation();
+                if (!proj) return;
+                beginInlineRename('project', { projectId: proj.id, value: proj.name });
+              },
+            }, nameText),
+            h('span', { className: 'dshic-proj-car' }, '▾'));
+      // 下拉的视口约束：CSS 里的 max-height 是兜底，这里按实际 top 再收紧一次，项目多时只滚动不溢出
+      const menuStyle = menu
+        ? (() => {
+            const vh = (typeof window !== 'undefined' && Number(window.innerHeight)) || 800;
+            return {
+              left: menu.left, top: menu.top,
+              maxHeight: Math.max(160, Math.min(Math.round(vh * 0.6), vh - menu.top - 12)),
+            };
+          })()
+        : null;
       return [
         h('div', { key: 'bar', className: 'dshic-toolbar' },
           // 「返回会话」：只有图标，放在项目名左边（回到对话面板）
@@ -11083,28 +11292,7 @@ window.__ModuleLoader__.load({
             key: 'back', onClick: () => CTX && CTX.layout && CTX.layout.selectPanel(null), title: T('back'),
             'data-action': 'back-to-chat',
           }, Ic('back', 14)),
-          h('div', { key: 'projwrap', className: 'dshic-proj-switch-wrap' },
-            h('button', {
-              key: 'proj', type: 'button', ref: btnRef, className: 'dshic-btn dshic-proj-switch',
-              'data-role': 'project-switcher', title: T('switchProject'),
-              onPointerDown: (e) => e.stopPropagation(),
-              onClick: toggleMenu,
-            },
-              Ic('folder', 13),
-              h('span', {
-                className: 'dshic-proj-name', 'data-role': 'project-name',
-                title: T('renameHint'),
-                onDoubleClick: renameProject,
-              }, proj ? proj.name : T('newProject')),
-              h('span', { className: 'dshic-proj-car' }, '▾')),
-            proj
-              ? h('button', {
-                  key: 'edit', type: 'button', className: 'dshic-iconbtn dshic-proj-edit',
-                  'data-action': 'rename-project-icon', title: T('rename'),
-                  onPointerDown: (e) => e.stopPropagation(),
-                  onClick: renameProject,
-                }, Ic('pencil', 12))
-              : null),
+          h('div', { key: 'projwrap', className: 'dshic-proj-switch-wrap' }, topName),
           h('div', { className: 'dshic-toolbar-sep' }),
           h(Btn, { onClick: fitView, title: T('fit') }, Ic('fit', 13)),
           h(Btn, { onClick: undo, title: T('undo'), disabled: history.idx <= 0 }, Ic('undoIc', 13)),
@@ -11135,15 +11323,33 @@ window.__ModuleLoader__.load({
           }, Ic('sidebar', 13)),
         ),
         menu
-          ? h('div', { key: 'menu', className: 'dshic-proj-menu', style: { left: menu.left, top: menu.top }, onPointerDown: (e) => e.stopPropagation() },
-              S.projects.map((p) => h('button', {
-                key: p.id, type: 'button',
-                className: cls('dshic-proj-menu-item', p.id === S.activeId && 'is-active'),
-                'data-action': 'switch-project-' + p.id,
-                onClick: () => { closeProjectMenu(); if (p.id !== S.activeId) switchProject(p.id); },
-              },
-                h('span', { className: 'dshic-proj-name' }, p.name),
-                h('span', { className: 'dshic-proj-menu-meta' }, p.id === S.activeId ? '✓' : ''))),
+          ? h('div', { key: 'menu', className: 'dshic-proj-menu', style: menuStyle, onPointerDown: (e) => e.stopPropagation() },
+              S.projects.map((p) => {
+                const editing = inlineEditValue('project', p.id, null) !== null;
+                return h('div', {
+                  key: p.id,
+                  className: cls('dshic-proj-menu-item', p.id === S.activeId && 'is-active', editing && 'is-editing'),
+                  'data-action': 'switch-project-' + p.id,
+                  onClick: () => {
+                    if (editing) return;
+                    closeProjectMenu();
+                    if (p.id !== S.activeId) switchProject(p.id);
+                  },
+                },
+                  editing
+                    ? inlineNameInput({ kind: 'project', dataRole: 'inline-project-name-input-menu', className: 'is-menu', value: p.name })
+                    : h('span', {
+                        className: 'dshic-proj-name',
+                        onDoubleClick: (e) => { e.stopPropagation(); beginInlineRename('project', { projectId: p.id, value: p.name }); },
+                      }, p.name),
+                  p.id === S.activeId ? h('span', { className: 'dshic-proj-menu-meta' }, '✓') : null,
+                  h('button', {
+                    type: 'button', className: 'dshic-iconbtn dshic-proj-menu-edit',
+                    'data-action': 'edit-project-' + p.id, title: T('rename'),
+                    onPointerDown: (e) => e.stopPropagation(),
+                    onClick: (e) => { e.stopPropagation(); beginInlineRename('project', { projectId: p.id, value: p.name }); },
+                  }, Ic('pencil', 12)));
+              }),
               S.projects.length ? h('div', { key: 'sep', className: 'dshic-proj-menu-sep' }) : null,
               h('button', {
                 key: 'new', type: 'button', className: 'dshic-proj-menu-item', 'data-action': 'new-project-main',
@@ -11155,7 +11361,7 @@ window.__ModuleLoader__.load({
     }
 
     // ============================================================
-    // 项目命名弹窗（新建必须命名 + 空名校验；重命名复用）
+    // 命名弹窗：只用于「新建」（项目 / 画布）；重命名一律就地编辑，不走弹窗
     // ============================================================
     function ProjectNameDialog() {
       const dlg = S.projectDialog;
@@ -11166,12 +11372,9 @@ window.__ModuleLoader__.load({
         return () => window.removeEventListener('keydown', onKey);
       }, [dlg]);
       if (!dlg) return null;
-      const isCanvasMode = dlg.mode === 'canvas-create' || dlg.mode === 'canvas-rename';
-      const isRename = dlg.mode === 'rename' || dlg.mode === 'canvas-rename';
-      const title = isCanvasMode ? (isRename ? T('renameCanvas') : T('newCanvas').replace('…', '')) : (isRename ? T('renameProject') : T('newProject'));
+      const isCanvasMode = dlg.mode === 'canvas-create';
+      const title = isCanvasMode ? T('newCanvas').replace('…', '') : T('newProject');
       const label = isCanvasMode ? T('canvasName') : T('projectName');
-      const placeholder = isCanvasMode ? T('canvasName') : T('projectName');
-      const submitLabel = isCanvasMode ? (isRename ? T('renameCanvas') : T('newCanvas').replace('…', '')) : (isRename ? T('renameProject') : T('newProject'));
       const submit = () => { submitProjectDialog(); };
       return h('div', {
         className: 'dshic-modal-overlay', 'data-role': 'project-dialog',
@@ -11183,7 +11386,7 @@ window.__ModuleLoader__.load({
             h('span', { className: 'dshic-field-label' }, label),
             h('input', {
               className: 'dshic-input', autoFocus: true, value: dlg.value || '',
-              placeholder,
+              placeholder: label,
               'data-role': isCanvasMode ? 'canvas-name-input' : 'project-name-input',
               onChange: (e) => update((s) => { if (s.projectDialog) { s.projectDialog.value = e.target.value; s.projectDialog.error = null; } }),
               onKeyDown: (e) => { if (e.key === 'Enter') submit(); if (e.key === 'Escape') closeProjectDialog(); },
@@ -11195,7 +11398,7 @@ window.__ModuleLoader__.load({
             h('button', {
               type: 'button', className: 'dshic-btn dshic-primary',
               'data-action': 'project-dialog-submit', onClick: submit,
-            }, submitLabel))),
+            }, title))),
       );
     }
 
@@ -11208,7 +11411,7 @@ window.__ModuleLoader__.load({
       const [delTarget, setDelTarget] = useState(null);
       const [delName, setDelName] = useState('');
       const [delCount, setDelCount] = useState(0);
-      const [canvasDel, setCanvasDel] = useState(null); // { pid, cid, name }：画布删除的二次确认（行内）
+      const [canvasDel, setCanvasDel] = useState(null); // { cid, name }：画布删除的行内二次确认
 
       const create = () => {
         const nm = name.trim() || (T('projectName') + ' ' + (S.projects.length + 1));
@@ -11218,7 +11421,6 @@ window.__ModuleLoader__.load({
         try { hostRpc('projectsPut', { id: p.id, name: nm, canvases: [], doc: emptyGraph() }).catch(() => { /* 静默 */ }); } catch { /* 忽略 */ }
         setCreating(false); setName('');
       };
-      const renameProject = (p) => { openProjectDialog('rename', p.name, { projectId: p.id }); };
       const openDel = (p) => {
         setDelTarget(p);
         setDelName('');
@@ -11286,32 +11488,38 @@ window.__ModuleLoader__.load({
         }
         setDelTarget(null);
       };
-      /** 画布行（目录树的子节点）：默认画布 + 子画布；点击切换、双击/铅笔重命名、垃圾桶删除（行内二次确认）。 */
-      const canvasRow = (p, c) => {
-        const isActiveCanvas = p.id === S.activeId && activeCanvasId() === (c.id || DEFAULT_CANVAS_ID);
-        const deleting = canvasDel && canvasDel.pid === p.id && canvasDel.cid === (c.id || DEFAULT_CANVAS_ID);
+      /** 画布行：默认画布不可改名（名字由项目默认画布语义决定）也不可删除；子画布可切换/就地改名/删除。
+       *  删除受「至少保留一个画布」约束：只剩这一个画布时按钮 disabled。 */
+      const canvasRow = (p, c, canvasCount) => {
+        const cid = c.id || DEFAULT_CANVAS_ID;
+        const isActiveCanvas = p.id === S.activeId && activeCanvasId() === cid;
+        const deleting = canvasDel && canvasDel.pid === p.id && canvasDel.cid === cid;
+        const editing = !c.isDefault && inlineEditValue('canvas', p.id, c.id) !== null;
+        const delDisabled = c.isDefault || canvasCount <= 1;
         const pick = () => {
           if (p.id !== S.activeId) switchProject(p.id);
           if (c.isDefault) { if (activeCanvasId() !== DEFAULT_CANVAS_ID) switchCanvas(DEFAULT_CANVAS_ID); }
           else if (activeCanvasId() !== c.id) switchCanvas(c.id);
         };
         return h('div', {
-          key: 'cv-' + (c.id || 'default'),
-          className: cls('dshic-canvas-row', isActiveCanvas && 'is-active'),
-          onClick: pick,
-          title: T('switchProject') + ' · ' + (c.isDefault ? T('defaultCanvas') : T('renameCanvasHint')),
+          key: 'cv-' + cid,
+          className: cls('dshic-canvas-row', isActiveCanvas && 'is-active', editing && 'is-editing'),
+          'data-canvas-id': cid || '',
+          'data-action': 'switch-canvas-' + (cid || 'default'),
+          onClick: () => { if (!editing) pick(); },
+          title: c.isDefault ? T('switchProject') + ' · ' + T('defaultCanvas') : T('switchProject') + ' · ' + T('renameCanvasHint'),
         },
           h('span', { className: 'dshic-canvas-branch' }, c.isDefault ? '•' : '↳'),
-          h('span', {
-            className: 'dshic-canvas-name',
-            onDoubleClick: (e) => {
-              e.stopPropagation();
-              if (!c.isDefault) openProjectDialog('canvas-rename', c.name, { projectId: p.id, canvasId: c.id });
-            },
-          }, c.name),
-          c.isDefault
-            ? h('span', { className: 'dshic-canvas-tag' }, T('defaultCanvas'))
-            : null,
+          editing
+            ? inlineNameInput({ kind: 'canvas', dataRole: 'inline-canvas-name-input', className: 'is-panel', value: c.name })
+            : h('span', {
+                className: 'dshic-canvas-name',
+                onDoubleClick: (e) => {
+                  e.stopPropagation();
+                  if (!c.isDefault) beginInlineRename('canvas', { projectId: p.id, canvasId: c.id, value: c.name });
+                },
+              }, c.name),
+          c.isDefault ? h('span', { className: 'dshic-canvas-tag' }, T('defaultCanvas')) : null,
           deleting
             ? [
                 h('button', {
@@ -11330,17 +11538,24 @@ window.__ModuleLoader__.load({
                   key: 'rn', type: 'button', className: 'dshic-iconbtn', title: T('renameCanvas'),
                   'data-action': 'rename-canvas-' + c.id,
                   onPointerDown: (e) => e.stopPropagation(),
-                  onClick: (e) => { e.stopPropagation(); openProjectDialog('canvas-rename', c.name, { projectId: p.id, canvasId: c.id }); },
+                  onClick: (e) => { e.stopPropagation(); beginInlineRename('canvas', { projectId: p.id, canvasId: c.id, value: c.name }); },
                 }, Ic('pencil', 11)),
                 h('button', {
-                  key: 'del', type: 'button', className: 'dshic-iconbtn is-danger', title: T('delCanvasHint'),
-                  'data-action': 'delete-canvas-' + c.id,
+                  key: 'del', type: 'button', className: 'dshic-iconbtn is-danger', title: delDisabled ? T('keepOneCanvas') : T('delCanvasHint'),
+                  'data-action': 'delete-canvas-' + c.id, disabled: delDisabled,
                   onPointerDown: (e) => e.stopPropagation(),
-                  onClick: (e) => { e.stopPropagation(); setCanvasDel({ pid: p.id, cid: c.id, name: c.name }); },
+                  onClick: (e) => { e.stopPropagation(); if (delDisabled) return; setCanvasDel({ pid: p.id, cid: c.id, name: c.name }); },
                 }, Ic('trash', 11)),
               ]),
         );
       };
+      // 右栏只显示**当前项目**（不再列其他项目）：项目行 + 折叠箭头 + 搜索框 + 子画布列表
+      const proj = S.projects.find((p) => p.id === S.activeId) || null;
+      const canvases = proj ? listCanvases(proj.id) : [];
+      const q = String(S.canvasSearch || '').trim().toLowerCase();
+      const shown = q ? canvases.filter((c) => String(c.name || '').toLowerCase().includes(q)) : canvases;
+      const collapsed = !!S.canvasCollapsed;
+      const projectEditing = proj && inlineEditValue('project', proj.id, null) !== null;
       return [
         creating
           ? h('div', { key: 'new', className: 'dshic-row' },
@@ -11358,51 +11573,70 @@ window.__ModuleLoader__.load({
               h('button', { type: 'button', className: 'dshic-mini is-ghost', title: T('cancel'), onClick: () => setCreating(false) }, '✕'),
             )
           : h('button', { key: 'newbtn', type: 'button', className: 'dshic-mini', style: { alignSelf: 'flex-start' }, onClick: () => { setCreating(true); setName(''); } }, Ic('plus', 11), T('newProject')),
-        !S.projects.length && !creating
+        !proj && !creating
           ? h('div', { key: 'emptystate', className: 'dshic-hint', style: { alignSelf: 'flex-start', padding: '6px 2px', maxWidth: 260 } },
               T('emptyProjectHint'))
           : null,
-        h('div', { key: 'treehint', className: 'dshic-hint', 'data-role': 'canvas-tree-hint' }, T('canvasHint')),
-        ...S.projects.map((p) => {
-          const canvases = listCanvases(p.id);
-          return h('div', { key: p.id, className: cls('dshic-tree-proj', p.id === S.activeId && 'is-active') },
-            h('div', {
-              className: cls('dshic-proj', p.id === S.activeId && 'is-active'),
-              onClick: () => {
-                if (p.id !== S.activeId) switchProject(p.id);
-                else if (activeCanvasId() !== DEFAULT_CANVAS_ID) switchCanvas(DEFAULT_CANVAS_ID);
-              },
-              title: T('renameHint'),
-            },
-              Ic('folder', 13),
-              h('div', { style: { flex: 1, minWidth: 0 } },
-                h('div', {
-                  className: 'dshic-proj-name', 'data-role': 'tree-project-name',
-                  onDoubleClick: (e) => { e.stopPropagation(); renameProject(p); },
-                }, p.name),
-                h('div', { className: 'dshic-proj-meta' }, T('projCreatedAt') + ' ' + fmtTime(p.createdAt))),
-              h('button', {
-                type: 'button', className: 'dshic-iconbtn', title: T('newCanvas'),
-                'data-action': 'new-canvas-' + p.id,
+        // 项目区域顶部：搜索框（输入即过滤当前项目的子画布；折叠时一并隐藏）
+        proj && !collapsed
+          ? h('div', { key: 'search', className: 'dshic-canvas-search' },
+              h('input', {
+                className: 'dshic-input', type: 'search', value: S.canvasSearch || '',
+                placeholder: T('searchCanvasPh'), 'data-role': 'canvas-search',
+                onChange: (e) => setCanvasSearch(e.target.value),
                 onPointerDown: (e) => e.stopPropagation(),
-                onClick: (e) => { e.stopPropagation(); openProjectDialog('canvas-create', '', { projectId: p.id }); },
-              }, Ic('plus', 11)),
-              h('button', {
-                type: 'button', className: 'dshic-iconbtn', title: T('rename'),
-                'data-action': 'rename-project-' + p.id,
-                onPointerDown: (e) => e.stopPropagation(),
-                onClick: (e) => { e.stopPropagation(); renameProject(p); },
-              }, Ic('pencil', 11)),
-              h('button', {
-                type: 'button', className: 'dshic-iconbtn is-danger', title: T('doDelete'),
-                onPointerDown: (e) => e.stopPropagation(),
-                onClick: (e) => { e.stopPropagation(); openDel(p); },
-              }, Ic('trash', 12)),
-            ),
-            h('div', { className: 'dshic-canvas-list' },
-              canvases.map((c) => canvasRow(p, c))),
-          );
-        }),
+              }))
+          : null,
+        proj
+          ? h('div', { key: 'projtree', className: 'dshic-tree-proj', 'data-role': 'current-project-panel' },
+              h('div', { key: 'prow', className: 'dshic-tree-project' },
+                h('button', {
+                  key: 'fold', type: 'button', className: 'dshic-fold-btn',
+                  'data-action': 'toggle-canvas-collapse',
+                  title: collapsed ? T('expandCanvases') : T('collapseCanvases'),
+                  'aria-expanded': collapsed ? 'false' : 'true',
+                  onPointerDown: (e) => e.stopPropagation(),
+                  onClick: (e) => { e.stopPropagation(); toggleCanvasCollapsed(); },
+                }, h('span', { className: 'dshic-fold-car' }, collapsed ? '▸' : '▾')),
+                Ic('folder', 14),
+                projectEditing
+                  ? inlineNameInput({ kind: 'project', dataRole: 'inline-project-name-input-panel', className: 'is-panel', value: proj.name })
+                  : h('span', {
+                      className: 'dshic-proj-name', 'data-role': 'tree-project-name',
+                      onDoubleClick: (e) => { e.stopPropagation(); beginInlineRename('project', { projectId: proj.id, value: proj.name }); },
+                    }, proj.name),
+                h('button', {
+                  key: 'ren', type: 'button', className: 'dshic-iconbtn', title: T('rename'),
+                  'data-action': 'rename-current-project',
+                  onPointerDown: (e) => e.stopPropagation(),
+                  onClick: (e) => { e.stopPropagation(); beginInlineRename('project', { projectId: proj.id, value: proj.name }); },
+                }, Ic('pencil', 12)),
+                h('button', {
+                  key: 'del', type: 'button', className: 'dshic-iconbtn is-danger', title: T('delProjectHint'),
+                  'data-action': 'delete-current-project',
+                  onPointerDown: (e) => e.stopPropagation(),
+                  onClick: (e) => { e.stopPropagation(); openDel(proj); },
+                }, Ic('trash', 12)),
+              ),
+              collapsed
+                ? null
+                : [
+                    h('div', { key: 'list', className: 'dshic-canvas-list', 'data-role': 'canvas-list' },
+                      shown.map((c) => canvasRow(proj, c, canvases.length)),
+                      shown.length
+                        ? null
+                        : h('div', { key: 'nores', className: 'dshic-hint', 'data-role': 'canvas-search-empty' }, T('noCanvasMatch')),
+                    ),
+                    h('div', { key: 'newcv', className: 'dshic-canvas-newrow' },
+                      h('button', {
+                        type: 'button', className: 'dshic-mini', 'data-action': 'new-canvas-' + proj.id,
+                        title: T('newCanvas'),
+                        onPointerDown: (e) => e.stopPropagation(),
+                        onClick: (e) => { e.stopPropagation(); openProjectDialog('canvas-create', '', { projectId: proj.id }); },
+                      }, Ic('plus', 11), T('newCanvas').replace('…', ''))),
+                  ],
+            )
+          : null,
         delTarget ? h(DeleteProjectModal, {
           key: 'delmodal', target: delTarget, name: delName, setName: setDelName, count: delCount,
           onCancel: () => setDelTarget(null), onConfirm: confirmDel,
@@ -13093,14 +13327,7 @@ window.__ModuleLoader__.load({
         S.lightbox ? h(Lightbox) : null,
         S.supportOpen ? h(SupportDialog) : null,
         S.skillPalette ? h(SkillPalette) : null,
-        S._toast ? h('div', {
-          style: {
-            position: 'fixed', bottom: 22, left: '50%', transform: 'translateX(-50%)', zIndex: 70,
-            background: 'var(--dsw-alias-bg-overlay)', border: '1px solid var(--dsw-alias-border-l2)',
-            borderRadius: 10, padding: '8px 14px', fontSize: 12, boxShadow: '0 8px 24px rgba(0,0,0,.25)',
-            maxWidth: 420,
-          },
-        }, S._toast) : null,
+        S._toast ? h('div', { className: 'dshic-toast', 'data-role': 'toast' }, S._toast) : null,
       );
     }
 
@@ -13572,18 +13799,25 @@ window.__ModuleLoader__.load({
           window.__DSH_IC_IMGREF__ = { rawImageDims, sniffImageEncoding, registerReferenceAsset };
           // IC-03：视频厂商识别/前缀归一化的纯函数出口（供 scripts/test-vendor-detect.mjs 直接断言）
           window.__DSH_IC_VENDOR__ = { detectVideoVendor, gatewayPrefixFor, wanEndpoints, vendorBase, VIDEO_REF_CAPS };
-          // 面板结构（左侧图标列 / 统一弹窗 / 工具栏项目切换）：供 scripts/test-panel-layout.mjs 驱动
+          // 面板结构（左侧图标列 / 统一弹窗 / 工具栏项目切换 / 就地改名 / 右栏当前项目面板）：
+          // 供 scripts/test-panel-layout.mjs 驱动
           window.__DSH_IC_PANEL__ = {
             IconRail, StudioModal, Toolbar, Rightbar, AssetCard, ProjectNameDialog,
             openStudioModal, setStudioModalTab, closeStudioModal, handleStudioModalKey,
-            openProjectDialog, closeProjectDialog, submitProjectDialog, createProjectNamed,
+            openProjectDialog, closeProjectDialog, submitProjectDialog, createProjectNamed, renameProjectTo,
+            beginInlineRename, setInlineEditValue, commitInlineRename, cancelInlineRename, inlineEditValue,
+            setCanvasSearch, toggleCanvasCollapsed,
             createCanvasNamed, renameCanvasNamed, deleteCanvasNamed, listCanvases, canvasNameFor,
             setProjectDialogValue: (v) => { if (S.projectDialog) S.projectDialog.value = String(v == null ? '' : v); },
+            setInlineValue: (v) => setInlineEditValue(v),
             openProjectMenuAt, closeProjectMenu, toggleProjectMenuAt,
             state: () => ({
               panelModal: S.panelModal,
               projectMenu: S.projectMenu ? { ...S.projectMenu } : null,
               projectDialog: S.projectDialog ? { ...S.projectDialog } : null,
+              inlineEdit: S.inlineEdit ? { ...S.inlineEdit } : null,
+              canvasSearch: S.canvasSearch,
+              canvasCollapsed: !!S.canvasCollapsed,
               rightTab: S.rightTab,
               activeId: S.activeId,
               activeCanvasId: activeCanvasId(),

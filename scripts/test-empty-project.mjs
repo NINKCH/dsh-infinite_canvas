@@ -127,7 +127,7 @@ ok(creators === 0, `仍有 ${creators} 处用 defaultProject 自动建项目`);
 ok(/emptyProjectHint/.test(src), '空态引导文案键 emptyProjectHint 缺失');
 ok(/'emptyProjectHint':/.test(src), 'emptyProjectHint 中文定义缺失');
 ok(/'emptyProjectHint':\s*'No projects yet/.test(src), 'emptyProjectHint 英文定义缺失');
-ok(/!S\.projects\.length && !creating\s*\?\s*h\('div'[^)]*emptyProjectHint/.test(src.replace(/\n/g, ' ')), '空态引导没有挂到 ProjectsTab');
+ok(/(!S\.projects\.length|!proj) && !creating\s*\?\s*h\('div'[^)]*emptyProjectHint/.test(src.replace(/\n/g, ' ')), '空态引导没有挂到 ProjectsTab');
 
 // ---------------- 4) 显式创建路径仍然完好（回归保护） ----------------
 ok(/const create = \(\) => \{/.test(projectsTab), 'ProjectsTab 的显式创建函数丢失');
