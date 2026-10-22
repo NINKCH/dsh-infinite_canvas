@@ -1501,12 +1501,16 @@ window.__ModuleLoader__.load({
 .dshic-toolbar-sep{width:1px;height:18px;background:var(--dsw-alias-border-l2);margin:0 4px;flex:none;}
 .dshic-flex{flex:1;}
 .dshic-zoom{min-width:56px;text-align:center;font-size:12px;color:var(--dsw-alias-label-secondary);font-variant-numeric:tabular-nums;}
-.dshic-main{flex:1;display:flex;min-height:0;}
+.dshic-main{flex:1;display:flex;min-height:0;position:relative;}
 /* ── 左侧图标列（单列；固定，不随画布平移缩放）──────────────────── */
-/* 左侧图标列：完全无容器外观（无 border/background/box-shadow/border-radius），只留图标本身；
-   高度自适应内容、垂直居中悬浮（align-self:center + margin:auto 0），不撑满上下。 */
-.dshic-rail{flex:none;width:46px;height:auto;align-self:center;margin:auto 0;display:flex;flex-direction:column;
-  align-items:center;justify-content:center;gap:3px;padding:6px 0;z-index:25;box-sizing:border-box;}
+/* 左侧图标列：完全无容器外观（无 border/background/box-shadow/border-radius），只留图标本身。
+   用「外层占位（46px 宽，参与 flex 布局，透明）+ 内层绝对定位垂直居中」实现真正悬浮：
+   - 外层 .dshic-rail 只负责占位，不撑高、无色；
+   - 内层 .dshic-rail-inner 绝对定位到父容器垂直中线，高度=内容高度，四周留白。 */
+.dshic-rail{flex:none;width:46px;position:relative;align-self:stretch;background:transparent;border:0;box-shadow:none;}
+.dshic-rail-inner{position:absolute;left:0;top:50%;transform:translateY(-50%);width:46px;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;padding:6px 0;box-sizing:border-box;z-index:25;
+  background:transparent;border:0;box-shadow:none;border-radius:0;}
 .dshic-rail-btn{width:34px;height:34px;flex:none;display:flex;align-items:center;justify-content:center;border:none;border-radius:9px;
   background:transparent;color:var(--dsw-alias-label-secondary);cursor:pointer;position:relative;padding:0;}
 .dshic-rail-btn:hover{background:color-mix(in srgb,var(--dsw-alias-label-primary) 8%,transparent);color:var(--dsw-alias-label-primary);}
@@ -11481,8 +11485,11 @@ window.__ModuleLoader__.load({
       };
       // 容器零外观 + 只占内容高度：内联归零作为最后一道保险（防宿主全局样式/旧样式表残留把它画成
       // 满高描边卡片）；布局仍由 .dshic-rail 规则提供（height:auto/align-self:center/margin:auto 0）。
-      const railReset = { border: 0, background: 'transparent', boxShadow: 'none', borderRadius: 0, height: 'auto', alignSelf: 'center' };
-      return h('div', { className: 'dshic-rail', 'data-role': 'icon-rail', style: railReset },
+      // 外层只占位（宽度），内层绝对定位垂直居中 —— 保证图标区高度=内容高度、上下留白，
+      // 且不受父级 flex 的 align-items:stretch 影响（历史 bug：被拉成整列高、看起来像满高白色卡片）。
+      const railOuter = { border: 0, background: 'transparent', boxShadow: 'none', borderRadius: 0 };
+      return h('div', { className: 'dshic-rail', 'data-role': 'icon-rail', style: railOuter },
+        h('div', { className: 'dshic-rail-inner', 'data-role': 'icon-rail-inner' },
         RAIL_NODE_TYPES.map((it) => h('button', {
           key: 'add-' + it.type, type: 'button', className: 'dshic-rail-btn',
           'data-action': 'add-' + it.type, title: labels[it.type] || it.type,
@@ -11511,6 +11518,7 @@ window.__ModuleLoader__.load({
               key: 'run', type: 'button', className: 'dshic-rail-btn',
               'data-action': 'run-workflow', title: T('run'), onClick: runWorkflow,
             }, Ic('play', 16)),
+        ),
       );
     }
 

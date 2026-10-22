@@ -162,23 +162,29 @@ function fnBody(name) {
   }
   return '';
 }
-/** 取 CSS 规则的声明体（拼接同名规则的多次定义）；找不到返回 ''。 */
+/** 取 CSS 规则的声明体（拼接同名规则的多次定义）；找不到返回 ''。注释会先剔除，避免把注释里的
+ *  「border/background」等字样当成真实声明（历史误报来源）。 */
 function cssRule(selector) {
+  const css = String(src || '').replace(/\/\*[\s\S]*?\*\//g, '');
   const all = [];
   let from = 0;
   for (;;) {
-    const at = src.indexOf(selector + '{', from);
-    if (at < 0) break;
-    const end = src.indexOf('}', at);
+    // 选择器后必须紧跟 `{`（不允许 `.dshic-rail` 误匹配 `.dshic-rail-inner{`）
+    const re = new RegExp(selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\{', 'g');
+    re.lastIndex = from;
+    const m = re.exec(css);
+    if (!m) break;
+    const at = m.index;
+    const end = css.indexOf('}', at);
     if (end < 0) break;
-    all.push(src.slice(at + selector.length + 1, end));
+    all.push(css.slice(at + m[0].length, end));
     from = end + 1;
   }
   return all.join(';');
 }
 /** 取 CSS 中所有「选择器命中该类名（含组合选择器）」的规则：用于全量反向扫描，避免只看第一条。 */
 function cssRulesMatchingClass(name) {
-  const css = LAYOUT.CSS || '';
+  const css = (LAYOUT.CSS || '').replace(/\/\*[\s\S]*?\*\//g, '');
   const out = [];
   const re = /([^{}@][^{}]*)\{([^{}]*)\}/g;
   const needle = new RegExp('\\.' + String(name).replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '(?![-\\w])');
@@ -223,8 +229,9 @@ function cssRulesMatchingClass(name) {
   eq(acts.join(','), 'add-text,add-script,add-storyboard,add-image,add-video,add-finalcut,open-assets,open-bible,run-workflow',
     '左侧图标列顺序/动作不符合要求');
   ok(/\.dshic-rail\{[^}]*flex:none/.test((LAYOUT.CSS || '')), '图标列不是固定 flex:none 列（会随画布布局变化）');
-  // 第 2 条：图标列整列垂直居中（不是贴左上角）
-  ok(/\.dshic-rail\{[^}]*justify-content:center/.test((LAYOUT.CSS || '')), '图标列没有垂直居中（justify-content:center）');
+  // 第 2 条：图标列整列垂直居中（内层绝对定位居中，不是贴左上角/撑满整列）
+  ok(/\.dshic-rail-inner\{[^}]*justify-content:center/.test((LAYOUT.CSS || '')), '图标列没有垂直居中（内层缺 justify-content:center）');
+  ok(/\.dshic-rail-inner\{[^}]*top:50%[^}]*translateY\(-50%\)/.test((LAYOUT.CSS || '')), '图标列内层没有垂直居中（缺 top:50% + translateY(-50%)）');
   ok(/h\(IconRail\)/.test(fnBody('CanvasPage')), 'IconRail 未挂到画布主区域');
   // 点「文本」→ 在视口中心添加文本节点（沿用 addNodeAt：默认尺寸/选中/历史）
   const before = Object.keys(sync.graph().nodes).length;
@@ -879,19 +886,24 @@ function cssRulesMatchingClass(name) {
     ok(!/rgba?\(|#[0-9a-fA-F]{3,8}/.test(body), sel + ' 出现固定色字面量（应用主题变量）：' + body.slice(0, 120));
     ok(!/--dsw-alias-bg-overlay/.test(body), sel + ' 仍用灰蓝 token');
   }
-  // 左侧图标栏：只占中间部分，不 flex:1 撑满
+  // 左侧图标栏：外层只占位、内层绝对定位垂直居中（真正悬浮，上下留白）
   const rail = cssRule('.dshic-rail');
-  ok(/height:auto/.test(rail), '图标列没有 height:auto（仍会撑满）');
-  ok(/align-self:center/.test(rail), '图标列没有 align-self:center（未只占中间）');
-  ok(/margin:auto 0/.test(rail), '图标列没有 margin:auto 0（上下不留白）');
+  const railInnerCss = cssRule('.dshic-rail-inner');
+  ok(/position:relative/.test(rail), '图标列外层没有 position:relative（内层无定位基准）');
   ok(!/flex:1/.test(rail), '图标列仍用 flex:1 撑满');
-  ok(/justify-content:center/.test(rail), '图标列内部没有垂直居中');
-  // 第 2 条：图标列容器彻底移除卡片外观（不得再有 border/background/box-shadow/border-radius 声明）
-  ok(!/(^|;)border(-[a-z-]+)?:/.test(rail), '图标列容器仍有 border 声明（应完全去掉描边）:' + rail.slice(0, 140));
-  ok(!/(^|;)background(-[a-z-]+)?:/.test(rail), '图标列容器仍有 background 声明（应完全去掉底色）:' + rail.slice(0, 140));
-  ok(!/(^|;)box-shadow:/.test(rail), '图标列容器仍有 box-shadow（应去掉卡片投影）');
-  ok(!/(^|;)border-radius:/.test(rail), '图标列容器仍有 border-radius（应去掉卡片圆角）');
-  // 渲染级：rail 容器只有布局类，没有内联边框样式；内联归零保证宿主全局样式也画不出框
+  // 内层必须是绝对定位 + top:50% + translateY 居中，且高度自适应内容
+  ok(/position:absolute/.test(railInnerCss), '图标列内层不是绝对定位（仍会被 flex 拉伸）');
+  ok(/top:50%/.test(railInnerCss) && /translateY\(-50%\)/.test(railInnerCss), '图标列内层没有垂直居中（top:50% + translateY(-50%)）');
+  ok(/justify-content:center/.test(railInnerCss), '图标列内层没有垂直居中');
+  ok(!/flex:1/.test(railInnerCss), '图标列内层仍用 flex:1 撑满');
+  // 第 2 条：图标列（外层与内层）彻底移除卡片外观
+  for (const [label, rule] of [['外层 .dshic-rail', rail], ['内层 .dshic-rail-inner', railInnerCss]]) {
+    ok(!/(^|;)border(-[a-z-]+)?:(?!0)/.test(rule), label + ' 仍有非零 border 声明（应完全去掉描边）:' + rule.slice(0, 140));
+    ok(!/(^|;)background(-[a-z-]+)?:(?!transparent)/.test(rule), label + ' 仍有非透明 background（应完全去掉底色）:' + rule.slice(0, 140));
+    ok(!/(^|;)box-shadow:(?!none)/.test(rule), label + ' 仍有 box-shadow（应去掉卡片投影）');
+    ok(!/(^|;)border-radius:(?!0)/.test(rule), label + ' 仍有 border-radius（应去掉卡片圆角）');
+  }
+  // 渲染级：外层与内层都不带边框/底色样式
   const railTree = TABS.IconRail();
   const railEl = all(railTree).find((e) => clsOf(e).split(/\s+/).includes('dshic-rail'));
   ok(!!railEl, '渲染树里找不到图标列容器');
@@ -901,22 +913,24 @@ function cssRulesMatchingClass(name) {
   eq(railStyle.background, 'transparent', '图标列渲染 style 的 background 不是 transparent');
   eq(railStyle.boxShadow, 'none', '图标列渲染 style 的 boxShadow 不是 none');
   eq(railStyle.borderRadius, 0, '图标列渲染 style 的 borderRadius 不是 0');
-  eq(railStyle.height, 'auto', '图标列渲染 style 没有 height:auto');
-  eq(railStyle.alignSelf, 'center', '图标列渲染 style 没有 align-self:center');
-  // 全量扫描：所有命中 `.dshic-rail` 类名的规则（不只第一条）都不得声明边框/底色/投影/圆角
+  // 全量扫描：所有命中 `.dshic-rail` 类名的规则（不只第一条）都不得声明**非零**边框/底色/投影/圆角
+  // （`border:0` / `background:transparent` / `box-shadow:none` / `border-radius:0` 是显式归零，属正确写法）
   const railRules = cssRulesMatchingClass('dshic-rail');
   ok(railRules.length >= 1, '找不到任何命中 .dshic-rail 的 CSS 规则');
   for (const r of railRules) {
-    ok(!/(^|;)\s*border(-[a-z-]+)?\s*:/.test(r.body), '规则「' + r.sel + '」仍声明 border');
-    ok(!/(^|;)\s*background(-[a-z-]+)?\s*:/.test(r.body), '规则「' + r.sel + '」仍声明 background');
-    ok(!/(^|;)\s*box-shadow\s*:/.test(r.body), '规则「' + r.sel + '」仍声明 box-shadow');
-    ok(!/(^|;)\s*border-radius\s*:/.test(r.body), '规则「' + r.sel + '」仍声明 border-radius');
-    ok(!/(^|;)\s*(height\s*:\s*(100%|100vh)|inset\s*:|position\s*:\s*absolute)/.test(r.body), '规则「' + r.sel + '」仍会让图标列撑满/脱离中缝');
+    ok(!/(^|;)\s*border(-[a-z-]+)?\s*:\s*(?!0\b)(?!none\b)/.test(r.body), '规则「' + r.sel + '」仍声明非零 border');
+    ok(!/(^|;)\s*background(-[a-z-]+)?\s*:\s*(?!transparent|none)/.test(r.body), '规则「' + r.sel + '」仍声明非透明 background');
+    ok(!/(^|;)\s*box-shadow\s*:\s*(?!none)/.test(r.body), '规则「' + r.sel + '」仍声明 box-shadow');
+    ok(!/(^|;)\s*border-radius\s*:\s*(?!0\b)/.test(r.body), '规则「' + r.sel + '」仍声明非零 border-radius');
+    ok(!/(^|;)\s*height\s*:\s*(100%|100vh)/.test(r.body), '规则「' + r.sel + '」仍会让图标列撑满高度');
   }
   // 布局模型（fake DOM 无真实排版，按盒模型计算）：内容高 ≈ 图标+分隔线+间距，远小于父高且上下留白充足
-  const railBtns = all(railTree).filter((e) => clsOf(e).split(/\s+/).includes('dshic-rail-btn'));
-  const railSeps = all(railTree).filter((e) => clsOf(e).split(/\s+/).includes('dshic-rail-sep'));
-  const railKids = (railTree.props.children || []).filter(Boolean);
+  // 图标列现在是「外层占位 + 内层绝对定位居中」两层结构，子节点统计取内层
+  const railInner = all(railTree).find((e) => clsOf(e).split(/\s+/).includes('dshic-rail-inner')) || railTree;
+  const railBtns = all(railInner).filter((e) => clsOf(e).split(/\s+/).includes('dshic-rail-btn'));
+  const railSeps = all(railInner).filter((e) => clsOf(e).split(/\s+/).includes('dshic-rail-sep'));
+  const innerKids = railInner.props.children;
+  const railKids = (Array.isArray(innerKids) ? innerKids : [innerKids]).filter(Boolean);
   ok(railBtns.length >= 9, '图标列按钮数量不足（应含 9 个动作图标）');
   const contentH = 12 + railBtns.length * 34 + railSeps.length * 1 + (railKids.length - 1) * 3;
   const parentH = 800;

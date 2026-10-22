@@ -21,7 +21,7 @@
 ## 三、左侧图标列
 
 10. 图标列**不得有任何外框**：无 `border`、无 `background`、无 `box-shadow`、无 `border-radius`（不要卡片、不要描边、不要底色）。
-11. 图标列**垂直居中悬浮在左栏中间**：`height:auto` + `align-self:center` + `margin:auto 0`，**不撑满上下边**，不使用 `flex:1`。
+11. 图标列**垂直居中悬浮在左栏中间**，**不撑满上下边**。正确实现是**两层结构**：外层 `.dshic-rail` 只负责占位（宽 46px、透明、`position:relative`），内层 `.dshic-rail-inner` 用 `position:absolute; top:50%; transform:translateY(-50%)` 居中。**不要用 `align-self:center` + `margin:auto 0`**——它会被父级 `align-items:stretch` 拉成整列高，看起来像"满高白色卡片"，这是历史上反复复发的问题（第三次返工才根治）。
 12. 图标顺序：文本 / 剧本 / 分镜表 / 图片 / 视频 / 成片 / 资产 / 设定集 / 运行工作流；hover 才有轻量反馈。
 
 ## 四、项目下拉（左上角）
