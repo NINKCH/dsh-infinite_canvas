@@ -53,9 +53,21 @@ const lsStub = { getItem: (k) => (lsStore.has(k) ? lsStore.get(k) : null), setIt
 // ---------------- 预置：一个含旧尺寸（360×360，上一轮把节点框当画面框）媒体节点的项目文档 ----------------
 const PID = 'p_layout';
 const SHOT = { title: '镜1', duration: 2, visual: '@陈拾@ 站着', motion: '固定', characters: ['陈拾'], scene: '巷子', props: [], dialogue: [], sfx: '' };
+// 参考图上游节点（图片/视频节点的顶栏缩略图条与拖拽排序测试用）：assetId 就绪 → 缩略图按 refOrder 排
+const REF_SRC = {
+  n_ref_a: { id: 'n_ref_a', type: 'image', x: -1500, y: 0, w: 640, h: 433, data: { label: '角色-林晚 多视图', prompt: '', assetId: 'a_ref1', ratio: '16:9', size: '2K', status: 'done' } },
+  n_ref_b: { id: 'n_ref_b', type: 'image', x: -1500, y: 500, w: 640, h: 433, data: { label: '场景-雨夜深巷', prompt: '', assetId: 'a_ref2', ratio: '16:9', size: '2K', status: 'done' } },
+  n_ref_c: { id: 'n_ref_c', type: 'image', x: -1500, y: 1000, w: 640, h: 433, data: { label: '道具-旧信封', prompt: '', assetId: 'a_ref3', ratio: '16:9', size: '2K', status: 'done' } },
+};
+// 连到 n_img 的参考图输入；初始 refOrder 故意不是连线顺序（e_ref3 在首位）
+const REF_EDGES = [
+  { id: 'e_ref1', fromNode: 'n_ref_a', fromPort: 'out', toNode: 'n_img', toPort: 'ref' },
+  { id: 'e_ref2', fromNode: 'n_ref_b', fromPort: 'out', toNode: 'n_img', toPort: 'ref' },
+  { id: 'e_ref3', fromNode: 'n_ref_c', fromPort: 'out', toNode: 'n_img', toPort: 'ref' },
+];
 const SEED_NODES = {
   // 媒体节点：文档里是旧的 360×360 盒子（标题栏/操作栏吃掉画面高度），加载时必须按记录比例重算外框
-  n_img: { id: 'n_img', type: 'image', x: 0, y: 0, w: 360, h: 360, data: { label: '角色-林晚 多视图', prompt: 'x', assetId: 'a_img', ratio: '16:9', size: '2K', status: 'done' } },
+  n_img: { id: 'n_img', type: 'image', x: 0, y: 0, w: 360, h: 360, data: { label: '角色-林晚 多视图', prompt: 'x', assetId: 'a_img', ratio: '16:9', size: '2K', status: 'done', refOrder: ['e_ref3', 'e_ref1', 'e_ref2'] } },
   n_vid: { id: 'n_vid', type: 'video', x: 700, y: 0, w: 360, h: 360, data: { label: '视频', prompt: 'x', assetId: 'a_vid', ratio: '9:16', resolution: '720P', status: 'done' } },
   // 旧资产节点：没有 ratio，只有实测尺寸 → 从尺寸推断比例
   n_square: { id: 'n_square', type: 'image', x: 0, y: 700, w: 360, h: 360, data: { label: '方图', assetId: 'a_sq', assetW: 1024, assetH: 1024, status: 'done' } },
@@ -71,9 +83,10 @@ const SEED_NODES = {
   n_sb: { id: 'n_sb', type: 'storyboard', x: 800, y: 1100, w: 360, h: 360, data: { label: '分镜表', script: 's', shots: [SHOT], aiStatus: 'idle' } },
   n_fc: { id: 'n_fc', type: 'finalcut', x: 1200, y: 1100, w: 360, h: 360, data: { label: '成片', status: 'idle', subs: {}, keepAudio: true, ratio: '16:9', resolution: '720P' } },
 };
+const SEED_ALL_NODES = Object.assign({}, SEED_NODES, REF_SRC);
 lsStub.setItem('dsh-ic:projects', JSON.stringify([{ id: PID, name: '排版测试', createdAt: 1, updatedAt: 1 }]));
 lsStub.setItem('dsh-ic:active', JSON.stringify(PID));
-lsStub.setItem('dsh-ic:graph:' + PID, JSON.stringify({ nodes: JSON.parse(JSON.stringify(SEED_NODES)), edges: [], view: { x: 0, y: 0, scale: 1 } }));
+lsStub.setItem('dsh-ic:graph:' + PID, JSON.stringify({ nodes: JSON.parse(JSON.stringify(SEED_ALL_NODES)), edges: JSON.parse(JSON.stringify(REF_EDGES)), view: { x: 0, y: 0, scale: 1 } }));
 
 const sandbox = {
   window: { devicePixelRatio: 1, innerWidth: 1600, innerHeight: 900, addEventListener: noop, removeEventListener: noop, AudioContext: undefined, webkitAudioContext: undefined, __DSH_IC_SMOKE__: true, localStorage: lsStub },
@@ -776,10 +789,185 @@ const barsOn = () => HDR() + FOOT();
   }
 }
 
+// ============================================================
+// 9) 生成面板做减法（用户截图）：参考图只留顶部缩略图条 + 拖拽排序，高级项默认折叠；
+//    视频节点：未播放只有圆形播放键，播放中才出现控件条（进度/音量），暂停/结束撤销。
+// ============================================================
+{
+  const nImg = nodeOf('n_img');
+  const tree = NODES.GenComposer({ nodeId: 'n_img', node: nImg });
+  const allEls = findAll(tree);
+  const body = allEls.find((e) => hasClass(e, 'dshic-composer-body'));
+  ok(!!body, '生成面板缺少 body 容器');
+  const bodyKids = body ? expandKids(body.props.children) : [];
+  const refsIdx = bodyKids.findIndex((e) => hasClass(e, 'dshic-composer-refs'));
+  const promptIdx = bodyKids.findIndex((e) => hasClass(e, 'dshic-composer-prompt'));
+  ok(refsIdx >= 0, '图片节点的面板缺少「参考图横向缩略图条」');
+  ok(promptIdx >= 0, '生成面板缺少提示词区');
+  ok(refsIdx >= 0 && promptIdx >= 0 && refsIdx < promptIdx,
+    '缩略图条必须在提示词之上（实际 ' + refsIdx + ' vs ' + promptIdx + '）');
+
+  // 控件行：六种节点类型都必须保持「一行控件、发送按钮在最后」（做减法不得动控件行）
+  for (const [kind, id] of [['image', 'n_img'], ['video', 'n_vid'], ['storyboard', 'n_sb'], ['script', 'n_script'], ['text', 'n_text'], ['finalcut', 'n_fc']]) {
+    const els = findAll(NODES.GenComposer({ nodeId: id, node: nodeOf(id) }));
+    const row = els.find((e) => hasClass(e, 'dshic-composer-controls'));
+    ok(!!row, kind + ' 生成面板没有控件行');
+    if (row) {
+      const kids = flatten(row.props.children);
+      ok(kids.length >= 2 && hasClass(kids[kids.length - 1], 'dshic-send'), kind + ' 发送按钮必须是控件行最后一个（保证单行不换行）');
+    }
+  }
+
+  // —— ① 旧文字版参考图列表彻底移除（[图N] 角色：… ↑ ↓ × 多行列表）——
+  ok(!allEls.some((e) => hasClass(e, 'dshic-tag') && String((e.props && e.props.children) || '').indexOf('[图') === 0),
+    '仍渲染旧文字版参考图列表（dshic-tag api 的 [图N] 行）');
+  ok(!/className: 'dshic-shot-label' \}, T\('refList'\)/.test(src), "旧文字版参考图列表代码仍在（T('refList') 标题）");
+  ok(!/title: T\('moveUp'\)/.test(src) && !/title: T\('moveDown'\)/.test(src), '旧 ↑ ↓ 排序按钮未删除');
+  ok(!/function RefRows/.test(src), '旧 RefRows 文字列表组件未删除');
+
+  // —— ② 顶部缩略图条：+ 在最左、按 refOrder 排序、带 [图N] 角标与右上角 × ——
+  const refsBar = bodyKids.find((e) => hasClass(e, 'dshic-composer-refs'));
+  const barKids = refsBar ? flatten(refsBar.props.children) : [];
+  ok(barKids.length && hasClass(barKids[0], 'dshic-ref-add') && String(barKids[0].props.children) === '+', '参考图条的 + 上传按钮必须在最左');
+  const thumbs = allEls.filter((e) => hasClass(e, 'dshic-ref-thumb'));
+  const thumbOrder = thumbs.map((e) => e.props['data-ref-edge']);
+  eq(thumbOrder, ['e_ref3', 'e_ref1', 'e_ref2'], '缩略图顺序必须与 node.data.refOrder 一致');
+  eq(thumbs.map((e) => e.props['data-ref-idx']), [0, 1, 2], '缩略图必须带 0 基下标（拖拽排序用）');
+  ok(thumbs.every((e) => e.props.draggable === true), '每张缩略图都必须可拖拽（draggable=true）');
+  const badgeText = (t) => {
+    const b = flatten(t.props.children).find((x) => x && x.__el && hasClass(x, 'dshic-ref-idx'));
+    return b ? String(b.props.children) : '';
+  };
+  eq(thumbs.map(badgeText), ['[图1]', '[图2]', '[图3]'], '[图N] 角标必须与 refOrder 下标同步');
+  ok(thumbs.every((t) => flatten(t.props.children).some((x) => x && x.__el && hasClass(x, 'dshic-ref-del'))), '缩略图缺少右上角删除 ×');
+  ok(/\.dshic-ref-thumb\.is-drop\{[^}]*outline:2px solid var\(--dshic-accent\)/.test(src), '拖拽插入位置缺少高亮样式（.dshic-ref-thumb.is-drop）');
+  ok(/\.dshic-ref-idx\{/.test(src) && /\.dshic-ref-del\{/.test(src), '缩略图 [图N] 角标/删除按钮缺少样式');
+
+  // —— ③ 默认折叠：高级区默认不渲染；「更多」展开后才出现（状态切换）——
+  ok(!allEls.some((e) => hasClass(e, 'dshic-composer-extra')), '高级区默认不应渲染（必须默认折叠）');
+  ok(!allEls.some((e) => String((e.props && e.props['data-advanced']) || '') === '1'), '高级区默认不应渲染（data-advanced）');
+  ok(!allEls.some((e) => e.type === 'input' && /扩展参数/.test(String(e.props.placeholder || ''))), '扩展参数 JSON 默认不应占版面');
+  ok(!allEls.some((e) => e.type === 'select'), '默认不应渲染衔接模式下拉（高级项）');
+  const moreBtn = allEls.find((e) => String((e.props && e.props['data-more-toggle']) || '') === '1');
+  ok(!!moreBtn, '面板缺少「更多」折叠开关');
+  ok(/setIsMoreOpen\(!isMoreOpen\)/.test(src), '「更多」开关没有切换展开状态');
+  ok(/isMoreOpen && hasAdvanced[\s\S]{0,80}?h\(ComposerAdvanced/.test(src), '高级区未受 isMoreOpen 控制（会默认占版面）');
+  // 展开态：直接渲染高级区组件（假 React 无法触发 setState，用受控组件断言打开后的内容）
+  const advOpen = findAll(NODES.ComposerAdvanced({ n: nImg, isImage: true, isVideo: false, running: false, setData: noop, onMask: noop, onCraft: noop, onVoice: noop }));
+  ok(advOpen.some((e) => hasClass(e, 'dshic-composer-extra')), '「更多」展开后应渲染高级区');
+  ok(advOpen.some((e) => e.type === 'input' && /扩展参数/.test(String(e.props.placeholder || ''))), '展开后应出现扩展参数 JSON');
+  ok(advOpen.some((e) => e.type === 'button' && /蒙版重绘|Mask/.test(String(e.props.title || ''))), '展开后应保留蒙版重绘（功能不得删减）');
+  const advVid = findAll(NODES.ComposerAdvanced({ n: nodeOf('n_vid'), isImage: false, isVideo: true, running: false, setData: noop, onMask: noop, onCraft: noop, onVoice: noop }));
+  const advSel = advVid.find((e) => e.type === 'select');
+  ok(!!advSel, '视频节点展开「更多」后才应显示衔接模式下拉');
+  if (advSel) eq(flatten(advSel.props.children).map((o) => o.props.value), ['auto', 'hard', 'off'], '衔接模式下拉必须保留三档（参考图融合 / 硬首帧 / 忽略）');
+  // 文本/剧本/分镜：没有参考图条；默认也只剩提示词（+ 控件行）
+  for (const id of ['n_text', 'n_script', 'n_sb']) {
+    const els = findAll(NODES.GenComposer({ nodeId: id, node: nodeOf(id) }));
+    ok(!els.some((e) => hasClass(e, 'dshic-composer-refs')), id + ' 不应出现参考图条');
+    ok(!els.some((e) => hasClass(e, 'dshic-composer-extra')), id + ' 高级区默认不应渲染');
+  }
+
+  // —— ④ 拖拽排序：dragstart → dragover/dragenter → drop 写回 refOrder，[图N] 同步 ——
+  const dt = {
+    effectAllowed: '', _m: new Map(),
+    setData(k, v) { this._m.set(String(k), String(v)); },
+    getData(k) { return this._m.has(String(k)) ? this._m.get(String(k)) : ''; },
+  };
+  const dev = (extra) => Object.assign({ stopPropagation: noop, preventDefault: noop, dataTransfer: dt }, extra || {});
+  const drawThumbs = () => findAll(NODES.GenComposer({ nodeId: 'n_img', node: nodeOf('n_img') })).filter((e) => hasClass(e, 'dshic-ref-thumb'));
+  const before = drawThumbs();
+  eq(before.map((e) => e.props['data-ref-edge']), ['e_ref3', 'e_ref1', 'e_ref2'], '拖拽前缩略图顺序');
+  // 把第 1 张（e_ref3）拖到第 3 个位置（e_ref2 上放下）→ 插入语义
+  before[0].props.onDragStart(dev({}));
+  ok(dt.getData('text/plain') === '0', 'dragstart 必须把源下标写入 dataTransfer（跨节点拖拽也能拿到）');
+  before[2].props.onDragEnter(dev({}));
+  before[2].props.onDragOver(dev({}));
+  before[2].props.onDrop(dev({}));
+  eq(nodeOf('n_img').data.refOrder, ['e_ref1', 'e_ref2', 'e_ref3'], '拖拽后必须把新顺序写回 node.data.refOrder（插入语义）');
+  const after = drawThumbs();
+  eq(after.map((e) => e.props['data-ref-edge']), ['e_ref1', 'e_ref2', 'e_ref3'], '重渲染后缩略图顺序必须跟随 refOrder');
+  eq(after.map((e) => e.props['data-ref-idx']), [0, 1, 2], '[图N] 序号必须跟随新顺序');
+  eq(after.map(badgeText), ['[图1]', '[图2]', '[图3]'], '[图N] 角标必须与新的绑定顺序同步');
+  // 顺序的唯一来源：collectRefs（提示词绑定 / 厂商上送）必须与面板同口径读取 refOrder
+  ok(/function collectRefs[\s\S]{0,600}?orderedRefEdgeIds\(n, edges\)/.test(src), 'collectRefs 未按 refOrder 顺序收集参考图（面板顺序与实际上送会不一致）');
+  ok(/function resolveRefMetas[\s\S]{0,400}?orderedRefEdgeIds\(n, es\)/.test(src), 'resolveRefMetas 未按 refOrder 顺序解析参考图');
+  // 纯函数：插入语义 / 原地 / 越界 / 不改入参
+  eq(LAYOUT.reorderRefOrder(['a', 'b', 'c', 'd'], 0, 2), ['b', 'c', 'a', 'd'], 'reorderRefOrder 插入语义错误');
+  eq(LAYOUT.reorderRefOrder(['a', 'b', 'c', 'd'], 3, 0), ['d', 'a', 'b', 'c'], '末位拖到首位错误');
+  eq(LAYOUT.reorderRefOrder(['a', 'b', 'c', 'd'], 1, 1), ['a', 'b', 'c', 'd'], '原地不动必须保持顺序');
+  eq(LAYOUT.reorderRefOrder(['a', 'b', 'c', 'd'], 9, 0), ['a', 'b', 'c', 'd'], '越界源下标必须原样返回');
+  {
+    const base = ['a', 'b', 'c'];
+    LAYOUT.reorderRefOrder(base, 0, 2);
+    eq(base, ['a', 'b', 'c'], 'reorderRefOrder 不得修改入参');
+  }
+  eq(LAYOUT.orderedRefEdgeIds({ data: { refOrder: ['e2'] } }, [{ id: 'e1' }, { id: 'e2' }, { id: 'e3' }]), ['e2', 'e1', 'e3'],
+    'orderedRefEdgeIds：refOrder 优先、未记录的按连线先后补到末尾');
+  // 缩略图右上角 ×：解除对应参考图连线
+  const delBtn = flatten(after[0].props.children).find((x) => x && x.__el && hasClass(x, 'dshic-ref-del'));
+  ok(!!delBtn, '缩略图缺少右上角删除按钮');
+  if (delBtn) delBtn.props.onClick({ stopPropagation: noop });
+  eq(SYNC.graph().edges.filter((e) => e.toNode === 'n_img' && e.toPort === 'ref').map((e) => e.id), ['e_ref2', 'e_ref3'],
+    '点击缩略图 × 必须只解除那一条参考图连线');
+
+  // —— ⑤ 视频播放控件显隐状态机 ——
+  eq(LAYOUT.videoUiMode(false, false), 'play', '未播放 → 只有圆形播放键（play）');
+  eq(LAYOUT.videoUiMode(true, false), 'controls', '播放中 → 出现控件条（controls）');
+  eq(LAYOUT.videoUiMode(false, true), 'replay', '播放结束 → 回到圆形按钮（replay）');
+  eq(LAYOUT.videoUiMode(true, true), 'controls', '播放中优先于结束态（controls）');
+  // 未播放 / 结束：控件条不渲染
+  ok(NODES.VideoControls({ mode: 'play' }) == null, '未播放不得渲染控件条');
+  ok(NODES.VideoControls({ mode: 'replay' }) == null, '播放结束不得渲染控件条');
+  // 播放中：控件条出现，含播放/暂停、可拖动进度、当前/总时长、音量（含静音）
+  const cels = findAll(NODES.VideoControls({
+    mode: 'controls', current: 5, duration: 20, volume: 0.6, muted: false,
+    onToggle: noop, onSeek: noop, onVolume: noop, onMute: noop,
+  }));
+  ok(cels.some((e) => hasClass(e, 'dshic-media-ctl')), '播放中缺少控件条');
+  const ranges = cels.filter((e) => e.type === 'input' && e.props.type === 'range');
+  eq(ranges.length, 2, '控件条必须同时有进度条与音量条');
+  const seekRange = ranges.find((e) => Number(e.props.max) === 20);
+  const volRange = ranges.find((e) => Number(e.props.max) === 1);
+  ok(!!seekRange && Number(seekRange.props.min) === 0 && Number(seekRange.props.step) === 0.1, '进度条必须可拖动 seek（0..总时长）');
+  ok(!!volRange, '音量条缺失（0..1）');
+  ok(!!seekRange && Math.abs(Number(seekRange.props.value) - 5) < 1e-6, '进度条当前值必须来自 timeupdate（current）');
+  const timeEl = cels.find((e) => hasClass(e, 'dshic-ctl-time'));
+  ok(!!timeEl && /0:05\s*\/\s*0:20/.test(String(timeEl.props.children)), '时间显示必须是 当前 / 总时长（实际：' + String(timeEl && timeEl.props.children) + '）');
+  const ctlBtns = cels.filter((e) => e.type === 'button');
+  ok(ctlBtns.some((b) => /暂停|Pause/.test(String(b.props.title || ''))), '控件条缺少播放/暂停按钮');
+  ok(ctlBtns.some((b) => /静音|Mute/.test(String(b.props.title || ''))), '控件条缺少静音切换按钮');
+  // 静音态：音量归零、按钮切到「取消静音」
+  const mutedEls = findAll(NODES.VideoControls({
+    mode: 'controls', current: 0, duration: 10, volume: 0.1, muted: true,
+    onToggle: noop, onSeek: noop, onVolume: noop, onMute: noop,
+  }));
+  const mutedVol = mutedEls.find((e) => e.type === 'input' && e.props.type === 'range' && Number(e.props.max) === 1);
+  ok(!!mutedVol && Number(mutedVol.props.value) === 0, '静音时音量滑杆必须归零');
+  ok(mutedEls.some((b) => b.type === 'button' && /取消静音|Unmute/.test(String(b.props.title || ''))), '静音时按钮必须切到取消静音');
+  // 控件条自身吞掉点击（点控件条不弹面板；画面其他区域仍按既有规则）
+  const ctlEl = cels.find((e) => hasClass(e, 'dshic-media-ctl'));
+  ok(!!ctlEl && typeof ctlEl.props.onPointerDown === 'function' && typeof ctlEl.props.onClick === 'function', '控件条缺少事件拦截（点它会误弹生成面板）');
+  // 源码契约：timeupdate 驱动；play/pause/ended 切换显隐；不用原生 controls
+  ok(/onTimeUpdate/.test(src), '视频缺少 timeupdate 进度驱动');
+  ok(/onPause: \(\) => setPlaying\(false\)/.test(src), '暂停时必须撤掉控件条（playing=false）');
+  ok(/onEnded: \(\) => \{ setPlaying\(false\); setEnded\(true\); \}/.test(src), '播放结束必须撤掉控件条并进入重播态');
+  ok(/const vidMode = videoUiMode\(playing, ended\)/.test(src), '视频控件显隐未走纯函数状态机');
+  ok(/vidShown && vidMode !== 'controls'/.test(src) && /vidShown && vidMode === 'controls'/.test(src), '播放键/控件条的渲染条件必须是 vidMode');
+  ok(/\.dshic-media-ctl\{[^}]*position:absolute/.test(src), '控件条必须是画面内的底部浮层（不挤压画面比例）');
+  {
+    const vi = src.indexOf("key: 'vid', ref: videoRef");
+    const pi = src.indexOf("key: 'play'", vi);
+    const block = vi >= 0 && pi > vi ? src.slice(vi, pi) : '';
+    ok(!!block && !/controls: true/.test(block), '视频预览不得启用原生 controls（原型没有原生控件条）');
+    ok(/onDoubleClick/.test(block) && /detail > 1/.test(block) && /openPanel\(\)/.test(block), '视频画面单击开面板 / 双击播放的既有规则被破坏');
+  }
+}
+
 if (errs.length) {
   console.error('✗ 节点排版/生成面板测试未通过（' + errs.length + ' 项）：');
   for (const e of errs) console.error('  - ' + e);
   process.exit(1);
 }
-console.log('✓ 节点排版/生成面板测试通过（预览区盒比=媒体比·标题栏 34/操作栏 39 固定高度·节点高=预览高+固定栏·旧文档幂等归一·用户拉伸不回收·body 三段结构·预览不裁切·文本类 flex 撑满·只有内容区开面板·视频双击播放·视觉值全部来自 --dshic-* 变量）');
+console.log('✓ 节点排版/生成面板测试通过（预览区盒比=媒体比·标题栏 34/操作栏 39 固定高度·节点高=预览高+固定栏·旧文档幂等归一·用户拉伸不回收·body 三段结构·预览不裁切·文本类 flex 撑满·只有内容区开面板·视频双击播放·视觉值全部来自 --dshic-* 变量·面板做减法（缩略图条/无文字列表/更多默认折叠）·参考图拖拽排序（[图N] 同步）·视频控件显隐状态机）');
 process.exit(0);
