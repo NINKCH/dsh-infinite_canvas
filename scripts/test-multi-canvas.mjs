@@ -166,7 +166,57 @@ const tool = (name) => tools.find((t) => t.name === name);
   ok(!I.projectsList().some((p) => p.id === 'p2'), '迟到的画布推送把项目复活了');
 }
 
-// ---------------- 4) 旧项目（无 canvases 字段）兼容 ----------------
+// ---------------- 5) 默认画布：名字（defaultCanvasName）+ 可改名 + 可删除 ----------------
+{
+  await I.projectsPut({ id: 'p3', name: '默认画布项目', canvases: [], doc: { nodes: { d1: { id: 'd1', type: 'text', x: 0, y: 0, w: 360, h: 360, data: { text: '默认图', label: '默认图' } } }, edges: [], view: { x: 1, y: 2, scale: 1 } } });
+  // 旧项目无 defaultCanvasName → 回退「默认画布」；canvasesList 返回默认画布名/未删除标记
+  const l0 = await I.canvasesList({ projectId: 'p3' });
+  eq(l0.defaultCanvasName, '默认画布', '默认画布名缺省值必须是「默认画布」（旧项目零迁移）');
+  eq(l0.defaultCanvasDeleted, false, '默认画布默认应为未删除');
+  // 空名改名被拒
+  let renameErr = null;
+  try { await I.canvasRename({ projectId: 'p3', canvasId: null, name: '  ' }); } catch (e) { renameErr = e; }
+  ok(!!renameErr, '默认画布空名改名未被拒绝');
+  // 合法改名 → 写 defaultCanvasName；canvasesList/projectsList/projectsGet 都能读到
+  const rnDef = await I.canvasRename({ projectId: 'p3', canvasId: null, name: '主画布' });
+  ok(rnDef && rnDef.ok && rnDef.defaultCanvasName === '主画布', 'canvasRename(canvasId:null) 未写 defaultCanvasName');
+  eq((await I.canvasesList({ projectId: 'p3' })).defaultCanvasName, '主画布', 'canvasesList 未返回默认画布名');
+  eq(I.projectsList().find((p) => p.id === 'p3').defaultCanvasName, '主画布', 'projectsList 未带默认画布名');
+  eq((await I.projectsGet({ id: 'p3' })).defaultCanvasName, '主画布', 'projectsGet 未带默认画布名');
+  // 重名：子画布改名撞默认画布名 → 拒绝
+  const sub3 = await I.canvasCreate({ projectId: 'p3', name: '子画布三' });
+  ok(sub3 && sub3.defaultCanvasName === '主画布', 'canvasCreate 返回未带默认画布名');
+  let dupErr = null;
+  try { await I.canvasRename({ projectId: 'p3', canvasId: sub3.canvasId, name: '主画布' }); } catch (e) { dupErr = e; }
+  ok(!!dupErr, '子画布改名与默认画布同名未被拒绝');
+  let dupErr2 = null;
+  try { await I.canvasCreate({ projectId: 'p3', name: '主画布' }); } catch (e) { dupErr2 = e; }
+  ok(!!dupErr2, '新建画布与默认画布同名未被拒绝');
+  // 默认画布删除：清图 + 清 defaultCanvasName + 标记 defaultCanvasDeleted + 返回剩余画布 id
+  const delDef = await I.canvasDelete({ projectId: 'p3', canvasId: null });
+  ok(delDef && delDef.ok === true && delDef.defaultCanvasDeleted === true, 'canvasDelete(canvasId:null) 未标记默认画布已删除');
+  eq(delDef.nextCanvasId, sub3.canvasId, '删除默认画布后未返回剩余的第一个画布 id');
+  const after = await I.projectsGet({ id: 'p3' });
+  eq(after.defaultCanvasDeleted, true, '删除默认画布后项目文档缺少 defaultCanvasDeleted');
+  eq(Object.keys(after.nodes || {}).length, 0, '删除默认画布后默认画布图未被清空');
+  const lAfter = await I.canvasesList({ projectId: 'p3' });
+  eq(lAfter.defaultCanvasDeleted, true, '删除后 canvasesList 仍认为默认画布存在');
+  ok(lAfter.canvases.length === 1 && lAfter.canvases[0].id === sub3.canvasId, '删除默认画布后子画布登记丢失');
+  // 删除后默认画布不可再访问/改名
+  let defGone = false;
+  try { I.readCanvasDoc('p3', null); } catch { defGone = true; }
+  ok(defGone, '默认画布删除后仍能读到默认画布文档');
+  let renameGone = null;
+  try { await I.canvasRename({ projectId: 'p3', canvasId: null, name: '复活' }); } catch (e) { renameGone = e; }
+  ok(!!renameGone, '默认画布删除后仍允许改名');
+  // 只剩一个画布时拒绝删除默认画布（新项目只有默认画布）
+  await I.projectsPut({ id: 'p4', name: '单画布项目', canvases: [], doc: { nodes: {}, edges: [], view: { x: 0, y: 0, scale: 1 } } });
+  let onlyErr = null;
+  try { await I.canvasDelete({ projectId: 'p4', canvasId: null }); } catch (e) { onlyErr = e; }
+  ok(!!onlyErr, '只剩一个画布时仍允许删除默认画布');
+}
+
+// ---------------- 6) 旧项目（无 canvases 字段）兼容 ----------------
 {
   // 模拟旧版落盘文档：没有 canvases 字段、没有 canvasId
   await I.projectsPut({ id: 'old1', name: '旧项目', doc: { nodes: { n1: { id: 'n1', type: 'text', x: 0, y: 0, w: 360, h: 360, data: { text: '旧节点', label: '旧节点' } } }, edges: [], view: { x: 0, y: 0, scale: 1 } } });
@@ -176,6 +226,10 @@ const tool = (name) => tools.find((t) => t.name === name);
   // 旧文档照常跑工具（默认画布）
   const st = await tool('canvas_node_status').execute({ projectId: 'old1', nodeId: 'n1' });
   ok(String(st.text).includes('旧节点'), '旧项目默认画布无法按原有方式访问');
+  // 旧项目没有 defaultCanvasName：默认画布名回退「默认画布」，且默认画布未删除
+  const ol = await I.canvasesList({ projectId: 'old1' });
+  eq(ol.defaultCanvasName, '默认画布', '旧项目默认画布名未回退「默认画布」');
+  eq(ol.defaultCanvasDeleted, false, '旧项目默认画布不应被视为已删除');
 }
 
 if (errs.length) {
@@ -183,5 +237,5 @@ if (errs.length) {
   errs.forEach((e) => console.error('  - ' + e));
   process.exit(1);
 }
-console.log('✓ 多画布契约测试通过（默认画布零迁移 / 子画布独立文档 / 登记与 RPC / 工具 canvasId 透传 / 删项目清画布 / 旧项目兼容）');
+console.log('✓ 多画布契约测试通过（默认画布零迁移+可改名/可删除 / 子画布独立文档 / 登记与 RPC / 工具 canvasId 透传 / 删项目清画布 / 旧项目兼容）');
 process.exit(0);

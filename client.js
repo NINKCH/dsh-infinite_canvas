@@ -1490,6 +1490,10 @@ window.__ModuleLoader__.load({
 .dshic-toolbar-tools .dshic-btn{width:28px;padding:0;justify-content:center;}
 .dshic-proj-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600;}
 .dshic-proj-car{color:var(--dsw-alias-label-secondary);font-size:9px;flex:none;}
+/* 顶部当前画布名（默认/子画布都显示；改名后即时同步） */
+.dshic-canvas-chip{flex:none;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  font-size:11.5px;line-height:18px;color:var(--dsw-alias-label-secondary);padding:0 2px 0 6px;
+  border-left:1px solid var(--dsw-alias-border-l1);}
 /* 项目下拉：与生成面板（.dshic-composer）同一套容器语言——主题背景（浅色=白/深色自动跟随）、
    1px --dshic-line2 边框、15px 圆角、--dshic-shadow-lg；不含任何灰蓝/固定浅色填充。 */
 .dshic-proj-menu{position:fixed;z-index:320;min-width:220px;max-width:320px;
@@ -1506,6 +1510,11 @@ window.__ModuleLoader__.load({
 .dshic-proj-menu-item .dshic-proj-menu-meta{margin-left:auto;font-size:11px;color:var(--dsw-alias-label-secondary);}
 .dshic-proj-menu-item.is-active .dshic-proj-menu-meta{color:inherit;}
 .dshic-proj-menu-item .dshic-proj-name{font-weight:inherit;}
+/* 项目行主列（项目名 + 当前画布名副标题） */
+.dshic-proj-menu-main{display:flex;flex-direction:column;min-width:0;flex:1;gap:1px;}
+.dshic-proj-menu-sub{font-size:10.5px;line-height:14px;color:var(--dsw-alias-label-secondary);
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.dshic-proj-menu-item.is-active .dshic-proj-menu-sub{color:inherit;opacity:.75;}
 /* 每行右侧「修改」按钮（铅笔）：点它 → 该行项目名原地变输入框 */
 .dshic-proj-menu-edit{width:22px;height:22px;opacity:.55;}
 .dshic-proj-menu-item:hover .dshic-proj-menu-edit,.dshic-proj-menu-item.is-active .dshic-proj-menu-edit{opacity:1;}
@@ -2313,17 +2322,39 @@ window.__ModuleLoader__.load({
       const p = S.projects.find((x) => x.id === projectId);
       return p && Array.isArray(p.canvases) ? p.canvases.filter((c) => c && c.id) : [];
     }
+    function projectOf(projectId) { return S.projects.find((x) => x.id === projectId) || null; }
+    /** 默认画布名：项目文档字段 defaultCanvasName，缺省 i18n「默认画布」（旧项目零迁移）。 */
+    function defaultCanvasNameFor(projectId) {
+      const p = projectOf(projectId);
+      const n = String((p && p.defaultCanvasName) || '').trim();
+      return (n ? n.slice(0, 80) : T('defaultCanvas'));
+    }
+    /** 默认画布是否已被删除（只剩子画布时）。 */
+    function defaultCanvasDeleted(projectId) {
+      const p = projectOf(projectId);
+      return !!(p && p.defaultCanvasDeleted);
+    }
+    /** 项目当前可用的第一个画布 id（默认画布在则 null，否则第一个子画布）。 */
+    function firstCanvasId(projectId) {
+      const list = listCanvases(projectId);
+      if (!list.length) return DEFAULT_CANVAS_ID;
+      return list[0].id == null ? DEFAULT_CANVAS_ID : list[0].id;
+    }
     function canvasNameFor(projectId, canvasId) {
-      if (!canvasId) return T('defaultCanvas');
+      if (!canvasId) return defaultCanvasDeleted(projectId) ? '' : defaultCanvasNameFor(projectId);
       const rec = projectCanvases(projectId).find((c) => c.id === canvasId);
       return rec ? (rec.name || rec.id) : String(canvasId);
     }
-    /** 画布清单：默认画布固定第一项，其后是子画布（目录树数据源）。 */
+    /** 画布清单：默认画布（若未删除）固定第一项，其后是子画布（目录树/下拉/工具数据源）。 */
     function listCanvases(projectId) {
-      return [
-        { id: DEFAULT_CANVAS_ID, name: T('defaultCanvas'), isDefault: true },
-        ...projectCanvases(projectId).map((c) => ({ id: c.id, name: c.name || c.id, createdAt: c.createdAt || 0, isDefault: false })),
-      ];
+      const out = [];
+      if (!defaultCanvasDeleted(projectId)) {
+        out.push({ id: DEFAULT_CANVAS_ID, name: defaultCanvasNameFor(projectId), createdAt: 0, isDefault: true });
+      }
+      for (const c of projectCanvases(projectId)) {
+        out.push({ id: c.id, name: c.name || c.id, createdAt: c.createdAt || 0, isDefault: false });
+      }
+      return out;
     }
     /** 统一文档入口：读出来即归一旧节点类型（image-gen/image-asset → image，video-gen/video-asset → video）。
      *  canvasId 省略/null = 项目默认画布。 */
@@ -2366,9 +2397,11 @@ window.__ModuleLoader__.load({
       try { return await task; } finally { canvasHydrating.delete(key); }
     }
     /** 切换到同一项目下的另一张画布：flush 旧画布 → 载入新画布 → 重置选择/撤销栈/视口。
-     *  canvasId = null 表示回项目默认画布。opts.skipFlush：画布已被删除时不要回写它（避免把废弃图写回）。 */
+     *  canvasId = null 表示项目默认画布（若默认画布已删除，则落到第一个可用画布）。
+     *  opts.skipFlush：画布已被删除时不要回写它（避免把废弃图写回）。 */
     function switchCanvas(canvasId, opts) {
-      const next = canvasId == null ? DEFAULT_CANVAS_ID : canvasId;
+      let next = canvasId == null ? DEFAULT_CANVAS_ID : canvasId;
+      if (next == null && defaultCanvasDeleted(S.activeId)) next = firstCanvasId(S.activeId);
       if (next === activeCanvasId()) return;
       if (!(opts && opts.skipFlush)) flushSave();
       const doc = loadGraphDoc(S.activeId, next) || emptyGraph();
@@ -2386,14 +2419,15 @@ window.__ModuleLoader__.load({
       pushHistory();
       if (next) hydrateCanvasFromHost(S.activeId, next);
     }
-    /** 新建画布（必须命名）：本地先登记（目录树立刻可见），再通知 Host 落盘登记。 */
+    /** 新建画布（必须命名）：本地先登记（目录树立刻可见），再通知 Host 落盘登记。
+     *  重名判定包含默认画布名（同一项目内画布名不重复）。 */
     function createCanvasNamed(projectId, rawName) {
       const name = String(rawName == null ? '' : rawName).trim();
       if (!name) return { ok: false, error: T('canvasNameRequired') };
       const pid = projectId || S.activeId;
-      const proj = S.projects.find((x) => x.id === pid);
+      const proj = projectOf(pid);
       if (!proj) return { ok: false, error: T('projectNameRequired') };
-      const dup = projectCanvases(pid).some((c) => String(c.name || '').trim() === name);
+      const dup = listCanvases(pid).some((c) => String(c.name || '').trim() === name);
       if (dup) return { ok: false, error: T('canvasNameExists') };
       const rec = { id: uid('cv'), name: name.slice(0, 80), createdAt: Date.now() };
       update((s) => {
@@ -2409,35 +2443,66 @@ window.__ModuleLoader__.load({
       scheduleSave();
       return { ok: true, canvasId: rec.id, canvas: rec };
     }
+    /** 重命名画布：canvasId=null 表示默认画布（写项目级 defaultCanvasName）；都必须命名、同项目内不许重名。 */
     function renameCanvasNamed(projectId, canvasId, rawName) {
       const name = String(rawName == null ? '' : rawName).trim();
       const pid = projectId || S.activeId;
-      if (!canvasId) return { ok: false, error: T('canvasNameRequired') };
       if (!name) return { ok: false, error: T('canvasNameRequired') };
-      const dup = projectCanvases(pid).some((c) => c.id !== canvasId && String(c.name || '').trim() === name);
+      const proj = projectOf(pid);
+      if (!proj) return { ok: false, error: T('canvasNameRequired') };
+      const isDefault = !canvasId;
+      if (isDefault && proj.defaultCanvasDeleted) return { ok: false, error: T('canvasNameRequired') };
+      const dup = listCanvases(pid).some((c) => (isDefault ? !c.isDefault : c.id !== canvasId) && String(c.name || '').trim() === name);
       if (dup) return { ok: false, error: T('canvasNameExists') };
       update((s) => {
         const pp = s.projects.find((x) => x.id === pid);
-        if (pp && Array.isArray(pp.canvases)) pp.canvases = pp.canvases.map((c) => (c.id === canvasId ? { ...c, name: name.slice(0, 80) } : c));
+        if (!pp) return;
+        if (isDefault) pp.defaultCanvasName = name.slice(0, 80);
+        else if (Array.isArray(pp.canvases)) pp.canvases = pp.canvases.map((c) => (c.id === canvasId ? { ...c, name: name.slice(0, 80) } : c));
       });
       lsSet(LS_PROJECTS, S.projects);
-      try { hostRpc('canvasRename', { projectId: pid, canvasId, name: name.slice(0, 80) }).catch(() => { /* 忽略 */ }); } catch { /* 忽略 */ }
+      try {
+        hostRpc('canvasRename', { projectId: pid, canvasId: isDefault ? null : canvasId, name: name.slice(0, 80) }).catch(() => { /* 忽略 */ });
+      } catch { /* 忽略 */ }
       scheduleSave();
       return { ok: true };
     }
+    /** 删除画布（默认画布也支持）。至少保留一个画布（总数=默认+子画布），否则拒绝。
+     *  - 删默认画布：清本地默认图 + 标记 defaultCanvasDeleted，切到剩余第一个画布；
+     *  - 删子画布：沿用原逻辑，若删的是当前画布则切到剩余第一个可用画布。 */
     function deleteCanvasNamed(projectId, canvasId) {
       const pid = projectId || S.activeId;
-      if (!canvasId) return { ok: false };
-      canvasTombstones.set(pid + '::' + canvasId, Date.now());
+      const cid = canvasId == null ? null : canvasId;
+      const before = listCanvases(pid);
+      if (before.length <= 1) return { ok: false, error: T('keepOneCanvas') };
+      canvasTombstones.set(pid + '::' + (cid || 'default'), Date.now());
+      if (!cid) {
+        update((s) => {
+          const pp = s.projects.find((x) => x.id === pid);
+          if (pp) { pp.defaultCanvasDeleted = true; delete pp.defaultCanvasName; }
+        });
+        try { localStorage.removeItem(LS_GRAPH + canvasDocKey(pid, DEFAULT_CANVAS_ID)); } catch { /* 忽略 */ }
+        lsSet(LS_PROJECTS, S.projects);
+        const rest = before.filter((c) => !c.isDefault);
+        const next = rest.length ? rest[0].id : DEFAULT_CANVAS_ID;
+        if (pid === S.activeId && activeCanvasId() === DEFAULT_CANVAS_ID) switchCanvas(next, { skipFlush: true });
+        try { hostRpc('canvasDelete', { projectId: pid, canvasId: null }).catch(() => { /* 忽略 */ }); } catch { /* 忽略 */ }
+        scheduleSave();
+        return { ok: true, nextCanvasId: next };
+      }
       update((s) => {
         const pp = s.projects.find((x) => x.id === pid);
-        if (pp && Array.isArray(pp.canvases)) pp.canvases = pp.canvases.filter((c) => c.id !== canvasId);
+        if (pp && Array.isArray(pp.canvases)) pp.canvases = pp.canvases.filter((c) => c.id !== cid);
       });
-      try { localStorage.removeItem(LS_GRAPH + canvasDocKey(pid, canvasId)); } catch { /* 忽略 */ }
+      try { localStorage.removeItem(LS_GRAPH + canvasDocKey(pid, cid)); } catch { /* 忽略 */ }
       lsSet(LS_PROJECTS, S.projects);
       // 先离开待删画布（丢弃它的内存图，避免 flush 把废弃内容写回 Host），再删 Host 侧文档
-      if (pid === S.activeId && activeCanvasId() === canvasId) switchCanvas(DEFAULT_CANVAS_ID, { skipFlush: true });
-      try { hostRpc('canvasDelete', { projectId: pid, canvasId }).catch(() => { /* 忽略 */ }); } catch { /* 忽略 */ }
+      if (pid === S.activeId && activeCanvasId() === cid) {
+        const remaining = listCanvases(pid);
+        const next = remaining.length ? (remaining[0].id == null ? DEFAULT_CANVAS_ID : remaining[0].id) : DEFAULT_CANVAS_ID;
+        switchCanvas(next, { skipFlush: true });
+      }
+      try { hostRpc('canvasDelete', { projectId: pid, canvasId: cid }).catch(() => { /* 忽略 */ }); } catch { /* 忽略 */ }
       scheduleSave();
       return { ok: true };
     }
@@ -2478,8 +2543,16 @@ window.__ModuleLoader__.load({
       if (biblePushSnap.get(pid) === JSON.stringify(bible)) return;
       try {
         const proj = S.projects.find((p) => p.id === pid);
-        const doc = loadGraphDoc(pid) || emptyGraph();
-        hostRpc('projectsPut', { id: pid, name: (proj && proj.name) || pid, doc: { ...doc, bible } })
+        const deleted = defaultCanvasDeleted(pid);
+        // 默认画布已删除：只推项目级字段（不能再写默认画布图，否则空图会覆盖标记前的缓存）
+        const doc = deleted ? { bible } : { ...(loadGraphDoc(pid) || emptyGraph()), bible };
+        hostRpc('projectsPut', {
+          id: pid, name: (proj && proj.name) || pid,
+          canvases: proj && Array.isArray(proj.canvases) ? proj.canvases : [],
+          ...(proj && proj.defaultCanvasName ? { defaultCanvasName: proj.defaultCanvasName } : {}),
+          ...(deleted ? { defaultCanvasDeleted: true } : {}),
+          doc,
+        })
           .then((r) => {
             if (r && r.bibleUpdatedAt) {
               lsSet(LS_BIBLE_SYNC + pid, r.bibleUpdatedAt);
@@ -6002,26 +6075,35 @@ window.__ModuleLoader__.load({
     /** 从 Host 拉一个项目到本地：默认画布文档 + 画布清单；若指定 canvasId 则顺带拉那张画布的文档。 */
     async function importHostProject(hp, canvasId) {
       const cid = (canvasId === undefined || canvasId === null) ? null : String(canvasId);
-      const full = normalizeGraphDoc(await hostRpc('projectsGet', { id: hp.id, ...(cid ? { canvasId: cid } : {}) }));
+      // 默认画布已删除的项目：不能拉默认文档，改拉第一个可用画布
+      const hostDefaultDeleted = hp.defaultCanvasDeleted === true;
+      const targetCanvas = cid || (hostDefaultDeleted ? ((hp.canvases || [])[0] || {}).id || null : null);
+      const full = normalizeGraphDoc(await hostRpc('projectsGet', { id: hp.id, ...(targetCanvas ? { canvasId: targetCanvas } : {}) }));
       const canvases = Array.isArray(hp.canvases) ? hp.canvases.filter((c) => c && c.id) : [];
       update((s) => {
         const known = s.projects.find((p) => p.id === hp.id);
         if (!known) {
-          s.projects.push({ id: hp.id, name: hp.name || hp.id, createdAt: full.createdAt || Date.now(), updatedAt: full.updatedAt || Date.now(), canvases });
-        } else if (canvases.length) {
-          known.canvases = canvases; // Host 的画布登记为准（多画布跨端一致）
+          s.projects.push({
+            id: hp.id, name: hp.name || hp.id, createdAt: full.createdAt || Date.now(), updatedAt: full.updatedAt || Date.now(), canvases,
+            ...(hp.defaultCanvasName ? { defaultCanvasName: String(hp.defaultCanvasName).slice(0, 80) } : {}),
+            ...(hostDefaultDeleted ? { defaultCanvasDeleted: true } : {}),
+          });
+        } else {
+          if (canvases.length) known.canvases = canvases; // Host 的画布登记为准（多画布跨端一致）
+          if (hp.defaultCanvasName) known.defaultCanvasName = String(hp.defaultCanvasName).slice(0, 80);
+          if (hostDefaultDeleted) known.defaultCanvasDeleted = true; else delete known.defaultCanvasDeleted;
         }
       });
       lsSet(LS_PROJECTS, S.projects);
       const graph = { nodes: full.nodes || {}, edges: full.edges || [], view: full.view || { x: 60, y: 40, scale: 1 } };
-      if (cid) saveGraphDoc(hp.id, graph, cid);
+      if (targetCanvas) saveGraphDoc(hp.id, graph, targetCanvas);
       else saveGraphDoc(hp.id, graph);
       if (full.bible) {
         saveBibleLocal(hp.id, full.bible);
         if (full.bibleUpdatedAt) lsSet(LS_BIBLE_SYNC + hp.id, full.bibleUpdatedAt);
       }
       // 指定画布且正是当前画布：把内容并进内存（否则只落本地缓存，切换时读到）
-      if (cid && S.activeId === hp.id && activeCanvasId() === cid) mergeHostDoc(hp.id, full, cid);
+      if (targetCanvas && S.activeId === hp.id && activeCanvasId() === targetCanvas) mergeHostDoc(hp.id, full, targetCanvas);
     }
     const LS_DOCSYNC = 'dsh-ic:docsync:';
     /** Host 侧改动了项目文档（Agent 建节点/连线/写内容/补设定集）→ 拉回并合并到本地画布。
@@ -6096,7 +6178,9 @@ window.__ModuleLoader__.load({
                 s.graph = emptyGraph();
               } else {
                 s.activeId = s.projects[0].id;
-                const d0 = loadGraphDoc(s.activeId) || emptyGraph();
+                const firstCid = defaultCanvasDeleted(s.activeId) ? firstCanvasId(s.activeId) : DEFAULT_CANVAS_ID;
+                s.activeCanvasId = firstCid;
+                const d0 = loadGraphDoc(s.activeId, firstCid) || emptyGraph();
                 s.graph = { nodes: d0.nodes || {}, edges: d0.edges || [], view: d0.view || { x: 60, y: 40, scale: 1 } };
               }
               V.x = s.graph.view.x; V.y = s.graph.view.y; V.scale = s.graph.view.scale;
@@ -6139,6 +6223,31 @@ window.__ModuleLoader__.load({
           // 否则排在它后面的项目的设定集/节点拉取会被连累跳过
           try {
             const known = S.projects.some((p) => p.id === hp.id);
+            // 默认画布项目级字段同步：名字（defaultCanvasName）与"已删除"标记（Host 为准；旧 Host 不带字段则跳过）
+            if (hp.defaultCanvasName !== undefined || hp.defaultCanvasDeleted !== undefined) {
+              const cur = S.projects.find((p) => p.id === hp.id);
+              // 刚删默认画布（10s 内）：Host 清单可能还没跟上，不要被旧快照把默认画布拉回
+              const defTomb = (Date.now() - (canvasTombstones.get(hp.id + '::default') || 0)) < 10000;
+              if (cur && !defTomb) {
+                const hostName = hp.defaultCanvasName ? String(hp.defaultCanvasName).slice(0, 80) : '';
+                const hostDeleted = hp.defaultCanvasDeleted === true;
+                const sameName = (cur.defaultCanvasName || '') === hostName;
+                const sameDeleted = !!cur.defaultCanvasDeleted === hostDeleted;
+                if (!sameName || !sameDeleted) {
+                  update((s) => {
+                    const pp = s.projects.find((x) => x.id === hp.id);
+                    if (!pp) return;
+                    if (hostName) pp.defaultCanvasName = hostName; else delete pp.defaultCanvasName;
+                    if (hostDeleted) pp.defaultCanvasDeleted = true; else delete pp.defaultCanvasDeleted;
+                  });
+                  lsSet(LS_PROJECTS, S.projects);
+                  // 另一端删除了默认画布：本地若正停在默认画布上，立即切到第一个可用画布
+                  if (hostDeleted && hp.id === S.activeId && activeCanvasId() === DEFAULT_CANVAS_ID) {
+                    switchCanvas(firstCanvasId(hp.id), { skipFlush: true });
+                  }
+                }
+              }
+            }
             // 画布登记同步：Host 是画布清单的持久源（对话/另一端建或改名后本地也能看到）。
             // 合并策略 = 并集（本地刚建的画布不能被 Host 旧清单抹掉），刚删的画布由墓碑挡住。
             if (Array.isArray(hp.canvases)) {
@@ -6156,7 +6265,8 @@ window.__ModuleLoader__.load({
                 }
               }
             }
-            const doc = known ? loadGraphDoc(hp.id) : null;
+            const localDefaultDeleted = defaultCanvasDeleted(hp.id) || hp.defaultCanvasDeleted === true;
+            const doc = known ? loadGraphDoc(hp.id, localDefaultDeleted ? firstCanvasId(hp.id) : DEFAULT_CANVAS_ID) : null;
             // 设定集：Host 侧（对话改写）更新过 → 拉回本地（设定集先行，故优先于节点合并）
             if (known && hp.bibleUpdatedAt && hp.bibleUpdatedAt > (Number(lsGet(LS_BIBLE_SYNC + hp.id, 0)) || 0)) {
               try {
@@ -6269,13 +6379,20 @@ window.__ModuleLoader__.load({
       if (!S.projects.length) return;
       for (const p of [...S.projects]) {
         try {
-          const doc = loadGraphDoc(p.id) || emptyGraph();
           const canvases = Array.isArray(p.canvases) ? p.canvases : [];
-          await hostRpc('projectsPut', { id: p.id, name: p.name || p.id, canvases, doc });
+          const defaultFields = {
+            ...(p.defaultCanvasName ? { defaultCanvasName: p.defaultCanvasName } : {}),
+            ...(p.defaultCanvasDeleted ? { defaultCanvasDeleted: true } : {}),
+          };
+          // 默认画布已删除：只推项目级字段，不再推默认画布文档（避免把已清空的默认图重新写回）
+          await hostRpc('projectsPut', {
+            id: p.id, name: p.name || p.id, canvases, ...defaultFields,
+            ...(p.defaultCanvasDeleted ? {} : { doc: loadGraphDoc(p.id) || emptyGraph() }),
+          });
           for (const c of canvases) {
             const cdoc = loadGraphDoc(p.id, c.id);
             if (!cdoc) continue; // 本地没有缓存的子画布：Host 上若已有就不动（避免空文档覆盖）
-            await hostRpc('projectsPut', { id: p.id, name: p.name || p.id, canvasId: c.id, canvases, doc: cdoc });
+            await hostRpc('projectsPut', { id: p.id, name: p.name || p.id, canvasId: c.id, canvases, ...defaultFields, doc: cdoc });
           }
         } catch (e) {
           if (/未知操作/.test(String((e && e.message) || e))) { hostSyncStopped = true; return; }
@@ -6967,6 +7084,9 @@ window.__ModuleLoader__.load({
           // 画布 id 与画布清单：Host 据此把图写到对应画布文档并维护项目级画布登记
           canvasId: cid,
           canvases: (proj && Array.isArray(proj.canvases)) ? proj.canvases : [],
+          // 默认画布的项目级字段（名字 / 已删除标记）：改名与删除默认画布后在这里同步给 Host
+          ...(proj && proj.defaultCanvasName ? { defaultCanvasName: proj.defaultCanvasName } : {}),
+          ...(proj && proj.defaultCanvasDeleted ? { defaultCanvasDeleted: true } : {}),
           doc: {
             ts: Date.now(), // 推送发出时刻：Host 据此区分"撤销恢复"（清墓碑）与"陈旧推送"（墓碑继续生效）
             nodes: S.graph.nodes, edges: S.graph.edges, view: S.graph.view,
@@ -7003,7 +7123,9 @@ window.__ModuleLoader__.load({
       }
       const active = lsGet(LS_ACTIVE, null);
       S.activeId = S.projects.some((p) => p.id === active) ? active : S.projects[0].id;
-      const doc = loadGraphDoc(S.activeId) || emptyGraph();
+      // 默认画布已被删除的项目：落在第一个子画布上（不能停在 canvasId=null）
+      S.activeCanvasId = defaultCanvasDeleted(S.activeId) ? firstCanvasId(S.activeId) : DEFAULT_CANVAS_ID;
+      const doc = loadGraphDoc(S.activeId, S.activeCanvasId) || emptyGraph();
       S.graph = { nodes: doc.nodes || {}, edges: doc.edges || [], view: doc.view || { x: 60, y: 40, scale: 1 } };
       // 页面刷新/关闭会中断进行中的生成：清理残留的 running 状态，避免节点永远卡在"运行中"
       let stale = false;
@@ -7024,10 +7146,12 @@ window.__ModuleLoader__.load({
     function switchProject(pid) {
       if (pid === S.activeId) return;
       flushSave();
-      const doc = loadGraphDoc(pid) || emptyGraph();
+      // 默认画布已删除的项目：切到第一个子画布（保持项目始终有可用画布）
+      const nextCanvas = defaultCanvasDeleted(pid) ? firstCanvasId(pid) : DEFAULT_CANVAS_ID;
+      const doc = loadGraphDoc(pid, nextCanvas) || emptyGraph();
       update((s) => {
         s.activeId = pid;
-        s.activeCanvasId = DEFAULT_CANVAS_ID; // 多画布预留：切项目回到该项目默认画布
+        s.activeCanvasId = nextCanvas;
         s.graph = { nodes: doc.nodes || {}, edges: doc.edges || [], view: doc.view || { x: 60, y: 40, scale: 1 } };
         s.sel = new Set(); s.selEdge = null;
         s.composerId = null;
@@ -10991,8 +11115,13 @@ window.__ModuleLoader__.load({
       });
       lsSet(LS_PROJECTS, S.projects);
       try {
-        const doc = loadGraphDoc(pid) || emptyGraph();
-        hostRpc('projectsPut', { id: pid, name: next, canvases: projectCanvases(pid), doc }).catch(() => { /* 静默：下次同步重试 */ });
+        const deleted = defaultCanvasDeleted(pid);
+        hostRpc('projectsPut', {
+          id: pid, name: next, canvases: projectCanvases(pid),
+          ...(p.defaultCanvasName ? { defaultCanvasName: p.defaultCanvasName } : {}),
+          ...(deleted ? { defaultCanvasDeleted: true } : {}),
+          ...(deleted ? {} : { doc: loadGraphDoc(pid) || emptyGraph() }),
+        }).catch(() => { /* 静默：下次同步重试 */ });
       } catch { /* 忽略 */ }
       return { ok: true, name: next };
     }
@@ -11293,6 +11422,13 @@ window.__ModuleLoader__.load({
             'data-action': 'back-to-chat',
           }, Ic('back', 14)),
           h('div', { key: 'projwrap', className: 'dshic-proj-switch-wrap' }, topName),
+          // 当前画布名（顶部同步显示；默认画布改名后这里即时更新）
+          proj
+            ? h('span', {
+                key: 'canvaschip', className: 'dshic-canvas-chip', 'data-role': 'active-canvas-name',
+                title: T('canvasName'),
+              }, canvasNameFor(proj.id, activeCanvasId()) || '')
+            : null,
           h('div', { className: 'dshic-toolbar-sep' }),
           h(Btn, { onClick: fitView, title: T('fit') }, Ic('fit', 13)),
           h(Btn, { onClick: undo, title: T('undo'), disabled: history.idx <= 0 }, Ic('undoIc', 13)),
@@ -11338,10 +11474,16 @@ window.__ModuleLoader__.load({
                 },
                   editing
                     ? inlineNameInput({ kind: 'project', dataRole: 'inline-project-name-input-menu', className: 'is-menu', value: p.name })
-                    : h('span', {
-                        className: 'dshic-proj-name',
-                        onDoubleClick: (e) => { e.stopPropagation(); beginInlineRename('project', { projectId: p.id, value: p.name }); },
-                      }, p.name),
+                    : h('div', { className: 'dshic-proj-menu-main' },
+                        h('span', {
+                          className: 'dshic-proj-name',
+                          onDoubleClick: (e) => { e.stopPropagation(); beginInlineRename('project', { projectId: p.id, value: p.name }); },
+                        }, p.name),
+                        // 项目行副标题：该项目当前画布名（默认画布改名后同步；非当前项目显示默认画布名）
+                        h('span', {
+                          className: 'dshic-proj-menu-sub', 'data-role': 'project-menu-canvas-name',
+                        }, canvasNameFor(p.id, p.id === S.activeId ? activeCanvasId() : DEFAULT_CANVAS_ID)
+                          || ((listCanvases(p.id)[0] || {}).name || ''))),
                   p.id === S.activeId ? h('span', { className: 'dshic-proj-menu-meta' }, '✓') : null,
                   h('button', {
                     type: 'button', className: 'dshic-iconbtn dshic-proj-menu-edit',
@@ -11449,8 +11591,9 @@ window.__ModuleLoader__.load({
               s.graph = emptyGraph();
             } else {
               s.activeId = s.projects[0].id;
-              s.activeCanvasId = DEFAULT_CANVAS_ID;
-              const doc = loadGraphDoc(s.activeId) || emptyGraph();
+              const firstCid = defaultCanvasDeleted(s.activeId) ? firstCanvasId(s.activeId) : DEFAULT_CANVAS_ID;
+              s.activeCanvasId = firstCid;
+              const doc = loadGraphDoc(s.activeId, firstCid) || emptyGraph();
               s.graph = { nodes: doc.nodes || {}, edges: doc.edges || [], view: doc.view || { x: 60, y: 40, scale: 1 } };
             }
             V.x = s.graph.view.x; V.y = s.graph.view.y; V.scale = s.graph.view.scale;
@@ -11492,22 +11635,25 @@ window.__ModuleLoader__.load({
        *  删除受「至少保留一个画布」约束：只剩这一个画布时按钮 disabled。 */
       const canvasRow = (p, c, canvasCount) => {
         const cid = c.id || DEFAULT_CANVAS_ID;
+        const key = cid || 'default';
         const isActiveCanvas = p.id === S.activeId && activeCanvasId() === cid;
         const deleting = canvasDel && canvasDel.pid === p.id && canvasDel.cid === cid;
-        const editing = !c.isDefault && inlineEditValue('canvas', p.id, c.id) !== null;
-        const delDisabled = c.isDefault || canvasCount <= 1;
+        // 默认画布也支持就地改名（名字存项目级 defaultCanvasName）
+        const editing = inlineEditValue('canvas', p.id, cid) !== null;
+        // 删除按钮：画布总数 = 1 时**隐藏**（不是禁用）；默认画布与子画布同一口径
+        const showDelete = canvasCount > 1;
         const pick = () => {
           if (p.id !== S.activeId) switchProject(p.id);
           if (c.isDefault) { if (activeCanvasId() !== DEFAULT_CANVAS_ID) switchCanvas(DEFAULT_CANVAS_ID); }
           else if (activeCanvasId() !== c.id) switchCanvas(c.id);
         };
         return h('div', {
-          key: 'cv-' + cid,
+          key: 'cv-' + key,
           className: cls('dshic-canvas-row', isActiveCanvas && 'is-active', editing && 'is-editing'),
           'data-canvas-id': cid || '',
-          'data-action': 'switch-canvas-' + (cid || 'default'),
+          'data-action': 'switch-canvas-' + key,
           onClick: () => { if (!editing) pick(); },
-          title: c.isDefault ? T('switchProject') + ' · ' + T('defaultCanvas') : T('switchProject') + ' · ' + T('renameCanvasHint'),
+          title: T('switchProject') + ' · ' + T('renameCanvasHint'),
         },
           h('span', { className: 'dshic-canvas-branch' }, c.isDefault ? '•' : '↳'),
           editing
@@ -11516,7 +11662,7 @@ window.__ModuleLoader__.load({
                 className: 'dshic-canvas-name',
                 onDoubleClick: (e) => {
                   e.stopPropagation();
-                  if (!c.isDefault) beginInlineRename('canvas', { projectId: p.id, canvasId: c.id, value: c.name });
+                  beginInlineRename('canvas', { projectId: p.id, canvasId: cid, value: c.name });
                 },
               }, c.name),
           c.isDefault ? h('span', { className: 'dshic-canvas-tag' }, T('defaultCanvas')) : null,
@@ -11524,29 +11670,33 @@ window.__ModuleLoader__.load({
             ? [
                 h('button', {
                   key: 'ok', type: 'button', className: 'dshic-iconbtn is-danger', title: T('doDelete'),
+                  'data-action': 'confirm-delete-canvas-' + key,
                   onPointerDown: (e) => e.stopPropagation(),
-                  onClick: (e) => { e.stopPropagation(); deleteCanvasNamed(p.id, c.id); setCanvasDel(null); },
+                  onClick: (e) => { e.stopPropagation(); deleteCanvasNamed(p.id, c.isDefault ? null : c.id); setCanvasDel(null); },
                 }, '✓'),
                 h('button', {
                   key: 'no', type: 'button', className: 'dshic-iconbtn', title: T('cancel'),
+                  'data-action': 'cancel-delete-canvas-' + key,
                   onPointerDown: (e) => e.stopPropagation(),
                   onClick: (e) => { e.stopPropagation(); setCanvasDel(null); },
                 }, '✕'),
               ]
-            : (c.isDefault ? null : [
+            : [
                 h('button', {
                   key: 'rn', type: 'button', className: 'dshic-iconbtn', title: T('renameCanvas'),
-                  'data-action': 'rename-canvas-' + c.id,
+                  'data-action': 'rename-canvas-' + key,
                   onPointerDown: (e) => e.stopPropagation(),
-                  onClick: (e) => { e.stopPropagation(); beginInlineRename('canvas', { projectId: p.id, canvasId: c.id, value: c.name }); },
+                  onClick: (e) => { e.stopPropagation(); beginInlineRename('canvas', { projectId: p.id, canvasId: cid, value: c.name }); },
                 }, Ic('pencil', 11)),
-                h('button', {
-                  key: 'del', type: 'button', className: 'dshic-iconbtn is-danger', title: delDisabled ? T('keepOneCanvas') : T('delCanvasHint'),
-                  'data-action': 'delete-canvas-' + c.id, disabled: delDisabled,
-                  onPointerDown: (e) => e.stopPropagation(),
-                  onClick: (e) => { e.stopPropagation(); if (delDisabled) return; setCanvasDel({ pid: p.id, cid: c.id, name: c.name }); },
-                }, Ic('trash', 11)),
-              ]),
+                showDelete
+                  ? h('button', {
+                      key: 'del', type: 'button', className: 'dshic-iconbtn is-danger', title: T('delCanvasHint'),
+                      'data-action': 'delete-canvas-' + key,
+                      onPointerDown: (e) => e.stopPropagation(),
+                      onClick: (e) => { e.stopPropagation(); setCanvasDel({ pid: p.id, cid, name: c.name }); },
+                    }, Ic('trash', 11))
+                  : null,
+              ],
         );
       };
       // 右栏只显示**当前项目**（不再列其他项目）：项目行 + 折叠箭头 + 搜索框 + 子画布列表
@@ -13830,12 +13980,18 @@ window.__ModuleLoader__.load({
           window.__DSH_IC_CANVAS__ = {
             DEFAULT_CANVAS_ID, canvasDocKey, activeCanvasId, activeGraphKey, listCanvases, switchCanvas,
             switchProject, projectCanvases, canvasNameFor, createCanvasNamed, renameCanvasNamed, deleteCanvasNamed,
-            hydrateCanvasFromHost,
+            hydrateCanvasFromHost, defaultCanvasNameFor, defaultCanvasDeleted, firstCanvasId,
             state: () => ({
               activeId: S.activeId,
               activeCanvasId: activeCanvasId(),
               activeGraphKey: activeGraphKey(),
-              projects: S.projects.map((p) => ({ id: p.id, name: p.name, canvases: Array.isArray(p.canvases) ? p.canvases.map((c) => ({ ...c })) : [] })),
+              activeCanvasName: canvasNameFor(S.activeId, activeCanvasId()),
+              projects: S.projects.map((p) => ({
+                id: p.id, name: p.name,
+                canvases: Array.isArray(p.canvases) ? p.canvases.map((c) => ({ ...c })) : [],
+                defaultCanvasName: p.defaultCanvasName || '',
+                defaultCanvasDeleted: !!p.defaultCanvasDeleted,
+              })),
               canvases: listCanvases(S.activeId),
               graphNodeIds: Object.keys((S.graph && S.graph.nodes) || {}),
             }),

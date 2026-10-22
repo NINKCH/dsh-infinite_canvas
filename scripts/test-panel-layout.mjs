@@ -600,13 +600,65 @@ function cssRule(selector) {
   cin.props.onChange({ target: { value: '画布改名' } });
   cin.props.onKeyDown({ key: 'Enter', preventDefault: noop, stopPropagation: noop });
   eq(CANVAS.canvasNameFor(active, sub.id), '画布改名', '画布就地改名未生效');
-  // 只剩一个画布时：删除被禁用/不提供（新项目只有默认画布）
+  // 默认画布也可改名：行内铅笔 → 就地编辑（Enter 提交；空名拒绝）
+  const defBefore = CANVAS.canvasNameFor(active, null);
+  ok(!!act(els, 'rename-canvas-default'), '默认画布行缺少就地改名（铅笔）入口');
+  ok(!!act(els, 'delete-canvas-default'), '默认画布行缺少删除入口（画布数 > 1 时应存在）');
+  act(all(TABS.ProjectsTab()), 'rename-canvas-default').props.onClick({ stopPropagation: noop });
+  const din = all(TABS.ProjectsTab()).find((e) => e.props && e.props['data-role'] === 'inline-canvas-name-input');
+  ok(!!din, '默认画布就地编辑没有渲染 input');
+  eq(din && din.props.value, defBefore, '默认画布就地输入框没有预填当前名字');
+  // 空名拒绝：名字不变、退出编辑
+  din.props.onChange({ target: { value: '   ' } });
+  din.props.onKeyDown({ key: 'Enter', preventDefault: noop, stopPropagation: noop });
+  eq(CANVAS.canvasNameFor(active, null), defBefore, '默认画布空名提交改掉了名字');
+  eq(PANEL.state().inlineEdit, null, '默认画布空名提交后没有退出编辑');
+  // 合法名字 → Enter 提交，canvasNameFor / 顶部画布名 / 下拉副标题 / 面板同步
+  act(all(TABS.ProjectsTab()), 'rename-canvas-default').props.onClick({ stopPropagation: noop });
+  const din2 = all(TABS.ProjectsTab()).find((e) => e.props && e.props['data-role'] === 'inline-canvas-name-input');
+  din2.props.onChange({ target: { value: '主画布' } });
+  din2.props.onKeyDown({ key: 'Enter', preventDefault: noop, stopPropagation: noop });
+  eq(CANVAS.canvasNameFor(active, null), '主画布', '默认画布改名未生效');
+  ok(stringsOf(all(TABS.ProjectsTab())).join('|').includes('主画布'), '默认画布改名后面板未同步');
+  CANVAS.switchCanvas(null); // 切到默认画布，顶部/下拉应显示它的新名字
+  const chip = all(TABS.Toolbar()).find((e) => e.props && e.props['data-role'] === 'active-canvas-name');
+  ok(!!chip, '顶部缺少当前画布名');
+  eq(chip && stringsOf(chip).join(''), '主画布', '默认画布改名后顶部画布名未同步');
+  PANEL.openProjectMenuAt(10, 50);
+  const menuNow = all(TABS.Toolbar());
+  const menuSub = menuNow.filter((e) => e.props && e.props['data-role'] === 'project-menu-canvas-name')
+    .find((e) => stringsOf(e).join('') === '主画布');
+  ok(!!menuSub, '默认画布改名后下拉项目行的画布名副标题未同步');
+  PANEL.closeProjectMenu();
+  // 默认画布可删除（画布数 > 1）：行上有删除按钮 + 行内二次确认；删除走 deleteCanvasNamed(pid, null)
+  ok(CANVAS.listCanvases(active).length > 1, '默认画布删除用例要求项目里还有其它画布');
+  ok(/confirm-delete-canvas-/.test(src) && /setCanvasDel\(\{ pid: p\.id, cid, name: c\.name \}\)/.test(src),
+    '默认画布删除缺少行内二次确认（应先在行内切换到 ✓/✕ 再删）');
+  const defaultKey = 'dsh-ic:graph:' + active;
+  ok(sandbox.localStorage.getItem(defaultKey) !== null, '默认画布文档缓存不存在（无法验证删除）');
+  const delDefault = CANVAS.deleteCanvasNamed(active, null);
+  ok(delDefault && delDefault.ok === true, '删除默认画布失败（deleteCanvasNamed(pid, null)）');
+  ok(!CANVAS.listCanvases(active).some((c) => c.isDefault), '删除后默认画布仍出现在清单');
+  ok(CANVAS.activeCanvasId() !== null, '删除默认画布后没有切换到剩余画布');
+  ok(CANVAS.listCanvases(active).some((c) => c.id === CANVAS.activeCanvasId()), '删除默认画布后切到了不存在的画布');
+  eq(sandbox.localStorage.getItem(defaultKey), null, '删除默认画布后本地默认文档缓存未清理');
+  eq(CANVAS.canvasNameFor(active, null), '', '默认画布已删除，canvasNameFor(null) 不应再返回名字');
+  ok(CANVAS.deleteCanvasNamed(active, null).ok === false, '只剩一个画布时仍允许删除默认画布');
+  // 只剩一个画布（总数=1，默认画布也算）时：默认/子画布的删除按钮**都不渲染**（不是禁用）；铅笔仍在
   const fresh = PANEL.createProjectNamed('单画布项目');
   const freshEls = all(TABS.ProjectsTab());
   eq(CANVAS.listCanvases(fresh.project.id).length, 1, '新项目应只有默认画布');
   const freshDel = freshEls.filter((e) => e.props && /^delete-canvas-/.test(String(e.props['data-action'] || '')));
-  ok(freshDel.length === 0 || freshDel.every((e) => e.props.disabled === true), '只剩一个画布时删除按钮未禁用');
-  ok(!freshEls.some((e) => e.props && String(e.props['data-action'] || '').startsWith('rename-canvas-')), '默认画布被提供了改名入口（默认画布名不可改）');
+  eq(freshDel.length, 0, '只剩一个画布时仍渲染了删除按钮（应隐藏）');
+  ok(!!act(freshEls, 'rename-canvas-default'), '默认画布没有改名（铅笔）入口（改名应永远可用）');
+  ok(!freshEls.some((e) => e.props && String(e.props['data-action'] || '').startsWith('rename-canvas-cv')),
+    '只剩一个画布时不应出现子画布行');
+  // 加到 2 个画布后：默认画布的删除按钮重新出现
+  CANVAS.createCanvasNamed(fresh.project.id, '第二画布');
+  const twoEls = all(TABS.ProjectsTab());
+  ok(!!act(twoEls, 'delete-canvas-default'), '画布数 > 1 时默认画布删除按钮没有出现');
+  ok(!!act(twoEls, 'delete-canvas-' + CANVAS.listCanvases(fresh.project.id).find((c) => !c.isDefault).id), '画布数 > 1 时子画布删除按钮没有出现');
+  ok(!!act(twoEls, 'rename-canvas-default'), '画布数 > 1 时默认画布改名入口丢失');
   // 折叠：开关存在 → 折叠后列表消失且持久化 → 再点恢复
   ok(!!act(freshEls, 'toggle-canvas-collapse'), '项目区域缺少折叠开关');
   ok(!!freshEls.find((e) => e.props && e.props['data-role'] === 'canvas-list'), '折叠前没有画布列表');

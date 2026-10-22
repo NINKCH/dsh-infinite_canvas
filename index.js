@@ -281,7 +281,11 @@ function docSummary(d) {
   const nodes = Object.values(d.nodes || {}).map((n) => ({
     id: n.id, type: normalizeNodeType(n.type), label: (n.data && n.data.label) || '', status: (n.data && n.data.status) || 'idle',
   }));
-  return { nodeIds: Object.keys(d.nodes || {}), nodes, source: d.source || 'app', canvases: canvasRegistry(d) };
+  return {
+    nodeIds: Object.keys(d.nodes || {}), nodes, source: d.source || 'app', canvases: canvasRegistry(d),
+    // 默认画布名（缺省 '默认画布'，旧项目零迁移）与"默认画布已删除"标记（只剩子画布时）
+    defaultCanvasName: defaultCanvasNameForApi(d), defaultCanvasDeleted: !defaultCanvasExists(d),
+  };
 }
 
 /** v1 → v2 一次性迁移：文档按 updatedAt 新者胜合并；资产索引照抄（媒体文件原地保留，rel 指针不动——零风险迁移）。 */
@@ -1064,6 +1068,24 @@ function sanitizeCanvases(list) {
   }
   return out.slice(0, 200);
 }
+// ---- 默认画布（canvasId=null）：名字存项目文档 defaultCanvasName；删除后 defaultCanvasDeleted=true ----
+const DEFAULT_CANVAS_NAME = '默认画布';
+/** 默认画布名：缺省 '默认画布'（旧项目无该字段 → 零迁移）。 */
+function defaultCanvasNameOf(doc) {
+  const n = String((doc && doc.defaultCanvasName) || '').trim();
+  return (n || DEFAULT_CANVAS_NAME).slice(0, 80);
+}
+/** 默认画布是否还存在（尚未删除）。 */
+function defaultCanvasExists(doc) { return !(doc && doc.defaultCanvasDeleted === true); }
+/** API 返回的默认画布名：默认画布已删除 → 空字符串（storage 里已清空）。 */
+function defaultCanvasNameForApi(doc) { return defaultCanvasExists(doc) ? defaultCanvasNameOf(doc) : ''; }
+/** 项目画布总数 = 默认画布（若还在）+ 子画布。 */
+function canvasTotal(projectDoc) { return canvasRegistry(projectDoc).length + (defaultCanvasExists(projectDoc) ? 1 : 0); }
+/** 项目下全部画布名（默认画布 + 子画布）：重名判定用。 */
+function allCanvasNames(projectDoc) {
+  const names = defaultCanvasExists(projectDoc) ? [defaultCanvasNameOf(projectDoc)] : [];
+  return names.concat(canvasRegistry(projectDoc).map((c) => c.name));
+}
 function projectsList() {
   if (sqlActive()) {
     const db = getDb();
@@ -1081,6 +1103,8 @@ function projectsList() {
         nodes: (sum.nodes || []).map((n) => ({ ...n, type: normalizeNodeType(n && n.type) })),
         tombstones: Array.isArray(tombs) ? tombs : [], bibleUpdatedAt: r.bible_updated_at || 0,
         canvases: canvasRegistry(sum),
+        defaultCanvasName: defaultCanvasNameForApi(sum),
+        defaultCanvasDeleted: !defaultCanvasExists(sum),
       };
     });
   }
@@ -1103,7 +1127,7 @@ function projectsList() {
         id: n.id, type: normalizeNodeType(n.type), label: (n.data && n.data.label) || '',
         status: (n.data && n.data.status) || 'idle',
       }));
-      list.push({ id: d.id || id, name: d.name || id, createdAt: d.createdAt || 0, updatedAt: d.updatedAt || 0, source: d.source || 'app', nodeIds: Object.keys(d.nodes || {}), nodes, tombstones: d.tombstones || [], bibleUpdatedAt: d.bibleUpdatedAt || 0, canvases: canvasRegistry(d) });
+      list.push({ id: d.id || id, name: d.name || id, createdAt: d.createdAt || 0, updatedAt: d.updatedAt || 0, source: d.source || 'app', nodeIds: Object.keys(d.nodes || {}), nodes, tombstones: d.tombstones || [], bibleUpdatedAt: d.bibleUpdatedAt || 0, canvases: canvasRegistry(d), defaultCanvasName: defaultCanvasNameForApi(d), defaultCanvasDeleted: !defaultCanvasExists(d) });
     } catch { /* 单文件损坏跳过 */ }
   }
   return list.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
@@ -1223,6 +1247,12 @@ async function projectsPut(args) {
   } else {
     out.name = String((args && args.name) || prev.name || id).slice(0, 80);
     out.canvases = sanitizeCanvases((args && args.canvases) !== undefined ? args.canvases : prev.canvases);
+    // 默认画布的项目级字段：名字（缺省 '默认画布'，不写字段即零迁移）与"已删除"标记
+    const dnRaw = (args && args.defaultCanvasName !== undefined) ? args.defaultCanvasName : prev.defaultCanvasName;
+    if (dnRaw !== undefined && dnRaw !== null && String(dnRaw).trim()) out.defaultCanvasName = String(dnRaw).trim().slice(0, 80);
+    const ddRaw = (args && args.defaultCanvasDeleted !== undefined) ? args.defaultCanvasDeleted : prev.defaultCanvasDeleted;
+    if (ddRaw) out.defaultCanvasDeleted = true;
+    else if (prev.defaultCanvasDeleted) out.defaultCanvasDeleted = true; // 客户端未带该字段时保留"已删除"（防旧推送把默认画布复活）
   }
   // 设定集随文档一起同步（世界观/风格/角色/场景/道具）：对话侧可读写
   let canvasBible = null;
@@ -1262,6 +1292,7 @@ async function projectsPut(args) {
       writeIcDoc(id, {
         id, name: String((args && args.name) || id).slice(0, 80), createdAt: Date.now(), updatedAt: Date.now(),
         nodes: {}, edges: [], view: { x: 60, y: 40, scale: 1 }, tombstones: [], canvases,
+        defaultCanvasName: defaultCanvasNameOf({ defaultCanvasName: args && args.defaultCanvasName }),
         ...(canvasBible ? { bible: canvasBible.bible, bibleUpdatedAt: canvasBible.bibleUpdatedAt } : {}),
       });
     } else {
@@ -1796,7 +1827,11 @@ function readCanvasDoc(projectId, canvasId) {
   const projectDoc = readDocOrNull(pid);
   if (!projectDoc) throw new Error('项目不存在：' + pid + '（先用 canvas_list_projects 查看可用项目 id）');
   if (!cid) {
-    return normalizeDocNodes({ ...projectDoc, canvases: canvasRegistry(projectDoc) });
+    if (!defaultCanvasExists(projectDoc)) throw new Error('默认画布已删除：请指定 canvasId（先用 canvas_list_projects 查看可用画布）');
+    return normalizeDocNodes({
+      ...projectDoc, canvases: canvasRegistry(projectDoc),
+      defaultCanvasName: defaultCanvasNameOf(projectDoc), defaultCanvasDeleted: false,
+    });
   }
   const rec = canvasRegistry(projectDoc).find((c) => c.id === cid);
   if (!rec) throw new Error('画布不存在：' + cid + '（项目 ' + pid + '；先用 canvas_list_projects 查看可用画布）');
@@ -1807,6 +1842,8 @@ function readCanvasDoc(projectId, canvasId) {
   doc.view = raw.view || { x: 60, y: 40, scale: 1 };
   if (projectDoc.bible !== undefined) { doc.bible = projectDoc.bible; doc.bibleUpdatedAt = projectDoc.bibleUpdatedAt || 0; }
   doc.canvases = canvasRegistry(projectDoc);
+  doc.defaultCanvasName = defaultCanvasNameForApi(projectDoc);
+  doc.defaultCanvasDeleted = !defaultCanvasExists(projectDoc);
   return normalizeDocNodes(doc);
 }
 /** 写画布文档：默认画布写项目文档；子画布写独立文档（项目级字段剔除）。 */
@@ -2411,13 +2448,18 @@ async function canvasOpen(args) {
 }
 
 /** 画布清单（多画布目录树的数据源）：默认画布不登记在 canvases 里（客户端用 canvasId=null 表达），
- *  返回 projectId + canvases（子画布）。 */
+ *  返回 projectId + 默认画布名/是否已删除 + canvases（子画布）。 */
 async function canvasesList(args) {
   const pid = String((args && args.projectId) || '');
   const doc = readDoc(pid);
-  return { projectId: pid, name: doc.name || pid, canvases: canvasRegistry(doc) };
+  return {
+    projectId: pid, name: doc.name || pid,
+    canvases: canvasRegistry(doc),
+    defaultCanvasName: defaultCanvasNameForApi(doc),
+    defaultCanvasDeleted: !defaultCanvasExists(doc),
+  };
 }
-/** 新建子画布：必须命名；画布 id 由 Host 生成（csv 前缀，避免与项目 id 混淆）。
+/** 新建子画布：必须命名；画布 id 由 Host 生成（cv 前缀，避免与项目 id 混淆）。
  *  新画布首次打开是空白画布（没有文档行，readCanvasDoc 会兜底空图）。 */
 async function canvasCreate(args) {
   const pid = String((args && args.projectId) || '');
@@ -2425,40 +2467,67 @@ async function canvasCreate(args) {
   if (!name) throw new Error('需要画布名称（新建画布必须命名）');
   const projectDoc = readDoc(pid);
   const list = canvasRegistry(projectDoc);
+  const defaultCanvasName = defaultCanvasNameForApi(projectDoc);
   // 同名复用：重复点击/重试不产生一堆同名画布
   const dup = list.find((c) => String(c.name).trim() === name);
-  if (dup) return { ok: true, projectId: pid, canvasId: dup.id, name: dup.name, reused: true };
+  if (dup) return { ok: true, projectId: pid, canvasId: dup.id, name: dup.name, reused: true, defaultCanvasName };
+  if (allCanvasNames(projectDoc).some((n) => n.trim() === name)) throw new Error('同名画布已存在：' + name);
   if (list.length >= 200) throw new Error('一个项目最多 200 个画布');
   // 客户端可自带 id（本地已登记、目录树已显示的路径）：合法且未占用就采用，避免两端 id 不一致
   const wantId = normalizeCanvasId(args && args.canvasId);
   const cid = (wantId && !list.some((c) => c.id === wantId)) ? wantId : ('cv' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6));
   const next = sanitizeCanvases([...list, { id: cid, name: name.slice(0, 80), createdAt: Date.now() }]);
   patchProjectDoc(pid, { canvases: next });
-  return { ok: true, projectId: pid, canvasId: cid, name: name.slice(0, 80), reused: false };
+  return { ok: true, projectId: pid, canvasId: cid, name: name.slice(0, 80), reused: false, defaultCanvasName };
 }
-/** 重命名子画布：必须命名；同名（除自己）拒绝。 */
+/** 重命名画布：canvasId=null 表示默认画布（写项目文档 defaultCanvasName）；必须命名、同名（除自己）拒绝。 */
 async function canvasRename(args) {
   const pid = String((args && args.projectId) || '');
   const cid = normalizeCanvasId(args && args.canvasId);
-  if (!cid) throw new Error('需要 canvasId（默认画布不能重命名，请直接重命名项目）');
   const name = String((args && args.name) || '').trim();
   if (!name) throw new Error('需要画布名称');
   const projectDoc = readDoc(pid);
   const list = canvasRegistry(projectDoc);
+  if (!cid) {
+    if (!defaultCanvasExists(projectDoc)) throw new Error('默认画布已删除，无法重命名');
+    if (list.some((c) => String(c.name).trim() === name)) throw new Error('同名画布已存在：' + name);
+    patchProjectDoc(pid, { defaultCanvasName: name.slice(0, 80) });
+    return { ok: true, projectId: pid, canvasId: null, name: name.slice(0, 80), defaultCanvasName: name.slice(0, 80) };
+  }
   const target = list.find((c) => c.id === cid);
   if (!target) throw new Error('画布不存在：' + cid);
+  const defNameApi = defaultCanvasNameForApi(projectDoc);
+  if (defNameApi && String(defNameApi).trim() === name) throw new Error('同名画布已存在：' + name);
   if (list.some((c) => c.id !== cid && String(c.name).trim() === name)) throw new Error('同名画布已存在：' + name);
   const next = list.map((c) => (c.id === cid ? { ...c, name: name.slice(0, 80) } : c));
   patchProjectDoc(pid, { canvases: sanitizeCanvases(next) });
-  return { ok: true, projectId: pid, canvasId: cid, name: name.slice(0, 80) };
+  return { ok: true, projectId: pid, canvasId: cid, name: name.slice(0, 80), defaultCanvasName: defaultCanvasNameForApi(projectDoc) };
 }
-/** 删除子画布：删登记 + 删画布文档。默认画布不允许删除（项目本身要删请用 canvas_delete_project）。 */
+/** 删除画布。canvasId=null 删除默认画布（清图 + defaultCanvasName + 标记 defaultCanvasDeleted，项目保留）；
+ *  子画布沿用原逻辑。画布总数 = 1 时拒绝删除（客户端已隐藏按钮，Host 兜底）。 */
 async function canvasDelete(args) {
   const pid = String((args && args.projectId) || '');
   const cid = normalizeCanvasId(args && args.canvasId);
-  if (!cid) throw new Error('需要 canvasId（默认画布不能删除）');
   const projectDoc = readDoc(pid);
   const list = canvasRegistry(projectDoc);
+  const total = canvasTotal(projectDoc);
+  if (total <= 1) throw new Error('至少要保留一个画布');
+  if (!cid) {
+    if (!defaultCanvasExists(projectDoc)) throw new Error('默认画布已删除');
+    const desiredName = defaultCanvasNameOf(projectDoc);
+    const nextDoc = {
+      ...projectDoc,
+      nodes: {}, edges: [],
+      view: { x: 60, y: 40, scale: 1 },
+      tombstones: [], edgeTombstones: [], tombstoneAt: {}, edgeTombstoneAt: {},
+      defaultCanvasDeleted: true,
+      defaultCanvasName: '',
+      updatedAt: Date.now(),
+    };
+    writeIcDoc(pid, nextDoc);
+    const nextCanvasId = list[0] ? list[0].id : null;
+    return { ok: true, projectId: pid, canvasId: null, deletedName: desiredName, defaultCanvasName: '', defaultCanvasDeleted: true, nextCanvasId };
+  }
   const targetId = canvasDocId(pid, cid);
   const inList = list.some((c) => c.id === cid);
   const hasDoc = Boolean(readDocOrNull(targetId));
@@ -2469,7 +2538,11 @@ async function canvasDelete(args) {
     if (sqlActive()) getDb().prepare('DELETE FROM projects WHERE id = ?').run(targetId);
     else unlinkSync(projectFile(targetId));
   } catch { /* 文档不存在视为已删除 */ }
-  return { ok: true, projectId: pid, canvasId: cid };
+  return {
+    ok: true, projectId: pid, canvasId: cid,
+    defaultCanvasName: defaultCanvasNameForApi(projectDoc),
+    defaultCanvasDeleted: !defaultCanvasExists(projectDoc),
+  };
 }
 
 /** 与客户端一致的端口表（连线校验用）。image / video 是合并类型（旧生成/资产节点归一到这里）：
@@ -3164,7 +3237,10 @@ export function apply(ctx) {
             const lines = [];
             for (const p of list) {
               const canvases = Array.isArray(p.canvases) ? p.canvases : [];
-              lines.push('- 「' + p.name + '」 id=' + p.id + ' · ' + p.nodes.length + ' 节点 · ' + canvases.length + ' 个子画布 · 更新于 ' + new Date(p.updatedAt).toLocaleString());
+              const defTxt = p.defaultCanvasDeleted
+                ? '默认画布已删除'
+                : '默认画布「' + (p.defaultCanvasName || '默认画布') + '」canvasId=null';
+              lines.push('- 「' + p.name + '」 id=' + p.id + ' · ' + defTxt + ' · ' + canvases.length + ' 个子画布 · ' + p.nodes.length + ' 节点 · 更新于 ' + new Date(p.updatedAt).toLocaleString());
               for (const n of p.nodes) lines.push('    · [' + n.type + '] ' + (n.label || '(未命名)') + ' id=' + n.id + ' status=' + n.status);
               for (const c of canvases) lines.push('    ▸ 画布「' + (c.name || c.id) + '」 canvasId=' + c.id + '（用 canvasId 参数指定；资产与设定集按项目共享）');
             }
