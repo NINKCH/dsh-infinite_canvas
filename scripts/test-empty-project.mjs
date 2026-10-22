@@ -127,11 +127,13 @@ ok(creators === 0, `仍有 ${creators} 处用 defaultProject 自动建项目`);
 ok(/emptyProjectHint/.test(src), '空态引导文案键 emptyProjectHint 缺失');
 ok(/'emptyProjectHint':/.test(src), 'emptyProjectHint 中文定义缺失');
 ok(/'emptyProjectHint':\s*'No projects yet/.test(src), 'emptyProjectHint 英文定义缺失');
-ok(/(!S\.projects\.length|!proj) && !creating\s*\?\s*h\('div'[^)]*emptyProjectHint/.test(src.replace(/\n/g, ' ')), '空态引导没有挂到 ProjectsTab');
+ok(/!proj\s*\?\s*h\('div'[^)]*emptyProjectHint/.test(src.replace(/\n/g, ' ')), '空态引导没有挂到 ProjectsTab');
 
-// ---------------- 4) 显式创建路径仍然完好（回归保护） ----------------
-ok(/const create = \(\) => \{/.test(projectsTab), 'ProjectsTab 的显式创建函数丢失');
-ok(/hostRpc\('projectsPut'/.test(projectsTab), '显式创建后未推送 Host（新建项目会失效）');
+// ---------------- 4) 显式创建路径仍然完好（回归保护：新建统一走左上角下拉 → 命名弹窗） ----------------
+const createBody = fnBody('createProjectNamed');
+ok(createBody.length > 0, 'createProjectNamed（显式创建入口）丢失');
+ok(/hostRpc\('projectsPut'/.test(createBody), '显式创建后未推送 Host（新建项目会失效）');
+ok(!/T\('newProject'\)/.test(projectsTab), 'ProjectsTab 仍渲染「新建项目」入口（右栏应只管理当前项目）');
 
 if (errs.length) {
   console.error('✗ OBS-UI-1 验证未通过（' + errs.length + '）：');

@@ -5,12 +5,13 @@
 //   3) 资产 + 设定集统一弹窗：两个标签页、资产页用 assetsForPicker 数据源 + 网格卡片、
 //      Esc / 遮罩关闭、右侧面板不再有资产/设定集页签
 //   4) 顶部工具栏：最左「返回会话」纯 < 图标 → 项目名（下拉列出项目 + 新建项目…；双击项目名就地编辑；
-//      下拉每行右侧「修改」按钮也在该行就地编辑；顶部不再有铅笔；下拉里没有「重命名项目…」）
+//      下拉每行右侧「修改」按钮在该行就地编辑（当前项目行同样可点，pointerdown/click 都不触发行切换），
+//      当前项目只用蓝底/蓝字标选中、不再渲染 ✓；顶部不再有铅笔；下拉里没有「重命名项目…」）
 //   5) 快捷键 / 帮助反馈 / 检查更新回到右上角：三个纯图标按钮（hover tooltip），右侧面板不再有动作行
 //   6) 多画布：项目为根、子画布为目录；新建必须命名；切换读写不同 key；删除回默认画布；
 //      默认画布 canvasId=null（key 仍等于 projectId，旧数据零迁移）
-//   7) 右侧「项目」面板：只显示当前项目 + 项目/画布就地改名 + 折叠（localStorage）+ 搜索 + 比例协调 +
-//      只剩一个画布时删除禁用
+//   7) 右侧「项目」面板：只管理当前项目（不再有「新建项目」按钮，新建统一走左上角下拉）+ 项目/画布就地改名
+//      + 折叠（localStorage）+ 搜索 + 比例协调 + 只剩一个画布时删除按钮隐藏
 //   8) 全局去「灰蓝」：所有弹层容器实底主题背景 / 1px 线框 / 14–16px 圆角 / --dshic-shadow-lg，
 //      无 --dsw-alias-bg-overlay / rgba / backdrop-filter；弹层内部无固定色字面量
 // 运行：node scripts/test-panel-layout.mjs（退出码 0=通过）
@@ -390,6 +391,56 @@ function cssRule(selector) {
   PANEL.openProjectMenuAt(10, 50);
   act(all(TABS.Toolbar()), 'switch-project-' + P1).props.onClick();
   eq(PANEL.state().activeId, P1, '切回 P1 失败');
+  // ---------- 当前项目行：无 ✓；铅笔可进入就地改名，且点击不触发行切换/关菜单 ----------
+  PANEL.openProjectMenuAt(10, 50);
+  const activeEls = all(TABS.Toolbar());
+  const activeRow = activeEls.find((e) => e.props
+    && String(e.props['data-action'] || '') === 'switch-project-' + P1);
+  ok(!!activeRow, '下拉里找不到当前项目行');
+  ok((activeRow.props.className || '').includes('is-active'), '当前项目行没有 is-active 选中态');
+  // 渲染级：当前行不再有 ✓ / 勾选图标（选中感只靠蓝底蓝字）
+  const activeRowStrings = stringsOf(activeRow).join('|');
+  ok(!activeRowStrings.includes('✓'), '当前项目行仍渲染 ✓ 勾选字符');
+  ok(!all(activeRow).some((e) => clsOf(e).includes('dshic-proj-menu-meta')), '当前项目行仍渲染勾选图标节点');
+  ok(!/proj-menu-meta/.test(src), '源码里仍残留下拉勾选图标样式/结构（proj-menu-meta）');
+  // 当前行铅笔仍存在、点它进入 inline（且不切项目、不关菜单）
+  const activeEdit = act(activeEls, 'edit-project-' + P1);
+  ok(!!activeEdit, '当前项目行缺少可用的铅笔（修改）按钮');
+  ok(activeEdit.props.disabled !== true, '当前项目行的铅笔被禁用');
+  // pointerdown 路径也应直接进入就地编辑（真实浏览器里 click 可能被焦点竞争吞掉）
+  activeEdit.props.onPointerDown({ stopPropagation: noop });
+  eq(PANEL.state().inlineEdit && PANEL.state().inlineEdit.projectId, P1, '铅笔 pointerdown 没有进入就地编辑');
+  PANEL.cancelInlineRename();
+  const activeIdBefore = PANEL.state().activeId;
+  const menuOpenBefore = !!PANEL.state().projectMenu;
+  activeEdit.props.onClick({ preventDefault: noop, stopPropagation: noop });
+  eq(PANEL.state().inlineEdit && PANEL.state().inlineEdit.projectId, P1, '点当前项目行铅笔没有进入就地编辑');
+  eq(PANEL.state().inlineEdit && PANEL.state().inlineEdit.value, '项目甲改', '当前项目行就地输入没有预填当前名字');
+  eq(PANEL.state().activeId, activeIdBefore, '点当前项目行铅笔触发了项目切换副作用');
+  eq(!!PANEL.state().projectMenu, menuOpenBefore, '点当前项目行铅笔把下拉关掉了（inline input 会被卸载）');
+  const activeInline = all(TABS.Toolbar()).find((e) => e.props && e.props['data-role'] === 'inline-project-name-input-menu');
+  ok(!!activeInline, '当前项目行点击铅笔后没有渲染行内 input');
+  activeInline.props.onChange({ target: { value: '当前项改名' } });
+  activeInline.props.onKeyDown({ key: 'Enter', preventDefault: noop, stopPropagation: noop });
+  eq(PANEL.state().inlineEdit, null, '当前项目行 Enter 提交后没有退出就地编辑');
+  eq(PANEL.state().projects.find((p) => p.id === P1).name, '当前项改名', '当前项目行就地改名未生效');
+  const topAfterCurrent = all(TABS.Toolbar()).find((e) => e.props && e.props['data-role'] === 'project-name');
+  eq(topAfterCurrent && String(topAfterCurrent.props.children), '当前项改名', '当前项目行改名后顶部未同步');
+  ok(stringsOf(all(TABS.ProjectsTab())).join('|').includes('当前项改名'), '当前项目行改名后右栏面板未同步');
+  // 行点击守卫：即使事件冒泡到行，铅笔/输入框来源也不能触发切换或关菜单
+  const rowGuardTarget = { closest: (sel) => (sel.includes('dshic-proj-menu-edit') ? {} : null) };
+  PANEL.openProjectMenuAt(10, 50);
+  act(all(TABS.Toolbar()), 'switch-project-' + P1).props.onClick({ target: rowGuardTarget });
+  eq(PANEL.state().activeId, P1, '铅笔点击冒泡到行仍触发了项目切换');
+  ok(!!PANEL.state().projectMenu, '铅笔点击冒泡到行仍关掉了下拉');
+  PANEL.closeProjectMenu();
+  // 把 P1 名字改回「项目甲改」供后续断言
+  PANEL.openProjectMenuAt(10, 50);
+  act(all(TABS.Toolbar()), 'edit-project-' + P1).props.onClick({ preventDefault: noop, stopPropagation: noop });
+  const restoreInline = all(TABS.Toolbar()).find((e) => e.props && e.props['data-role'] === 'inline-project-name-input-menu');
+  restoreInline.props.onChange({ target: { value: '项目甲改' } });
+  restoreInline.props.onKeyDown({ key: 'Enter', preventDefault: noop, stopPropagation: noop });
+  PANEL.openProjectMenuAt(10, 50);
 
   // ---------- 项目下拉视觉契约：与生成面板（GenComposer）同一套容器语言 ----------
   const menuCss = cssRule('.dshic-proj-menu');
@@ -414,7 +465,6 @@ function cssRule(selector) {
   ok(/color:var\(--dsw-alias-brand-primary\)/.test(itemActiveCss), '深色主题当前项文字没有用主题色');
   ok(/@media \(prefers-color-scheme:dark\)[\s\S]*?\.dshic-proj-menu-item\.is-active\{background:color-mix\(in srgb,var\(--dsw-alias-brand-primary\)/.test(src),
     '深色主题缺少当前项的主题化覆写（固定 accent-soft 在深底上不可读）');
-  ok(/\.dshic-proj-menu-item\.is-active \.dshic-proj-menu-meta\{/.test(src), '当前项右侧 ✓ 没有跟随主题色');
   const sepCss = cssRule('.dshic-proj-menu-sep');
   ok(/height:1px/.test(sepCss) && /background:var\(--dshic-line\)/.test(sepCss), '列表与「新建项目…」之间不是 1px --dshic-line 分隔线');
   ok(!/background:var\(--dsw-alias-bg-layer-1\)/.test(sepCss), '分隔线用色块区隔（应只用 1px 线）');
@@ -568,6 +618,20 @@ function cssRule(selector) {
   const els = all(TABS.ProjectsTab());
   const panel = els.find((e) => e.props && e.props['data-role'] === 'current-project-panel');
   ok(!!panel, '「项目」页签没有渲染当前项目面板');
+  // 右栏不再负责「新建项目」：渲染级 + 源码级都不允许出现入口/文案；新建画布仍在
+  const panelStrings = stringsOf(els).join('|');
+  ok(!panelStrings.includes('新建项目'), '「项目」页签仍在渲染「新建项目」按钮/文案（新建应只走左上角项目名入口）');
+  ok(!/T\('newProject'\)/.test(fnBody('ProjectsTab')), 'ProjectsTab 源码仍引用新建项目文案/入口');
+  ok(!!act(els, 'new-canvas-' + active), '「项目」页签缺少「新建画布」入口（应保留）');
+  ok(stringsOf(act(els, 'new-canvas-' + active)).join('|').includes('新建画布'), '「新建画布」按钮文案丢失');
+  // 左上角下拉里的「+ 新建项目…」仍在且可打开命名弹窗（回归，空名拒绝在 section 4 已覆盖）
+  PANEL.openProjectMenuAt(10, 50);
+  const topMenuEls = all(TABS.Toolbar());
+  const newProjectBtn = act(topMenuEls, 'new-project-main');
+  ok(!!newProjectBtn, '左上角项目下拉缺少「+ 新建项目…」入口');
+  newProjectBtn.props.onClick();
+  eq(PANEL.state().projectDialog && PANEL.state().projectDialog.mode, 'create', '左上角「+ 新建项目…」没有打开命名弹窗');
+  PANEL.closeProjectDialog();
   const txt = stringsOf(els).join('|');
   ok(txt.includes(activeName), '面板没有显示当前项目名');
   for (const p of PANEL.state().projects) {

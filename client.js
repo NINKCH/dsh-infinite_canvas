@@ -456,7 +456,7 @@ window.__ModuleLoader__.load({
       'collapseCanvases': '折叠子画布',
       'searchCanvasPh': '搜索画布…',
       'noCanvasMatch': '没有匹配的画布',
-      'emptyProjectHint': '还没有项目。点上方「新建项目」创建第一个项目，或直接在对话里说「创建一个项目叫…」。',
+      'emptyProjectHint': '还没有项目。点左上角项目名 →「+ 新建项目…」创建第一个项目，或直接在对话里说「创建一个项目叫…」。',
       'projectName': '项目名称',
       'renameHint': '双击名称重命名',
       'delProjectHint': '删除项目及其资产',
@@ -975,7 +975,7 @@ window.__ModuleLoader__.load({
       'collapseCanvases': 'Collapse canvases',
       'searchCanvasPh': 'Search canvases…',
       'noCanvasMatch': 'No matching canvases',
-      'emptyProjectHint': 'No projects yet. Click "New project" above to create the first one, or just say "create a project called…" in the chat.',
+      'emptyProjectHint': 'No projects yet. Open the project name at the top left →「+ New project…」to create the first one, or just say "create a project called…" in the chat.',
       'projectName': 'Project name',
       'renameHint': 'Double-click to rename',
       'delProjectHint': 'Delete project and its assets',
@@ -1162,7 +1162,7 @@ window.__ModuleLoader__.load({
       'scriptAssetPrefix': 'Script-',
       'storyboardAssetPrefix': 'Shots-',
       'defaultProject': 'My Canvas',
-      'emptyProjectHint': 'No projects yet. Click "New Project" above to create your first one, or just ask the assistant: "create a project called …".',
+      'emptyProjectHint': 'No projects yet. Open the project name at the top left →「+ New Project…」to create your first one, or just ask the assistant: "create a project called …".',
       'shotPrefix': 'Shot ',
       'shotsUnit': 'shots',
       'savedOk': 'Saved as asset',
@@ -1507,8 +1507,7 @@ window.__ModuleLoader__.load({
 /* 当前项目：浅色主题用已验收原型的 accent-soft（与生成面板选中态同色），文字用 accent；
    深色主题改用主题变量（brand-primary 轻混合 + 主题文字色），不出现固定浅色块。 */
 .dshic-proj-menu-item.is-active{background:var(--dshic-accent-soft);color:var(--dshic-accent);font-weight:600;}
-.dshic-proj-menu-item .dshic-proj-menu-meta{margin-left:auto;font-size:11px;color:var(--dsw-alias-label-secondary);}
-.dshic-proj-menu-item.is-active .dshic-proj-menu-meta{color:inherit;}
+/* 当前项目只用 is-active 的蓝底/蓝字表达选中（右侧不再有 ✓ 勾选图标） */
 .dshic-proj-menu-item .dshic-proj-name{font-weight:inherit;}
 /* 项目行主列（项目名 + 当前画布名副标题） */
 .dshic-proj-menu-main{display:flex;flex-direction:column;min-width:0;flex:1;gap:1px;}
@@ -11466,8 +11465,13 @@ window.__ModuleLoader__.load({
                   key: p.id,
                   className: cls('dshic-proj-menu-item', p.id === S.activeId && 'is-active', editing && 'is-editing'),
                   'data-action': 'switch-project-' + p.id,
-                  onClick: () => {
-                    if (editing) return;
+                  // 行点击 = 切换项目。用**事件源**判定而不是渲染闭包：
+                  // 点铅笔/行内输入时绝不能继续冒泡到行上（否则会 closeProjectMenu 把刚出现的 inline input 卸载，
+                  // 表现就是"当前项目的铅笔点了没反应"）；`editing` 也实时读取 S，避免旧闭包误判。
+                  onClick: (e) => {
+                    const t = e && e.target;
+                    if (t && t.closest && t.closest('.dshic-proj-menu-edit, .dshic-inline-input')) return;
+                    if (inlineEditValue('project', p.id, null) !== null) return;
                     closeProjectMenu();
                     if (p.id !== S.activeId) switchProject(p.id);
                   },
@@ -11484,12 +11488,21 @@ window.__ModuleLoader__.load({
                           className: 'dshic-proj-menu-sub', 'data-role': 'project-menu-canvas-name',
                         }, canvasNameFor(p.id, p.id === S.activeId ? activeCanvasId() : DEFAULT_CANVAS_ID)
                           || ((listCanvases(p.id)[0] || {}).name || ''))),
-                  p.id === S.activeId ? h('span', { className: 'dshic-proj-menu-meta' }, '✓') : null,
+                  // 当前项目只靠蓝色底/蓝字表达选中，不再渲染右侧 ✓
                   h('button', {
                     type: 'button', className: 'dshic-iconbtn dshic-proj-menu-edit',
                     'data-action': 'edit-project-' + p.id, title: T('rename'),
-                    onPointerDown: (e) => e.stopPropagation(),
-                    onClick: (e) => { e.stopPropagation(); beginInlineRename('project', { projectId: p.id, value: p.name }); },
+                    // pointerdown 阶段就进入编辑并拦下冒泡：
+                    // ① 不让行点击/焦点竞争把随后的 click 吃掉；② 行选择「切换项目」只认事件源，铅笔点击永不触发。
+                    onPointerDown: (e) => {
+                      if (e && e.stopPropagation) e.stopPropagation();
+                      beginInlineRename('project', { projectId: p.id, value: p.name });
+                    },
+                    onClick: (e) => {
+                      if (e && e.preventDefault) e.preventDefault();
+                      if (e && e.stopPropagation) e.stopPropagation();
+                      beginInlineRename('project', { projectId: p.id, value: p.name });
+                    },
                   }, Ic('pencil', 12)));
               }),
               S.projects.length ? h('div', { key: 'sep', className: 'dshic-proj-menu-sep' }) : null,
@@ -11548,21 +11561,12 @@ window.__ModuleLoader__.load({
     // 右侧边栏：项目 / 资产 / 设置
     // ============================================================
     function ProjectsTab() {
-      const [creating, setCreating] = useState(false);
-      const [name, setName] = useState('');
+      // 新建项目统一走左上角项目名下拉（「+ 新建项目…」），右栏只管理当前项目，不再放新建项目按钮
       const [delTarget, setDelTarget] = useState(null);
       const [delName, setDelName] = useState('');
       const [delCount, setDelCount] = useState(0);
       const [canvasDel, setCanvasDel] = useState(null); // { cid, name }：画布删除的行内二次确认
 
-      const create = () => {
-        const nm = name.trim() || (T('projectName') + ' ' + (S.projects.length + 1));
-        const p = { id: uid('p'), name: nm, createdAt: Date.now(), updatedAt: Date.now(), canvases: [] };
-        update((s) => { s.projects.push(p); });
-        switchProject(p.id);
-        try { hostRpc('projectsPut', { id: p.id, name: nm, canvases: [], doc: emptyGraph() }).catch(() => { /* 静默 */ }); } catch { /* 忽略 */ }
-        setCreating(false); setName('');
-      };
       const openDel = (p) => {
         setDelTarget(p);
         setDelName('');
@@ -11707,23 +11711,8 @@ window.__ModuleLoader__.load({
       const collapsed = !!S.canvasCollapsed;
       const projectEditing = proj && inlineEditValue('project', proj.id, null) !== null;
       return [
-        creating
-          ? h('div', { key: 'new', className: 'dshic-row' },
-              h('input', {
-                className: 'dshic-input', autoFocus: true, value: name,
-                placeholder: T('projectName'),
-                onChange: (e) => setName(e.target.value),
-                onKeyDown: (e) => {
-                  if (e.key === 'Enter') create();
-                  if (e.key === 'Escape') setCreating(false);
-                },
-                onPointerDown: (e) => e.stopPropagation(),
-              }),
-              h('button', { type: 'button', className: 'dshic-mini', title: '✓', onClick: create }, '✓'),
-              h('button', { type: 'button', className: 'dshic-mini is-ghost', title: T('cancel'), onClick: () => setCreating(false) }, '✕'),
-            )
-          : h('button', { key: 'newbtn', type: 'button', className: 'dshic-mini', style: { alignSelf: 'flex-start' }, onClick: () => { setCreating(true); setName(''); } }, Ic('plus', 11), T('newProject')),
-        !proj && !creating
+        // 右栏不再提供「新建项目」入口：新建统一走左上角项目名下拉里的「+ 新建项目…」
+        !proj
           ? h('div', { key: 'emptystate', className: 'dshic-hint', style: { alignSelf: 'flex-start', padding: '6px 2px', maxWidth: 260 } },
               T('emptyProjectHint'))
           : null,
