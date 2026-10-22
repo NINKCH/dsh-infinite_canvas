@@ -13038,7 +13038,12 @@ window.__ModuleLoader__.load({
           return false;
         }
       };
-      if (ctx && ctx.shortcuts) return install(ctx);
+      // 直接读 ctx.shortcuts 在未声明 inject 的模块上会被 Runner 门禁抛错
+      //（"cannot get property "shortcuts" without inject"）——上面 inject 已声明 'shortcuts'，
+      // 这里再做一层 try 兜底：旧 Runner 若没有该服务，只跳过快捷键，不影响整个客户端插件加载。
+      let shortcutsSvc = null;
+      try { shortcutsSvc = ctx && ctx.shortcuts; } catch { shortcutsSvc = null; }
+      if (shortcutsSvc) return install(ctx);
       if (ctx && typeof ctx.inject === 'function') {
         try { ctx.inject(['shortcuts'], (c) => { install(c); }); } catch { /* 无 shortcuts 服务：快捷键浮层里的技能按钮仍可用 */ }
       }
@@ -13099,7 +13104,7 @@ window.__ModuleLoader__.load({
     // 插件入口
     // ============================================================
     return {
-      inject: ['slots', 'locale', 'layout', 'sidebarRightTabs'],
+      inject: ['slots', 'locale', 'layout', 'sidebarRightTabs', 'shortcuts'],
       apply(ctx) {
         CTX = ctx;
         // 创作技能快捷键（Ctrl/⌘ + Shift + K）：命令进入 ctx.shortcuts 目录 → Harness 快捷键面板可见
