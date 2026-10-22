@@ -456,6 +456,10 @@ window.__ModuleLoader__.load({
       'collapseCanvases': '折叠子画布',
       'searchCanvasPh': '搜索画布…',
       'noCanvasMatch': '没有匹配的画布',
+      'searchProjectPh': '搜索项目…',
+      'noProjectMatch': '没有匹配的项目',
+      'prevPage': '上一页',
+      'nextPage': '下一页',
       'emptyProjectHint': '还没有项目。点左上角项目名 →「+ 新建项目…」创建第一个项目，或直接在对话里说「创建一个项目叫…」。',
       'projectName': '项目名称',
       'renameHint': '双击名称重命名',
@@ -975,6 +979,10 @@ window.__ModuleLoader__.load({
       'collapseCanvases': 'Collapse canvases',
       'searchCanvasPh': 'Search canvases…',
       'noCanvasMatch': 'No matching canvases',
+      'searchProjectPh': 'Search projects…',
+      'noProjectMatch': 'No matching projects',
+      'prevPage': 'Previous page',
+      'nextPage': 'Next page',
       'emptyProjectHint': 'No projects yet. Open the project name at the top left →「+ New project…」to create the first one, or just say "create a project called…" in the chat.',
       'projectName': 'Project name',
       'renameHint': 'Double-click to rename',
@@ -1471,11 +1479,10 @@ window.__ModuleLoader__.load({
 .dshic-zoom{min-width:56px;text-align:center;font-size:12px;color:var(--dsw-alias-label-secondary);font-variant-numeric:tabular-nums;}
 .dshic-main{flex:1;display:flex;min-height:0;}
 /* ── 左侧图标列（单列；固定，不随画布平移缩放）──────────────────── */
-/* 左侧图标列：只占中间一段（height:auto + align-self:center + margin:auto 0），
-   不再 flex:1 撑满整列；内部仍垂直居中。 */
+/* 左侧图标列：完全无容器外观（无 border/background/box-shadow/border-radius），只留图标本身；
+   高度自适应内容、垂直居中悬浮（align-self:center + margin:auto 0），不撑满上下。 */
 .dshic-rail{flex:none;width:46px;height:auto;align-self:center;margin:auto 0;display:flex;flex-direction:column;
-  align-items:center;justify-content:center;gap:3px;padding:6px 0;
-  background:var(--dsw-alias-bg-layer-1);border:1px solid var(--dsw-alias-border-l1);border-radius:14px;z-index:25;box-sizing:border-box;}
+  align-items:center;justify-content:center;gap:3px;padding:6px 0;z-index:25;box-sizing:border-box;}
 .dshic-rail-btn{width:34px;height:34px;flex:none;display:flex;align-items:center;justify-content:center;border:none;border-radius:9px;
   background:transparent;color:var(--dsw-alias-label-secondary);cursor:pointer;position:relative;padding:0;}
 .dshic-rail-btn:hover{background:color-mix(in srgb,var(--dsw-alias-label-primary) 8%,transparent);color:var(--dsw-alias-label-primary);}
@@ -1500,6 +1507,23 @@ window.__ModuleLoader__.load({
   max-height:min(60vh,calc(100vh - 64px));overflow-y:auto;overscroll-behavior:contain;padding:6px;
   background:var(--dsw-alias-bg-layer-1);border:1px solid var(--dshic-line2);border-radius:15px;
   box-shadow:var(--dshic-shadow-lg);display:flex;flex-direction:column;gap:2px;box-sizing:border-box;}
+/* 搜索框（下拉顶部）：输入即过滤项目名 */
+.dshic-proj-menu-search{flex:none;padding:2px 2px 5px;}
+.dshic-proj-menu-search .dshic-input{height:28px;font-size:12px;box-sizing:border-box;width:100%;}
+/* 固定高度列表：恰好 5 行（38px/行），项目再多也不改变下拉高度 */
+.dshic-proj-menu-list{flex:none;height:calc(5 * 38px);overflow:hidden;display:flex;flex-direction:column;gap:2px;}
+.dshic-proj-menu-list .dshic-proj-menu-item{height:38px;min-height:38px;}
+/* 无匹配空态：与列表同高，避免下拉高度跳动 */
+.dshic-proj-menu-empty{flex:none;height:calc(5 * 38px);display:flex;align-items:center;justify-content:center;
+  font-size:12px;color:var(--dsw-alias-label-secondary);}
+/* 分页（>5 项才出现）：上一页 / 页码 1/3 / 下一页 */
+.dshic-proj-menu-pager{flex:none;display:flex;align-items:center;justify-content:flex-end;gap:6px;padding:2px 4px;}
+.dshic-proj-menu-pager-btn{display:inline-flex;align-items:center;justify-content:center;width:24px;height:22px;
+  border:none;border-radius:6px;background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;
+  font-size:14px;line-height:1;cursor:pointer;padding:0;}
+.dshic-proj-menu-pager-btn:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover,color-mix(in srgb,var(--dsw-alias-label-primary) 8%,transparent));color:var(--dsw-alias-label-primary);}
+.dshic-proj-menu-pager-btn:disabled{opacity:.35;cursor:default;}
+.dshic-proj-menu-page{font-size:11px;color:var(--dsw-alias-label-secondary);font-variant-numeric:tabular-nums;min-width:32px;text-align:center;}
 .dshic-proj-menu-item{display:flex;align-items:center;gap:8px;width:100%;min-height:32px;padding:0 10px;
   border:none;border-radius:9px;background:transparent;color:var(--dsw-alias-label-primary);
   font:inherit;font-size:var(--dshic-panel-font);line-height:1.4;cursor:pointer;text-align:left;box-sizing:border-box;}
@@ -1565,8 +1589,15 @@ window.__ModuleLoader__.load({
   border:none;border-radius:6px;background:transparent;color:var(--dsw-alias-label-secondary);cursor:pointer;padding:0;}
 .dshic-fold-btn:hover{background:var(--dsw-alias-interactive-bg-hover,color-mix(in srgb,var(--dsw-alias-label-primary) 8%,transparent));color:var(--dsw-alias-label-primary);}
 .dshic-fold-car{font-size:10px;line-height:1;}
-.dshic-canvas-search{padding:2px 0 4px;}
-.dshic-canvas-search .dshic-input{height:28px;font-size:12px;box-sizing:border-box;}
+/* 搜索行：左侧纯图标「+ 新建画布」+ 右侧搜索框（放大镜内嵌在 input 内部右侧）；容器本身无边框/底色。 */
+.dshic-canvas-searchbar{display:flex;align-items:center;gap:6px;padding:2px 0 4px;}
+.dshic-canvas-add{flex:none;display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;
+  padding:0;border:none;border-radius:8px;background:transparent;color:var(--dsw-alias-label-secondary);cursor:pointer;}
+.dshic-canvas-add:hover{background:var(--dsw-alias-interactive-bg-hover,color-mix(in srgb,var(--dsw-alias-label-primary) 8%,transparent));color:var(--dsw-alias-label-primary);}
+.dshic-canvas-search{position:relative;flex:1;min-width:0;}
+.dshic-canvas-search .dshic-input{width:100%;height:28px;font-size:12px;box-sizing:border-box;padding-right:26px;}
+.dshic-search-ic{position:absolute;right:8px;top:50%;transform:translateY(-50%);display:inline-flex;align-items:center;
+  color:var(--dsw-alias-label-secondary);pointer-events:none;}
 .dshic-canvas-list{display:flex;flex-direction:column;gap:1px;padding:0 0 2px 18px;}
 .dshic-canvas-row{display:flex;align-items:center;gap:5px;height:33px;min-height:33px;padding:0 6px;border-radius:8px;
   cursor:pointer;color:var(--dsw-alias-label-secondary);font-size:12.5px;line-height:17px;box-sizing:border-box;}
@@ -1578,7 +1609,6 @@ window.__ModuleLoader__.load({
 .dshic-canvas-row:hover .dshic-iconbtn{opacity:1;}
 .dshic-canvas-row .dshic-iconbtn:disabled{opacity:.25;cursor:default;background:transparent;}
 .dshic-canvas-tag{flex:none;font-size:10px;opacity:.6;}
-.dshic-canvas-newrow{padding:2px 0 2px 18px;}
 /* 就地改名输入框（顶部项目名 / 下拉行 / 右栏项目行 / 画布行） */
 .dshic-inline-input{height:26px;min-width:0;box-sizing:border-box;border:1px solid var(--dshic-line2);border-radius:7px;
   background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font:inherit;font-size:13px;line-height:1;
@@ -7016,6 +7046,9 @@ window.__ModuleLoader__.load({
       panelModal: null,
       // 工具栏项目下拉（位置由按钮真实矩形计算）：{left, top} | null；纯 UI 状态
       projectMenu: null,
+      // 项目下拉的搜索与分页（最多 5 行/页，列表高度固定）；打开下拉时重置
+      projectMenuSearch: '',
+      projectMenuPage: 0,
       // 工具栏「新建项目…」命名弹窗（重命名已改为就地编辑，不再走弹窗）：{ mode:'create'|'canvas-create', value, error } | null
       projectDialog: null,
       // 就地改名（顶部项目名 / 下拉项目行 / 右栏项目行 / 右栏画布行同一套状态）：
@@ -8654,6 +8687,7 @@ window.__ModuleLoader__.load({
       eye: 'M2.5 12S6 6.5 12 6.5 21.5 12 21.5 12 18 17.5 12 17.5 2.5 12 2.5 12zM12 15a3 3 0 100-6 3 3 0 000 6z',
       eyeOff: 'M4 4l16 16M9.9 5.1A9.6 9.6 0 0112 5c6 0 9.5 7 9.5 7a17 17 0 01-3.3 4.2M6.2 7.4A17 17 0 002.5 12S6 19 12 19a9.4 9.4 0 003.9-.8M10 10a3 3 0 004 4',
       help: 'M12 21a9 9 0 100-18 9 9 0 000 18zM9.4 9.4a2.6 2.6 0 114.2 2.1c-.9.7-1.6 1.2-1.6 2.3M12 17h.01',
+      search: 'M11 18a7 7 0 100-14 7 7 0 000 14zM20 20l-4-4',
       keyboard: 'M3 6h18v12H3zM7 10h.01M10 10h.01M13 10h.01M16 10h.01M7 13h.01M10 13h.01M13 13h.01M16 13h.01M8 16h8',
       link: 'M10 13a5 5 0 007.1 0l2.4-2.4a5 5 0 00-7.1-7.1L11 4.9M14 11a5 5 0 00-7.1 0L4.5 13.4a5 5 0 007.1 7.1L13 19.1',
     };
@@ -11212,6 +11246,34 @@ window.__ModuleLoader__.load({
       notify();
       return S.canvasCollapsed;
     }
+    // ---- 项目下拉：固定 5 行/页 + 搜索（分页/搜索切换时先提交或取消进行中的就地改名，避免输入框丢失） ----
+    const PROJECT_MENU_PAGE_SIZE = 5;
+    function projectMenuFiltered() {
+      const q = String(S.projectMenuSearch || '').trim().toLowerCase();
+      return q ? S.projects.filter((p) => String(p.name || '').toLowerCase().includes(q)) : S.projects;
+    }
+    function projectMenuTotalPages() {
+      return Math.max(1, Math.ceil(projectMenuFiltered().length / PROJECT_MENU_PAGE_SIZE));
+    }
+    function projectMenuPageNow() {
+      return Math.min(Math.max(0, Number(S.projectMenuPage) || 0), projectMenuTotalPages() - 1);
+    }
+    /** 搜索/翻页前：进行中的就地改名先提交（空名/重名失败则取消），绝不把 input 静默卸载。 */
+    function settleInlineEditBeforeMenuNav() {
+      if (!S.inlineEdit) return;
+      commitInlineRename();
+      if (S.inlineEdit) cancelInlineRename(); // 提交失败（如重名）→ 取消，避免输入框随过滤/翻页丢失
+    }
+    function setProjectMenuSearch(v) {
+      settleInlineEditBeforeMenuNav();
+      update((s) => { s.projectMenuSearch = String(v == null ? '' : v); s.projectMenuPage = 0; });
+    }
+    function setProjectMenuPage(p) {
+      settleInlineEditBeforeMenuNav();
+      const total = projectMenuTotalPages();
+      const next = Math.max(0, Math.min(total - 1, Number(p) || 0));
+      update((s) => { s.projectMenuPage = next; });
+    }
     /** 项目下拉的视口约束：右侧/底部各留安全边距，项目多时靠 max-height + 内部滚动，绝不溢出视口。 */
     function openProjectMenuAt(left, top) {
       const vw = (typeof window !== 'undefined' && Number(window.innerWidth)) || 1200;
@@ -11220,7 +11282,12 @@ window.__ModuleLoader__.load({
       const MENU_SAFE_BOTTOM = 96; // 菜单至少留出顶部位置 + 一小段可见高度
       const l = Math.min(Math.max(8, Number(left) || 8), Math.max(8, vw - MENU_MIN_W - 8));
       const t = Math.min(Math.max(8, Number(top) || 48), Math.max(8, vh - MENU_SAFE_BOTTOM));
-      update((s) => { s.projectMenu = { left: l, top: t }; });
+      const wasOpen = !!S.projectMenu;
+      update((s) => {
+        s.projectMenu = { left: l, top: t };
+        // 新开下拉：搜索词与页码回到初始；已打开时只是重新定位，不打断当前搜索/翻页
+        if (!wasOpen) { s.projectMenuSearch = ''; s.projectMenuPage = 0; }
+      });
     }
     function closeProjectMenu() {
       if (!S.projectMenu) return;
@@ -11413,6 +11480,11 @@ window.__ModuleLoader__.load({
             };
           })()
         : null;
+      // 固定 5 行/页：过滤 → 分页；页码/搜索变化时先结清就地编辑（见 setProjectMenu*）
+      const menuFiltered = projectMenuFiltered();
+      const menuTotalPages = projectMenuTotalPages();
+      const menuPage = projectMenuPageNow();
+      const menuShown = menuFiltered.slice(menuPage * PROJECT_MENU_PAGE_SIZE, (menuPage + 1) * PROJECT_MENU_PAGE_SIZE);
       return [
         h('div', { key: 'bar', className: 'dshic-toolbar' },
           // 「返回会话」：只有图标，放在项目名左边（回到对话面板）
@@ -11459,52 +11531,91 @@ window.__ModuleLoader__.load({
         ),
         menu
           ? h('div', { key: 'menu', className: 'dshic-proj-menu', style: menuStyle, onPointerDown: (e) => e.stopPropagation() },
-              S.projects.map((p) => {
-                const editing = inlineEditValue('project', p.id, null) !== null;
-                return h('div', {
-                  key: p.id,
-                  className: cls('dshic-proj-menu-item', p.id === S.activeId && 'is-active', editing && 'is-editing'),
-                  'data-action': 'switch-project-' + p.id,
-                  // 行点击 = 切换项目。用**事件源**判定而不是渲染闭包：
-                  // 点铅笔/行内输入时绝不能继续冒泡到行上（否则会 closeProjectMenu 把刚出现的 inline input 卸载，
-                  // 表现就是"当前项目的铅笔点了没反应"）；`editing` 也实时读取 S，避免旧闭包误判。
-                  onClick: (e) => {
-                    const t = e && e.target;
-                    if (t && t.closest && t.closest('.dshic-proj-menu-edit, .dshic-inline-input')) return;
-                    if (inlineEditValue('project', p.id, null) !== null) return;
-                    closeProjectMenu();
-                    if (p.id !== S.activeId) switchProject(p.id);
+              // 搜索：输入即过滤项目名（过滤后仍按 5 行分页）
+              h('div', { key: 'search', className: 'dshic-proj-menu-search' },
+                h('input', {
+                  className: 'dshic-input', type: 'search', value: S.projectMenuSearch || '',
+                  placeholder: T('searchProjectPh'), 'data-role': 'project-menu-search',
+                  onChange: (e) => setProjectMenuSearch(e.target.value),
+                  onPointerDown: (e) => e.stopPropagation(),
+                  onKeyDown: (e) => {
+                    if (e.key === 'Escape') { e.stopPropagation(); closeProjectMenu(); return; }
+                    if (e.key === 'Enter' && menuShown[0]) {
+                      e.preventDefault();
+                      closeProjectMenu();
+                      if (menuShown[0].id !== S.activeId) switchProject(menuShown[0].id);
+                    }
                   },
-                },
-                  editing
-                    ? inlineNameInput({ kind: 'project', dataRole: 'inline-project-name-input-menu', className: 'is-menu', value: p.name })
-                    : h('div', { className: 'dshic-proj-menu-main' },
-                        h('span', {
-                          className: 'dshic-proj-name',
-                          onDoubleClick: (e) => { e.stopPropagation(); beginInlineRename('project', { projectId: p.id, value: p.name }); },
-                        }, p.name),
-                        // 项目行副标题：该项目当前画布名（默认画布改名后同步；非当前项目显示默认画布名）
-                        h('span', {
-                          className: 'dshic-proj-menu-sub', 'data-role': 'project-menu-canvas-name',
-                        }, canvasNameFor(p.id, p.id === S.activeId ? activeCanvasId() : DEFAULT_CANVAS_ID)
-                          || ((listCanvases(p.id)[0] || {}).name || ''))),
-                  // 当前项目只靠蓝色底/蓝字表达选中，不再渲染右侧 ✓
-                  h('button', {
-                    type: 'button', className: 'dshic-iconbtn dshic-proj-menu-edit',
-                    'data-action': 'edit-project-' + p.id, title: T('rename'),
-                    // pointerdown 阶段就进入编辑并拦下冒泡：
-                    // ① 不让行点击/焦点竞争把随后的 click 吃掉；② 行选择「切换项目」只认事件源，铅笔点击永不触发。
-                    onPointerDown: (e) => {
-                      if (e && e.stopPropagation) e.stopPropagation();
-                      beginInlineRename('project', { projectId: p.id, value: p.name });
-                    },
-                    onClick: (e) => {
-                      if (e && e.preventDefault) e.preventDefault();
-                      if (e && e.stopPropagation) e.stopPropagation();
-                      beginInlineRename('project', { projectId: p.id, value: p.name });
-                    },
-                  }, Ic('pencil', 12)));
-              }),
+                })),
+              // 固定高度列表（5 行）：项目再多也不改变下拉高度
+              menuShown.length
+                ? h('div', { key: 'list', className: 'dshic-proj-menu-list', 'data-role': 'project-menu-list' },
+                    menuShown.map((p) => {
+                      const editing = inlineEditValue('project', p.id, null) !== null;
+                      return h('div', {
+                        key: p.id,
+                        className: cls('dshic-proj-menu-item', p.id === S.activeId && 'is-active', editing && 'is-editing'),
+                        'data-action': 'switch-project-' + p.id,
+                        // 行点击 = 切换项目。用**事件源**判定而不是渲染闭包：
+                        // 点铅笔/行内输入时绝不能继续冒泡到行上（否则会 closeProjectMenu 把刚出现的 inline input 卸载，
+                        // 表现就是"当前项目的铅笔点了没反应"）；`editing` 也实时读取 S，避免旧闭包误判。
+                        onClick: (e) => {
+                          const t = e && e.target;
+                          if (t && t.closest && t.closest('.dshic-proj-menu-edit, .dshic-inline-input')) return;
+                          if (inlineEditValue('project', p.id, null) !== null) return;
+                          closeProjectMenu();
+                          if (p.id !== S.activeId) switchProject(p.id);
+                        },
+                      },
+                        editing
+                          ? inlineNameInput({ kind: 'project', dataRole: 'inline-project-name-input-menu', className: 'is-menu', value: p.name })
+                          : h('div', { className: 'dshic-proj-menu-main' },
+                              h('span', {
+                                className: 'dshic-proj-name',
+                                onDoubleClick: (e) => { e.stopPropagation(); beginInlineRename('project', { projectId: p.id, value: p.name }); },
+                              }, p.name),
+                              // 项目行副标题：该项目当前画布名（默认画布改名后同步；非当前项目显示默认画布名）
+                              h('span', {
+                                className: 'dshic-proj-menu-sub', 'data-role': 'project-menu-canvas-name',
+                              }, canvasNameFor(p.id, p.id === S.activeId ? activeCanvasId() : DEFAULT_CANVAS_ID)
+                                || ((listCanvases(p.id)[0] || {}).name || ''))),
+                        // 当前项目只靠蓝色底/蓝字表达选中，不再渲染右侧 ✓
+                        h('button', {
+                          type: 'button', className: 'dshic-iconbtn dshic-proj-menu-edit',
+                          'data-action': 'edit-project-' + p.id, title: T('rename'),
+                          // pointerdown 阶段就进入编辑并拦下冒泡：
+                          // ① 不让行点击/焦点竞争把随后的 click 吃掉；② 行选择「切换项目」只认事件源，铅笔点击永不触发。
+                          onPointerDown: (e) => {
+                            if (e && e.stopPropagation) e.stopPropagation();
+                            beginInlineRename('project', { projectId: p.id, value: p.name });
+                          },
+                          onClick: (e) => {
+                            if (e && e.preventDefault) e.preventDefault();
+                            if (e && e.stopPropagation) e.stopPropagation();
+                            beginInlineRename('project', { projectId: p.id, value: p.name });
+                          },
+                        }, Ic('pencil', 12)));
+                    }))
+                : h('div', { key: 'empty', className: 'dshic-proj-menu-empty', 'data-role': 'project-menu-empty' },
+                    T('noProjectMatch')),
+              // 超过 5 项才出现分页（页码形如 1/3）
+              menuTotalPages > 1
+                ? h('div', { key: 'pager', className: 'dshic-proj-menu-pager', 'data-role': 'project-menu-pager' },
+                    h('button', {
+                      type: 'button', className: 'dshic-proj-menu-pager-btn', 'data-action': 'project-menu-prev',
+                      title: T('prevPage'), disabled: menuPage <= 0,
+                      onPointerDown: (e) => e.stopPropagation(),
+                      onClick: () => setProjectMenuPage(menuPage - 1),
+                    }, '‹'),
+                    h('span', { key: 'page', className: 'dshic-proj-menu-page', 'data-role': 'project-menu-page' },
+                      (menuPage + 1) + '/' + menuTotalPages),
+                    h('button', {
+                      type: 'button', className: 'dshic-proj-menu-pager-btn', 'data-action': 'project-menu-next',
+                      title: T('nextPage'), disabled: menuPage >= menuTotalPages - 1,
+                      onPointerDown: (e) => e.stopPropagation(),
+                      onClick: () => setProjectMenuPage(menuPage + 1),
+                    }, '›'))
+                : null,
               S.projects.length ? h('div', { key: 'sep', className: 'dshic-proj-menu-sep' }) : null,
               h('button', {
                 key: 'new', type: 'button', className: 'dshic-proj-menu-item', 'data-action': 'new-project-main',
@@ -11716,15 +11827,25 @@ window.__ModuleLoader__.load({
           ? h('div', { key: 'emptystate', className: 'dshic-hint', style: { alignSelf: 'flex-start', padding: '6px 2px', maxWidth: 260 } },
               T('emptyProjectHint'))
           : null,
-        // 项目区域顶部：搜索框（输入即过滤当前项目的子画布；折叠时一并隐藏）
+        // 项目区域顶部：一行「+ 新建画布（纯图标）」+ 搜索框（放大镜内嵌在输入框右侧）
         proj && !collapsed
-          ? h('div', { key: 'search', className: 'dshic-canvas-search' },
-              h('input', {
-                className: 'dshic-input', type: 'search', value: S.canvasSearch || '',
-                placeholder: T('searchCanvasPh'), 'data-role': 'canvas-search',
-                onChange: (e) => setCanvasSearch(e.target.value),
+          ? h('div', { key: 'searchbar', className: 'dshic-canvas-searchbar', 'data-role': 'canvas-searchbar' },
+              h('button', {
+                key: 'add', type: 'button', className: 'dshic-canvas-add',
+                'data-action': 'new-canvas-' + proj.id, title: T('newCanvas'),
                 onPointerDown: (e) => e.stopPropagation(),
-              }))
+                onClick: (e) => { e.stopPropagation(); openProjectDialog('canvas-create', '', { projectId: proj.id }); },
+              }, Ic('plus', 13)),
+              h('div', { key: 'search', className: 'dshic-canvas-search' },
+                h('input', {
+                  className: 'dshic-input', type: 'search', value: S.canvasSearch || '',
+                  placeholder: T('searchCanvasPh'), 'data-role': 'canvas-search',
+                  onChange: (e) => setCanvasSearch(e.target.value),
+                  onPointerDown: (e) => e.stopPropagation(),
+                }),
+                h('span', {
+                  key: 'ic', className: 'dshic-search-ic', 'data-role': 'canvas-search-icon', 'aria-hidden': 'true',
+                }, Ic('search', 12))))
           : null,
         proj
           ? h('div', { key: 'projtree', className: 'dshic-tree-proj', 'data-role': 'current-project-panel' },
@@ -11766,13 +11887,6 @@ window.__ModuleLoader__.load({
                         ? null
                         : h('div', { key: 'nores', className: 'dshic-hint', 'data-role': 'canvas-search-empty' }, T('noCanvasMatch')),
                     ),
-                    h('div', { key: 'newcv', className: 'dshic-canvas-newrow' },
-                      h('button', {
-                        type: 'button', className: 'dshic-mini', 'data-action': 'new-canvas-' + proj.id,
-                        title: T('newCanvas'),
-                        onPointerDown: (e) => e.stopPropagation(),
-                        onClick: (e) => { e.stopPropagation(); openProjectDialog('canvas-create', '', { projectId: proj.id }); },
-                      }, Ic('plus', 11), T('newCanvas').replace('…', ''))),
                   ],
             )
           : null,
@@ -13946,6 +14060,7 @@ window.__ModuleLoader__.load({
             openProjectDialog, closeProjectDialog, submitProjectDialog, createProjectNamed, renameProjectTo,
             beginInlineRename, setInlineEditValue, commitInlineRename, cancelInlineRename, inlineEditValue,
             setCanvasSearch, toggleCanvasCollapsed,
+            setProjectMenuSearch, setProjectMenuPage, PROJECT_MENU_PAGE_SIZE,
             createCanvasNamed, renameCanvasNamed, deleteCanvasNamed, listCanvases, canvasNameFor,
             setProjectDialogValue: (v) => { if (S.projectDialog) S.projectDialog.value = String(v == null ? '' : v); },
             setInlineValue: (v) => setInlineEditValue(v),
@@ -13953,6 +14068,9 @@ window.__ModuleLoader__.load({
             state: () => ({
               panelModal: S.panelModal,
               projectMenu: S.projectMenu ? { ...S.projectMenu } : null,
+              projectMenuSearch: S.projectMenuSearch,
+              projectMenuPage: S.projectMenuPage,
+              projectMenuTotalPages: projectMenuTotalPages(),
               projectDialog: S.projectDialog ? { ...S.projectDialog } : null,
               inlineEdit: S.inlineEdit ? { ...S.inlineEdit } : null,
               canvasSearch: S.canvasSearch,

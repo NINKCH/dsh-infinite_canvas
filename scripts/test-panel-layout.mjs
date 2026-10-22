@@ -1,17 +1,20 @@
 // 面板结构重构回归测试（dev-only）：
 //   1) 顶部无空白：.dshic-page 不再吃 --dsh-frame-top-clearance / padding-top，画布第一块就是工具栏
 //   2) 左侧图标列（单列）：顺序 = 文本/剧本/分镜表/图片/视频/成片/资产/设定集/运行工作流，
-//      点节点图标 → 在视口中心添加该类型节点；整列只占中间（height:auto + align-self:center，不撑满）
+//      点节点图标 → 在视口中心添加该类型节点；容器**无边框/无底色/无投影/无圆角**，只占中间
+//      （height:auto + align-self:center + margin:auto 0，不撑满）
 //   3) 资产 + 设定集统一弹窗：两个标签页、资产页用 assetsForPicker 数据源 + 网格卡片、
 //      Esc / 遮罩关闭、右侧面板不再有资产/设定集页签
 //   4) 顶部工具栏：最左「返回会话」纯 < 图标 → 项目名（下拉列出项目 + 新建项目…；双击项目名就地编辑；
 //      下拉每行右侧「修改」按钮在该行就地编辑（当前项目行同样可点，pointerdown/click 都不触发行切换），
-//      当前项目只用蓝底/蓝字标选中、不再渲染 ✓；顶部不再有铅笔；下拉里没有「重命名项目…」）
+//      当前项目只用蓝底/蓝字标选中、不再渲染 ✓；顶部不再有铅笔；下拉里没有「重命名项目…」；
+//      下拉固定 5 行/页 + 搜索 + 分页（>5 项），分页/搜索先结清进行中的就地改名）
 //   5) 快捷键 / 帮助反馈 / 检查更新回到右上角：三个纯图标按钮（hover tooltip），右侧面板不再有动作行
 //   6) 多画布：项目为根、子画布为目录；新建必须命名；切换读写不同 key；删除回默认画布；
 //      默认画布 canvasId=null（key 仍等于 projectId，旧数据零迁移）
-//   7) 右侧「项目」面板：只管理当前项目（不再有「新建项目」按钮，新建统一走左上角下拉）+ 项目/画布就地改名
-//      + 折叠（localStorage）+ 搜索 + 比例协调 + 只剩一个画布时删除按钮隐藏
+//   7) 右侧「项目」面板：只管理当前项目（无「新建项目」按钮；「+ 新建画布」是搜索框左侧的纯图标按钮，
+//      搜索框内右侧内嵌放大镜、容器只有输入框一层边框）+ 项目/画布就地改名 + 折叠（localStorage）+ 搜索
+//      + 比例协调 + 只剩一个画布时删除按钮隐藏
 //   8) 全局去「灰蓝」：所有弹层容器实底主题背景 / 1px 线框 / 14–16px 圆角 / --dshic-shadow-lg，
 //      无 --dsw-alias-bg-overlay / rgba / backdrop-filter；弹层内部无固定色字面量
 // 运行：node scripts/test-panel-layout.mjs（退出码 0=通过）
@@ -623,7 +626,33 @@ function cssRule(selector) {
   ok(!panelStrings.includes('新建项目'), '「项目」页签仍在渲染「新建项目」按钮/文案（新建应只走左上角项目名入口）');
   ok(!/T\('newProject'\)/.test(fnBody('ProjectsTab')), 'ProjectsTab 源码仍引用新建项目文案/入口');
   ok(!!act(els, 'new-canvas-' + active), '「项目」页签缺少「新建画布」入口（应保留）');
-  ok(stringsOf(act(els, 'new-canvas-' + active)).join('|').includes('新建画布'), '「新建画布」按钮文案丢失');
+  // 新建画布 = 搜索框左侧的纯图标按钮：无文字、无外框/底色，只有 title tooltip
+  const addCanvasBtn = act(els, 'new-canvas-' + active);
+  ok(stringsOf(addCanvasBtn).join('').trim() === '', '「新建画布」按钮仍带文字（应为纯图标）');
+  ok(addCanvasBtn.props.title && addCanvasBtn.props.title.includes('新建画布'), '「新建画布」图标缺少 tooltip 文案');
+  ok(!/dshic-canvas-newrow/.test(src), '源码里仍残留底部「+ 新建画布」按钮行（dshic-canvas-newrow）');
+  // DOM 顺序：+ 图标在搜索框之前，搜索框占满剩余宽度
+  const searchbarEl = els.find((e) => e.props && e.props['data-role'] === 'canvas-searchbar');
+  ok(!!searchbarEl, '缺少搜索行容器（+ 新建画布 + 搜索框同一行）');
+  const sbKids = (searchbarEl.props.children || []).filter(Boolean);
+  ok(sbKids.length === 2, '搜索行应只有两个子节点：+ 图标与搜索框');
+  ok(sbKids[0].props && String(sbKids[0].props['data-action'] || '').startsWith('new-canvas-'), '搜索行第一个子节点不是「+ 新建画布」图标');
+  ok(clsOf(sbKids[0]).includes('dshic-canvas-add'), '「+ 新建画布」不是纯图标按钮样式');
+  ok(sbKids[1].props && clsOf(sbKids[1]).includes('dshic-canvas-search'), '搜索行第二个子节点不是搜索框容器');
+  // 搜索框：放大镜在 input 内部右侧（absolute），容器本身无第二层边框/底色
+  const searchWrap = sbKids[1];
+  const searchInputEl = all(searchWrap).find((e) => e.props && e.props['data-role'] === 'canvas-search');
+  ok(!!searchInputEl && searchInputEl.props.placeholder === '搜索画布…', '搜索框 placeholder/结构不对');
+  const searchIcon = all(searchWrap).find((e) => e.props && e.props['data-role'] === 'canvas-search-icon');
+  ok(!!searchIcon && clsOf(searchIcon).includes('dshic-search-ic'), '搜索框内部缺少放大镜图标');
+  const icCss = cssRule('.dshic-search-ic');
+  ok(/position:absolute/.test(icCss) && /right:8px/.test(icCss), '放大镜没有绝对定位在输入框内部右侧（position:absolute;right:8px）');
+  const searchCss = cssRule('.dshic-canvas-search');
+  ok(/flex:1/.test(searchCss), '搜索框没有占满剩余宽度（flex:1）');
+  ok(!/border:|background:|box-shadow:/.test(searchCss), '搜索框容器出现第二层边框/底色：' + searchCss.slice(0, 120));
+  const searchbarCss = cssRule('.dshic-canvas-searchbar');
+  ok(!/border:|background:|box-shadow:/.test(searchbarCss), '搜索行容器出现边框/底色：' + searchbarCss.slice(0, 120));
+  ok(/border:1px solid/.test(cssRule('.dshic-input')) && /width:100%/.test(cssRule('.dshic-canvas-search .dshic-input')), '搜索输入框应保持单一边框且占满搜索容器');
   // 左上角下拉里的「+ 新建项目…」仍在且可打开命名弹窗（回归，空名拒绝在 section 4 已覆盖）
   PANEL.openProjectMenuAt(10, 50);
   const topMenuEls = all(TABS.Toolbar());
@@ -825,7 +854,89 @@ function cssRule(selector) {
   ok(/margin:auto 0/.test(rail), '图标列没有 margin:auto 0（上下不留白）');
   ok(!/flex:1/.test(rail), '图标列仍用 flex:1 撑满');
   ok(/justify-content:center/.test(rail), '图标列内部没有垂直居中');
+  // 第 2 条：图标列容器彻底移除卡片外观（不得再有 border/background/box-shadow/border-radius 声明）
+  ok(!/(^|;)border(-[a-z-]+)?:/.test(rail), '图标列容器仍有 border 声明（应完全去掉描边）:' + rail.slice(0, 140));
+  ok(!/(^|;)background(-[a-z-]+)?:/.test(rail), '图标列容器仍有 background 声明（应完全去掉底色）:' + rail.slice(0, 140));
+  ok(!/(^|;)box-shadow:/.test(rail), '图标列容器仍有 box-shadow（应去掉卡片投影）');
+  ok(!/(^|;)border-radius:/.test(rail), '图标列容器仍有 border-radius（应去掉卡片圆角）');
+  // 渲染级：rail 容器只有布局类，没有内联边框样式
+  const railEl = all(TABS.IconRail()).find((e) => clsOf(e).split(/\s+/).includes('dshic-rail'));
+  ok(!!railEl, '渲染树里找不到图标列容器');
+  ok(!/(^|[^-])border/.test(String(clsOf(railEl))), '图标列容器渲染时带了边框样式类');
   ok(/h\(IconRail\)/.test(fnBody('CanvasPage')), 'IconRail 未挂到画布主区域');
+}
+
+// ============================================================
+// 9) 项目下拉：固定 5 行/页 + 分页 + 搜索（分页/搜索不破坏行内改名）
+// ============================================================
+{
+  for (let i = 1; i <= 12; i++) PANEL.createProjectNamed('分页项目' + String(i).padStart(2, '0'));
+  PANEL.closeProjectMenu();
+  PANEL.openProjectMenuAt(10, 50); // 新开 → 搜索/页码重置
+  const rows = () => all(TABS.Toolbar()).filter((e) => e.props && /^switch-project-/.test(String(e.props['data-action'] || '')));
+  const pageText = () => {
+    const el = all(TABS.Toolbar()).find((e) => e.props && e.props['data-role'] === 'project-menu-page');
+    return el ? stringsOf(el).join('') : '';
+  };
+  const menuSearch = () => all(TABS.Toolbar()).find((e) => e.props && e.props['data-role'] === 'project-menu-search');
+  // 第一页最多 5 行；列表高度固定（不随项目数变化）
+  eq(rows().length, 5, '项目下拉第一页应只渲染 5 个项目行');
+  const listCss = cssRule('.dshic-proj-menu-list');
+  ok(/height:calc\(5 \* 38px\)/.test(listCss), '项目下拉列表没有固定 5 行高度：' + listCss.slice(0, 120));
+  ok(/overflow:hidden/.test(listCss), '项目下拉列表没有固定高度裁切（项目多时会撑高下拉）');
+  const totalPages = Math.ceil(PANEL.state().projects.length / 5);
+  ok(totalPages > 1, '构造的项目数不足，无法验证分页');
+  eq(pageText(), '1/' + totalPages, '分页页码显示不对');
+  ok(!!act(all(TABS.Toolbar()), 'project-menu-next'), '项目下拉缺少「下一页」控件');
+  ok(!!act(all(TABS.Toolbar()), 'project-menu-prev'), '项目下拉缺少「上一页」控件');
+  // 搜索 '分页项目' → 12 项，分 3 页；第一页 01–05
+  ok(!!menuSearch(), '项目下拉缺少搜索框');
+  menuSearch().props.onChange({ target: { value: '分页项目' } });
+  eq(rows().length, 5, '搜索过滤后第一页应仍是 5 行');
+  ok(stringsOf(rows()[0]).join('').includes('分页项目01'), '搜索结果顺序不对（第一页应从 01 开始）');
+  eq(pageText(), '1/3', '搜索过滤后的页码应为 1/3');
+  // 下一页 → 06–10
+  act(all(TABS.Toolbar()), 'project-menu-next').props.onClick();
+  eq(rows().length, 5, '翻页后应仍显示 5 行');
+  ok(stringsOf(rows()[0]).join('').includes('分页项目06'), '翻页后不是第 6–10 个项目');
+  eq(pageText(), '2/3', '第二页页码应为 2/3');
+  // 上一页回到 01–05
+  act(all(TABS.Toolbar()), 'project-menu-prev').props.onClick();
+  eq(pageText(), '1/3', '上一页没有回到 1/3');
+  // 第三页只剩 11–12 两行
+  PANEL.setProjectMenuPage(2);
+  eq(rows().length, 2, '最后一页应只渲染剩余 2 行');
+  ok(stringsOf(rows()[0]).join('').includes('分页项目11'), '最后一页不是第 11–12 个项目');
+  eq(pageText(), '3/3', '第三页页码应为 3/3');
+  // 搜索过滤到 ≤5 项：分页消失
+  PANEL.setProjectMenuSearch('分页项目1');
+  eq(rows().length, 3, '搜索「分页项目1」应命中 3 项（10/11/12）');
+  ok(!all(TABS.Toolbar()).some((e) => e.props && e.props['data-role'] === 'project-menu-pager'), '结果 ≤5 项时仍显示分页控件');
+  // 无匹配空态
+  PANEL.setProjectMenuSearch('不存在的项目');
+  eq(rows().length, 0, '无匹配时仍渲染项目行');
+  ok(!!all(TABS.Toolbar()).find((e) => e.props && e.props['data-role'] === 'project-menu-empty'), '无匹配时缺少空态提示');
+  // 搜索不影响行内改名入口；编辑中切换搜索会先结清（不丢输入框/不静默卸载）
+  PANEL.setProjectMenuSearch('分页项目0');
+  eq(rows().length, 5, '搜索「分页项目0」命中 9 项，第一页应渲染 5 行');
+  ok(stringsOf(rows()[0]).join('').includes('分页项目01'), '搜索「分页项目0」第一行应为 01');
+  const oneId = String(rows()[0].props['data-action']).replace('switch-project-', '');
+  const editBtn = act(all(TABS.Toolbar()), 'edit-project-' + oneId);
+  ok(!!editBtn, '搜索过滤后该项目的行内改名入口丢失');
+  editBtn.props.onClick({ preventDefault: noop, stopPropagation: noop });
+  ok(!!PANEL.state().inlineEdit, '搜索过滤后点击铅笔没有进入就地编辑');
+  PANEL.setProjectMenuSearch('分页项目05');
+  eq(PANEL.state().inlineEdit, null, '切换搜索时没有先提交/取消进行中的就地改名');
+  ok(!all(TABS.Toolbar()).some((e) => e.props && e.props['data-role'] === 'inline-project-name-input-menu'),
+    '切换搜索后行内输入框残留（应已提交/取消）');
+  // 编辑中翻页同样先结清
+  PANEL.setProjectMenuSearch('分页项目');
+  const editFirst = act(all(TABS.Toolbar()), 'edit-project-' + String(rows()[0].props['data-action']).replace('switch-project-', ''));
+  editFirst.props.onClick({ preventDefault: noop, stopPropagation: noop });
+  ok(!!PANEL.state().inlineEdit, '翻页用例没有进入就地编辑');
+  act(all(TABS.Toolbar()), 'project-menu-next').props.onClick();
+  eq(PANEL.state().inlineEdit, null, '切换分页时没有先提交/取消进行中的就地改名');
+  PANEL.closeProjectMenu();
 }
 
 if (errs.length) {
