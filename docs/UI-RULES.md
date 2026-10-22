@@ -63,6 +63,7 @@
 38. 剧本/分镜技能与内置专家人设必须包含：六要素镜头描述、每场至少 1 个大特写、motion「起点→方式→终点」且同场三镜不同运动、每场一个冲撞点、场景间因果钩子、术语正确（大特写 / 调度）。
 39. 多画布：子画布独立文档；**资产与设定集按项目共享**；旧项目零迁移（默认画布 `canvasId=null` 时 key 仍等于 projectId）。
 40. 每轮改动必须跑全量门禁（`scripts/regress.mjs` 等 37+ 脚本全 PASS）后才允许提交。
+41. **设置页技能增强 = 单一「专家」下拉**：专家 = 一套技能组（`persona` + `skills`）；选项**只列本插件专家**（当前仅「通用专家 / General expert」，默认值 `general`），**禁止列举 Harness 全部技能**（artcraft-* / noteboard-* / office-* / diagnose-* 等一律不得出现）；旧设置 `skillScript` / `skillStoryboard` 迁移到 `general`，缺字段/非法值回退 `general` 且不报错。
 
 ---
 

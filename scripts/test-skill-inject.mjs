@@ -2,7 +2,7 @@
 /**
  * 技能注入 + 快捷键入口契约测试（dev-only，不随包发布）。
  *
- * 覆盖两件事：
+ * 覆盖三件事：
  *   A) 内置专家人设与 canvas-craft 技能同步：分镜人设必须含六要素 / 每场大特写 /
  *      motion「起点→方式→终点」/ 同场连续三镜不同运动 / 每场冲撞点 / 因果钩子 / 术语；
  *      剧本人设必须含四要素 + 因果钩子；且分镜 JSON 输出契约（字段名、shots 结构）未被改动。
@@ -11,6 +11,8 @@
  *      - Client：ctx.shortcuts.register 收到命令（id/各平台默认键位/动作），命令目录数据源可枚举；
  *      - 插件快捷键浮层里能看到并点击到技能入口；
  *      - 快捷键动作（复制技能全文）真的把技能正文送到剪贴板（桩验证）。
+ *   C) 专家（EXPERTS）：设置页只有一个「专家」下拉、只列本插件专家；旧技能字段迁移到 general；
+ *      剧本/分镜统一走 buildExpertContext（persona + skills），注入假第二专家验证结构支持多专家。
  *
  * 运行：node scripts/test-skill-inject.mjs
  * 退出码：0 = 通过；1 = 失败。
@@ -29,6 +31,7 @@ process.env.DSH_IC_CONFIG_PATH = path.join(SANDBOX, 'config.json');
 
 const errs = [];
 const ok = (c, m) => { if (!c) errs.push(m); };
+const eq = (a, b, m) => { if (a !== b) errs.push(m + `（实际：${JSON.stringify(a)}，期望：${JSON.stringify(b)}）`); };
 const noop = () => {};
 
 // ============================================================
@@ -144,9 +147,11 @@ try {
 const SKILL = sandbox.window.__DSH_IC_SKILL__;
 const TABS = sandbox.window.__DSH_IC_TABS__;
 const SYNC = sandbox.window.__DSH_IC_SYNC__;
+const SETTINGS = sandbox.window.__DSH_IC_SETTINGS__;
 ok(!!SKILL, '未暴露 window.__DSH_IC_SKILL__（测试缝隙缺失）');
 ok(!!TABS, '未暴露 window.__DSH_IC_TABS__');
 ok(!!SYNC, '未暴露 window.__DSH_IC_SYNC__');
+ok(!!SETTINGS, '未暴露 window.__DSH_IC_SETTINGS__（专家团/设置迁移缝隙缺失）');
 
 // ---------- A) 人设文本：硬规则关键词 ----------
 if (SKILL) {
@@ -283,6 +288,114 @@ if (SKILL && TABS && SYNC) {
   ok(clipboardText === SKILL_BODY, '快捷键技能动作未把技能全文送进剪贴板');
 }
 
+// ---------- C) 专家：单一「专家」下拉（只列本插件）+ 迁移 + 剧本/分镜统一调度 ----------
+if (SETTINGS && TABS) {
+  const ST_KEY = 'dsh-ic:settings';
+  const readWith = (obj) => { lsStore.set(ST_KEY, JSON.stringify(obj)); return SETTINGS.loadSettings(); };
+  // 1) 迁移：旧 skillScript/skillStoryboard（无 expert）→ general；非法/缺失也回退 general
+  let st = readWith({ skillScript: 'canvas-craft', skillStoryboard: 'canvas-craft' });
+  eq(st.expert, 'general', '旧 settings（skillScript/skillStoryboard）迁移后 expert 不是 general');
+  ok(!Object.prototype.hasOwnProperty.call(st, 'skillScript') && !Object.prototype.hasOwnProperty.call(st, 'skillStoryboard'),
+    'loadSettings 仍输出旧 skillScript/skillStoryboard 字段（应只读 expert）');
+  eq(readWith({ expert: 'not-a-real-expert' }).expert, 'general', '非法 expert 未回退 general');
+  eq(readWith({}).expert, 'general', '缺 expert 字段未回退 general');
+  eq(readWith({ expert: 'general' }).expert, 'general', '合法 expert 未保留');
+  lsStore.delete(ST_KEY);
+  eq(SETTINGS.loadSettings().expert, 'general', '无 settings 时默认不是 general');
+  // 2) 数据源：EXPERTS 只有 general；结构支持多专家（persona 按能力 + skills 数组）
+  const ids = SETTINGS.EXPERTS.map((e) => e.id);
+  ok(ids.length === 1 && ids[0] === 'general', 'EXPERTS 应只有 general，实际：' + ids.join(','));
+  for (const e of SETTINGS.EXPERTS) {
+    ok(Array.isArray(e.skills) && e.skills.length > 0, e.id + ': skills 不是非空数组');
+    ok(e.persona && typeof e.persona.script === 'function' && typeof e.persona.storyboard === 'function',
+      e.id + ': persona 必须按 script/storyboard 提供人设');
+    for (const s of e.skills) ok(!/^(artcraft|noteboard|office|diagnose)-/.test(s), e.id + ': skills 混入非本插件技能 ' + s);
+  }
+  // 3) 设置页 UI：标题无括号说明；只有一个专家下拉；选项只含「通用专家」
+  readWith({ expert: 'general' });
+  const els = [];
+  const texts = [];
+  (function walk(el) {
+    if (el == null || typeof el === 'boolean') return;
+    if (typeof el === 'string' || typeof el === 'number') { texts.push(String(el)); return; }
+    if (Array.isArray(el)) { el.forEach(walk); return; }
+    if (el.__el) { els.push(el); walk(el.props.children); }
+  })(TABS.SettingsTab());
+  ok(texts.includes('技能增强'), '设置页缺少「技能增强」标题');
+  ok(!texts.some((t) => t.includes('（用已安装') || t.includes('技能增强（')), '设置页标题仍带括号说明');
+  ok(!texts.includes('剧本技能') && !texts.includes('分镜技能'), '设置页仍出现「剧本技能」「分镜技能」标签');
+  const expertEls = els.filter((e) => e.type === TABS.ExpertSelect);
+  eq(expertEls.length, 1, '设置页应恰好挂载 1 个 ExpertSelect（剧本/分镜两个下拉应已合并）');
+  const exTree = TABS.ExpertSelect({ value: 'general', onChange: noop });
+  const exEls = [];
+  (function walkEx(el) {
+    if (el == null || typeof el === 'boolean') return;
+    if (typeof el === 'string' || typeof el === 'number') return;
+    if (Array.isArray(el)) { el.forEach(walkEx); return; }
+    if (el.__el) { exEls.push(el); walkEx(el.props.children); }
+  })(exTree);
+  const selects = exEls.filter((e) => e.type === 'select');
+  eq(selects.length, 1, '专家下拉组件应只有一个 select');
+  const expertSel = selects[0];
+  ok(expertSel && expertSel.props['data-role'] === 'expert-select', '专家下拉缺少 data-role="expert-select"');
+  const optTexts = [];
+  (function walkOpt(el) {
+    if (el == null || typeof el === 'boolean') return;
+    if (Array.isArray(el)) { el.forEach(walkOpt); return; }
+    if (el.__el) {
+      if (el.type === 'option') { optTexts.push(String(el.props.children)); return; }
+      walkOpt(el.props.children);
+    }
+  })(expertSel);
+  eq(optTexts.length, 1, '专家下拉选项应只有 1 个（通用专家），实际：' + optTexts.join(','));
+  eq(optTexts[0], '通用专家', '专家下拉默认选项不是「通用专家」');
+  ok(!optTexts.some((t) => /artcraft-|noteboard-|office-|diagnose-/.test(t)), '专家下拉渲染了 Harness 其它技能名');
+  eq(String(expertSel.props['data-expert-options'] || ''), 'general', '专家下拉的数据源（data-expert-options）不是只有 general');
+  ok(!/artcraft-|noteboard-|office-|diagnose-/.test(String(expertSel.props['data-expert-options'] || '')), '专家下拉数据源混入 Harness 技能名');
+  // 数据源级：ExpertSelect 不得再调用 useSkills（否则只是"过滤显示"）
+  const exStart = src.indexOf('function ExpertSelect(');
+  const exSrc = exStart >= 0 ? src.slice(exStart, src.indexOf('\n    function', exStart + 10)) : '';
+  ok(!!exSrc, '未能定位 ExpertSelect 源码');
+  ok(!/useSkills\s*\(/.test(exSrc), 'ExpertSelect 仍从 Harness 全量技能（useSkills）取数据');
+  ok(!/'skillScript'|'skillStoryboard'/.test(src), '源码仍保留旧技能标签 i18n key');
+  ok(src.includes("'skillEnhance': 'Skill boost',"), '英文标题仍不是纯「Skill boost」');
+  // 4) 调度：general 的剧本/分镜上下文都包含 persona + 技能规则；假专家验证结构支持多专家
+  const sc = await SETTINGS.buildExpertContext('script', { expert: 'general' }, true);
+  ok(sc.persona.includes('目标') && sc.persona.includes('阻碍') && sc.persona.includes('因果钩子'), '剧本上下文缺少通用专家 persona（四要素/因果钩子）');
+  ok(String(sc.rules || '').includes('严格遵循') && String(sc.rules || '').includes('六要素'), '剧本上下文缺少 canvas-craft 技能规则正文');
+  const sb = await SETTINGS.buildExpertContext('storyboard', { expert: 'general' }, true);
+  ok(sb.persona.includes('六要素') && sb.persona.includes('大特写'), '分镜上下文缺少通用专家 persona（六要素/大特写）');
+  ok(String(sb.rules || '').includes('六要素'), '分镜上下文缺少 canvas-craft 技能规则正文');
+  const general = SETTINGS.EXPERTS[0];
+  const fake = {
+    id: 'ancient-costume', nameKey: 'expertGeneral',
+    persona: { script: () => 'FAKE-SCRIPT-PERSONA', storyboard: () => 'FAKE-STORYBOARD-PERSONA' },
+    skills: ['canvas-craft'],
+  };
+  const reg = [general, fake];
+  ok(SETTINGS.expertFor('ancient-costume', reg) === fake, 'expertFor 未按 id 从注入注册表取到第二专家');
+  ok(SETTINGS.expertFor('missing', reg) === general, 'expertFor 对未知 id 未回退 general');
+  eq(SETTINGS.expertIdOrDefault('ancient-costume'), 'general', 'expertIdOrDefault 未把非内置 id 回退 general');
+  const cf = await SETTINGS.buildExpertContext('script', { expert: 'ancient-costume' }, true, reg);
+  eq(cf.persona, 'FAKE-SCRIPT-PERSONA', '假专家的人设没有生效（调度仍写死 general）');
+  eq(cf.skills.join(','), 'canvas-craft', '假专家的 skills 未被调度使用');
+  const cfb = await SETTINGS.buildExpertContext('storyboard', { expert: 'ancient-costume' }, true, reg);
+  eq(cfb.persona, 'FAKE-STORYBOARD-PERSONA', '假专家分镜人设没有生效');
+  // 真实生成入口：剧本/分镜都必须走 buildExpertContext，且把 persona + rules 拼进 system（不再读旧字段）
+  const fnSlice = (name) => {
+    const i = src.indexOf('async function ' + name + '(');
+    const j = i >= 0 ? src.indexOf('\n    async function ', i + 10) : -1;
+    return i >= 0 ? src.slice(i, j > 0 ? j : src.length) : '';
+  };
+  const scriptFn = fnSlice('aiScriptNodes');
+  const sbFn = fnSlice('aiStoryboardShots');
+  ok(/buildExpertContext\('script'/.test(scriptFn), '剧本生成没有走 buildExpertContext(script)');
+  ok(/ctx\.persona/.test(scriptFn) && /ctx\.rules/.test(scriptFn), '剧本生成没有把专家 persona/rules 拼进 system');
+  ok(/buildExpertContext\('storyboard'/.test(sbFn), '分镜生成没有走 buildExpertContext(storyboard)');
+  ok(/ctxSb\.persona/.test(sbFn) && /ctxSb\.rules/.test(sbFn), '分镜生成没有把专家 persona/rules 拼进 system');
+  ok(!/loadSkillRules\(settings\.skill(Script|Storyboard)/.test(src), '生成代码仍读取旧 skillScript/skillStoryboard 字段');
+}
+
 // ============================================================
 // 二、Host 半：技能注册进 skills 服务，可枚举、可加载
 // ============================================================
@@ -339,4 +452,5 @@ console.log('  · 分镜人设：六要素 / 每场大特写 / motion 起点→�
 console.log('  · 剧本人设：四要素 + 因果钩子；分镜 JSON 输出字段未改动');
 console.log('  · Host 技能目录可枚举 3 份内置技能（modelInvocable，正文含新规则）');
 console.log('  · 快捷键 ' + (process.env.IC_SKILL_ID || 'infinite-canvas.skill') + '：Ctrl/⌘+Shift+K，目录可见、浮层可见、动作把技能全文送进剪贴板');
+console.log('  · 专家：单一「专家」下拉（仅通用专家）；旧字段迁移 general；剧本/分镜统一调度 persona+skills；多专家结构可扩展');
 process.exit(0);

@@ -694,10 +694,10 @@ window.__ModuleLoader__.load({
       'refreshCheckHint': '按当前设定集重新校验（生成后补全的设定集条目不会让旧告警自动消失）',
       'restartHint': '插件后台尚未加载最新版本：请重启一次 DeepSeek Harness 后重试（仅首次更新需要）',
       'rpcFail': '请求失败',
-      'skillEnhance': '技能增强（用已安装技能替代内置专家方法论）',
-      'skillScript': '剧本技能',
-      'skillStoryboard': '分镜技能',
-      'builtinExpert': '内置专家',
+      'skillEnhance': '技能增强',
+      'expertLabel': '专家',
+      'expertGeneral': '通用专家',
+      'expertHint': '一个专家 = 一套人设（persona）+ 一组技能（skills）',
       'undo': '撤销 (Ctrl+Z)',
       'redo': '重做 (Ctrl+Y)',
       'copyNode': '复制节点',
@@ -777,7 +777,6 @@ window.__ModuleLoader__.load({
       'resizeHeightHint': '拖动调高；双击恢复「随内容自适应」',
       'aiEmptyResult': '模型返回了空内容——请检查画布设置里的文本模型，或换一个模型重试',
       'aiInterrupted': '上次生成被页面刷新或关闭中断，请重新生成',
-      'skillHint': '默认已含内置专家 + 创作方法论（canvas-craft）；也可选择其它已安装技能覆盖',
       'skillBtn': '创作技能',
       'skillTitle': '创作技能（剧本 / 分镜 / 布局）',
       'skillPaletteHint': '选一项即把该技能全文复制到剪贴板，粘贴到对话里，Harness 就会按同一套方法论创作。快捷键：Ctrl/⌘ + Shift + K。',
@@ -1231,10 +1230,10 @@ window.__ModuleLoader__.load({
       'refreshCheckHint': 'Re-check against the current series bible (entries added after generation do not clear stale warnings automatically)',
       'restartHint': 'The plugin backend is not loaded yet: restart DeepSeek Harness once and retry (first update only)',
       'rpcFail': 'Request failed',
-      'skillEnhance': 'Skill boost (use installed Harness skills instead of built-in experts)',
-      'skillScript': 'Script skill',
-      'skillStoryboard': 'Storyboard skill',
-      'builtinExpert': 'Built-in expert',
+      'skillEnhance': 'Skill boost',
+      'expertLabel': 'Expert',
+      'expertGeneral': 'General expert',
+      'expertHint': 'An expert = one persona + a skill set',
       'undo': 'Undo (Ctrl+Z)',
       'redo': 'Redo (Ctrl+Y)',
       'copyNode': 'Duplicate node',
@@ -1314,7 +1313,6 @@ window.__ModuleLoader__.load({
       'resizeHeightHint': 'Drag to set height; double-click to fit content again',
       'aiEmptyResult': 'The model returned empty content — check the text model in canvas settings or try another model',
       'aiInterrupted': 'The previous generation was interrupted by a page reload; please run it again',
-      'skillHint': 'Defaults to built-in experts plus the canvas-craft methodology; pick another installed skill to override',
       'skillBtn': 'Skills',
       'skillTitle': 'Creation skills (script / storyboard / layout)',
       'skillPaletteHint': 'Pick one to copy the full skill text to the clipboard, then paste it into chat so Harness works with the same methodology. Shortcut: Ctrl/⌘ + Shift + K.',
@@ -2258,8 +2256,7 @@ window.__ModuleLoader__.load({
       ttsApis: [],     // [{id, name, baseUrl, apiKey, model, voice}]
       ttsApiId: '',
       lang: '',        // '' = 跟随 Harness
-      skillScript: '',       // '' = 内置编剧专家
-      skillStoryboard: '',   // '' = 内置分镜专家
+      expert: 'general', // 专家（一套人设+技能组）；旧字段 skillScript/skillStoryboard 迁移到 general
     };
     function loadSettings() {
       const s = lsGet(LS_SETTINGS, {}) || {};
@@ -2272,8 +2269,8 @@ window.__ModuleLoader__.load({
         ttsApis: Array.isArray(s.ttsApis) ? s.ttsApis : [],
         ttsApiId: s.ttsApiId || '',
         lang: s.lang || '',
-        skillScript: s.skillScript || '',
-        skillStoryboard: s.skillStoryboard || '',
+        // 专家：缺字段/非法值/旧字段（skillScript/skillStoryboard）→ 一律回退 general，不报错
+        expert: expertIdOrDefault(s.expert),
       };
       // v0.3 及以前的单配置自动迁移为列表
       // 注意：id 必须**确定性**——loadSettings 是高频调用（每次渲染/生成都会走），
@@ -6722,16 +6719,70 @@ window.__ModuleLoader__.load({
       } catch { return null; /* 技能读取失败回退内置专家 */ }
     }
 
+    // ============================================================
+    // 专家团（EXPERTS）：一个专家 = 一套人设（script/storyboard persona）+ 一组技能（skills）。
+    // 设置里只有一个「专家」下拉，选项只来自本清单——绝不再列举 Harness 全部技能。
+    // general 与改动前的「内置专家」完全等价：人设 = EXPERT_SCRIPT/EXPERT_STORYBOARD，技能组 = canvas-craft。
+    // 后续专家（古风/武侠/营销…）只需在此追加 { id, nameKey, persona, skills }，调度代码无需改动。
+    // ============================================================
+    const EXPERTS = [
+      {
+        id: 'general',
+        nameKey: 'expertGeneral',
+        persona: { script: EXPERT_SCRIPT, storyboard: EXPERT_STORYBOARD },
+        skills: ['canvas-craft'],
+      },
+    ];
+    /** 设置值 → 合法专家 id；缺字段/旧字段/非法值统一回退 general（不抛错）。 */
+    function expertIdOrDefault(v) {
+      const id = String(v == null ? '' : v).trim();
+      return EXPERTS.some((e) => e.id === id) ? id : 'general';
+    }
+    /** 按 id 取专家；registry 可注入（测试用假专家验证多专家结构），缺省只用内置清单。 */
+    function expertFor(id, registry) {
+      const list = (Array.isArray(registry) && registry.length) ? registry : EXPERTS;
+      const want = String(id == null ? '' : id).trim();
+      return list.find((e) => e.id === want) || list.find((e) => e.id === 'general') || list[0];
+    }
+    /** 取专家在某个能力上的人设（script / storyboard）。 */
+    function expertPersona(expert, kind, zh) {
+      const p = (expert && expert.persona) || {};
+      const fn = p[kind] || p.script || null;
+      if (typeof fn === 'function') return String(fn(zh) || '');
+      return String(fn || '');
+    }
+    /** 按专家 skills 数组加载技能正文（仍走 loadSkillRules）；多技能用空行拼接。 */
+    async function loadExpertRules(expert, zh) {
+      const names = Array.isArray(expert && expert.skills) ? expert.skills : [];
+      const parts = [];
+      for (const name of names) {
+        const text = await loadSkillRules(name, zh);
+        if (text) parts.push(text);
+      }
+      return parts.length ? parts.join('\n\n') : null;
+    }
+    /** 统一专家调度：剧本/分镜/其它 AI 能力都通过这里拿「人设 + 技能规则」，保证同一专家生效。 */
+    async function buildExpertContext(kind, settings, zh, registry) {
+      const expert = expertFor(settings && settings.expert, registry);
+      return {
+        expert,
+        persona: expertPersona(expert, kind, zh),
+        rules: await loadExpertRules(expert, zh),
+        skills: Array.isArray(expert && expert.skills) ? expert.skills.slice() : [],
+      };
+    }
+
     async function aiScriptNodes(idea, model, onDelta) {
       const settings = loadSettings();
       const bible = bibleBlock(loadBible(S.activeId));
       const zh = effLang() !== 'en';
-      // 未选技能时默认注入内置创作方法论 canvas-craft（与内置专家 persona 叠加，互为补充）
-      const rules = await loadSkillRules(settings.skillScript, zh)
+      // 按当前专家调度：人设 + 技能组（general 等价于原「内置专家 + canvas-craft」）
+      const ctx = await buildExpertContext('script', settings, zh);
+      const rules = ctx.rules
         || await loadSkillRules(CRAFT_SKILL, zh)
         || (zh ? '把输入的创意或片段写成可直接拍摄的短剧剧本。只输出剧本正文，不要解释。' : 'Turn the idea or excerpt into a shootable short-drama script. Output the script only.');
       const system = [
-        EXPERT_SCRIPT(zh),
+        ctx.persona,
         rules,
         bible ? (zh ? '项目设定集（角色/场景/道具名称与设定必须严格一致，禁止私自改名或新增设定）：\n' : 'Series bible (names and settings must strictly match; do not invent changes):\n') + bible : '',
         outLangLine(),
@@ -6862,10 +6913,12 @@ window.__ModuleLoader__.load({
             '- **split big displacements**: if a character crosses more than 1/4 of the frame, or the staging changes a lot, break it into another shot (different shot size) instead of one long move;',
             '- **keep the axis**: in a dialogue, the same side relationship (e.g. man left / woman right) must hold across adjacent shots - never cross the line.',
           ] : []).join('\n');
-      const methodology = await loadSkillRules(settings.skillStoryboard, zh)
+      // 按当前专家调度（与剧本生成同一套专家）；未取到技能时回退内置创作方法论
+      const ctxSb = await buildExpertContext('storyboard', settings, zh);
+      const methodology = ctxSb.rules
         || await loadSkillRules(CRAFT_SKILL, zh); // 未选技能时默认注入内置创作方法论
       const system = [
-        EXPERT_STORYBOARD(zh),
+        ctxSb.persona,
         methodology || '',
         jsonContract,
         bible ? (zh ? '项目设定集（名称必须与之一致）：\n' : 'Series bible (names must match):\n') + bible : '',
@@ -12427,17 +12480,17 @@ window.__ModuleLoader__.load({
       }, []);
       return data || { skills: [] };
     }
-    function SkillSelect({ label, value, onChange }) {
-      const data = useSkills();
-      // 默认项 = 内置专家 persona + 内置创作方法论 canvas-craft（自动叠加）
-      const options = [{ value: '', label: T('builtinExpert') }].concat((data.skills || []).map((x) => ({ value: x.name, label: x.name })));
+    function ExpertSelect({ value, onChange }) {
+      // 选项只来自本插件 EXPERTS（persona + skills 的专家团），绝不列举 Harness 全部技能
+      const current = expertIdOrDefault(value);
       return h('div', { className: 'dshic-field' },
-        h('span', { className: 'dshic-field-label' }, label, InfoTip(T('skillHint'))),
+        h('span', { className: 'dshic-field-label' }, T('expertLabel'), InfoTip(T('expertHint'))),
         h('select', {
-          className: 'dshic-select', value: value || '',
-          onChange: (e) => onChange(e.target.value),
+          className: 'dshic-select', value: current, 'data-role': 'expert-select',
+          'data-expert-options': EXPERTS.map((e) => e.id).join(','),
+          onChange: (e) => onChange(expertIdOrDefault(e.target.value)),
           onPointerDown: (e) => e.stopPropagation(),
-        }, options.map((o) => h('option', { key: o.value, value: o.value }, o.label))));
+        }, EXPERTS.map((e) => h('option', { key: e.id, value: e.id }, T(e.nameKey)))));
     }
 
     function LlmModelSelect() {
@@ -13158,15 +13211,13 @@ window.__ModuleLoader__.load({
         ),
         h(DataRootCard, { key: 'dataroot' }),
         h(CraftCard, { key: 'craft' }),
-        // 专家与技能卡：独立于模型选择
+        // 专家卡：只有一个「专家」下拉（专家 = 一套人设 + 技能组），选项只来自本插件
         h('div', { key: 'skills', className: 'dshic-card' },
           h('div', { className: 'dshic-row' },
             Ic('spark', 12),
             h('strong', { style: { fontSize: 12, flex: 1, minWidth: 0 } }, T('skillEnhance')),
-            InfoTip(T('skillHint')),
           ),
-          h(SkillSelect, { label: T('skillScript'), value: s.skillScript, onChange: (v) => apply((d) => { d.skillScript = v; }) }),
-          h(SkillSelect, { label: T('skillStoryboard'), value: s.skillStoryboard, onChange: (v) => apply((d) => { d.skillStoryboard = v; }) }),
+          h(ExpertSelect, { value: s.expert, onChange: (v) => apply((d) => { d.expert = v; }) }),
         ),
         // 文本模型卡：只选模型，参数全用 Harness 默认；紧挨图片/视频/TTS 模型卡片
         h('div', { key: 'llm', className: 'dshic-card' },
@@ -13206,8 +13257,9 @@ window.__ModuleLoader__.load({
         .join('\n---\n')
         .slice(0, 6000);
       const existing = bibleBlock(cur);
+      const ctxBible = await buildExpertContext('script', settings, zh);
       const system = [
-        await loadSkillRules(settings.skillScript, zh) || await loadSkillRules(CRAFT_SKILL, zh) || '',
+        ctxBible.rules || await loadSkillRules(CRAFT_SKILL, zh) || '',
         zh
           ? '你是短剧设定集策划：根据创作意图提炼世界观与风格，并列出角色/场景/道具设定，供后续剧本与画面生成保持一致。只输出 JSON。'
           : 'You are a series-bible planner for short drama: derive worldview and style from the intent, and list characters/scenes/props so later script and image generation stay consistent. Output JSON only.',
@@ -14158,7 +14210,7 @@ window.__ModuleLoader__.load({
         // 直接暴露各页签组件与同步入口，让测试能逐个渲染/驱动，抓白屏与同步断链问题
         if (typeof window !== 'undefined' && window.__DSH_IC_SMOKE__) {
           window.__DSH_IC_TABS__ = {
-            ProjectsTab, AssetsTab, BibleTab, SettingsTab, DataRootCard, CanvasPage, ShortcutsPanel, CanvasHostedApp, SkillPalette,
+            ProjectsTab, AssetsTab, BibleTab, SettingsTab, DataRootCard, ExpertSelect, CanvasPage, ShortcutsPanel, CanvasHostedApp, SkillPalette,
             // 面板结构重构（左侧图标列 / 顶部工具栏 / 右侧面板 / 统一弹窗）
             Toolbar, Rightbar, IconRail, StudioModal, ProjectNameDialog,
           };
@@ -14272,9 +14324,15 @@ window.__ModuleLoader__.load({
           };
           // BLK-02：ArtCraft 目录基准相关的纯函数出口（供 scripts/test-craft-base.mjs 断言）
           window.__DSH_IC_CRAFT__ = { craftBaseDir, craftBaseDirRequired, joinLocal, craftFolderOf, craft };
+          // 专家团 + 设置迁移的测试缝隙（供 scripts/test-expert.mjs 断言）
+          window.__DSH_IC_SETTINGS__ = {
+            DEFAULT_SETTINGS, loadSettings, saveSettings,
+            EXPERTS, expertIdOrDefault, expertFor, expertPersona, loadExpertRules, buildExpertContext,
+          };
           // 创作技能注入的测试缝隙：人设文本 / 快捷键命令定义 / 技能浮层动作（供 scripts/test-skill-inject.mjs 断言）
           window.__DSH_IC_SKILL__ = {
             EXPERT_SCRIPT, EXPERT_STORYBOARD,
+            EXPERTS, expertFor, expertPersona, loadExpertRules, buildExpertContext,
             SKILL_SHORTCUT_ID, buildSkillShortcutDefinition,
             openSkillPalette, closeSkillPalette, copySkillText,
             paletteOpen: () => !!S.skillPalette,
