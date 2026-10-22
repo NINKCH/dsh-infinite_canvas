@@ -743,6 +743,17 @@ window.__ModuleLoader__.load({
       'aiEmptyResult': '模型返回了空内容——请检查画布设置里的文本模型，或换一个模型重试',
       'aiInterrupted': '上次生成被页面刷新或关闭中断，请重新生成',
       'skillHint': '默认已含内置专家 + 创作方法论（canvas-craft）；也可选择其它已安装技能覆盖',
+      'skillBtn': '创作技能',
+      'skillTitle': '创作技能（剧本 / 分镜 / 布局）',
+      'skillPaletteHint': '选一项即把该技能全文复制到剪贴板，粘贴到对话里，Harness 就会按同一套方法论创作。快捷键：Ctrl/⌘ + Shift + K。',
+      'skillCopy': '复制全文',
+      'skillCopied': '已复制 {name} 技能全文，粘贴到对话即可使用',
+      'skillCopyFail': '技能读取失败',
+      'skillStudioDesc': '画布操作规程：建项目、写节点、触发生成（先读再动手）',
+      'skillCraftDesc': '创作方法论：剧本四要素、分镜六要素 / 大特写 / 冲撞点、提示词规范',
+      'skillLayoutDesc': '节点布局纪律：一类型一列、绝不重叠',
+      'keysSkill': '创作技能',
+      'kSkill': '打开技能面板（复制技能全文到剪贴板）',
       'nodeNotRunnable': '该节点类型不支持运行（请用画布上的对应按钮）',
       'delAssetTitle': '删除资产',
       'delAssetWarn': '将删除该资产及其文件，且无法恢复；引用它的节点会清空引用。请输入资产名以确认：',
@@ -1235,6 +1246,17 @@ window.__ModuleLoader__.load({
       'aiEmptyResult': 'The model returned empty content — check the text model in canvas settings or try another model',
       'aiInterrupted': 'The previous generation was interrupted by a page reload; please run it again',
       'skillHint': 'Defaults to built-in experts plus the canvas-craft methodology; pick another installed skill to override',
+      'skillBtn': 'Skills',
+      'skillTitle': 'Creation skills (script / storyboard / layout)',
+      'skillPaletteHint': 'Pick one to copy the full skill text to the clipboard, then paste it into chat so Harness works with the same methodology. Shortcut: Ctrl/⌘ + Shift + K.',
+      'skillCopy': 'Copy full text',
+      'skillCopied': 'Copied the {name} skill; paste it into chat to use',
+      'skillCopyFail': 'Failed to read skill',
+      'skillStudioDesc': 'Canvas operating procedure: create projects, write nodes, trigger generation (read before acting)',
+      'skillCraftDesc': 'Creation methodology: script four elements, storyboard six elements / extreme close-up / collision point, prompt rules',
+      'skillLayoutDesc': 'Node layout discipline: one type per column, never overlap',
+      'keysSkill': 'Creation skills',
+      'kSkill': 'Open the skill palette (copy skill full text to clipboard)',
       'nodeNotRunnable': 'This node type cannot be run (use its button on the canvas)',
       'delAssetTitle': 'Delete asset',
       'delAssetWarn': 'The asset and its file will be deleted permanently; nodes referencing it will lose the reference. Type the asset name to confirm:',
@@ -1702,6 +1724,16 @@ window.__ModuleLoader__.load({
 .dshic-keys-text{flex:1;min-width:0;color:var(--dsw-alias-label-secondary);word-break:break-word;}
 .dshic-keys-hint{margin-top:2px;padding-top:7px;border-top:1px solid var(--dsw-alias-border-l2);
   font-size:11px;color:var(--dsw-alias-label-secondary);opacity:.75;}
+/* 创作技能入口（快捷键面板底部按钮 + 技能浮层） */
+.dshic-keys-action{display:flex;align-items:center;justify-content:center;gap:6px;width:100%;height:26px;margin-top:8px;
+  border:1px solid var(--dsw-alias-border-l2);border-radius:8px;background:transparent;color:var(--dsw-alias-label-primary);
+  font:inherit;font-size:12px;cursor:pointer;box-sizing:border-box;}
+.dshic-keys-action:hover{background:color-mix(in srgb,var(--dsw-alias-label-primary) 8%,transparent);}
+.dshic-skill-modal{width:440px;align-items:stretch;}
+.dshic-skill-row{display:flex;align-items:center;gap:10px;padding:8px 0;border-top:1px solid var(--dsw-alias-border-l1);}
+.dshic-skill-meta{flex:1;min-width:0;}
+.dshic-skill-name{font-size:12px;font-weight:600;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;}
+.dshic-skill-desc{font-size:11px;line-height:16px;color:var(--dsw-alias-label-secondary);margin-top:2px;}
 /* Alt 自由摆放（不推挤）时的节点轮廓：虚线 + 轻微透明，明确"现在可以覆盖穿过" */
 .dshic-node.is-free-drag{outline:2px dashed var(--dsw-alias-brand-primary);outline-offset:2px;opacity:.92;}
 /* 会话右栏：画布页签（占位卡） */
@@ -6085,13 +6117,48 @@ window.__ModuleLoader__.load({
     }
 
     // 内置专家团：每个 AI 能力由对应专家 persona 驱动，并强制注入项目设定集保证一致性。
-    // persona 方法论参考主流开源编剧/分镜技能（三幕结构、镜头语言、连续性规范）提炼。
-    const EXPERT_SCRIPT = (zh) => zh
-      ? '你是内置的「短剧编剧专家」：精通三幕结构（建置-对抗-解决）与短剧节奏。每场写清「人物目标 → 冲突 → 转折」；开场 10 秒建立钩子，结尾留下悬念；对白口语化短句，单场对话不超过 6 个来回；动作只写可拍摄的可视行为，不写心理描写。'
-      : 'You are the built-in "Short-drama Screenwriter Expert": master of three-act structure and short-drama pacing. Every scene states "goal -> conflict -> turn"; hook within the first 10 seconds, cliffhanger at the end; colloquial short dialogue (max 6 exchanges per scene); visual, filmable actions only, no inner thoughts.';
-    const EXPERT_STORYBOARD = (zh) => zh
-      ? '你是内置的「分镜导演专家」：精通景别（远/全/中/近/特）与运镜（固定/推/拉/摇/移/跟）语言。visual 必须包含「景别 + 主体姿态 + 环境 + 光线 + 构图重心」；motion 包含「动作节拍 + 运镜方式 + 节奏」，一镜一个主体动作；相邻镜头遵守 180° 轴线、服装与光线连续；首帧信息不得与动作描述重复。'
-      : 'You are the built-in "Storyboard Director Expert": fluent in shot sizes (wide/full/medium/close/ECU) and camera moves (static/push/pull/pan/track/follow). visual must include "shot size + subject pose + environment + light + framing focus"; motion includes "action beats + camera move + pacing", one subject action per shot; keep the 180-degree axis, wardrobe and lighting continuous; never duplicate first-frame info in motion.';
+    // persona 方法论与 assets/canvas-craft/SKILL.md 的硬判据保持同步（人设给方向 + 可核对判据；
+    // 技能里的判定口径优先）。只提升内容质量要求，输出结构仍由下方 jsonContract 单点约束。
+    const EXPERT_SCRIPT = (zh) => (zh
+      ? [
+          '你是内置的「短剧编剧专家」：精通三幕结构（建置-对抗-解决）与短剧节奏。每场必须写全四要素——缺一即视为该场不合格：',
+          '① 目标：人物这场戏要拿到或守住什么；',
+          '② 阻碍：谁/什么在挡着他；',
+          '③ 转折：他的计划失效的那一个瞬间；',
+          '④ 代价：他为此失去了什么、付出了什么。',
+          '每场结尾必须留「因果钩子」：一个可拍摄的动作或可见的物件状态（手、门、屏幕、脸、道具），直接引发下一场；不写「他决定了」「事情还没结束」「危机正在靠近」这类情绪总结，也不用「第二天/与此同时」硬切到毫无因果的新场景。',
+          '开场 10 秒建立钩子，结尾留下悬念；对白口语化短句，单场对话不超过 6 个来回；动作只写可拍摄的可视行为，不写心理描写。',
+        ].join('\n')
+      : [
+          'You are the built-in "Short-drama Screenwriter Expert": master of three-act structure and short-drama pacing. Every scene must state all FOUR elements - miss one and the scene fails:',
+          '(1) goal: what the character wants to win or protect in this scene;',
+          '(2) obstacle: who or what blocks it;',
+          '(3) turn: the exact instant the plan stops working;',
+          '(4) cost: what the character loses or pays for it.',
+          'Every scene must end on a CAUSAL HOOK: a filmable action or a visible object state (hand, door, screen, face, prop) that directly triggers the next scene; never close with a summarising line ("he decided", "it is not over", "crisis is coming") and never hard-cut to an unrelated scene ("next day", "meanwhile").',
+          'Hook within the first 10 seconds, cliffhanger at the end; colloquial short dialogue (max 6 exchanges per scene); visual, filmable actions only, no inner thoughts.',
+        ].join('\n'));
+    const EXPERT_STORYBOARD = (zh) => (zh
+      ? [
+          '你是内置的「分镜导演专家」：精通景别（大远景/远景/全景/中景/中近景/近景/特写/大特写）与调度（人物走位 + 机位运动 + 镜头切换的组合设计）。写每一镜都执行以下硬规则（与 canvas-craft 技能一致；技能判据与本条冲突时以技能为准）：',
+          '1) visual 六要素缺一即不合格：景别 + 机位/角度 + 主体位置与朝向 + 前景/背景层次 + 光线方向与质感 + 关键道具位置。景别必须写具体（大特写/特写/近景/中景/全景/远景），不许用「镜头」「画面」代替景别。',
+          '2) 每场至少 1 个大特写（短场也不例外）：只拍局部——眼睛、手、纸条上的字、钟表指针、扣扳机的手指、屏幕上的名字；duration 给 0.8–2s。',
+          '3) motion 必须写成「起点 → 运动方式 → 终点」（+ 速度/节奏）；禁止「推近/拉远/平移」这类空模板动词；每镜至少一种非平移运动（跟拍 / 甩镜 / 手持晃动 / 升降 / 环绕 / 变焦 / 镜头内主体运动带动）；同一场连续三镜不得使用同一种运动方式，连续三镜同运动 = 调度单调，退回改 motion。',
+          '4) 每场至少一个冲撞点（人物之间：对峙/逼问/撕扯/抢夺；或人物与环境物件：撞门/摔碎/被推上墙），并写明至少两种冲击手段：短镜头堆叠（≤1.5s 快切）/ 反向构图 / 突然的机位跳切（seg: closeup）/ 声音突入（sfx 写盖过环境声的短促声音）。',
+          '5) 场景之间用因果钩子衔接：本场结尾留下一个可拍摄的动作或可见物件状态，成为下一场的起因；不做「情绪总结式」收尾。',
+          '6) 术语必须正确：极限局部叫「大特写」（不是"特写"、不是"大豆/大特"），走位+机位+切换的组合叫「调度」（不是"调职"）；「平移/推近/拉远」单独出现视为空模板。',
+          '其余连续性规则不变：相邻镜遵守 180° 轴线，服装/光线/场景连续，首帧信息不得与 motion 重复，一镜只做一个主动作、一镜一种运镜。',
+        ].join('\n')
+      : [
+          'You are the built-in "Storyboard Director Expert": fluent in shot sizes (extreme wide / wide / full / medium / medium close-up / close-up / extreme close-up) and in blocking (the combined design of character movement + camera movement + shot transitions). Apply these hard rules to EVERY shot (identical to the canvas-craft skill; when the skill and this line disagree, the skill wins):',
+          '1) visual must contain all SIX elements, missing one fails the shot: shot size + camera position/angle + subject position and facing + foreground/background layers + light direction and quality + key prop position. Shot size must be specific (extreme close-up / close-up / medium / full / wide); never write "the camera" or "the frame" instead of a shot size.',
+          '2) At least ONE extreme close-up per scene (short scenes included): isolate a detail - eyes, hand, words on a note, clock hand, finger on a trigger, a name on a screen; duration 0.8-2s.',
+          '3) motion must be written as "start -> movement -> end" (+ speed/rhythm); never use empty-template verbs like "push in / pull out / pan"; every shot needs at least one non-pan movement (follow / whip pan / handheld shake / crane / orbit / zoom / subject-driven movement); NEVER use the same movement for three consecutive shots in one scene - rewrite motion instead.',
+          '4) At least one COLLISION POINT per scene (person vs person: standoff/interrogation/struggle; or person vs environment/prop: slam a door, smash, pinned to a wall) and name at least two impact devices: stacked short shots (<=1.5s rapid cuts) / reverse framing / a sudden camera jump cut (seg: closeup) / sound intrusion (sfx: a short sound that cuts through ambience).',
+          '5) Scenes connect through CAUSAL HOOKS: the end of a scene leaves a filmable action or a visible object state that causes the next scene; never close on an emotional summary.',
+          '6) Terminology must be correct: an isolated extreme detail is an "extreme close-up" (not "close-up", not "big close"); the combination of blocking + camera move + cuts is "blocking" (not "camera panning"); "pan/push in/pull out" used alone is an empty template.',
+          'All other continuity rules still hold: keep the 180-degree axis, continuous wardrobe/lighting/location, never duplicate first-frame info in motion, one primary action and one camera move per shot.',
+        ].join('\n'));
 
     async function loadSkillRules(skillName, zh) {
       if (!skillName) return null;
@@ -6479,6 +6546,7 @@ window.__ModuleLoader__.load({
       updateMsg: null,
       updateDismissed: false,
       keysOpen: false,       // 左上角快捷键面板是否展开（纯 UI 状态，不持久化）
+      skillPalette: false,   // 创作技能浮层（Ctrl/⌘+Shift+K 打开；纯 UI 状态，不持久化）
       canvasHost: null,      // 画布当前宿主：'main'（全屏面板）| 'pane'（会话右栏页签）| null——同一时刻只允许一处实例
     };
     const listeners = new Set();
@@ -12344,6 +12412,7 @@ window.__ModuleLoader__.load({
         S.menu ? h(ContextMenu, { menu: S.menu }) : null,
         S.lightbox ? h(Lightbox) : null,
         S.supportOpen ? h(SupportDialog) : null,
+        S.skillPalette ? h(SkillPalette) : null,
         S._toast ? h('div', {
           style: {
             position: 'fixed', bottom: 22, left: '50%', transform: 'translateX(-50%)', zIndex: 70,
@@ -12450,6 +12519,14 @@ window.__ModuleLoader__.load({
               group(T('keysView'), [
                 ['双击项目名', T('kZoomKeys')],
               ]),
+              group(T('keysSkill'), [
+                ['Ctrl/⌘ ⇧ K', T('kSkill')],
+              ]),
+              h('button', {
+                type: 'button', className: 'dshic-keys-action',
+                onPointerDown: (e) => e.stopPropagation(),
+                onClick: (e) => { e.stopPropagation(); openSkillPalette(); },
+              }, T('skillBtn')),
               h('div', { className: 'dshic-keys-hint' }, T('keysHint')),
             )
           : null,
@@ -12468,6 +12545,112 @@ window.__ModuleLoader__.load({
       } catch { /* 降级 */ }
       toast(text);
     }
+
+    // ============================================================
+    // 创作技能：快捷键（Ctrl/⌘ + Shift + K）→ 技能浮层 → 技能全文进剪贴板
+    //   技能正文来自 Host 的 skills 服务（与 Agent 侧 skill 工具同源：readSkill RPC），
+    //   复制后粘贴进对话，Harness 本体就按同一套方法论创作（与内置专家人设互补：
+    //   人设给方向，技能给可核对判据）。
+    //   注册入口：ctx.shortcuts.register（@deepseek-ai/dsh-client-shortcuts 的可观察命令目录）
+    //   → 命令自动出现在 Harness 自带「快捷键」面板中；插件内快捷键浮层再列一行并给按钮。
+    // ============================================================
+    const BUILTIN_SKILLS = [
+      { name: 'canvas-studio', descKey: 'skillStudioDesc' },
+      { name: 'canvas-craft', descKey: 'skillCraftDesc' },
+      { name: 'canvas-layout', descKey: 'skillLayoutDesc' },
+    ];
+    const SKILL_SHORTCUT_ID = 'infinite-canvas.skill';
+    function openSkillPalette() {
+      try { if (CTX && CTX.layout && CTX.layout.selectPanel) CTX.layout.selectPanel(PANEL_ID); } catch { /* 旧 runner 无 layout 服务 */ }
+      update((s) => { s.skillPalette = true; s.keysOpen = false; });
+    }
+    function closeSkillPalette() { update((s) => { s.skillPalette = false; }); }
+    /** 取技能全文并复制到剪贴板；返回正文（失败返回 ''）——测试用返回值断言复制源。 */
+    async function copySkillText(name) {
+      try {
+        const sk = await hostRpc('readSkill', { name });
+        const text = String((sk && sk.text) || '');
+        if (!text.trim()) throw new Error(T('aiEmptyResult'));
+        copyText(text, T('skillCopied').replace('{name}', name));
+        return text;
+      } catch (e) {
+        toast(T('skillCopyFail') + '：' + String((e && e.message) || e));
+        return '';
+      }
+    }
+    function SkillPalette() {
+      const data = useSkills();
+      useEffect(() => {
+        const onKey = (e) => { if (e.key === 'Escape') closeSkillPalette(); };
+        window.addEventListener('keydown', onKey);
+        return () => window.removeEventListener('keydown', onKey);
+      }, []);
+      const byName = new Map(((data && data.skills) || []).map((x) => [x.name, x]));
+      return h('div', { className: 'dshic-modal-overlay', onPointerDown: (e) => { if (e.target === e.currentTarget) closeSkillPalette(); } },
+        h('div', { className: 'dshic-modal dshic-skill-modal' },
+          h('div', { className: 'dshic-modal-title' }, T('skillTitle')),
+          h('div', { className: 'dshic-modal-warn' }, T('skillPaletteHint')),
+          ...BUILTIN_SKILLS.map((it) => {
+            const hit = byName.get(it.name);
+            return h('div', { key: it.name, className: 'dshic-skill-row' },
+              h('div', { className: 'dshic-skill-meta' },
+                h('div', { className: 'dshic-skill-name' }, it.name),
+                h('div', { className: 'dshic-skill-desc' }, (hit && hit.description) || T(it.descKey)),
+              ),
+              h('button', {
+                type: 'button', className: 'dshic-mini',
+                onPointerDown: (e) => e.stopPropagation(),
+                onClick: () => { copySkillText(it.name); },
+              }, T('skillCopy')),
+            );
+          }),
+          h('div', { className: 'dshic-modal-actions' },
+            h('button', { type: 'button', className: 'dshic-mini', onPointerDown: (e) => e.stopPropagation(), onClick: closeSkillPalette }, T('cancel')),
+          ),
+        ));
+    }
+    /** 快捷键命令定义（纯函数，测试可直接断言各平台默认键位与动作）。 */
+    function buildSkillShortcutDefinition() {
+      // 实机按物理 code 匹配；primary = macOS ⌘ / Windows + Linux Ctrl
+      const bind = () => ({ code: 'KeyK', modifiers: ['primary', 'shift'] });
+      return {
+        id: SKILL_SHORTCUT_ID,
+        label: () => T('skillBtn'),
+        aliases: ['skill', 'skills', '创作技能', 'canvas skill'],
+        defaults: {
+          'desktop:macos': bind(),
+          'desktop:windows': bind(),
+          'desktop:linux': bind(),
+          'web:macos': bind(),
+          'web:windows': bind(),
+          // web:linux 故意不声明：DSH 的 Web/Linux 键位白名单只放行 Mod+Slash /
+          // Mod+Shift+Comma / Mod+Shift+Period（dsh-client-shortcuts 的 isWebBindingAllowed），
+          // 声明 Ctrl+Shift+K 会在注册期抛 "Unsupported Web shortcut"。
+        },
+        regions: ['page', 'editable'],
+        modals: [],
+        resolve: () => ({ status: 'handled', run: () => { openSkillPalette(); } }),
+      };
+    }
+    /** 注册快捷键：优先已注入的 ctx.shortcuts，否则用 ctx.inject 可选注入（旧 runner 安全跳过）。 */
+    function registerSkillShortcut(ctx) {
+      const install = (c) => {
+        if (!c || !c.shortcuts || typeof c.shortcuts.register !== 'function' || typeof c.effect !== 'function') return false;
+        try {
+          c.effect(() => c.shortcuts.register(buildSkillShortcutDefinition()), 'infinite-canvas: skill shortcut');
+          return true;
+        } catch (e) {
+          try { console.warn('[infinite-canvas] skill shortcut not registered:', (e && e.message) || e); } catch { /* 忽略 */ }
+          return false;
+        }
+      };
+      if (ctx && ctx.shortcuts) return install(ctx);
+      if (ctx && typeof ctx.inject === 'function') {
+        try { ctx.inject(['shortcuts'], (c) => { install(c); }); } catch { /* 无 shortcuts 服务：快捷键浮层里的技能按钮仍可用 */ }
+      }
+      return false;
+    }
+
     function SupportDialog() {
       const [qrFailed, setQrFailed] = useState(false);
       const close = () => update((s) => { s.supportOpen = false; });
@@ -12525,6 +12708,8 @@ window.__ModuleLoader__.load({
       inject: ['slots', 'locale', 'layout', 'sidebarRightTabs'],
       apply(ctx) {
         CTX = ctx;
+        // 创作技能快捷键（Ctrl/⌘ + Shift + K）：命令进入 ctx.shortcuts 目录 → Harness 快捷键面板可见
+        registerSkillShortcut(ctx);
         ctx.effect(() => ctx.locale.register(NS, { zh: DICT_ZH, en: DICT_EN }), 'infinite-canvas: dictionaries');
         ctx.effect(() => {
           const el = document.createElement('style');
@@ -12641,7 +12826,7 @@ window.__ModuleLoader__.load({
         // 冒烟测试专用缝隙（仅在 smoke-render.mjs 设置了该标记时存在）：
         // 直接暴露各页签组件与同步入口，让测试能逐个渲染/驱动，抓白屏与同步断链问题
         if (typeof window !== 'undefined' && window.__DSH_IC_SMOKE__) {
-          window.__DSH_IC_TABS__ = { ProjectsTab, AssetsTab, BibleTab, SettingsTab, CanvasPage, ShortcutsPanel, CanvasHostedApp };
+          window.__DSH_IC_TABS__ = { ProjectsTab, AssetsTab, BibleTab, SettingsTab, CanvasPage, ShortcutsPanel, CanvasHostedApp, SkillPalette };
           // 节点体/生成面板组件出口：供 scripts/test-node-actions.mjs 断言「结果操作按钮必须在节点末尾左下角」，
           // 并供 smoke-render 直接渲染新组件（MediaNodeBody / GenComposer）抓渲染期崩溃；
           // NodeShell 用于断言「点击区域规则」：标题栏/底部操作栏不弹面板，只有内容区弹。
@@ -12695,6 +12880,14 @@ window.__ModuleLoader__.load({
           window.__DSH_IC_VENDOR__ = { detectVideoVendor, gatewayPrefixFor, wanEndpoints, vendorBase, VIDEO_REF_CAPS };
           // BLK-02：ArtCraft 目录基准相关的纯函数出口（供 scripts/test-craft-base.mjs 断言）
           window.__DSH_IC_CRAFT__ = { craftBaseDir, craftBaseDirRequired, joinLocal, craftFolderOf, craft };
+          // 创作技能注入的测试缝隙：人设文本 / 快捷键命令定义 / 技能浮层动作（供 scripts/test-skill-inject.mjs 断言）
+          window.__DSH_IC_SKILL__ = {
+            EXPERT_SCRIPT, EXPERT_STORYBOARD,
+            SKILL_SHORTCUT_ID, buildSkillShortcutDefinition,
+            openSkillPalette, closeSkillPalette, copySkillText,
+            paletteOpen: () => !!S.skillPalette,
+            setPalette: (v) => { S.skillPalette = !!v; S.keysOpen = false; },
+          };
         }
       },
     };
