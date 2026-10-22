@@ -897,13 +897,10 @@ function cssRulesMatchingClass(name) {
   ok(/top:50%/.test(railInnerCss) && /translateY\(-50%\)/.test(railInnerCss), '图标列内层没有垂直居中（top:50% + translateY(-50%)）');
   ok(/justify-content:center/.test(railInnerCss), '图标列内层没有垂直居中');
   ok(!/flex:1/.test(railInnerCss), '图标列内层仍用 flex:1 撑满');
-  // 第 2 条：图标列（外层与内层）彻底移除卡片外观
-  for (const [label, rule] of [['外层 .dshic-rail', rail], ['内层 .dshic-rail-inner', railInnerCss]]) {
-    ok(!/(^|;)border(-[a-z-]+)?:(?!0)/.test(rule), label + ' 仍有非零 border 声明（应完全去掉描边）:' + rule.slice(0, 140));
-    ok(!/(^|;)background(-[a-z-]+)?:(?!transparent)/.test(rule), label + ' 仍有非透明 background（应完全去掉底色）:' + rule.slice(0, 140));
-    ok(!/(^|;)box-shadow:(?!none)/.test(rule), label + ' 仍有 box-shadow（应去掉卡片投影）');
-    ok(!/(^|;)border-radius:(?!0)/.test(rule), label + ' 仍有 border-radius（应去掉卡片圆角）');
-  }
+  // 内层 = 悬浮工具条本体：实底白（主题变量）+ 圆角 + 轻投影（即梦式），托住图标；外层保持透明占位
+  ok(/background:var\(--dsw-alias-bg-layer-1\)/.test(railInnerCss), '图标列内层缺少实底白背景（悬浮工具条要有白底）');
+  ok(/border-radius:14px/.test(railInnerCss), '图标列内层缺少圆角');
+  ok(/box-shadow:var\(--dshic-shadow\)/.test(railInnerCss), '图标列内层缺少轻投影');
   // 渲染级：外层与内层都不带边框/底色样式
   const railTree = TABS.IconRail();
   const railEl = all(railTree).find((e) => clsOf(e).split(/\s+/).includes('dshic-rail'));

@@ -1510,7 +1510,7 @@ window.__ModuleLoader__.load({
 .dshic-rail{position:absolute;left:0;top:0;bottom:0;width:46px;z-index:30;pointer-events:none;background:transparent;border:0;box-shadow:none;}
 .dshic-rail-inner{position:absolute;left:0;top:50%;transform:translateY(-50%);width:46px;pointer-events:auto;
   display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;padding:6px 0;box-sizing:border-box;z-index:25;
-  background:transparent;border:0;box-shadow:none;border-radius:0;}
+  background:var(--dsw-alias-bg-layer-1);border:1px solid var(--dshic-line2);border-radius:14px;box-shadow:var(--dshic-shadow);}
 .dshic-rail-btn{width:34px;height:34px;flex:none;display:flex;align-items:center;justify-content:center;border:none;border-radius:9px;
   background:transparent;color:var(--dsw-alias-label-secondary);cursor:pointer;position:relative;padding:0;}
 .dshic-rail-btn:hover{background:color-mix(in srgb,var(--dsw-alias-label-primary) 8%,transparent);color:var(--dsw-alias-label-primary);}
