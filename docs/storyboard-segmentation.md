@@ -77,7 +77,7 @@
 | B6 | **时间节拍模板**：6/9/10/15s 各有 `[0s]/[3s]/[6s]…[Ns]` 的分段节拍 | 同上 L43-84 | 用"时间点 + 该时点发生什么"约束模型，而不是只给总时长 | `timeBeats` 字段直接落地为 3 个时间点（0 / 中段 / 尾点） |
 | B7 | **机位-镜头-焦段-光圈四层提示词库**：8 机位、8 镜头、11 焦段、10 光圈；模板明确声明"这是摄影参数，不是画面里的物体" | `web/src/lib/canvas/camera-prompt-library.ts` L41-230、L253-280 | 把"只会平移"升级为可执行的光学语言；并防止模型把摄影机画进画面 | 我们的 `camera` 字段用"机位 + 焦段/光圈 + 运动"三件套；模板加同款防误绘声明 |
 | B8 | **模型能力表**：`VideoCapabilityConfig.duration`（`selection: range/enum`、min/max/step/values、`fractionalMin`）、`references.maxVideoDurationSeconds / maxVideoTotalDurationSeconds` | `web/src/lib/model-capabilities.ts` L66-114 | 切段前先知道"这台模型一次能吃多少秒、什么离散值" | 新增能力表，`maxClipSeconds` 从能力表来；未知模型按最保守值处理 |
-| B9 | **行级产出绑定**：一行通过 `imageNodeId / videoNodeId` 绑定素材；行时长 1–60s，默认 6s；`row:<id>` 作为生成输入句柄 | `docs/content/content/docs/backend/storyboard-operations.mdx` L11、L18、L24；`web/src/components/canvas/canvas-node-generation.ts` L435-471 | **镜头行就是生成边界**；行内字段（含 `continuityOut`）跨行显式传递连续性 | 我们保留"多镜合并以省调用"，但合并必须发生在**切点处**；同时让每个视频节点知道自己负责哪几镜 |
+| B9 | **行级产出绑定**：一行通过 `imageNodeId / videoNodeId` 绑定素材；行时长 1–60s，默认 6s；`row:<id>` 作为生成输入句柄 | `docs/content/docs/backend/storyboard-operations.mdx` L11、L18、L24；`web/src/components/canvas/canvas-node-generation.ts` L435-471 | **镜头行就是生成边界**；行内字段（含 `continuityOut`）跨行显式传递连续性 | 我们保留"多镜合并以省调用"，但合并必须发生在**切点处**；同时让每个视频节点知道自己负责哪几镜 |
 
 **不照搬的三点**：
 
@@ -98,7 +98,7 @@
 | JSON 结构不变 | `{"shots":[…]}` 仍是唯一输出；`title/visual/motion/tail/cam/start/seg/characters/scene/props/duration/dialogue/sfx` 保持原义 | 新增字段全部可选；解析器沿用现有 `aiStoryboardShots` 的映射，不改字段名 |
 | 旧项目行为不变 | 没有分段信息的分镜表仍走"一表一视频节点"旧路径 | `videoSegment` 缺省 = 旧行为；`expandStoryboard` 保留原分支 |
 | `seg/tail/cam/start` 语义不变 | 切段只**选择边界**，不改镜头间契约 | 切段规划器复用 `shotContinuityPlan` 的 `seg` 推断（L2875） |
-| 参考图链路不变 | 参考图仍只来自 `ref` 连线，`@实体@` 只注入设定文字 | 沿用 `resolveRefs` / `buildStructuredVideoPrompt` 现有主体绑定逻辑 |
+| 参考图链路不变 | 参考图仍只来自 `ref` 连线，`@实体@` 只注入设定文字 | 沿用 `collectRefs`（L3666）/ `buildStructuredVideoPrompt` 现有主体绑定逻辑 |
 
 ### 3.1 切段规划器 segmentation planner
 
@@ -295,7 +295,7 @@ needsTailChain =
 
 #### 3.3.4 负面清单（默认全段生效）
 
-`换脸、五官漂移、服装变化、手部畸形、多指、穿模、画面闪烁、风格突变、动作僵硬、人物凭空出现或消失、口型与台词不同步`；各镜 `negative` 追加到本段。提示词长度超预算时，按 `optionalDetails > vfx > timeBeats` 顺序裁剪，**不得裁剪 visual/motion/seg/tail**。
+`换脸、五官漂移、服装变化、手部畸形、多指、穿模、画面闪烁、风格突变、动作僵硬、人物凭空出现或消失、口型与台词不同步`；各镜 `negative` 追加到本段。提示词长度超预算时，按 `vfx > timeBeats > camera` 顺序裁剪，**不得裁剪 visual/motion/seg/tail**。
 
 ### 3.4 画布交互
 
@@ -340,7 +340,7 @@ needsTailChain =
 
 | ID | 断言 | 怎么测 |
 |---|---|---|
-| A1 | 任意 `continuation` 镜头不得跨段：每段内 `shotIds` 的镜头边界都必须是合法切点 | 遍历 `segments[*].shotIds`，对段内相邻镜头断言边界合法；随机 shots 属性测试 |
+| A1 | 同一 `continuation` 镜头不得跨段；段与段之间的边界必须落在合法切点（§3.1.2 A/B/C/D 之一） | 遍历相邻两段（上段末镜、本段首镜）断言边界合法；随机 shots 属性测试 |
 | A2 | 每段 `duration ≤ maxClipSeconds`（单镜超长例外，且必须 `seamRisk='forced'`） | 表驱动 + 随机边界（0.3s/15s/15.1s） |
 | A3 | 第 1 段之外，每段首镜必须是切点镜头（A 形态）或上一段末镜是切点镜头（B 形态）；否则 `seamRisk='forced'` | 遍历段首/上段末镜断言 |
 | A4 | 镜头恰好被覆盖一次：`segments.flatMap(shotIds)` 与 `[0..n)` 完全相等且有序 | 集合/数组相等断言 |
