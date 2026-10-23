@@ -3806,7 +3806,7 @@ export function apply(ctx) {
         path: `/${NAME}/api/file`,
         async handler(req, res) {
           try {
-            if (req.method !== 'GET') { res.statusCode = 405; res.end('仅接受 GET'); return; }
+            if (req.method !== 'GET' && req.method !== 'HEAD') { res.statusCode = 405; res.end('仅接受 GET/HEAD'); return; }
             const root = dataRoot();
             if (!root) { res.statusCode = 404; res.end('未设置数据根目录'); return; }
             const u = new URL(req.url, 'http://localhost');
@@ -3819,6 +3819,13 @@ export function apply(ctx) {
             res.setHeader('content-type', mimeOf(abs));
             res.setHeader('accept-ranges', 'bytes');
             res.setHeader('cache-control', 'no-cache');
+            // HEAD：只回应元信息（node fetch HEAD 探针用），不读文件、不占解码/内存
+            if (req.method === 'HEAD') {
+              res.statusCode = 200;
+              res.setHeader('content-length', String(st.size));
+              res.end();
+              return;
+            }
             const m = /^bytes=(\d*)-(\d*)$/.exec(String(req.headers.range || ''));
             if (m && (m[1] !== '' || m[2] !== '')) {
               let start;
@@ -3842,6 +3849,45 @@ export function apply(ctx) {
           } catch (e) {
             res.statusCode = 400;
             res.end(String((e && e.message) || e));
+          }
+        },
+      }),
+      // 视频静态封面（poster）落盘：body 为 jpeg/png 字节，写入 `<rel>.poster.jpg`。
+      // 有 poster 后画布视频节点默认只画一张 img（浏览器磁盘缓存、零视频解码），播放时才挂 <video>。
+      ctx.webServer.register({
+        kind: 'exact',
+        path: `/${NAME}/api/poster`,
+        async handler(req, res) {
+          res.setHeader('content-type', 'application/json; charset=utf-8');
+          try {
+            if (req.method !== 'POST' && req.method !== 'PUT') {
+              res.statusCode = 405;
+              res.end(JSON.stringify({ error: '仅接受 POST/PUT' }));
+              return;
+            }
+            const root = dataRoot();
+            if (!root) throw new Error('未设置数据根目录');
+            const u = new URL(req.url, 'http://localhost');
+            const rawRel = String(u.searchParams.get('rel') || '').trim();
+            if (!rawRel) throw new Error('缺少 rel');
+            if (/\.poster\.jpg$/i.test(rawRel)) throw new Error('rel 不应包含 poster 后缀');
+            const rel = physicalRel(rawRel) || rawRel; // 逻辑路径（pid）→ 物理路径（项目名文件夹）
+            const { abs, clean } = safeJoin(root, rel + '.poster.jpg'); // safeJoin 会拒绝 ../ 与绝对路径
+            mkdirSync(path.dirname(abs), { recursive: true });
+            const chunks = [];
+            let size = 0;
+            const MAX_POSTER = 8 * 1024 * 1024; // 封面只应是缩略 JPEG，8MB 足够且防无界写盘
+            for await (const c of req) {
+              size += c.length;
+              if (size > MAX_POSTER) { res.statusCode = 413; res.end(JSON.stringify({ error: 'poster 过大（上限 8MB）' })); return; }
+              chunks.push(c);
+            }
+            if (!size) throw new Error('poster 内容为空');
+            await fs.writeFile(abs, Buffer.concat(chunks));
+            res.end(JSON.stringify({ ok: true, rel: clean, size }));
+          } catch (e) {
+            res.statusCode = 400;
+            res.end(JSON.stringify({ error: String((e && e.message) || e) }));
           }
         },
       }),

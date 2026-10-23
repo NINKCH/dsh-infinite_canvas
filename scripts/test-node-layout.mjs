@@ -955,9 +955,11 @@ const barsOn = () => HDR() + FOOT();
   // 源码契约：timeupdate 驱动；play/pause/ended 切换显隐；不用原生 controls
   ok(/onTimeUpdate/.test(src), '视频缺少 timeupdate 进度驱动');
   ok(/onPause: \(\) => setPlaying\(false\)/.test(src), '暂停时必须撤掉控件条（playing=false）');
-  ok(/onEnded: \(\) => \{ setPlaying\(false\); setEnded\(true\); \}/.test(src), '播放结束必须撤掉控件条并进入重播态');
+  ok(/onEnded: \(\) => \{[^}]*setPlaying\(false\);[^}]*setEnded\(true\);/.test(src), '播放结束必须撤掉控件条并进入重播态');
   ok(/const vidMode = videoUiMode\(playing, ended\)/.test(src), '视频控件显隐未走纯函数状态机');
-  ok(/vidShown && vidMode !== 'controls'/.test(src) && /vidShown && vidMode === 'controls'/.test(src), '播放键/控件条的渲染条件必须是 vidMode');
+  // 播放后才挂 <video>（默认只有 poster）：控件条/播放键仍只由 vidMode 决定，且仅视频节点
+  ok(/done && kind === 'video' && vidMode !== 'controls'/.test(src) && /done && kind === 'video' && vidMode === 'controls'/.test(src),
+    '播放键/控件条的渲染条件必须是 vidMode（且仅视频节点）');
   ok(/\.dshic-media-ctl\{[^}]*position:absolute/.test(src), '控件条必须是画面内的底部浮层（不挤压画面比例）');
   {
     const vi = src.indexOf("key: 'vid', ref: videoRef");

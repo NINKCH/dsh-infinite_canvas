@@ -52,6 +52,7 @@ const SUITE = [
   // --- 渲染与组件 ---
   { name: 'smoke-render.mjs', desc: '渲染冒烟（假 React 走真实组件树，抓黑屏级崩溃）' },
   { name: 'test-drag-alt.mjs', desc: '拖动推挤 / Alt 自由摆放 / 快捷键面板' },
+  { name: 'test-canvas-perf.mjs', desc: '画布性能（poster 懒视频 / idbGet 顺序 / imperative 拖动 / memo）' },
   { name: 'test-download-ext.mjs', desc: 'IC-01 下载扩展名按容器判定' },
   { name: 'test-craft-base.mjs', desc: 'BLK-02 画布→ArtCraft base+path 契约' },
   { name: 'test-image-upload.mjs', desc: 'IC-04 参考图上传三件套（嗅探/原始尺寸/登记重试）' },

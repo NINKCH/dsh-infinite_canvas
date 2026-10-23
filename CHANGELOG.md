@@ -6,8 +6,17 @@ GitHub Releases carry the same notes in English; maintainer-facing runbooks live
 
 ## [Unreleased]
 
-> Nothing yet. Add entries here (Added / Fixed / Changed / Internal) as `dev` moves; the release
-> gate requires the section to exist above the newest released version.
+### Added
+- **Video nodes now show a static poster until the user presses play**: the idle canvas renders one cheap `<img>` from a disk-cached `<asset rel>.poster.jpg` instead of a permanently mounted `<video preload="metadata">`, so a board with ten clips no longer initialises ten decoders or re-rasterises them while dragging; the `<video>` element is mounted only while playing (poster attribute included) and unmounted on pause/end. A new Host route `POST /api/poster` writes the first-frame JPEG under the data root (path-guarded), while the client probes with HEAD, generates once per asset (concurrency ≤2, in-flight dedupe) and silently falls back to a neutral placeholder on failure. `mediaState` is `ready` as soon as the poster exists, so the skeleton appears only once during first poster generation and never flickers back.
+
+### Fixed
+- **The canvas no longer flickers between skeleton and picture**: the old flow reset `mediaState` to `idle` on every asset change and waited for `onLoadedMetadata`, so a re-render could briefly unmount the media and show the skeleton again. Video readiness now comes from the poster `img`, and a poster failure is a neutral placeholder rather than a repeating skeleton; image nodes keep their existing single-load path.
+
+### Changed
+- **Asset lookup and node dragging got much cheaper**: `idbGet` now hits `assetMem` → `hostRpc('assetsGet')` first (IndexedDB only in JSON mode, only once per miss in SQLite mode, or when the RPC throws), removing a pointless IDB transaction on every lookup; large blob object URLs (>8MB) are no longer cached (LRU cap 40 entries / 48MB for small ones) so tens-of-MB videos stop being pinned in memory. Node dragging is coalesced into one `requestAnimationFrame` per frame with only the dragged node + neighbours in the snap/push candidate list, writes `style.left/top` and edge paths imperatively with zero `notify` during the drag, emits exactly one `notify` on pointerup, temporarily disables the running-sheen filter via `is-node-dragging`, and skips `MediaNodeBody` re-renders through a stable `_rev`/edge-signature memo. Nodes also get `contain:layout style` (no paint containment, so ports stay clickable), and edge paths are recomputed at most once per frame and only for edges touching the moved nodes.
+
+### Internal
+- `scripts/test-canvas-perf.mjs` (registered in `scripts/regress.mjs`) covers the poster/video lifecycle, poster cache/generation/HEAD/POST/fallback and concurrency limit, Host `/api/poster` write + `../` rejection + GET readback, the `idbGet` order/miss/JSON/throw-fallback cases, the imperative rAF drag (no notify during move, exactly one on pointerup, `is-node-dragging`), and `MediaNodeBody` memo behaviour; `test-node-layout` now accepts the lazy `<video>` (asserts it appears only after play) and `test-drag-alt` looks at the extracted `applyNodeDragFrame`.
 
 ## [0.18.7] — 2026-10-22
 

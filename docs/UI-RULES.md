@@ -64,6 +64,7 @@
 39. 多画布：子画布独立文档；**资产与设定集按项目共享**；旧项目零迁移（默认画布 `canvasId=null` 时 key 仍等于 projectId）。
 40. 每轮改动必须跑全量门禁（`scripts/regress.mjs` 等 37+ 脚本全 PASS）后才允许提交。
 41. **设置页技能增强 = 单一「专家」下拉**：专家 = 一套技能组（`persona` + `skills`）；选项**只列本插件专家**（当前仅「通用专家 / General expert」，默认值 `general`），**禁止列举 Harness 全部技能**（artcraft-* / noteboard-* / office-* / diagnose-* 等一律不得出现）；旧设置 `skillScript` / `skillStoryboard` 迁移到 `general`，缺字段/非法值回退 `general` 且不报错。
+42. **画布性能**：视频节点空闲时只渲染静态 poster（不挂 `<video>`，播放时才挂、暂停/播完卸载），有 poster 即视为 ready，骨架只允许在首次取 poster 时出现一次；拖动/平移的每一帧**不得** `notify()` 全树、不得遍历全部节点，松手只通知一次；`idbGet` 在 SQLite 模式必须先走服务端，**不得**每次前置查 IndexedDB。
 
 ---
 

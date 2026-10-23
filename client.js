@@ -1671,6 +1671,9 @@ window.__ModuleLoader__.load({
 .dshic-node{position:absolute;box-sizing:border-box;width:${NODE_W}px;background:var(--dshic-card);
   border:1px solid var(--dshic-line2);border-radius:var(--dshic-node-r);box-shadow:var(--dshic-shadow);
   cursor:grab;min-height:96px;display:flex;flex-direction:column;
+  /* P2：布局/样式隔离，减少节点内部变化触发的全画布 layout/paint；刻意**不用 paint containment**，
+     否则端口圆点（负偏移到节点外）会被裁掉。 */
+  contain:layout style;
   transition:border-color .18s,box-shadow .18s;}
 .dshic-node:active{cursor:grabbing;}
 .dshic-node:hover{border-color:var(--dshic-line-hover);}
@@ -2034,7 +2037,9 @@ window.__ModuleLoader__.load({
 .dshic-node-body.is-textual > .dshic-node-row,
 .dshic-node-body.is-textual > .dshic-card{margin-left:var(--dshic-body-pad-x);margin-right:var(--dshic-body-pad-x);}
 /* 预览区（原型 .media）：flex:1 + 相对定位 + 项目底色；画面贴边，不与边框留内距 */
-.dshic-media-wrap{position:relative;flex:1;min-height:0;background:var(--dshic-preview-bg);overflow:hidden;}
+.dshic-media-wrap{position:relative;flex:1;min-height:0;background:var(--dshic-preview-bg);overflow:hidden;
+  /* P0：可见性裁剪（浏览器级）——视口外的媒体内容跳过绘制/解码，节点框与端口仍在节点层，不影响交互 */
+  content-visibility:auto;contain-intrinsic-size:360px 300px;}
 /* 预览**不裁切**：预览盒比例已严格等于画面比例（nodeSizeForRatio 保证），
    所以用 fill 既不会裁切（旧 cover 会裁掉约 10%）也不会 letterbox；比例一致时 fill == contain。 */
 .dshic-media-fill{position:absolute;inset:0;width:100%;height:100%;object-fit:fill;background:var(--dshic-preview-bg);display:block;}
@@ -2079,6 +2084,10 @@ window.__ModuleLoader__.load({
 .dshic-ctl-range::-moz-range-thumb{width:11px;height:11px;border-radius:50%;background:var(--dshic-card);
   border:1.5px solid var(--dshic-accent);}
 .dshic-media-wrap.is-running .dshic-media-fill{animation:dshic-sheen 1.4s infinite;}
+/* P1：拖动期间临时停掉节点内的 sheen filter 动画（filter 动画会让整块节点每帧重新光栅化） */
+.dshic-canvas.is-node-dragging .dshic-media-wrap.is-running .dshic-media-fill{animation:none !important;}
+/* 视频 poster 生成失败：中性占位（不闪、不破图） */
+.dshic-media-placeholder{position:absolute;inset:0;background:var(--dshic-preview-bg);display:block;}
 @keyframes dshic-sheen{0%{filter:brightness(.92)}50%{filter:brightness(1.06)}100%{filter:brightness(.92)}}
 /* 操作栏（第三段，原型 .foot）：固定高度 NODE_FOOT_H = 7 + 24 + 7 + 1px border-top；
    border-top + 上下内距保证按钮与画面之间有明显间距（不贴边），且 flex:none 不参与画面比例 */
@@ -3553,7 +3562,19 @@ window.__ModuleLoader__.load({
       });
     }
     const assetMem = new Map(); // id -> rec：服务端元数据缓存（0.18 起服务端是资产库唯一事实源）
+    /** 资产记录读取（0.18.6+ 性能修复）：内存缓存 → 服务端（sqlite 模式为唯一事实源）→ 旧 IndexedDB 兜底。
+     *  0.18 起新资产只写磁盘 + canvas.db；旧实现每次都先查一次 IDB 事务（拖动/批量渲染时白开销），
+     *  老 blob 资产还会被命中并把几十 MB 视频钉在内存。
+     *  新顺序：
+     *   - sqlite 模式：先 hostRpc('assetsGet')；仅当返回空时，迁移期允许**每个 id 只查一次** IDB（idbMiss 记忆 miss）。
+     *   - JSON 降级模式：IDB 就是事实源，先查 IDB；hostRpc 仅兜底。
+     *   - hostRpc 抛错：回退 IDB（不记 miss，下次仍可重试服务端）。 */
+    const idbMiss = new Set(); // sqlite 模式下：IDB 查过一次 miss 的 id（永不再查）
+    let idbRawCalls = 0; // 测试/诊断：IDB 查询次数（性能修复后 sqlite 命中应保持 0）
+    let idbGetRawImpl = null; // 测试注入
     async function idbGetRaw(id) {
+      idbRawCalls++;
+      if (idbGetRawImpl) return idbGetRawImpl(id);
       const db = await openDb();
       return new Promise((resolve, reject) => {
         const rq = db.transaction(DB_STORE, 'readonly').objectStore(DB_STORE).get(id);
@@ -3561,10 +3582,25 @@ window.__ModuleLoader__.load({
         rq.onerror = () => reject(rq.error);
       });
     }
-    /** 资产记录读取（0.18）：内存缓存 → 服务端 → 旧 IndexedDB 兜底（迁移期遗留 blob）。 */
     async function idbGet(id) {
       if (!id) return null;
       if (assetMem.has(id)) return assetMem.get(id) || null;
+      if (S.store === 'sqlite') {
+        let serverOk = false;
+        try {
+          const r = await hostRpc('assetsGet', { ids: [id] });
+          serverOk = true;
+          const rec = (r && r.items && r.items[0]) || null;
+          if (rec) { assetMem.set(rec.id, rec); assetNameCache.set(rec.id, rec.name); return rec; }
+        } catch { serverOk = false; }
+        // 服务端不可用 → 回退 IDB；服务端可用但无记录 → 迁移期只查一次（miss 后永不再查）
+        if (serverOk && idbMiss.has(id)) return null;
+        const local = await idbGetRaw(id).catch(() => null);
+        if (local) return local;
+        if (serverOk) idbMiss.add(id);
+        return null;
+      }
+      // 非 sqlite（JSON 降级/旧环境）：本地 IDB 优先，服务端兜底
       const local = await idbGetRaw(id).catch(() => null);
       if (local) return local;
       try {
@@ -3580,7 +3616,7 @@ window.__ModuleLoader__.load({
       if (assetUrlCache.has(id)) {
         const u = assetUrlCache.get(id);
         assetUrlCache.delete(id);
-        if (typeof u === 'string' && u.startsWith('blob:')) { try { URL.revokeObjectURL(u); } catch { /* 忽略 */ } }
+        revokeBlobUrl(u && u.url);
       }
       const db = await openDb();
       return new Promise((resolve, reject) => {
@@ -3663,8 +3699,41 @@ window.__ModuleLoader__.load({
         rq.onerror = () => reject(rq.error);
       });
     }
-    const assetUrlCache = new Map();
+    // ── 资产内容 URL 缓存（内存策略）──────────────────────────────────────────
+    // 只缓存 ≤8MB 的 blob objectURL（图片/小视频）；更大的 blob（典型 >8MB 视频）**不缓存**，
+    // 由使用方（useAssetUrl 卸载 / poster 生成结束）立即 revoke。理由：objectURL 会把整个 Blob
+    // 钉在内存里，0.18 后媒体文件本来就在磁盘、可直接用 /api/file 流式读取；把几十 MB 视频
+    // 缓存起来对拖动帧毫无收益，只会让标签页内存随浏览过的视频线性上涨。
+    // 小对象仍按 LRU 限制条数 + 总字节（40 条 / 48MB），避免大量图片把内存撑爆。
+    const ASSET_URL_MAX_ENTRIES = 40;
+    const ASSET_URL_MAX_BYTES = 48 * 1024 * 1024;
+    const ASSET_URL_LARGE_BYTES = 8 * 1024 * 1024;
+    const assetUrlCache = new Map(); // id -> { url, size }
     const assetNameCache = new Map(); // assetId -> name（连线绑定的同步名称查询）
+    function revokeBlobUrl(u) {
+      if (typeof u === 'string' && u.startsWith('blob:')) { try { URL.revokeObjectURL(u); } catch { /* 忽略 */ } }
+    }
+    function assetUrlCacheBytes() {
+      let n = 0;
+      for (const v of assetUrlCache.values()) n += (v && v.size) || 0;
+      return n;
+    }
+    function trimAssetUrlCache() {
+      while (assetUrlCache.size > ASSET_URL_MAX_ENTRIES || assetUrlCacheBytes() > ASSET_URL_MAX_BYTES) {
+        const first = assetUrlCache.entries().next();
+        if (first.done) break;
+        assetUrlCache.delete(first.value[0]);
+        revokeBlobUrl(first.value[1] && first.value[1].url);
+      }
+    }
+    function assetUrlCached(id) {
+      const hit = assetUrlCache.get(id);
+      if (!hit) return null;
+      // LRU：命中时挪到队尾
+      assetUrlCache.delete(id);
+      assetUrlCache.set(id, hit);
+      return hit.url;
+    }
     function fileUrlFor(rel) { return '/' + NS + '/api/file?rel=' + encodeURIComponent(rel); }
     /** 磁盘落盘扩展名（IC-B3 统一后唯一保留的 mime→ext 映射）：mime 子类型直取，
      *  非法子类型回退 .bin。与 extForDownload 的区别：落盘时 mime 已由生成链路给出
@@ -3682,23 +3751,24 @@ window.__ModuleLoader__.load({
     }
     async function assetUrl(id) {
       if (!id) return null;
-      if (assetUrlCache.has(id)) return assetUrlCache.get(id);
+      const cached = assetUrlCached(id);
+      if (cached) return cached;
       const rec = await idbGet(id);
       if (!rec) return null;
       let url = contentUrlFor(rec);
       if (!url && rec.blob) {
-        // IndexedDB 资产：objectURL 有内存成本 → 缓存总量设上限，超出时释放最早的一批
-        if (assetUrlCache.size >= 60) {
-          const first = assetUrlCache.keys().next();
-          if (!first.done) {
-            const oldUrl = assetUrlCache.get(first.value);
-            assetUrlCache.delete(first.value);
-            if (typeof oldUrl === 'string' && oldUrl.startsWith('blob:')) { try { URL.revokeObjectURL(oldUrl); } catch { /* 忽略 */ } }
-          }
-        }
+        const size = Number(rec.blob.size) || 0;
         url = URL.createObjectURL(rec.blob);
+        // 大 blob（>8MB）不缓存 objectURL：由 useAssetUrl/poster 使用方在结束时 revoke
+        if (size <= ASSET_URL_LARGE_BYTES) {
+          assetUrlCache.set(id, { url, size });
+          trimAssetUrlCache();
+        }
+      } else if (url) {
+        // 磁盘/CAS URL 不占内存，缓存起来避免重复 idbGet 拼串
+        assetUrlCache.set(id, { url, size: 0 });
+        trimAssetUrlCache();
       }
-      if (url) assetUrlCache.set(id, url);
       return url;
     }
     /** 取资产 Blob：CAS/磁盘资产经 Host 文件服务拉取（远程同样可用），旧资产直接读 IndexedDB。 */
@@ -3815,9 +3885,169 @@ window.__ModuleLoader__.load({
       useEffect(() => {
         let ok = true;
         assetUrl(id).then((u) => { if (ok) setUrl(u); });
-        return () => { ok = false; };
+        return () => {
+          ok = false;
+          // 未进缓存的大 blob URL：组件卸载/换资产时立即释放（缓存内的由 LRU 统一释放）
+          if (url && url.startsWith('blob:')) {
+            let cached = false;
+            for (const v of assetUrlCache.values()) if (v && v.url === url) { cached = true; break; }
+            if (!cached) revokeBlobUrl(url);
+          }
+        };
       }, [id]);
       return url;
+    }
+
+    // ============================================================
+    // 视频静态封面（poster）：默认只画一张 img（零视频解码），播放时才挂 <video>
+    // ============================================================
+    const posterCache = new Map();     // assetId -> poster URL（内存命中直接返回，不再探测/解码）
+    const posterInflight = new Map();  // assetId -> Promise（并发同 id 只生成一次）
+    const posterQueue = [];            // 生成任务串行队列
+    let posterActive = 0;
+    const POSTER_MAX_CONCURRENT = 2;   // 同时最多 2 个离屏解码，避免一次开 10 个解码器
+    const posterStats = { active: 0, max: 0, generated: 0 }; // 测试/诊断用
+    function pumpPosterQueue() {
+      while (posterActive < POSTER_MAX_CONCURRENT && posterQueue.length) {
+        const job = posterQueue.shift();
+        posterActive++;
+        posterStats.active = posterActive;
+        posterStats.max = Math.max(posterStats.max, posterActive);
+        Promise.resolve().then(job.task).then(job.resolve, job.reject).finally(() => {
+          posterActive--;
+          posterStats.active = posterActive;
+          pumpPosterQueue();
+        });
+      }
+    }
+    function enqueuePosterTask(task) {
+      return new Promise((resolve, reject) => { posterQueue.push({ task, resolve, reject }); pumpPosterQueue(); });
+    }
+    async function probePosterUrl(rel) {
+      if (!rel) return null;
+      const url = fileUrlFor(rel + '.poster.jpg');
+      try {
+        const r = await fetch(url, { method: 'HEAD' });
+        return r && r.ok ? url : null;
+      } catch { return null; }
+    }
+    function dataUrlToBlob(dataUrl) {
+      const s = String(dataUrl || '');
+      const comma = s.indexOf(',');
+      const head = comma >= 0 ? s.slice(0, comma) : '';
+      const body = comma >= 0 ? s.slice(comma + 1) : '';
+      const mime = (/data:([^;]+)/.exec(head) || [])[1] || 'image/jpeg';
+      const bin = typeof atob === 'function' ? atob(body) : '';
+      const arr = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+      return new Blob([arr], { type: mime });
+    }
+    /** 离屏 <video> 取首帧 → JPEG dataURL；任何失败都静默返回 null（节点显示中性占位，不闪）。 */
+    function extractVideoPosterDataUrl(src) {
+      return new Promise((resolve) => {
+        let v = null;
+        let done = false;
+        let timer = null;
+        const finish = (out) => {
+          if (done) return;
+          done = true;
+          if (timer) clearTimeout(timer);
+          try { if (v) { v.onloadeddata = null; v.onseeked = null; v.onerror = null; v.removeAttribute('src'); if (v.load) v.load(); } } catch { /* 忽略 */ }
+          resolve(out || null);
+        };
+        try {
+          v = document.createElement('video');
+          v.preload = 'auto';
+          v.muted = true;
+          v.playsInline = true;
+          v.onerror = () => finish(null);
+          v.onloadeddata = () => {
+            try { v.currentTime = Math.min(0.05, (Number(v.duration) || 1) / 10); } catch { finish(null); }
+          };
+          v.onseeked = () => {
+            try {
+              const w = Number(v.videoWidth) || 0;
+              const h = Number(v.videoHeight) || 0;
+              if (!(w > 0 && h > 0)) return finish(null);
+              const cv = document.createElement('canvas');
+              cv.width = w; cv.height = h;
+              const ctx = cv.getContext && cv.getContext('2d');
+              if (!ctx) return finish(null);
+              ctx.drawImage(v, 0, 0, w, h);
+              finish(cv.toDataURL('image/jpeg', 0.72));
+            } catch { finish(null); }
+          };
+          timer = setTimeout(() => finish(null), 8000);
+          v.src = src;
+          try { if (v.load) v.load(); } catch { /* 忽略 */ }
+        } catch { finish(null); }
+      });
+    }
+    /** 生成并落盘 poster：已有 `<rel>.poster.jpg` 直接复用（HEAD 200）；否则离屏解码一次首帧 →
+     *  POST /api/poster 落盘 → 返回磁盘 URL。失败静默返回 null。 */
+    async function generatePosterFor(assetId, rec) {
+      let tempUrl = null;
+      try {
+        const src = contentUrlFor(rec) || (tempUrl = await assetUrl(assetId));
+        if (!src) return null;
+        const dataUrl = await extractVideoPosterDataUrl(src);
+        if (!dataUrl) return null;
+        if (rec && rec.rel) {
+          try {
+            const r = await fetch('/' + NS + '/api/poster?rel=' + encodeURIComponent(rec.rel), {
+              method: 'POST', headers: { 'content-type': 'image/jpeg' }, body: dataUrlToBlob(dataUrl),
+            });
+            if (r && r.ok) return fileUrlFor(rec.rel + '.poster.jpg');
+          } catch { /* 落盘失败 → 用内存 dataURL 兜底，画面仍不闪 */ }
+        }
+        return dataUrl;
+      } catch { return null; } finally {
+        if (tempUrl) {
+          let cached = false;
+          for (const v of assetUrlCache.values()) if (v && v.url === tempUrl) { cached = true; break; }
+          if (!cached) revokeBlobUrl(tempUrl);
+        }
+      }
+    }
+    /** 视频封面 URL：内存缓存 → 磁盘 HEAD 探测 → 单次生成（并发同 id 去重 + 全局 ≤2 并发）。 */
+    function videoPosterUrl(assetId) {
+      if (!assetId) return Promise.resolve(null);
+      if (posterCache.has(assetId)) return Promise.resolve(posterCache.get(assetId));
+      if (posterInflight.has(assetId)) return posterInflight.get(assetId);
+      const task = (async () => {
+        const rec = await idbGet(assetId);
+        if (!rec) return null;
+        const existing = await probePosterUrl(rec.rel);
+        if (existing) { posterCache.set(assetId, existing); return existing; }
+        return enqueuePosterTask(async () => {
+          if (posterCache.has(assetId)) return posterCache.get(assetId);
+          const made = await generatePosterFor(assetId, rec);
+          if (made) { posterCache.set(assetId, made); posterStats.generated++; }
+          return made;
+        });
+      })();
+      posterInflight.set(assetId, task);
+      const clear = () => { posterInflight.delete(assetId); };
+      task.then(clear, clear);
+      return task;
+    }
+    function useVideoPoster(assetId) {
+      const [poster, setPoster] = useState(null);
+      const [state, setState] = useState('idle'); // idle | loading | ready | error
+      useEffect(() => {
+        if (!assetId) { setPoster(null); setState('idle'); return undefined; }
+        const hit = posterCache.get(assetId);
+        if (hit) { setPoster(hit); setState('ready'); return undefined; }
+        let ok = true;
+        setState('loading');
+        videoPosterUrl(assetId).then((u) => {
+          if (!ok) return;
+          setPoster(u);
+          setState(u ? 'ready' : 'error');
+        }).catch(() => { if (ok) { setPoster(null); setState('error'); } });
+        return () => { ok = false; };
+      }, [assetId]);
+      return { poster, state };
     }
 
     // ============================================================
@@ -7184,7 +7414,8 @@ window.__ModuleLoader__.load({
     let saveTimer = null;
     let commitViewTimer = null;
 
-    function notify() { S.tick++; for (const fn of listeners) fn(); }
+    let notifyCount = 0; // 测试/诊断用：全树通知次数（拖动帧内必须不增长）
+    function notify() { notifyCount++; S.tick++; for (const fn of listeners) fn(); }
     function subscribe(fn) { listeners.add(fn); return () => listeners.delete(fn); }
     function update(fn, opts) {
       const edgesBefore = S.graph ? S.graph.edges : null; // 引用比较：fn 换了数组说明发生过边增删
@@ -8398,7 +8629,66 @@ window.__ModuleLoader__.load({
     // ============================================================
     // altNoPush：本次拖动是否处于「按住 Alt 自由摆放」模式（不推挤邻居、也不吸附加固）。
     // 注意每次 pointermove 都重新读 e.altKey，所以拖动中途按下/松开 Alt 会实时切换。
-    const drag = { mode: null, sx: 0, sy: 0, moved: false, nodeStarts: null, marquee: null, linkFrom: null, shift: false, altNoPush: false };
+    const drag = {
+      mode: null, sx: 0, sy: 0, moved: false, nodeStarts: null, marquee: null, linkFrom: null, shift: false, altNoPush: false,
+      // P1：拖动期间的 rAF 合并 + 吸附候选（拖起时算一次，指针移动帧里只遍历候选，不遍历全部节点）
+      snapCandidates: null, raf: 0, pendingEvent: null, lastEvent: null,
+    };
+    /** 吸附/推挤候选：被拖节点 + 与其相连的节点 + 起手位置附近（约 1.5 个视口）的节点。
+     *  拖动帧里只遍历这份小列表（不再每帧 Object.values(全图)）。 */
+    function buildDragCandidates(movingIds) {
+      const moving = new Set(movingIds || []);
+      const out = new Map();
+      const add = (id) => {
+        if (!id || moving.has(id)) return;
+        const nd = S.graph.nodes[id];
+        if (nd && nd.type !== 'group') out.set(id, nd);
+      };
+      for (const e of S.graph.edges) {
+        if (moving.has(e.fromNode)) add(e.toNode);
+        if (moving.has(e.toNode)) add(e.fromNode);
+      }
+      const prim = drag.nodeStarts && drag.nodeStarts[0];
+      const pn = prim && S.graph.nodes[prim.id];
+      if (pn) {
+        const rect = containerRect();
+        const marginX = Math.max(480, (Number(rect.width) || 800) * 1.5 / (V.scale || 1));
+        const marginY = Math.max(480, (Number(rect.height) || 600) * 1.5 / (V.scale || 1));
+        const pcx = pn.x + (pn.w || 240) / 2;
+        const pcy = pn.y + (pn.h || 96) / 2;
+        for (const other of Object.values(S.graph.nodes)) {
+          if (!other || moving.has(other.id) || other.type === 'group' || (other.data && other.data.hidden)) continue;
+          const ocx = other.x + (other.w || 240) / 2;
+          const ocy = other.y + (other.h || 96) / 2;
+          if (Math.abs(ocx - pcx) <= marginX && Math.abs(ocy - pcy) <= marginY) out.set(other.id, other);
+        }
+      }
+      return [...out.values()];
+    }
+    // ── 边路径 rAF 合并：拖动帧里只标记"受影响的边"，每帧最多重算一次，且只重算这些边 ──
+    let edgeRaf = 0;
+    const edgePending = new Set();
+    function flushEdgePaths() {
+      if (!edgePending.size) return;
+      const byId = new Map(S.graph.edges.map((e) => [e.id, e]));
+      for (const id of edgePending) {
+        const e = byId.get(id);
+        const pathEl = edgePathEls.get(id);
+        if (e && pathEl) pathEl.setAttribute('d', edgePath(e));
+      }
+      edgePending.clear();
+    }
+    function scheduleEdgePaths(movedIds) {
+      for (const e of S.graph.edges) {
+        if (movedIds.has(e.fromNode) || movedIds.has(e.toNode)) edgePending.add(e.id);
+      }
+      if (!edgePending.size || edgeRaf) return;
+      edgeRaf = requestAnimationFrame(() => { edgeRaf = 0; flushEdgePaths(); });
+    }
+    function cancelEdgeRaf() {
+      if (edgeRaf) { try { cancelAnimationFrame(edgeRaf); } catch { /* 忽略 */ } edgeRaf = 0; }
+      flushEdgePaths();
+    }
 
     /** 点击节点内容区打开面板：面板渲染条件要求 composerId ∈ S.sel，
      *  而视频控件/分镜清单会在 pointerdown 里 stopPropagation（不经节点根选中），
@@ -8489,6 +8779,12 @@ window.__ModuleLoader__.load({
         const nd = S.graph.nodes[id];
         return nd ? { id, x: nd.x, y: nd.y } : null;
       }).filter(Boolean);
+      // P1：吸附候选只在拖起时算一次（邻居 + 附近节点），拖动帧内不再遍历全图
+      drag.snapCandidates = buildDragCandidates(allIds);
+      drag.pendingEvent = null; drag.lastEvent = null;
+      if (drag.raf) { try { cancelAnimationFrame(drag.raf); } catch { /* 忽略 */ } drag.raf = 0; }
+      // P2：拖动期间禁用节点 sheen filter 动画（filter 动画会让整块节点每帧重新光栅化）
+      try { if (canvasEl) canvasEl.classList.add('is-node-dragging'); } catch { /* 忽略 */ }
       try { canvasEl.setPointerCapture(e.pointerId); } catch { /* 忽略 */ }
     }
     function onPortPointerDown(e, n, port, dir) {
@@ -8516,81 +8812,103 @@ window.__ModuleLoader__.load({
       tempEdgeEl.setAttribute('d', d);
       tempEdgeEl.style.display = 'block';
     }
+    /** P1：拖动节点只在 rAF 帧里应用最新一次指针位置（pointermove 可高频合并）。
+     *  帧内只遍历「吸附候选」（被拖节点 + 邻居），不遍历全部节点；不调用 notify。 */
+    function applyNodeDragFrame(e) {
+      const dxs = e.clientX - drag.sx;
+      const dys = e.clientY - drag.sy;
+      if (Math.abs(dxs) + Math.abs(dys) > 2) drag.moved = true;
+      let dxw = dxs / V.scale, dyw = dys / V.scale;
+      // 按住 Alt = 自由摆放：跳过对齐吸附 + 跳过碰撞推挤（允许穿过/覆盖其他节点）。
+      // 典型场景：矩阵布局里挪中间的节点，普通拖动会把整片邻居推开打乱布局，Alt 拖动只挪它自己。
+      // 实时读 e.altKey（而不是只看起手那一刻）：拖动途中按下/松开立即生效。
+      const noPush = !!e.altKey;
+      drag.altNoPush = noPush;
+      // 对齐吸附：以首个拖动节点为基准，与其他节点左/中/右、上/中/下对齐（容差 6px）
+      const prim = drag.nodeStarts[0];
+      const ndP = prim && S.graph.nodes[prim.id];
+      if (ndP && !e.shiftKey && !noPush && drag.nodeStarts.length) {
+        const snap = 6 / V.scale;
+        const ph = ndP.h || 96;
+        const px = prim.x + dxw, py = prim.y + dyw;
+        const pm = { l: px, cx: px + ndP.w / 2, r: px + ndP.w, t: py, cy: py + ph / 2, b: py + ph };
+        let bestV = null, bestH = null;
+        const candidates = drag.snapCandidates && drag.snapCandidates.length ? drag.snapCandidates : [];
+        for (const other of candidates) {
+          if (!other || other.id === prim.id || other.type === 'group') continue;
+          const oh = other.h || 96;
+          const om = { l: other.x, cx: other.x + other.w / 2, r: other.x + other.w, t: other.y, cy: other.y + oh / 2, b: other.y + oh };
+          for (const pk of ['l', 'cx', 'r']) for (const ok of ['l', 'cx', 'r']) {
+            const d = Math.abs(pm[pk] - om[ok]);
+            if (d <= snap && (!bestV || d < bestV.d)) bestV = { d, line: om[ok], delta: om[ok] - pm[pk] };
+          }
+          for (const pk of ['t', 'cy', 'b']) for (const ok of ['t', 'cy', 'b']) {
+            const d = Math.abs(pm[pk] - om[ok]);
+            if (d <= snap && (!bestH || d < bestH.d)) bestH = { d, line: om[ok], delta: om[ok] - pm[pk] };
+          }
+        }
+        if (bestV) dxw += bestV.delta;
+        if (bestH) dyw += bestH.delta;
+        showGuides(bestV ? bestV.line : null, bestH ? bestH.line : null);
+      } else if (noPush) {
+        hideGuides(); // Alt 自由摆放：吸附线一并隐藏，避免"看着被吸住其实没吸"
+      }
+      // Alt 自由摆放的可见反馈：被拖节点加虚线轮廓，用户能立刻分清"现在没在推挤"
+      for (const st of drag.nodeStarts) {
+        const el = nodeEls.get(st.id);
+        if (!el) continue;
+        if (noPush) el.classList.add('is-free-drag');
+        else el.classList.remove('is-free-drag');
+      }
+      const movedIds = new Set();
+      for (const st of drag.nodeStarts) {
+        const el = nodeEls.get(st.id);
+        const nd = S.graph.nodes[st.id];
+        if (!el || !nd) continue;
+        const nx = Math.round(st.x + dxw), ny = Math.round(st.y + dyw);
+        nd.x = nx; nd.y = ny; // 直接写模型（尚未通知 React）
+        el.style.left = nx + 'px';
+        el.style.top = ny + 'px';
+        movedIds.add(st.id);
+      }
+      // —— 实时碰撞推挤（物理感）：拖动节点碰到谁，谁沿远离方向实时让位；被推者再推别人（级联）。
+      //    上下左右同理：下节点上移碰到上节点 → 上节点实时上移；全程无弹跳，松手即定格。
+      //    按住 Alt 时**整段禁用**（不推挤 = 允许覆盖穿过），松手后位置照旧保留，不会弹回。
+      if (!noPush) resolvePushNow(movedIds, drag.snapCandidates);
+      if (movedIds.size) {
+        // 边路径：合并到一帧一次，且只重算与移动节点相连的边
+        scheduleEdgePaths(movedIds);
+        // 选中的节点在拖动：紧贴它的生成面板同步跟随（否则会看起来与节点脱节）
+        try { if (composerReposition) composerReposition(); } catch { /* 定位失败不影响拖动 */ }
+      }
+    }
+    /** 指针抬起前把最后一帧拖拽补上（rAF 尚未执行的最后一次 pointermove 不能丢）。 */
+    function flushNodeDragFrame() {
+      if (drag.raf) { try { cancelAnimationFrame(drag.raf); } catch { /* 忽略 */ } drag.raf = 0; }
+      const ev = drag.pendingEvent || drag.lastEvent;
+      drag.pendingEvent = null;
+      if (ev && drag.mode === 'node' && drag.nodeStarts) applyNodeDragFrame(ev);
+    }
     function onCanvasPointerMove(e) {
       if (!drag.mode) return;
+      if (drag.mode === 'node') {
+        drag.lastEvent = e;
+        drag.pendingEvent = e;
+        if (!drag.raf) {
+          drag.raf = requestAnimationFrame(() => {
+            drag.raf = 0;
+            const ev = drag.pendingEvent;
+            drag.pendingEvent = null;
+            if (ev && drag.mode === 'node') applyNodeDragFrame(ev);
+          });
+        }
+        return;
+      }
       const dxs = e.clientX - drag.sx;
       const dys = e.clientY - drag.sy;
       if (drag.mode === 'pan') {
         setView(V.x + dxs, V.y + dys, V.scale, false);
         drag.sx = e.clientX; drag.sy = e.clientY;
-      } else if (drag.mode === 'node') {
-        if (Math.abs(dxs) + Math.abs(dys) > 2) drag.moved = true;
-        let dxw = dxs / V.scale, dyw = dys / V.scale;
-        // 按住 Alt = 自由摆放：跳过对齐吸附 + 跳过碰撞推挤（允许穿过/覆盖其他节点）。
-        // 典型场景：矩阵布局里挪中间的节点，普通拖动会把整片邻居推开打乱布局，Alt 拖动只挪它自己。
-        // 实时读 e.altKey（而不是只看起手那一刻）：拖动途中按下/松开立即生效。
-        const noPush = !!e.altKey;
-        drag.altNoPush = noPush;
-        // 对齐吸附：以首个拖动节点为基准，与其他节点左/中/右、上/中/下对齐（容差 6px）
-        const prim = drag.nodeStarts[0];
-        const ndP = prim && S.graph.nodes[prim.id];
-        if (ndP && !e.shiftKey && !noPush && drag.nodeStarts.length) {
-          const snap = 6 / V.scale;
-          const ph = ndP.h || 96;
-          const px = prim.x + dxw, py = prim.y + dyw;
-          const pm = { l: px, cx: px + ndP.w / 2, r: px + ndP.w, t: py, cy: py + ph / 2, b: py + ph };
-          let bestV = null, bestH = null;
-          for (const other of Object.values(S.graph.nodes)) {
-            if (!other || other.id === prim.id || other.type === 'group') continue;
-            const oh = other.h || 96;
-            const om = { l: other.x, cx: other.x + other.w / 2, r: other.x + other.w, t: other.y, cy: other.y + oh / 2, b: other.y + oh };
-            for (const pk of ['l', 'cx', 'r']) for (const ok of ['l', 'cx', 'r']) {
-              const d = Math.abs(pm[pk] - om[ok]);
-              if (d <= snap && (!bestV || d < bestV.d)) bestV = { d, line: om[ok], delta: om[ok] - pm[pk] };
-            }
-            for (const pk of ['t', 'cy', 'b']) for (const ok of ['t', 'cy', 'b']) {
-              const d = Math.abs(pm[pk] - om[ok]);
-              if (d <= snap && (!bestH || d < bestH.d)) bestH = { d, line: om[ok], delta: om[ok] - pm[pk] };
-            }
-          }
-          if (bestV) dxw += bestV.delta;
-          if (bestH) dyw += bestH.delta;
-          showGuides(bestV ? bestV.line : null, bestH ? bestH.line : null);
-        } else if (noPush) {
-          hideGuides(); // Alt 自由摆放：吸附线一并隐藏，避免"看着被吸住其实没吸"
-        }
-        // Alt 自由摆放的可见反馈：被拖节点加虚线轮廓，用户能立刻分清"现在没在推挤"
-        for (const st of drag.nodeStarts) {
-          const el = nodeEls.get(st.id);
-          if (!el) continue;
-          if (noPush) el.classList.add('is-free-drag');
-          else el.classList.remove('is-free-drag');
-        }
-        const movedIds = new Set();
-        for (const st of drag.nodeStarts) {
-          const el = nodeEls.get(st.id);
-          const nd = S.graph.nodes[st.id];
-          if (!el || !nd) continue;
-          const nx = Math.round(st.x + dxw), ny = Math.round(st.y + dyw);
-          nd.x = nx; nd.y = ny; // 直接写模型（尚未通知 React）
-          el.style.left = nx + 'px';
-          el.style.top = ny + 'px';
-          movedIds.add(st.id);
-        }
-        // —— 实时碰撞推挤（物理感）：拖动节点碰到谁，谁沿远离方向实时让位；被推者再推别人（级联）。
-        //    上下左右同理：下节点上移碰到上节点 → 上节点实时上移；全程无弹跳，松手即定格。
-        //    按住 Alt 时**整段禁用**（不推挤 = 允许覆盖穿过），松手后位置照旧保留，不会弹回。
-        if (!noPush) resolvePushNow(movedIds);
-
-        if (movedIds.size) {
-          for (const e2 of S.graph.edges) {
-            if (!movedIds.has(e2.fromNode) && !movedIds.has(e2.toNode)) continue;
-            const p = edgePathEls.get(e2.id);
-            if (p) p.setAttribute('d', edgePath(e2));
-          }
-          // 选中的节点在拖动：紧贴它的生成面板同步跟随（否则会看起来与节点脱节）
-          try { if (composerReposition) composerReposition(); } catch { /* 定位失败不影响拖动 */ }
-        }
       } else if (drag.mode === 'marquee') {
         const w = screenToWorld(e.clientX, e.clientY);
         drag.marquee.x1 = w.x; drag.marquee.y1 = w.y;
@@ -8612,6 +8930,9 @@ window.__ModuleLoader__.load({
     function onCanvasPointerUp(e) {
       if (!drag.mode) return;
       const mode = drag.mode;
+      // 收尾：先补上最后一帧拖拽（rAF 尚未执行的 pointermove），清掉视觉 class 与 Alt 标记
+      if (mode === 'node') flushNodeDragFrame();
+      try { if (canvasEl) canvasEl.classList.remove('is-node-dragging'); } catch { /* 忽略 */ }
       // 收尾：清掉 Alt 自由摆放的视觉标记（无论是否发生过移动，避免虚线轮廓残留在节点上）
       if (mode === 'node') {
         for (const st of (drag.nodeStarts || [])) {
@@ -8621,8 +8942,8 @@ window.__ModuleLoader__.load({
         drag.altNoPush = false;
       }
       if (mode === 'node' && drag.moved) {
-        // 拖动期间直接写了模型坐标，这里只需通知 + 保存
-        notify();
+        // 拖动期间直接写了模型坐标与边 path，这里只需一次性地重算剩余边 + 通知 + 保存
+        cancelEdgeRaf();
         pushHistory();
         scheduleSave();
         hideGuides();
@@ -8661,7 +8982,9 @@ window.__ModuleLoader__.load({
       drag.nodeStarts = null;
       drag.marquee = null;
       drag.linkFrom = null;
-      notify();
+      drag.snapCandidates = null;
+      drag.pendingEvent = null; drag.lastEvent = null;
+      notify(); // 拖动/平移/连线的唯一一次全树通知（拖动帧内绝不 notify）
     }
     function onCanvasDoubleClick(e) {
       if (e.target.closest && (e.target.closest('[data-node-id]') || e.target.closest('.dshic-composer'))) return;
@@ -8827,8 +9150,11 @@ window.__ModuleLoader__.load({
     /** 实时碰撞推挤共享核心（拖动 / 节点尺寸变化共用）：与 movers 里节点相交的其他节点，
      *  沿远离主动节点的方向让位（重叠较少的轴先动，上下左右机会均等），被推者再推别人，级联最多 4 轮。
      *  高频路径：直接写模型坐标并同步被推节点的 DOM（不触发 React 重渲染），由调用方在静止时收尾落盘。 */
-    function resolvePushNow(movers) {
+    function resolvePushNow(movers, candidateNodes) {
       const PUSH_GAP = 8; // 触距：小于静止间距，贴近"贴上就推"的手感
+      const candidates = Array.isArray(candidateNodes)
+        ? candidateNodes
+        : Object.values(S.graph.nodes);
       let frontier = [...movers];
       for (let pass = 0; pass < 4 && frontier.length; pass++) {
         const next = [];
@@ -8836,7 +9162,7 @@ window.__ModuleLoader__.load({
           const a = S.graph.nodes[fid];
           if (!a) continue;
           const al = a.x, ar = a.x + (a.w || 240), at = a.y, ab = a.y + (a.h || 96);
-          for (const other of Object.values(S.graph.nodes)) {
+          for (const other of candidates) {
             if (!other || movers.has(other.id) || other.type === 'group' || (other.data && other.data.hidden)) continue;
             const bl = other.x, br = other.x + (other.w || 240), bt = other.y, bb = other.y + (other.h || 96);
             if (al >= br + PUSH_GAP || ar + PUSH_GAP <= bl || at >= bb + PUSH_GAP || ab + PUSH_GAP <= bt) continue; // 未相交
@@ -8968,7 +9294,7 @@ window.__ModuleLoader__.load({
       pushHistory();
     }
 
-    function NodeShell({ n }) {
+    function NodeShell({ n, edgeSig }) {
       const st = n.data.status || 'idle';
       const selected = S.sel.has(n.id);
       const refCb = useCallback((el) => {
@@ -9121,7 +9447,7 @@ window.__ModuleLoader__.load({
           className: cls('dshic-node-body', isMedia && 'is-media', !isMedia && isTextual && 'is-textual'),
           ...(isMedia ? null : { 'data-node-content': '1' }),
         },
-          ...(isMedia ? [headEl, nodeBody(n)] : [nodeBody(n)])),
+          ...(isMedia ? [headEl, nodeBody(n, edgeSig)] : [nodeBody(n, edgeSig)])),
         // 尺寸把手：右/左/下/上四条边 + 右下角（双击底边回到默认 360 高）
         h('div', { className: 'dshic-rs dshic-rs-e', title: T('resizeHint'), onPointerDown: (e) => startResize(e, 'e') }),
         h('div', { className: 'dshic-rs dshic-rs-w', title: T('resizeHint'), onPointerDown: (e) => startResize(e, 'w') }),
@@ -10115,7 +10441,8 @@ window.__ModuleLoader__.load({
     /** 统一媒体节点（图片/视频合并后唯一的结果节点）：节点内只显示结果。
      *  有 assetId → 预览 + 左上状态徽标 + 右上参考图角标；无结果 → 虚线空态「点击描述画面生成…」；
      *  空节点不放任何生成按钮（生成动作在 GenComposer 的发送按钮）。点击节点任意位置打开面板。 */
-    function MediaNodeBody({ n, kind }) {
+    function MediaNodeBodyInner({ n, kind, refSig }) {
+      void refSig;
       // 视频产物自动提取尾帧（含外部注入/导入的视频）：last 口与跨镜衔接不依赖"必须由本节点生成"
       useEffect(() => {
         if (kind !== 'video' || !n.data.assetId) return;
@@ -10171,9 +10498,14 @@ window.__ModuleLoader__.load({
         return () => { ok = false; };
       }, [n.id, S.assetsTick, S.store]);
       const assetUrlV = useAssetUrl(n.data.assetId);
+      // 视频默认只画静态 poster；<video> 只在播放时挂载（见下方播放状态机）
+      const videoPoster = useVideoPoster(kind === 'video' ? n.data.assetId : null);
+      const posterUrl = videoPoster.poster;
+      const posterState = videoPoster.state;
       const [mediaState, setMediaState] = useState('idle'); // idle | ready | error（未就绪一律骨架，绝不破图）
       // 视频播放状态机输入：playing=正在播放（决定控件条是否出现）/ ended=已播完（圆形键换成重播）
       const videoRef = useRef(null);
+      const resumeTimeRef = useRef(0); // 暂停时记住进度：再次播放从原处继续（交互不回退）
       const [playing, setPlaying] = useState(false);
       const [ended, setEnded] = useState(false);
       // 控件条读数：进度（timeupdate 驱动）/ 总时长（metadata）/ 音量与静音
@@ -10186,6 +10518,7 @@ window.__ModuleLoader__.load({
         setMediaState('idle');
         setPlaying(false); setEnded(false);
         setCurrent(0); setDuration(0);
+        resumeTimeRef.current = 0;
       }, [n.data.assetId]);
       const refEdges = S.graph.edges.filter((x) => x.toNode === n.id && x.toPort === 'ref');
       const firstRefSrc = refEdges.length ? S.graph.nodes[refEdges[0].fromNode] : null;
@@ -10215,19 +10548,36 @@ window.__ModuleLoader__.load({
         });
       };
       const imgShown = done && !!assetUrlV && kind === 'image' && mediaState !== 'error';
-      const vidShown = done && !!assetUrlV && kind === 'video' && mediaState !== 'error';
-      /** 视频播放/暂停：真实 <video> 执行，播放键自身 stopPropagation——点它只播放、不弹面板。
-       *  已播完再点 = 从头重播。 */
+      const videoPlaying = done && kind === 'video' && playing;
+      // 视频：有 poster 即视为就绪（mediaState ready 由 poster 的 onLoad 设置，不再依赖 <video> 元数据）
+      const posterLoading = done && kind === 'video' && !posterUrl && (posterState === 'idle' || posterState === 'loading');
+      const posterFailed = done && kind === 'video' && !posterUrl && posterState === 'error';
+      /** 视频播放/暂停：默认只有 poster；播放时才挂真实 <video>（播完/暂停即卸载回 poster）。
+       *  播放键自身 stopPropagation——点它只播放、不弹面板；已播完再点 = 从头重播。 */
       const togglePlay = () => {
         const v = videoRef.current;
-        if (!v) return;
+        if (!v) {
+          // 没有 <video>（当前是 poster）：请求播放 → 下一帧挂载 video 并自动 play
+          if (ended) { resumeTimeRef.current = 0; setEnded(false); }
+          setCurrent(resumeTimeRef.current || 0);
+          setPlaying(true);
+          return;
+        }
         if (v.paused || v.ended) {
-          if (v.ended) { try { v.currentTime = 0; } catch { /* 忽略 */ } }
+          if (v.ended) { try { v.currentTime = 0; } catch { /* 忽略 */ } resumeTimeRef.current = 0; }
           try { const p = v.play(); if (p && typeof p.catch === 'function') p.catch(() => { /* 自动播放被拦：保留播放键 */ }); } catch { /* 忽略 */ }
         } else {
-          try { v.pause(); } catch { /* 忽略 */ }
+          try { resumeTimeRef.current = Number(v.currentTime) || 0; v.pause(); } catch { /* 忽略 */ }
+          setPlaying(false);
         }
       };
+      // 播放时 video 挂载后自动 play（用户点击是手势，不会被自动播放策略拦）
+      useEffect(() => {
+        if (!playing) return;
+        const v = videoRef.current;
+        if (!v) return;
+        try { const p = v.play(); if (p && typeof p.catch === 'function') p.catch(() => { /* 保留播放键 */ }); } catch { /* 忽略 */ }
+      }, [playing, n.data.assetId]);
       /** 进度条拖动 seek（控件条只在播放中出现，拖动期间不打断播放）。 */
       const seekVideo = (t) => {
         const v = videoRef.current;
@@ -10265,10 +10615,27 @@ window.__ModuleLoader__.load({
       return [
         // data-node-content：预览区（含空态）是唯一会弹生成面板的点击区域
         h('div', { key: 'media', className: cls('dshic-media-wrap', running && 'is-running'), 'data-node-content': '1' },
-          // 骨架层永远铺满内容区：图片/视频未就绪（加载中、资产暂取不到、解码失败）显示中性骨架，
-          // 绝不出现 <img alt> 破图占位，也绝不出现 letterbox 空白带。图片加载完成后骨架自动撤掉。
-          done && mediaState !== 'ready'
+          // 骨架层：图片未就绪 / 视频**首次取 poster** 期间才出现；有 poster 后任何重渲染都直接出画面
+          done && (kind === 'video' ? posterLoading : mediaState !== 'ready')
             ? h('div', { key: 'sk', className: cls('dshic-media-skeleton', mediaState === 'error' && 'is-error') })
+            : null,
+          // 视频 poster（首选路径）：一张廉价 img，浏览器磁盘缓存 + 零视频解码
+          done && kind === 'video' && posterUrl
+            ? h('img', {
+                key: 'poster', className: 'dshic-media-fill', src: posterUrl, draggable: false,
+                onLoad: (e) => {
+                  setMediaState('ready');
+                  const el = e && e.currentTarget;
+                  recordMediaDims(el && el.naturalWidth, el && el.naturalHeight);
+                },
+                onError: () => setMediaState('error'),
+                onPointerDown: (e) => { e.stopPropagation(); },
+                onClick: (e) => { e.stopPropagation(); if (e && e.detail > 1) return; openPanel(); },
+                onDoubleClick: (e) => { e.stopPropagation(); togglePlay(); },
+              })
+            : null,
+          posterFailed
+            ? h('div', { key: 'poster-fail', className: 'dshic-media-placeholder', 'aria-hidden': 'true' })
             : null,
           imgShown
             ? h('img', {
@@ -10278,9 +10645,11 @@ window.__ModuleLoader__.load({
                 onDoubleClick: (e) => { e.stopPropagation(); openLightbox('image', assetUrlV, n.data.label); },
               })
             : null,
-          vidShown
+          // 播放时才挂真实 <video>（poster 作为 poster 属性兜底，挂载瞬间也不闪）
+          videoPlaying
             ? h('video', {
-                key: 'vid', ref: videoRef, className: 'dshic-media-fill', src: assetUrlV, preload: 'metadata',
+                key: 'vid', ref: videoRef, className: 'dshic-media-fill', src: assetUrlV || undefined,
+                poster: posterUrl || undefined, preload: 'metadata', autoPlay: true,
                 // 视频控件保留 stopPropagation（拖动/选择不被视频吃掉），单击画面打开生成面板；
                 // 双击画面 = 播放/暂停（原型行为）；播放键自身另行 stopPropagation。
                 onPointerDown: (e) => { e.stopPropagation(); },
@@ -10289,20 +10658,23 @@ window.__ModuleLoader__.load({
                 // 状态机输入：play→控件条出现；pause→控件条消失；ended→控件条消失 + 圆形键变重播
                 onPlay: () => { setPlaying(true); setEnded(false); },
                 onPause: () => setPlaying(false),
-                onEnded: () => { setPlaying(false); setEnded(true); },
+                onEnded: () => { resumeTimeRef.current = 0; setPlaying(false); setEnded(true); },
                 onTimeUpdate: (e) => { const el = e && e.currentTarget; setCurrent(Number(el && el.currentTime) || 0); },
                 onDurationChange: (e) => { const el = e && e.currentTarget; setDuration(Number(el && el.duration) || 0); },
                 onLoadedMetadata: (e) => {
-                  setMediaState('ready');
                   const el = e && e.currentTarget;
-                  recordMediaDims(el && el.videoWidth, el && el.videoHeight);
-                  setDuration(Number(el && el.duration) || 0);
+                  if (!el) return;
+                  setDuration(Number(el.duration) || 0);
+                  // 暂停后再播放：从暂停点继续（交互与旧版一致）
+                  const resume = resumeTimeRef.current || 0;
+                  if (resume > 0 && Number(el.duration) > resume) { try { el.currentTime = resume; } catch { /* 忽略 */ } }
+                  setMediaState('ready');
                 },
                 onError: () => setMediaState('error'),
               })
             : null,
           // 未播放 / 暂停 / 播完：画面中央只有一个圆形半透明播放键（播完换成重播图标）
-          vidShown && vidMode !== 'controls'
+          done && kind === 'video' && vidMode !== 'controls'
             ? h('button', {
                 key: 'play', type: 'button',
                 className: cls('dshic-media-play', vidMode === 'replay' && 'is-replay'),
@@ -10312,7 +10684,7 @@ window.__ModuleLoader__.load({
               }, h('i', {}))
             : null,
           // 播放中：底部控件条（播放/暂停 + 可拖动进度条 + 当前/总时长 + 音量含静音）
-          vidShown && vidMode === 'controls'
+          done && kind === 'video' && vidMode === 'controls'
             ? h(VideoControls, {
                 mode: vidMode, current, duration, volume, muted,
                 onToggle: togglePlay, onSeek: seekVideo, onVolume: setVideoVolume, onMute: toggleMute,
@@ -10369,6 +10741,34 @@ window.__ModuleLoader__.load({
           : null,
       ];
     }
+
+    /** 媒体体渲染签名（memo 比较用）：只包含会影响画面的标量字段。
+     *  注意 update() 是原地 mutate，节点/对象引用不会变——不能只比引用，否则出图/状态变化不会重渲染。 */
+    function mediaNodeRenderSig(n) {
+      if (!n) return '';
+      const d = n.data || {};
+      const hist = Array.isArray(d.history) ? d.history.map((x) => (x && x.assetId) || '').join(',') : '';
+      return [n.id, n.type, n.w, n.h, n.x, n.y, n.z, d.label, d.status, d.statusText, d.progress, d.error,
+        d.assetId, d.lastAssetId, d.lastAssetVideo, d.ratio, d.assetW, d.assetH, d.imageCount, d.aiStatus, hist,
+        d.running].join('|');
+    }
+    /** MediaNodeBody memo 比较：相同渲染签名 + 相同连线签名 → 跳过重渲染（选中/悬浮等全树状态不会带动媒体重渲染）。 */
+    function mediaNodePropsEqual(prev, next) {
+      if (!prev || !next) return false;
+      if (prev.kind !== next.kind) return false;
+      if (String(prev.refSig || '') !== String(next.refSig || '')) return false;
+      return Number(prev.rev || 0) === Number(next.rev || 0);
+    }
+    /** 渲染前刷新节点的稳定版本号：仅当渲染签名真的变化才自增（_rev 供 memo 比较）。 */
+    function bumpNodeRev(n) {
+      const sig = mediaNodeRenderSig(n);
+      if (!n || n.__revSig === sig) return Number(n && n._rev) || 0;
+      n.__revSig = sig;
+      n._rev = (Number(n._rev) || 0) + 1;
+      return n._rev;
+    }
+    const memoComponent = (fn, eq) => ((React && typeof React.memo === 'function') ? React.memo(fn, eq) : fn);
+    const MediaNodeBody = memoComponent(MediaNodeBodyInner, mediaNodePropsEqual);
 
     function HistThumb({ assetId, active, onClick, title }) {
       const url = useAssetUrl(assetId);
@@ -11104,15 +11504,15 @@ window.__ModuleLoader__.load({
       ];
     }
 
-    function nodeBody(n) {
+    function nodeBody(n, edgeSig) {
       // 兜底：文档入口已归一，但历史上存进撤销快照/外部注入的节点类型仍可能是旧名
       const type = normalizeNodeType(n.type);
       if (type === 'text') return h(TextNodeBody, { n });
       if (type === 'shot') return h(ShotNodeBody, { n });
       if (type === 'script') return h(ScriptNodeBody, { n });
       if (type === 'storyboard') return h(StoryboardNodeBody, { n });
-      if (type === 'image') return h(MediaNodeBody, { n, kind: 'image' });
-      if (type === 'video') return h(MediaNodeBody, { n, kind: 'video' });
+      if (type === 'image') return h(MediaNodeBody, { n, kind: 'image', refSig: edgeSig || '', rev: bumpNodeRev(n) });
+      if (type === 'video') return h(MediaNodeBody, { n, kind: 'video', refSig: edgeSig || '', rev: bumpNodeRev(n) });
       if (type === 'finalcut') return h(FinalCutNodeBody, { n });
       return null;
     }
@@ -13688,6 +14088,12 @@ window.__ModuleLoader__.load({
         return () => el.removeEventListener('wheel', fn);
       }, []);
       const nodes = Object.values(S.graph.nodes);
+      // 媒体节点 memo 比较用连线签名：一次遍历算好，避免每个节点各自 O(E) 扫描
+      const edgeSigById = new Map();
+      for (const e of S.graph.edges) {
+        if (e.toNode) edgeSigById.set(e.toNode, (edgeSigById.get(e.toNode) || '') + e.id + '>' + (e.toPort || '') + '|');
+        if (e.fromNode) edgeSigById.set(e.fromNode, (edgeSigById.get(e.fromNode) || '') + '<' + e.id + '>' + (e.fromPort || '') + '|');
+      }
       const upd = S.updateInfo;
       const updAvail = upd && upd.behind > 0; // 仅真正落后（npm latest 更新）才提示；本地版本相同/更新则不提示
       return h('div', { className: 'dshic-page' },
@@ -13768,8 +14174,8 @@ window.__ModuleLoader__.load({
               ref: (el) => { worldEl = el; if (el) applyViewToDom(); },
             },
               h(EdgeLayer),
-              nodes.filter((nd) => nd.type === 'group').map((n) => h(NodeShell, { key: n.id, n })),
-              nodes.filter((nd) => nd.type !== 'group').map((n) => h(NodeShell, { key: n.id, n })),
+              nodes.filter((nd) => nd.type === 'group').map((n) => h(NodeShell, { key: n.id, n, edgeSig: '' })),
+              nodes.filter((nd) => nd.type !== 'group').map((n) => h(NodeShell, { key: n.id, n, edgeSig: edgeSigById.get(n.id) || '' })),
               h('div', {
                 className: 'dshic-marquee', style: { display: 'none', zIndex: 9999 },
                 ref: (el) => { marqueeEl = el; },
@@ -14227,6 +14633,24 @@ window.__ModuleLoader__.load({
           // 并供 smoke-render 直接渲染新组件（MediaNodeBody / GenComposer）抓渲染期崩溃；
           // NodeShell 用于断言「点击区域规则」：标题栏/底部操作栏不弹面板，只有内容区弹。
           window.__DSH_IC_NODES__ = { ScriptNodeBody, StoryboardNodeBody, MediaNodeBody, GenComposer, FinalCutNodeBody, TextNodeBody, ShotNodeBody, NodeShell, ComposerAdvanced, VideoControls };
+          // 画布性能（P0-P2）测试缝隙：poster 链路 / idbGet 顺序 / 拖动 rAF / memo 比较器 / notify 计数
+          window.__DSH_IC_PERF__ = {
+            MediaNodeBody, MediaNodeBodyInner, mediaNodePropsEqual, mediaNodeRenderSig, bumpNodeRev, NodeShell,
+            videoPosterUrl, useVideoPoster, posterCache, posterInflight, posterStats, POSTER_MAX_CONCURRENT,
+            probePosterUrl, generatePosterFor, extractVideoPosterDataUrl, resetPosterCaches: () => { posterCache.clear(); posterInflight.clear(); posterQueue.length = 0; posterActive = 0; posterStats.active = 0; posterStats.max = 0; posterStats.generated = 0; },
+            idbGet, idbGetRaw, idbMiss, getStore: () => S.store,
+            idbRawCalls: () => idbRawCalls, resetIdbRawCalls: () => { idbRawCalls = 0; },
+            setIdbGetRawForTest: (fn) => { idbGetRawImpl = fn || null; }, clearAssetMem: () => assetMem.clear(),
+            setStoreForTest: (v) => { S.store = v; },
+            setGraphForTest: (nodes, edges) => { S.graph = Object.assign({}, S.graph, { nodes: nodes || {}, edges: edges || [] }); },
+            setViewForTest: (x, y, scale) => { V.x = x; V.y = y; V.scale = scale; },
+            clearAssetMemAndCaches: () => { assetMem.clear(); for (const v of assetUrlCache.values()) revokeBlobUrl(v && v.url); assetUrlCache.clear(); idbMiss.clear(); },
+            assetUrlCache, ASSET_URL_LARGE_BYTES, ASSET_URL_MAX_ENTRIES, ASSET_URL_MAX_BYTES,
+            onCanvasPointerMove, onCanvasPointerUp, onNodePointerDown, drag, nodeEls, edgePathEls, flushEdgePaths,
+            notifyCount: () => notifyCount, resetNotifyCount: () => { notifyCount = 0; },
+            setCanvasElForTest: (el) => { canvasEl = el; },
+            edgePath,
+          };
           // 排版纯函数/常量出口：预览区比例、节点外框公式、等比缩放、面板宽度（供 scripts/test-node-layout.mjs 断言）
           window.__DSH_IC_LAYOUT__ = {
             NODE_W, NODE_H, NODE_HDR_H, NODE_FOOT_H, MEDIA_PREVIEW_SHORT, MEDIA_MAX_LONG,
