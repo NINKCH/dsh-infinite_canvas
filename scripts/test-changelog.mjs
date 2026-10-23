@@ -102,6 +102,7 @@ if (unrelHasEntries) {
 // （脚本生成的清单当然自己全中，"缺一必红"退化成摆设）。数量相等 + 逐 sha 关键词命中，两条都拦。
 const COVERAGE = [
   // 0.18.7 已发布，清单清零——下一轮新提交从这里开始记账。
+  { sha: '42bc814', keys: [/poster|IndexedDB read path|imperative|懒挂载|卡顿/i] },
 ];
 for (const c of COVERAGE) {
   ok(c.keys.some((re) => re.test(section)), '未发版提交 ' + c.sha + ' 在 Unreleased 段里找不到对应记录（补记不全）');
