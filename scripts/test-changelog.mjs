@@ -103,6 +103,7 @@ if (unrelHasEntries) {
 const COVERAGE = [
   // 0.18.7 已发布，清单清零——下一轮新提交从这里开始记账。
   { sha: '42bc814', keys: [/poster|IndexedDB read path|imperative|懒挂载|卡顿/i] },
+  { sha: 'f126362', keys: [/screenshot|README|guide|截图/i] },
 ];
 for (const c of COVERAGE) {
   ok(c.keys.some((re) => re.test(section)), '未发版提交 ' + c.sha + ' 在 Unreleased 段里找不到对应记录（补记不全）');
