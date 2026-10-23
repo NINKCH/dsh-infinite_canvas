@@ -400,6 +400,18 @@ window.__ModuleLoader__.load({
       'emptyScriptHint': '点击节点填写创作意图并生成剧本',
       'noShotsYet': '尚未拆解镜头',
       'multiShotOnce': '多镜头一次生成',
+      'segLabelShort': '段',
+      'expandSegDone': '{n} 镜已按镜头切段铺开为 {m} 段生成（每段独立生成，段间在换镜头处硬切，不硬接画面）',
+      'expandSegChain': '{n} 段沿用上一段尾帧接力',
+      'segPlanTitle': '按镜头切段',
+      'segPlanHint': '按真实镜头边界把分镜切成若干次生成：切点只在换场/特写插入/新角色入场处；同一段连续动作不拆开。',
+      'segMaxLabel': '单段上限',
+      'segMaxHint': '单次生成的最大秒数（按厂商上限填，MiniMax 这类弱衔接模型建议 6–10 秒）',
+      'segClean': '切点整齐：每一段都从换镜头处开始',
+      'segForced': '存在硬切点：有段从动作中间开始，建议先拆镜',
+      'segSummary': '{m} 段 / 共 {n} 镜 / 最长 {s} 秒',
+      'segTailChain': '尾帧接力',
+      'segNoChain': '硬切（不接力）',
       'videoPromptPlaceholder': '描述镜头与动作；来自上游分镜表时可留空',
       'finalNotePlaceholder': '成片说明（可选）：转场、字幕与配音设置在各片段节点上',
       'refBadgeTitle': '已连接参考图',
@@ -935,6 +947,18 @@ window.__ModuleLoader__.load({
       'emptyScriptHint': 'Click the node to write the idea and generate the script',
       'noShotsYet': 'No shots yet',
       'multiShotOnce': 'one multi-shot generation',
+      'segLabelShort': 'Seg ',
+      'expandSegDone': 'Expanded {n} shots into {m} segments, each generated separately with a clean cut on shot boundaries (no picture matching)',
+      'expandSegChain': '{n} segment(s) chain from the previous tail frame',
+      'segPlanTitle': 'Shot-boundary segments',
+      'segPlanHint': 'Split the storyboard into several generations at real shot boundaries: cuts only land on scene change / insert / new character; one continuous action is never split.',
+      'segMaxLabel': 'Per-segment max',
+      'segMaxHint': 'Max seconds per generation (match the vendor limit; for weak-continuity models like MiniMax use 6-10s)',
+      'segClean': 'Clean cuts: every segment starts on a new shot',
+      'segForced': 'Forced cuts: some segments start mid-action — split those shots first',
+      'segSummary': '{m} segments / {n} shots / longest {s}s',
+      'segTailChain': 'tail chained',
+      'segNoChain': 'hard cut (no chain)',
       'videoPromptPlaceholder': 'Describe the shot and action; leave empty when driven by an upstream storyboard',
       'finalNotePlaceholder': 'Final-cut note (optional): transitions, subtitles and voice live on the segment nodes',
       'refBadgeTitle': 'Connected reference images',
@@ -3002,6 +3026,149 @@ window.__ModuleLoader__.load({
         : (asFirst
           ? '[First-frame anchor] The input first frame IS the last frame of the previous segment: frame 1 must match it exactly (framing, blocking, facing, handheld props, light) and motion starts only after frame 1.'
           : '[First-frame anchor] [Picture 1] is the last frame of the previous segment (a continuity reference, not a style reference): frame 1 must match it - framing, blocking, facing, handheld props and key light unchanged; only continue the motion.');
+    }
+    // ============================================================
+    // 按镜头切段（segmentation planner）：一个分镜表 ≠ 一次生成
+    //
+    // 为什么要有它：历史上「一个分镜表 = 一次视频生成」，整表时长取各镜之和直接怼给模型。
+    // 用户的实测反馈是灾难性的——13 镜 / 62 秒的分镜表被塞进一次 15 秒上限的请求，模型
+    // 只能自己压缩：动作被砍成"平移"，镜头数对不上，切点也不落在真实镜头上。更要命的是
+    // 如果切点落在两镜之间，而这两镜本来就是「同一个角色的同一段连续动作」（continuation），
+    // 那第二次生成根本接不上第一次：即便冻了首帧，剪辑处也是重影/卡顿。
+    //
+    // 铁律（本文件里所有切段逻辑的唯一事实源）：
+    //   ① 切点只允许落在**镜头边界**上，且该镜头必须是"换镜头"类型
+    //      （scene_change / closeup / new_character），或是段首（opening/第 1 镜）；
+    //   ② 一段内部连续的 continuation 镜头**必须整段留在同一生成段**——动作相位不可拆；
+    //   ③ 一段时长 ≤ 厂商单次上限；超了就在最近的合法切点处断开，绝不从镜头中间切；
+    //   ④ 找不到合法切点又超长 → 降级：强行在该镜前断开并把下一镜改写成 scene_change，
+    //      同时给这段打 seamRisk:'forced'（UI 要如实显示"这段是硬切的"，不静默）；
+    //   ⑤ 只有 ① 之外的情况（上一段末镜与本段首镜同为 continuation）才需要尾帧接力。
+    // ============================================================
+    /** 该 seg 是否构成一个"可以安全开始新生成段"的切点。opening 只在全表第 1 镜成立。 */
+    function isCutPoint(seg) {
+      return seg === 'scene_change' || seg === 'closeup' || seg === 'new_character' || seg === 'opening';
+    }
+    /**
+     * 把一张分镜表的镜头按「真实镜头边界」切成若干生成段。
+     *
+     * @param shots 分镜镜头数组（data.shots）
+     * @param opts  { maxSeconds（单次生成上限，默认 15）, minSeconds（单段下限，默认 2）,
+     *                hardMax（厂商物理上限，超了必须拆，默认同 maxSeconds） }
+     * @returns {{ segments: Array, total: number, max: number, cutMode: string, warnings: string[] }}
+     *   segments[i] = {
+     *     index, shotIds, shots, startIndex, endIndex,
+     *     duration,             // 本段总时长（秒，一位小数）
+     *     firstSeg, lastSeg,    // 本段首/末镜的段落类型
+     *     opensOnCut,           // 本段是否从一个合法切点开始（第 1 段恒真）
+     *     closesOnCut,          // 本段末镜是否本身就是"换镜头"（=下一段天然切点，无需接力）
+     *     seamRisk,             // 'none' | 'chain'（靠尾帧接力）| 'forced'（找不到切点被硬切）
+     *     needsTailChain,       // 是否需要把上一段尾帧接到本段首帧
+     *     reason,               // 人类可读的切段依据（面板上显示）
+     *   }
+     */
+    function planShotSegments(shots, opts) {
+      const o = opts || {};
+      const list = (Array.isArray(shots) ? shots : []).filter((s) => s && (String(s.visual || '').trim() || String(s.motion || '').trim() || (Array.isArray(s.dialogue) && s.dialogue.length)));
+      const maxSeconds = Math.max(1, Number(o.maxSeconds) || 15);
+      const minSeconds = Math.max(0, Math.min(Number(o.minSeconds) || 2, maxSeconds));
+      const warnings = [];
+      const durOf = (s) => Math.max(0.3, Math.round((Number(s && s.duration) || 3) * 10) / 10);
+      // 预解每镜的段落类型（与 shotContinuityPlan 同一套推断，保证分段与提示词口径一致）
+      const plans = list.map((s, i) => shotContinuityPlan(s, list[i - 1] || null, i));
+      const total = Math.round(list.reduce((a, s) => a + durOf(s), 0) * 10) / 10;
+      if (!list.length) return { segments: [], total: 0, max: maxSeconds, cutMode: 'empty', warnings: ['分镜表里没有可用镜头'] };
+
+      /** 从 from 开始贪心找到一个"可以在 to 前断开"的位置：
+       *  返回该段的结束下标（含）；-1 表示从 from 开始连第一镜都放不下。 */
+      const findBreak = (from) => {
+        let acc = 0;
+        let bestCut = -1;   // 最近一次合法切点之后的位置（即"下一镜是新镜头"的下标）
+        for (let i = from; i < list.length; i++) {
+          const d = durOf(list[i]);
+          if (acc + d > maxSeconds + 1e-6) {
+            // 放不下了。若当前累计还没超过下限，也要至少吃一镜（单镜超长的情况由下面兜底）
+            break;
+          }
+          acc += d;
+          // 判断"i 之后可以断开"：下一镜是切点，或本镜本身就是换镜头（切在它之后）
+          const nextIsCut = i + 1 < list.length && isCutPoint(plans[i + 1] && plans[i + 1].seg);
+          const thisIsCut = isCutPoint(plans[i] && plans[i].seg);
+          if (nextIsCut || thisIsCut || i === list.length - 1) bestCut = i;
+        }
+        if (bestCut < from) {
+          // 连一镜都塞不进上限：退化为"只取这一镜"，交给下面标记 forced
+          return { end: from, forced: true, acc: durOf(list[from]) };
+        }
+        return { end: bestCut, forced: false, acc };
+      };
+
+      const segments = [];
+      let i = 0;
+      while (i < list.length && segments.length < 64) {
+        // 段首必须是切点；若不是（说明上一段是被 forced 断开的），本镜保持原 seg
+        const brk = findBreak(i);
+        let end = brk.end;
+        let seamRisk = 'none';
+        let reason = '';
+        const firstSeg = (plans[i] && plans[i].seg) || 'continuation';
+        const opensOnCut = segments.length === 0 || isCutPoint(firstSeg);
+        if (!opensOnCut) {
+          seamRisk = 'forced';
+          reason = '上一段超长被迫硬切，本段从镜中断点继续，动作相位可能不连续';
+          warnings.push(`第 ${i + 1} 镜起的一段是硬切（上一段超长且找不到换镜头切点）：这一段与上一段的接缝只能靠尾帧+提示词硬接`);
+        }
+        // 段内若含"必须承接"的 continuation，且不是首段、且首镜也不是切点 → 需要尾帧接力
+        const needsTailChain = segments.length > 0 && !isCutPoint(firstSeg);
+        if (needsTailChain) {
+          seamRisk = seamRisk === 'forced' ? 'forced' : 'chain';
+          reason = reason || '本段首镜是续帧镜头，需用上一段尾帧接力';
+        }
+        const segShots = list.slice(i, end + 1);
+        const duration = Math.round(segShots.reduce((a, s) => a + durOf(s), 0) * 10) / 10;
+        const lastSeg = (plans[end] && plans[end].seg) || 'continuation';
+        const closesOnCut = isCutPoint(lastSeg) || end === list.length - 1;
+        if (!reason) {
+          reason = closesOnCut
+            ? '本段以换镜头收尾，下一段天然切换、无需接力'
+            : '本段在换镜头切点处开始';
+        }
+        segments.push({
+          index: segments.length,
+          shotIds: segShots.map((s, k) => i + k),
+          shots: segShots,
+          startIndex: i,
+          endIndex: end,
+          duration,
+          firstSeg,
+          lastSeg,
+          opensOnCut,
+          closesOnCut,
+          seamRisk,
+          needsTailChain,
+          reason,
+        });
+        if (end === i && brk.forced) {
+          warnings.push(`第 ${i + 1} 镜单镜时长 ${durOf(list[i])}s 已超单次生成上限 ${maxSeconds}s：这一段只能单独生成，并期望厂商钳制或报错`);
+        }
+        i = end + 1;
+      }
+      // cutMode：整表能不能被整齐切成"每次都是换镜头"的段——决定要不要提示用户重拆分镜
+      const cleanCuts = segments.every((s) => s.opensOnCut);
+      const cutMode = cleanCuts ? 'clean' : 'forced';
+      if (cutMode === 'forced') {
+        warnings.push('本次切段存在硬切点：建议把超长的续帧段在分镜里拆成两镜（第二镜标换场/特写插入），让切点落在真实镜头上');
+      }
+      if (segments.length > 1 && !cleanCuts) {
+        warnings.push(`共 ${segments.length} 段，其中 ${segments.filter((s) => !s.opensOnCut).length} 段从镜中断点开始——弱衔接模型（如 MiniMax）对这些段会明显吃力`);
+      }
+      return { segments, total, max: maxSeconds, cutMode, warnings };
+    }
+    /** 单段是否值得依赖"尾帧接力"：只有强衔接模型 + 该段确实跨了连续动作才算。 */
+    function segmentNeedsHardFrame(seg, modelName) {
+      if (!seg || !seg.needsTailChain) return false;
+      const weak = /minimax|hailuo|kling-?1|pika|stability|svd/i.test(String(modelName || ''));
+      return !weak;
     }
     /**
      * 尾帧选帧评分：不是"取最后一帧"——最后一帧常落在动作顶点/运动模糊/遮挡/收敛抖动上。
@@ -7079,27 +7246,32 @@ window.__ModuleLoader__.load({
       const contFields = (() => {
         if (zh) {
           return contOn
-            ? '{"title":"…","visual":"…","motion":"…","tail":"…","cam":"…","start":"…","seg":"continuation","characters":["…"],"scene":"…","props":["…"],"duration":3,"dialogue":[{"role":"陈拾","line":"收件时间，1999……"}],"sfx":"邮包搭扣声、撕纸声"}'
-            : '{"title":"…","visual":"…","motion":"…","characters":["…"],"scene":"…","props":["…"],"duration":3,"dialogue":[{"role":"陈拾","line":"收件时间，1999……"}],"sfx":"邮包搭扣声、撕纸声"}';
+            ? '{"title":"…","visual":"…","motion":"…","timeBeats":["0s …","中段 …","结尾 …"],"camera":"…","vfx":"…","negative":"…","tail":"…","cam":"…","start":"…","seg":"continuation","characters":["…"],"scene":"…","props":["…"],"duration":3,"dialogue":[{"role":"陈拾","line":"收件时间，1999……"}],"sfx":"邮包搭扣声、撕纸声"}'
+            : '{"title":"…","visual":"…","motion":"…","timeBeats":["0s …","中段 …","结尾 …"],"camera":"…","vfx":"…","negative":"…","characters":["…"],"scene":"…","props":["…"],"duration":3,"dialogue":[{"role":"陈拾","line":"收件时间，1999……"}],"sfx":"邮包搭扣声、撕纸声"}';
         }
         return contOn
-          ? '{"title":"…","visual":"…","motion":"…","tail":"…","cam":"…","start":"…","seg":"continuation","characters":["…"],"scene":"…","props":["…"],"duration":3,"dialogue":[{"role":"Chen","line":"…"}],"sfx":"zipper snap, paper tear"}'
-          : '{"title":"…","visual":"…","motion":"…","characters":["…"],"scene":"…","props":["…"],"duration":3,"dialogue":[{"role":"Chen","line":"…"}],"sfx":"zipper snap, paper tear"}';
+          ? '{"title":"…","visual":"…","motion":"…","timeBeats":["0s …","mid …","end …"],"camera":"…","vfx":"…","negative":"…","tail":"…","cam":"…","start":"…","seg":"continuation","characters":["…"],"scene":"…","props":["…"],"duration":3,"dialogue":[{"role":"Chen","line":"…"}],"sfx":"zipper snap, paper tear"}'
+          : '{"title":"…","visual":"…","motion":"…","timeBeats":["0s …","mid …","end …"],"camera":"…","vfx":"…","negative":"…","characters":["…"],"scene":"…","props":["…"],"duration":3,"dialogue":[{"role":"Chen","line":"…"}],"sfx":"zipper snap, paper tear"}';
       })();
       const jsonContract = zh
         ? [
-            '把剧本拆解为「多镜头一次性视频生成」的分镜脚本：铺开后由**一个视频节点**把全部镜头按顺序与时长写进同一条提示词，由视频模型一次性生成整段视频（镜头间由模型直接硬切，不是一镜一视频再拼接）。',
+            '把剧本拆解为「按镜头切段生成」的分镜脚本：铺开时系统会按真实镜头边界把分镜切成若干次生成，每次只把本段的镜头写进同一条提示词，由视频模型生成那一段（镜头间由模型直接硬切，不是一镜一视频再拼接）。',
             '只输出一个 JSON 对象：{"shots":[' + contFields + ']}。',
             '规则：',
             '- visual 是本镜画面描述（景别、人物外观与站位、场景、光线、构图，60 字内）；',
             '- **visual 与 motion 里的角色/场景/道具必须写成 @资产名@ 引用形式**（前后各一个 @ 精确包裹，如「@陈拾@ 在 @城市街头@ 的围挡旁拿起 @奇怪快递件@」）；名称必须与设定集/资产**逐字一致**；剧本原文里已出现的 @资产名@ 锚点要在镜头中原样保留（名称逐字一致）；名称内不得含 @、空格或标点；@ 后绝不允许直接跟其他文字（必须以 @ 闭合）——系统会隐藏两个 @ 并把名称显示为蓝色加粗，未登记的 @名称@ 会被一致性检查提示补充；',
             '- motion 是本镜动作与运镜（主体动作节拍、机位运动方向与速度、情绪节奏，50 字内）；与 visual 不重复；',
+            '- **【动作层次·硬性】timeBeats 是本镜的三个时间节拍（数组，按时间顺序）**：把"一个动作"拆成 **起势 → 发力 → 落点** 三拍，每拍写**可见的**身体/道具状态，如 ["0s 右手抬到一半、指节收紧","1.2s 手继续抬到胸口、肩线前压","3s 停在信封贴住心口、雨珠从指缝滑落"]。**只写一个节拍 = 模型只会演一个姿势（用户实测：动作极简、只会平移）**；凡 ≥2s 的镜头必须写满 3 拍，≤1s 的快切镜可以只写 1 拍。**每一拍都必须能拍出来，不写"他感到/他意识到"**；',
+            '- **camera 是本镜的机位/焦段/运镜三件套**（不是只写"推近/平移"）：写成「景别 + 焦段光圈 + 运镜起点→终点」，如「中近景 50mm f/2.0，从腰高缓推至面部，匀速、到面部前 0.2 秒减速停住」。**禁止只写"推近/拉远/平移"这类空模板**（那是用户看到的"只会平移"的直接来源）；**一镜只能有一个主运镜**，要两个就拆镜；',
+            '- **vfx 是本镜必须可见的物理特效/细节**（不写就没有，模型不会自己加）：按题材点名 1–3 项——雨丝斜打 / 尘粒在光柱中浮动 / 雪片近大远小 / 逆光镜头光斑 / 路灯钠黄溢光 / 闪电瞬时照亮 / 衣角被风掀起 / 水面涟漪扩散 / 纸张翻飞 / 轻微手持晃动 / 运动模糊拖影 / 烟雾弥漫 / 蒸汽升腾。写**可拍摄的物理现象**，不写"画面很唯美"这类空话；**每场至少 3 镜要有 vfx**；',
             '- characters/scene/props 使用剧本与设定集中的名称（不带 @），便于匹配资产；无道具给空数组；',
             '- **dialogue 是本镜的角色台词**：把剧本中落在这一镜的对白逐行搬进来（{"role":"角色名","line":"台词原文"}），台词必须**逐字来自剧本**、不新写不改写；本镜无台词给空数组；一镜尽量只放一个角色的台词（单说话人镜头利于声音参考提取）；',
             '- **【音话同步·硬性】有台词的镜头必须让说话角色在画面内开口说话**：景别用近景/中近景，脸部朝向可见（正面或 3/4 侧脸），禁止背对镜头、脸部被遮挡、人物出画；visual 或 motion 里必须写明「开口说话、口型清晰可见」；台词**绝不能**处理成画外音/旁白（否则成片里人嘴是闭的、声音飘在背景里）；若某句台词在剧本里说话人无法入画，就把这句台词安排到能看见他说话的那一镜；',
             '- **sfx 是本镜的音效/环境音**：剧本里括号标注的「（音效：…）（环境音：…）」按内容对齐到最贴近的镜头**逐字搬入**（多个用顿号连接）；无音效的镜头给空字符串——音效是成片声音设计的一部分，绝不丢弃；',
+            '- **negative 是本镜要排除的失败项**（逗号分隔的短语）：默认写通用项「换脸、五官漂移、服装变化、手部畸形、多指、穿模、闪烁、风格突变、动作僵硬、嘴型与台词不同步」，再按题材补 1–2 项（古装加「现代物件」；室内加「窗外光线突变」；多人加「人物身份互换」）；',
             '- **【完整覆盖】分镜必须覆盖所给剧本的全部内容**：每一个动作、每一句对白都要落在某个镜头里——不概述、不省略、不跳过、不"挑选重点"；镜头数量与总时长由剧本体量自然决定，宁多勿漏（容量超限由上层拆分剧本处理，不由分镜偷工减料）；',
             '- **镜头按实际内容切分**：一个连续动作段落 = 一镜，数量由内容自然决定（3-10 镜都正常）——绝不凑数、绝不使用固定数量；',
+            '- **【切段友好·硬性】镜头边界要落在真能"换镜头"的地方**：系统会把这张分镜切成几次生成，切点只落在「换场 / 特写插入 / 新角色入场」三种镜头边界上。所以：同一个角色的**同一段连续动作绝不要拆成多镜分别标 continuation**（宁可给这一镜更长的 duration），一旦拆开又跨了生成段，两次生成就对不上；确实要换机位时，就让下一个镜头变成**换场/特写插入/新角色入场**中任意一种（哪怕只是插入一镜大特写），这样切点才干净、剪辑时是硬切而不是硬接。**反向约束**：不要为了凑切点而把一场戏拆成很多"换场"（那是假换场，会让画面在同一个空间里跳）；',
             '- **JSON 字符串值内部禁止出现半角双引号 "**——引用文字（牌匾/字幕/台词原文）一律用「」；',
             '- duration 为该镜时长，**支持一位小数**；**按节奏谱系分配、拒绝均匀分布**：普通叙事/对话/环境交代 2–4s，快速冲突/打斗/追逐 0.3–0.8s（快切），重要反转/冲击/卡点 1–2s，长镜头情绪沉淀 ≥5s——同一场里至少制造一次明显的节奏变化（例：3s 叙事 → 0.6s 快切×2 → 1.5s 反转 → 5s 情绪长镜），画面再精致、时长全一样就没有节奏感；总时长按内容需要写足（不设硬上限）；镜头顺序即叙事顺序，末镜收束情绪；**若下方给了「承接约束」，第 1 镜必须承接上一场尾镜的画面与人物状态（不得重新建立场景/跳回远景），无承接约束时首镜才交代场景**；',
             '- **按情绪选景别**：孤独/绝望/宏大危机=远景；对峙/动作/关系建立=全景；对话/试探/信息交换=中景；震惊/怀疑/内心动摇=近景；崩溃/嘶吼/情绪爆发=特写；关键细节/道具揭示=大特写——冲突用全景、揭秘转近景、爆发给特写、反转可拉远，景别变化本身在讲情绪；',
@@ -7118,19 +7290,24 @@ window.__ModuleLoader__.load({
             '- **轴线一致**：两人对话，同一轴线关系（如男左女右）在相邻镜必须保持一致，不得越轴。',
           ] : []).join('\n')
         : [
-            'Break the script into shots for ONE multi-shot video generation: after expansion, a single video node composes ALL shots (in order, with durations) into one prompt, and the video model generates the whole clip in one call (hard cuts inside the model — not one video per shot stitched together).',
+            'Break the script into shots for SHOT-BOUNDARY SEGMENTED generation: when expanded, the system splits the storyboard at real shot boundaries into several generations, each composing only its own shots into one prompt (the video model generates that segment; hard cuts inside the model — not one video per shot stitched together).',
             'Output only one JSON object: {"shots":[' + contFields + ']}.',
             'Rules:',
             '- visual = the shot\'s frame description (shot size, wardrobe, staging, light, framing, <=60 words);',
             '- **characters/scenes/props inside visual and motion must be written as @Name@ references** (an @ on each side, e.g. "@Chen@ picks up @Parcel@ by @Street@"); names must match the bible/assets VERBATIM, with no @, space or punctuation inside; an @ must never be followed directly by other text (always close with @) - the UI hides the @s and shows the name in blue bold; unregistered @Name@ is flagged by the consistency check;',
             '- motion = action & camera for the shot (action beats, camera move, emotional rhythm, <=50 words); do not repeat visual;',
+            '- **[ACTION LAYERING - HARD] timeBeats is this shot\'s three time beats (array, in order)**: split "one action" into **wind-up -> drive -> settle**, each beat describing a VISIBLE body/prop state, e.g. ["0s right hand half-way up, knuckles tightening","1.2s hand reaches the chest, shoulder line pressing forward","3s it settles over the envelope, a raindrop sliding off the fingers"]. **A single beat means the model performs a single pose (measured user feedback: minimal motion, pan-only)**; any shot >=2s must carry 3 beats, rapid cuts <=1s may carry 1. **Every beat must be filmable - never "he feels / he realizes"**;',
+            '- **camera = body/lens/move for this shot** (not just "push in / pan"): write "shot size + focal length & aperture + move start->end", e.g. "medium close-up 50mm f/2.0, slow push from waist height to the face, constant speed, decelerating to a stop 0.2s before the face". **Never use empty template verbs like push in / pull out / pan alone** (that is exactly what produces the "pan-only" result); **one primary camera move per shot** - if you need two, split the shot;',
+            '- **vfx = physical effects/details that must be visible in this shot** (if unwritten they simply do not exist; the model will not add them): name 1-3 per shot by genre - slanted rain / dust motes floating in a light shaft / snowflakes near-to-far / backlit lens flare / sodium-vapour streetlamp spill / lightning flash lighting the set / coat hem lifted by wind / ripples spreading on water / paper sheets tumbling / subtle handheld shake / motion-blur trails / drifting smoke / rising steam. Write **filmable physical phenomena**, never "a beautiful frame"; **at least 3 shots per scene must carry vfx**;',
             '- characters/scene/props arrays must use plain names from the script and series bible (no @) so assets match; empty props array if none;',
             '- **dialogue = the character lines that fall in this shot**, moved verbatim from the script ({"role":"Name","line":"exact line"}); never rewrite lines; empty array if none; keep one speaker per shot when possible (helps voice-reference extraction);',
             '- **[LIP-SYNC - HARD] any shot carrying dialogue must show the speaker TALKING ON SCREEN**: use a close-up / medium close-up with the face visible (frontal or 3/4), never back-to-camera, never obscured, never off-frame; state "speaks on screen, mouth clearly visible" in visual or motion; dialogue must NEVER become voice-over/narration (otherwise the final cut has a closed mouth with the voice floating in the background); if a line cannot be on camera in the script, move that line to the shot where the speaker is visible;',
             '- **sfx = sound cues / ambience for this shot**: bracketed notes like (SFX: ...) (Ambience: ...) from the script are moved verbatim into the closest matching shot (join multiples with commas); empty string if none — sound design is part of the film, never drop it;',
+            '- **negative = failure modes this shot must exclude** (comma-separated phrases): always include "face swap, facial drift, wardrobe change, deformed hands, extra fingers, clipping, flicker, style jump, stiff motion, lip-sync mismatch", plus 1-2 genre additions (period drama: "modern objects"; interior: "abrupt window light change"; multiple people: "identity swap");',
             '- **[FULL COVERAGE] the shots must cover EVERYTHING in the given script**: every action and every line must land in some shot — no summarizing, no omitting, no cherry-picking; shot count and total duration follow naturally from the script size (more is better than missing); capacity overflow is handled upstream by splitting the script, never by thinning the shots;',
             '- **Never use straight double quotes " inside JSON string values** — quoted text (signs/subtitles/lines) uses 「」 instead;',
             '- **Split shots by actual content**: one continuous action beat = one shot; the count is decided by the content (3-10 shots are all normal) — never pad, never use a fixed number;',
+            '- **[SEGMENTATION-FRIENDLY - HARD] shot boundaries must land where a cut can actually happen**: the system splits this storyboard into several generations, and a split is only allowed on a "cut" boundary - scene change / insert close-up / new character enters. Therefore: never break ONE character\'s ONE continuous action into several `continuation` shots (give that single shot a longer duration instead) - if it gets split across two generations, the two clips cannot be matched. When you genuinely change the camera, make the next shot one of scene change / insert close-up / new character (even a single insert close-up is enough) so the boundary is a clean cut rather than a forced match. **Do not fake it**: never label shots `scene_change` just to create cut points inside the same space - that reads as a jump;',
             '- duration is the shot length in seconds, **one decimal allowed**; **assign by pacing spectrum, never uniform**: normal narrative/dialogue 2-4s, fast conflict/fight/chase 0.3-0.8s (rapid cuts), key reversal/impact 1-2s, long emotional take >=5s — every scene must contain at least one obvious rhythm change (e.g. 3s narrative -> 0.6s cuts x2 -> 1.5s reversal -> 5s emotional take); identical durations kill the rhythm; total duration follows what the scene needs - no hard cap (vendor limits differ and change; if exceeded the video call reports it explicitly, then you split or adjust); shot order = narrative order; last shot lands the emotion; **if a CONTINUITY CONSTRAINT is given below, shot 1 must continue the previous scene\'s last frame and character state (no re-establishing, no wide reset); only without a constraint does shot 1 establish the scene**;',
             '- **Pick the shot size by emotion**: loneliness/despair/grand crisis = wide; confrontation/action/relationship = full; dialogue/probing/info exchange = medium; shock/suspicion/inner shake = close-up; breakdown/screaming/emotional burst = extreme close-up; key detail/prop reveal = big close-up — conflicts play wide, reveals move close, bursts go extreme, reversals can pull wide; the changing distance itself tells the emotion;',
             '- **Rapid cuts (<1.5s) get minimal visual/motion** (one action, one piece of in-frame information); long durations are earned by information density — duration must match content;',
@@ -7244,6 +7421,12 @@ window.__ModuleLoader__.load({
         cam: String(s.cam || '').trim().slice(0, 80),
         start: String(s.start || '').trim().slice(0, 120),
         seg: String(s.seg || '').trim().toLowerCase().slice(0, 20),
+        // 动作层次 / 机位三件套 / 物理特效 / 负向要求：这是"动作极简、只会平移、没有特效"的直接解药。
+        // 逐镜存进分镜数据，提示词组装时原样带上（没写就是空，绝不臆造）。
+        timeBeats: Array.isArray(s.timeBeats) ? s.timeBeats.map(String).map((x) => x.trim()).filter(Boolean).slice(0, 4) : [],
+        camera: String(s.camera || '').trim().slice(0, 160),
+        vfx: String(s.vfx || '').trim().slice(0, 160),
+        negative: String(s.negative || '').trim().slice(0, 200),
         characters: Array.isArray(s.characters) ? s.characters.map(String).slice(0, 6) : [],
         scene: String(s.scene || ''),
         props: Array.isArray(s.props) ? s.props.map(String).slice(0, 6) : [],
@@ -7929,30 +8112,65 @@ window.__ModuleLoader__.load({
     }
 
     // 输入解析：生成节点的实际 prompt（文本节点 / 分镜节点的画面、动作输出）
-    /** 分镜表 → 一次多镜头视频生成的提示词：所有镜头按顺序、按时长写进同一条提示词，
-     *  由支持多镜头的视频模型**一次性生成整段视频**（而不是一镜一视频再拼接）。
+    /** 分镜表 → 一次多镜头视频生成的提示词：**只写这一段负责的镜头**（按顺序 + 时长），
+     *  由视频模型一次性生成整段视频。
+     *
+     *  为什么带 segment：整表一次生成时，模型的时长预算被摊薄，动作只能被压成"平移"。
+     *  按镜头切段后，每次只给 2–4 镜，动作才有演出的余地；段与段之间靠切点衔接，不硬接。
+     *
+     *  每镜增补三个"模型看不懂就没有"的字段（缺了就是空白，模型不会自己加）：
+     *   timeBeats（动作三节拍：起势 → 发力 → 落点）、camera（机位/焦段/运镜起点→终点）、
+     *   vfx（物理特效）。它们来自分镜表数据；没写就不注入，绝不臆造。
+     *
      *  各镜内的 @实体 引用原样保留：@引用只注入设定集文字，参考图仍只取连进 ref 口的连线。 */
-    function buildStoryboardVideoPrompt(sb) {
-      const shots = ((sb && sb.data && sb.data.shots) || []).filter((s) => s && (String(s.visual || '').trim() || String(s.motion || '').trim()));
+    function buildStoryboardVideoPrompt(sb, segment) {
+      const all = ((sb && sb.data && sb.data.shots) || []).filter((s) => s && (String(s.visual || '').trim() || String(s.motion || '').trim()));
+      const seg = segment || null;
+      const shots = seg ? all.slice(seg.from, seg.to + 1) : all;
       if (!shots.length) return '';
       const zh = effLang() !== 'en';
-      const total = shots.reduce((a, s) => a + Math.max(1, Number(s.duration) || 3), 0);
+      const durOf = (s) => Math.max(0.3, Number(s.duration) || 3);
+      const total = Math.round(shots.reduce((a, s) => a + durOf(s), 0) * 10) / 10;
       const hasDialogue = shots.some((s) => (s.dialogue || []).length);
-      const lines = [
-        zh
+      const head = seg && seg.count > 1
+        ? (zh
+          ? `【按镜头切段 · 第 ${seg.index + 1}/${seg.count} 段】本段只生成 ${shots.length} 镜、总时长 ${total} 秒（全表第 ${seg.from + 1}–${seg.to + 1} 镜）。严格按下列顺序与时长切镜（每镜时长不可变），镜头之间直接硬切，不要叠加转场。`
+          : `[Shot-boundary segment ${seg.index + 1}/${seg.count}] Generate ONLY these ${shots.length} shots, ${total}s total (shots ${seg.from + 1}-${seg.to + 1} of the storyboard). Cut strictly in this order with exact per-shot durations, hard cuts only, no transitions.`)
+        : (zh
           ? `【多镜头一次性生成】共 ${shots.length} 镜、总时长 ${total} 秒。严格按下列顺序与时长切镜（每镜时长不可变），镜头之间直接硬切，不要叠加转场：`
-          : `[Multi-shot single generation] ${shots.length} shots, ${total}s total. Cut strictly in this order with exact per-shot durations, hard cuts only, no transitions:`,
-      ];
+          : `[Multi-shot single generation] ${shots.length} shots, ${total}s total. Cut strictly in this order with exact per-shot durations, hard cuts only, no transitions:`);
+      const lines = [head];
+      // 切段边界说明：让模型知道这一段是"从切点开始"还是"接着上一段的动作"
+      if (seg && seg.count > 1) {
+        if (seg.needsTailChain) {
+          lines.push(zh
+            ? '本段首镜承接上一段结尾：首帧已由系统取上一段尾帧提供，第 1 帧必须与之完全一致，只允许往后延续动作（不重演、不重建场景、不换机位）。'
+            : 'This segment continues the previous one: the first frame is supplied from the previous segment tail; frame 1 must match it exactly and only continue the motion (no replay, no re-establishing, no camera reset).');
+        } else {
+          lines.push(zh
+            ? '本段从一个**换镜头切点**开始：不要承接上一段的画面，直接按本段第 1 镜建立新的构图与机位（环境声/情绪可以延续）。这样剪辑时就是一次干净的切，不需要硬接前一段画面。'
+            : 'This segment begins on a CUT: do not continue the previous segment picture; establish this segment\'s first shot fresh (ambience/mood may carry). This is what makes the edit a clean cut instead of a forced match.');
+        }
+      }
       if (hasDialogue) {
         lines.push(zh
           ? '标注「台词」的对白必须由**画面内可见的角色当场开口说出**（口型与台词同步、语气贴合情绪、面部朝镜头可见）；严禁处理成画外音/旁白；同步音频开启时按台词生成人声。'
           : 'Dialogue must be SPOKEN ON SCREEN by the visible character (lip-synced to the line, matching emotion, face toward camera); never render it as voice-over/narration; generate speech when synced audio is on.');
       }
       shots.forEach((s, i) => {
-        const dur = Math.max(1, Number(s.duration) || 3);
+        const dur = durOf(s);
         const parts = [];
         if (String(s.visual || '').trim()) parts.push(String(s.visual).trim());
         if (String(s.motion || '').trim()) parts.push((zh ? '运镜/动作：' : 'Camera/Action: ') + String(s.motion).trim());
+        // 动作三节拍：这是"动作极简、只会平移"的直接解药——不写节拍，模型只演一个姿势
+        const beats = Array.isArray(s.timeBeats) ? s.timeBeats.filter((b) => String(b || '').trim()) : [];
+        if (beats.length) {
+          parts.push((zh ? '动作节拍（按时间推进，不可省略任何一拍）' : 'Action beats (in order, none may be skipped)') + '：' + beats.join(zh ? ' → ' : ' -> '));
+        }
+        const cam = String(s.camera || '').trim();
+        if (cam) parts.push((zh ? '机位/焦段/运镜' : 'Camera/lens/move') + '：' + cam);
+        const vfx = String(s.vfx || '').trim();
+        if (vfx) parts.push((zh ? '物理特效（必须可见）' : 'Physical VFX (must be visible)') + '：' + vfx);
         const dls = (s.dialogue || []).map((d) => String(d && d.role || '').trim() + '：' + String(d && d.line || '').trim()).filter((x) => x.replace('：', '').trim());
         if (dls.length) {
           parts.push(zh
@@ -7962,6 +8180,14 @@ window.__ModuleLoader__.load({
         if (String(s.sfx || '').trim()) parts.push((zh ? '音效：' : 'SFX: ') + String(s.sfx).trim());
         lines.push((zh ? `镜头${i + 1}（${dur}s）：` : `Shot ${i + 1} (${dur}s): `) + parts.join(zh ? '；' : '; '));
       });
+      // 段级负向要求：模型默认会漂移、穿模、闪烁，不点名就一定会出现
+      const negAll = shots.map((s) => String(s.negative || '').trim()).filter(Boolean);
+      const negLine = negAll.length
+        ? [...new Set(negAll.join('、').split(/[、,，;；]/).map((x) => x.trim()).filter(Boolean))].join('、')
+        : '';
+      lines.push(zh
+        ? '禁止：换脸、五官漂移、服装变化、手部畸形、多指、穿模、画面闪烁、风格突变、动作僵硬、人物凭空出现或消失、口型与台词不同步' + (negLine ? '、' + negLine : '') + '。'
+        : 'Never: face swap, facial drift, wardrobe change, deformed hands, extra fingers, clipping, flicker, style jump, stiff motion, characters popping in or out, lip-sync mismatch' + (negLine ? ', ' + negLine : '') + '.');
       return lines.join('\n');
     }
     function resolvePrompt(n) {
@@ -7975,14 +8201,22 @@ window.__ModuleLoader__.load({
             const v = (src.data[field] || '').trim();
             if (v) return v;
           }
-          // 上游是分镜表 → 多镜头一次性生成：全部镜头组合成一条提示词（时长 = 各镜之和）
+          // 上游是分镜表 → 多镜头一次性生成：只组合**本段负责的镜头**（按镜头切段铺开时）
           if (src.type === 'storyboard') {
-            const composed = buildStoryboardVideoPrompt(src);
+            const composed = buildStoryboardVideoPrompt(src, videoSegmentOf(n));
             if (composed) return composed;
           }
         }
       }
       return (n.data.prompt || '').trim();
+    }
+    /** 视频节点上的「本段镜头区间」（按镜头切段铺开时写入 data.segShotFrom/To）。 */
+    function videoSegmentOf(n) {
+      const d = (n && n.data) || {};
+      const from = Number(d.segShotFrom);
+      const to = Number(d.segShotTo);
+      if (!Number.isFinite(from) || !Number.isFinite(to) || to < from) return null;
+      return { from: Math.max(0, Math.floor(from)), to: Math.floor(to), index: Number(d.segIndex) || 0, count: Number(d.segCount) || 1, needsTailChain: d.needsTailChain === true, seamRisk: String(d.seamRisk || 'none') };
     }
     // 节点输出端口所服务的资产（视频生成 last 端口 → 尾帧图资产）
     function servedAssetId(src, fromPort) {
@@ -8330,7 +8564,18 @@ window.__ModuleLoader__.load({
             const src = e2 && S.graph.nodes[e2.fromNode];
             return src && src.type === 'storyboard' ? src : null;
           })();
-          const shotList = sbUp && Array.isArray(sbUp.data.shots) ? sbUp.data.shots : [];
+          const shotListAll = sbUp && Array.isArray(sbUp.data.shots) ? sbUp.data.shots : [];
+          // 按镜头切段：上游分镜表被"按镜头切段"铺开过时，每个视频节点只负责自己那一段镜头。
+          // 只取本段的镜头去组提示词——绝不把整表的镜头都塞进一次请求（那正是"动作被压成平移"的根因）。
+          const segMeta = (() => {
+            const d = (n.data || {});
+            if (!shotListAll.length) return null;
+            const from = Number(d.segShotFrom);
+            const to = Number(d.segShotTo);
+            if (!Number.isFinite(from) || !Number.isFinite(to) || to < from) return null;
+            return { from: Math.max(0, Math.floor(from)), to: Math.min(shotListAll.length - 1, Math.floor(to)), index: Number(d.segIndex) || 0, count: Number(d.segCount) || 1, needsTailChain: d.needsTailChain === true, seamRisk: String(d.seamRisk || 'none') };
+          })();
+          const shotList = segMeta ? shotListAll.slice(segMeta.from, segMeta.to + 1) : shotListAll;
           const handWritten = String(n.data.prompt || '').trim();
           // 分镜衔接规划：段落类型（续帧/换场/新角色/特写插入）+ 首镜承接口 + 是否接力尾帧
           const zh = effLang() !== 'en';
@@ -8350,9 +8595,10 @@ window.__ModuleLoader__.load({
             // 第 1 镜没有表内上一镜时，可承接上一个分镜表 → 实质是续帧
             if (seg === 'opening' && prevNote) seg = 'continuation';
             const join = (seg === 'scene_change' || seg === 'new_character') ? 'loose' : seg === 'closeup' ? 'cut' : 'strict';
-            // 只有续帧段才自动取上一段尾帧；其余段落没有可承接的画面
-            const chain = contOn && seg === 'continuation';
-            return { first, chain, seg, join, fromShot: contOn && !!prevNote, contOn };
+            // 接力判定：切段铺开时以**规划器**为准（它知道本段是否从切点开始）；
+            // 直接把整表塞一次生成的旧路径才退回"首镜是续帧就接力"。
+            const chain = contOn && (segMeta ? (segMeta.needsTailChain && seg === 'continuation') : seg === 'continuation');
+            return { first, chain, seg, join, fromShot: contOn && (segMeta ? segMeta.needsTailChain : !!prevNote), contOn, segMeta };
           })();
           // 首帧来源：① frame 口连线（用户显式）② 续帧链自动取「上一个视频」的尾帧
           let frameBlob = await resolveAssetBlob(n.id, 'frame');
@@ -10222,6 +10468,15 @@ window.__ModuleLoader__.load({
                 onChange: (v) => setStoryboardPrev(n.id, v || null),
               })
             : null,
+          // 单段生成上限：切段规划器按它决定"一张分镜表切成几次生成"。
+          // MiniMax 这类弱衔接模型建议填 6–10；Seedance 2.5 可以填到 15。
+          isStoryboard
+            ? h(PopupSelect, {
+                value: String(Number(n.data.segMaxSeconds) || 15), width: 84, title: T('segMaxLabel'), className: 'is-segmax',
+                options: [6, 8, 10, 12, 15, 20, 30].map((x) => ({ value: String(x), label: x + 's' })),
+                onChange: (v) => setData('segMaxSeconds', Number(v)),
+              })
+            : null,
           (isImage || isVideo || isFinalCut)
             ? h(PopupSelect, { value: n.data.ratio || '16:9', options: ratioOpts, onChange: onRatio, width: 74, title: T('ratioLabel') })
             : null,
@@ -11054,11 +11309,14 @@ window.__ModuleLoader__.load({
       ];
     }
 
-    /** 分镜表节点：节点内只显示结果（N 镜 · 总时长 + 镜头清单）；镜头数/承接分镜/生成在 GenComposer 面板里。 */
+    /** 分镜表节点：节点内只显示结果（N 镜 · 总时长 + 镜头清单 + 切段预览）；镜头数/承接分镜/生成在 GenComposer 面板里。 */
     function StoryboardNodeBody({ n }) {
       const running = n.data.aiStatus === 'running';
       const shots = n.data.shots || [];
       const totalDur = shots.reduce((a, sh) => a + Math.max(0, Number(sh.duration) || 0), 0);
+      // 切段预览：把"这张分镜表会被切成几次生成、每次几镜几秒、哪些段要接尾帧"直接显示在节点上，
+      // 用户铺开前就知道会切成什么样——不用等到生成完才发现接不上。
+      const segPlan = shots.length ? planShotSegments(shots, { maxSeconds: Number(n.data.segMaxSeconds) || 15 }) : null;
       // 一致性告警的手动重校验：告警是**生成时刻**算的，之后补全设定集不会让它们自动消失——
       // 点刷新按当前设定集重算（checkShotConsistency 读的是实时 bible/资产名索引）
       const [wvChecking, setWvChecking] = useState(false);
@@ -11075,6 +11333,16 @@ window.__ModuleLoader__.load({
         h('div', { key: 'sum', className: 'dshic-shot-summary' },
           h('b', {}, shots.length ? (shots.length + ' ' + T('shotsUnit')) : T('noShotsYet')),
           shots.length ? h('span', {}, ' · ' + totalDur + 's · ' + T('multiShotOnce')) : null),
+        // 切段摘要：M 段 / 共 N 镜 / 最长 S 秒；forced 时用告警色如实标出
+        segPlan && segPlan.segments.length > 1
+          ? h('div', { key: 'segsum', className: 'dshic-hint', 'data-role': 'seg-summary', title: T('segPlanHint') },
+              h('span', { style: { color: segPlan.cutMode === 'clean' ? 'var(--dsw-alias-state-success-primary)' : 'var(--dsw-alias-state-warn-primary)' } },
+                (segPlan.cutMode === 'clean' ? '✂ ' : '⚠ ') + T('segSummary')
+                  .replace('{m}', String(segPlan.segments.length))
+                  .replace('{n}', String(shots.length))
+                  .replace('{s}', String(Math.max(...segPlan.segments.map((sg) => sg.duration))))),
+              h('span', { style: { opacity: 0.75 } }, ' · ' + (segPlan.cutMode === 'clean' ? T('segClean') : T('segForced'))))
+          : null,
         n.data.contFrom
           ? h('div', { key: 'cont', className: 'dshic-hint' }, '↩ ' + T('contFrom') + '：' + n.data.contFrom + ' ' + T('lastFrame'))
           : null,
@@ -11163,13 +11431,22 @@ window.__ModuleLoader__.load({
       ];
     }
 
-    // 分镜表 → 画布（现代多镜头工作流）：**一个分镜表 = 一次视频生成**。
-    // 分镜表(镜头脚本)连到 1 个视频生成节点的 prompt 端口（运行时把全部镜头按顺序+时长组合成
-    // 一条多镜头提示词，一次性生成整段视频）；角色/场景/道具参考图按实体**跨镜去重**后连到 ref 端口；
-    // 视频生成 → 1 个视频资产。不再一镜一视频、无需拼接。
+    // 分镜表 → 画布（按镜头切段工作流）：**一个分镜表 = 若干段，每段一次视频生成**。
+    //
+    // 为什么改：旧实现是「整个分镜表 = 一次生成」，13 镜 60 秒也塞进一次请求，模型只能砍动作。
+    // 现在的规则（见 planShotSegments 的注释）：
+    //   · 段边界只落在"换镜头"处（换场 / 特写插入 / 新角色入场）；
+    //   · 同一段连续动作（continuation）整段留在同一生成段，绝不从动作中间切；
+    //   · 每段时长 ≤ 单次生成上限（默认 15s，节点上可改）；
+    //   · 只有真的跨了连续动作、且模型够强时，才把上一段尾帧接到本段首帧；
+    //     弱衔接模型（MiniMax 等）默认走"每段以切点收尾"，剪辑时是干净硬切，不硬接。
     async function expandStoryboard(n) {
       const shots = (n.data.shots || []).slice();
       if (!shots.length) { toast(T('expandNoShots')); return; }
+      const zh = effLang() !== 'en';
+      // 切段规划：纯函数，可在面板上预览，也由 scripts/test-segment-plan.mjs 直接断言
+      const plan = planShotSegments(shots, { maxSeconds: Number(n.data.segMaxSeconds) || 15 });
+      const segs = plan.segments.length ? plan.segments : [{ index: 0, shots, startIndex: 0, endIndex: shots.length - 1, duration: plan.total, firstSeg: 'opening', lastSeg: 'continuation', opensOnCut: true, closesOnCut: true, seamRisk: 'none', needsTailChain: false, reason: '' }];
       // 项目资产名称索引（用于把角色/场景/道具连接到已有资产节点）
       const recs = await idbByProject(S.activeId).catch(() => []);
       const norm = (s) => String(s || '').trim().toLowerCase();
@@ -11187,10 +11464,10 @@ window.__ModuleLoader__.load({
         pushEntity(sh.scene, 'scene');
         (sh.props || []).forEach((nm) => pushEntity(nm, 'prop'));
       }
-      const zh = effLang() !== 'en';
       const bible = loadBible(S.activeId);
       let reuseAssets = 0; // 资产库已有 → 只挂节点
       let newGens = 0;     // 库中没有 → 新建带提示词的图片生成节点
+      const videoNodeIds = [];
       update((s) => {
         // 资产库命中（名称相等优先，其次包含匹配）——有图就直接挂资产节点，绝不重复生成
         const findLibraryAsset = (name) => {
@@ -11232,17 +11509,15 @@ window.__ModuleLoader__.load({
         };
         const baseX = n.x + n.w + 140;
         const baseY = n.y - 40;
-        // 生成时长 = 各镜时长之和（多镜头一次性生成的总时长），由视频模型内部切镜
-        const total = shots.reduce((a, sh) => a + Math.max(1, Number(sh.duration) || 3), 0);
-        // 合并后的视频节点：生成与结果同属一个节点（旧布局是 video-gen → video-asset 两个节点）
-        const videoGen = mk('video', baseX + 540, baseY + 20, { prompt: '', duration: Math.max(1, Math.round(total)) });
+        // ① 实体参考图节点：全表去重，只建一次（放在分镜表右侧第一列）
+        const entityNodeOf = new Map(); // lower(name) -> node
         entities.forEach((ent, i) => {
           const y = baseY + i * 380;
           const hit = findLibraryAsset(ent.name);
           if (hit) {
             let an = findAssetNodeById(hit.id);
             if (!an) an = mk('image', baseX, y, { assetId: hit.id }, hit.raw || hit.name);
-            linkRaw(an, 'out', videoGen, 'ref');
+            entityNodeOf.set(ent.name.toLowerCase(), an);
             reuseAssets++;
             return;
           }
@@ -11254,26 +11529,80 @@ window.__ModuleLoader__.load({
             gn = mk('image', baseX, y, { prompt: spec.prompt, size: spec.size, ratio: spec.ratio }, spec.label);
             newGens++;
           }
-          linkRaw(gn, 'out', videoGen, 'ref');
+          entityNodeOf.set(ent.name.toLowerCase(), gn);
         });
-        linkRaw(n, 'out', videoGen, 'prompt'); // 多镜头提示词来自上游分镜表（不复制文本）
-        // 把「上一段视频」的尾帧接到本段的 frame：铺开时就建好，用户按顺序生成即可自动接力。
-        // 找上一段的规则与 autoPrevVideoNode 一致（同分镜表兄弟段 / 沿 prev 链上溯的上游分镜表所连视频）。
-        (() => {
-          const prevVid = autoPrevVideoNode(videoGen);
-          if (!prevVid || !prevVid.id) return;
+        // ② 每段一个视频节点：只负责本段的镜头（data.segShotFrom/To 决定提示词里写哪几镜）
+        const videoColX = baseX + 540;
+        const rowStride = Math.max(420, entities.length * 380 + 60);
+        segs.forEach((seg, k) => {
+          const y = baseY + 20 + k * rowStride;
+          const dur = Math.max(1, Math.round(seg.duration));
+          const label = segs.length > 1
+            ? ((String(n.data.label || '').trim() || T('nStoryboard')) + ' · ' + T('segLabelShort') + (k + 1) + '/' + segs.length)
+            : '';
+          const v = mk('video', videoColX, y, {
+            prompt: '',
+            duration: dur,
+            segShotFrom: seg.startIndex,
+            segShotTo: seg.endIndex,
+            segIndex: k,
+            segCount: segs.length,
+            needsTailChain: seg.needsTailChain === true,
+            seamRisk: seg.seamRisk || 'none',
+          }, label);
+          linkRaw(n, 'out', v, 'prompt'); // 提示词来自上游分镜表（运行时只取本段的镜头）
+          // 本段自己用到的实体参考图（跨段共用同一批图片节点，连线各自独立）
+          const seen = new Set();
+          const linkEntity = (nm) => {
+            const q = norm(nm);
+            if (!q || seen.has(q)) return;
+            seen.add(q);
+            const nd = entityNodeOf.get(q);
+            if (nd) linkRaw(nd, 'out', v, 'ref');
+          };
+          for (const sh of seg.shots) {
+            (sh.characters || []).forEach(linkEntity);
+            linkEntity(sh.scene);
+            (sh.props || []).forEach(linkEntity);
+          }
+          videoNodeIds.push(v.id);
+        });
+        // ③ 尾帧接力：只接"确实跨了连续动作"的段；从切点开始的段一律不接（剪辑时是干净切）
+        for (let k = 1; k < videoNodeIds.length; k++) {
+          if (!segs[k] || !segs[k].needsTailChain) continue;
+          const prevVid = s.graph.nodes[videoNodeIds[k - 1]];
+          const curVid = s.graph.nodes[videoNodeIds[k]];
+          if (!prevVid || !curVid) continue;
           const fromPort = prevVid.data && prevVid.data.lastPickAssetId ? 'tailpick' : 'last';
-          linkRaw(prevVid, fromPort, videoGen, 'frame');
-        })();
-        s.sel = new Set([videoGen.id]);
+          linkRaw(prevVid, fromPort, curVid, 'frame');
+        }
+        // ④ 第 1 段若还承接「上一个分镜表」，沿用 autoPrevVideoNode（跨分镜表续帧）
+        if (videoNodeIds.length) {
+          const firstVid = s.graph.nodes[videoNodeIds[0]];
+          const prevVid = firstVid && autoPrevVideoNode(firstVid);
+          if (prevVid && prevVid.id) {
+            const fromPort = prevVid.data && prevVid.data.lastPickAssetId ? 'tailpick' : 'last';
+            linkRaw(prevVid, fromPort, firstVid, 'frame');
+          }
+        }
+        s.sel = new Set(videoNodeIds);
       });
       pushHistory();
       flushSave(); // 批量铺开立即推送，Host 侧立即可见
       toast(T('expandDone').replace('{n}', String(shots.length)));
+      if (segs.length > 1) {
+        const chained = segs.filter((sg) => sg.needsTailChain).length;
+        setTimeout(() => toast(T('expandSegDone').replace('{n}', String(shots.length)).replace('{m}', String(segs.length))
+          + (chained ? ' · ' + T('expandSegChain').replace('{n}', String(chained)) : '')), 300);
+      }
+      // 切段警告如实回传（硬切点 / 单镜超长）——绝不静默
+      if (plan.warnings && plan.warnings.length) {
+        setTimeout(() => toast(plan.warnings[0]), 700);
+      }
       // 铺开结果如实告知：哪些实体资产库已有、哪些新建了待生成的资产节点（提示词已写好）
       if (newGens) {
         setTimeout(() => toast(T('expandGenCreated').replace('{n}', String(newGens))
-          + (reuseAssets ? ' · ' + T('expandAssetReused').replace('{n}', String(reuseAssets)) : '')), 400);
+          + (reuseAssets ? ' · ' + T('expandAssetReused').replace('{n}', String(reuseAssets)) : '')), 1100);
       }
       setTimeout(() => fitView(), 60);
     }
@@ -14698,6 +15027,10 @@ window.__ModuleLoader__.load({
           window.__DSH_IC_IMGREF__ = { rawImageDims, sniffImageEncoding, registerReferenceAsset };
           // IC-03：视频厂商识别/前缀归一化的纯函数出口（供 scripts/test-vendor-detect.mjs 直接断言）
           window.__DSH_IC_VENDOR__ = { detectVideoVendor, gatewayPrefixFor, wanEndpoints, vendorBase, VIDEO_REF_CAPS };
+          // 按镜头切段（分段生成本身就是最容易出错的地方）：规划器 + 强弱模型分流 + 节点段区间解析
+          // 供 scripts/test-segment-plan.mjs 直接断言
+          window.__DSH_IC_SEGMENT__ = { planShotSegments, isCutPoint, segmentNeedsHardFrame, videoSegmentOf, shotContinuityPlan };
+          window.__DSH_IC_STORYBOARD_PROMPT__ = { buildStoryboardVideoPrompt };
           // 面板结构（左侧图标列 / 统一弹窗 / 工具栏项目切换 / 就地改名 / 右栏当前项目面板）：
           // 供 scripts/test-panel-layout.mjs 驱动
           window.__DSH_IC_PANEL__ = {
