@@ -24,7 +24,7 @@ Two ways to drive it, best combined:
 1. Install the plugin (bundle folder) and **restart Harness once**. Open a workspace session — the **Infinite Canvas** entry appears; open the canvas panel.
 2. The right panel has four tabs: **Projects / Assets / Bible / Settings**.
 
-![Projects tab](./images/panel-projects-en.png)
+![Projects tab (ZH UI)](./images/panel-projects-zh.png)
 
 3. First time: finish the basics in the **Settings** tab (see section 5), then start from the chat.
 
@@ -52,7 +52,7 @@ You don't have to flip between the **Chat** and **Canvas** views: the canvas als
 
 **The agent**: creates the project → writes the world view, style baseline, characters (Chen Shi / Granny Lin), scenes (Night Post Office / Wrinkled Alley / City Street), props (Fire-Seal Letter / Brass Pocket Watch / Canvas Mailbag…) into the **bible**.
 
-![Bible tab](./images/panel-bible-en.png)
+![Bible modal (ZH UI)](./images/panel-bible-zh.png)
 
 **Why the bible matters**: it is the single source of truth for cross-shot, cross-episode consistency — every script, storyboard and video call automatically carries it; an `@Chen Shi` mention in a prompt automatically attaches that entity's description and reference assets, so **you never re-describe a character's looks**.
 
@@ -80,7 +80,7 @@ Each storyboard is broken into a shot list by AI: per shot — visual, motion & 
 
 The canvas after the episode is expanded (left: script → per-scene texts → per-scene storyboards):
 
-![Canvas overview — episode expanded](./images/overview-en.png)
+![Canvas overview (EN UI)](./images/overview-en.png)
 
 ### 3.4 Generate reference images (characters / scenes / props)
 
@@ -92,7 +92,7 @@ The canvas after the episode is expanded (left: script → per-scene texts → p
 
 Generated assets land in the **Assets** tab, organized by category (Character / Scene / Prop / Script / Storyboard / Voice / Final cut):
 
-![Assets tab](./images/panel-assets-en.png)
+![Assets modal (EN UI)](./images/panel-assets-en.png)
 
 > 💡 Batch tip: ten reference images and six storyboards are exactly the kind of repetitive work the chat side is fastest at — one sentence does it all; you just review the images.
 
@@ -111,7 +111,7 @@ Generated assets land in the **Assets** tab, organized by category (Character / 
 
 Scene 1's result: the video node with preview, bound references, and the tail-frame asset (the Assets panel gains "Ep1-Scene1 video" and "tail frame" cards):
 
-![Scene 1: storyboard + references → video](./images/video-node-refs.png)
+![Scene 1: storyboard + references → video](./images/scene1-zh.png)
 
 ### 3.6 Post-production with the Craft family
 
@@ -143,6 +143,10 @@ After the chat batch is done, the canvas is where you polish:
 
 **Recommended rhythm**: let chat finish the 80% batch → polish the 20% you care about on the canvas → have chat re-run the changed parts.
 
+Shortcuts and gestures:
+
+![Shortcuts and gestures (EN UI)](./images/shortcuts-en.png)
+
 ---
 
 ## 5. Model configuration: providers + models
@@ -152,11 +156,11 @@ Settings tab → Image models / Video models / TTS voices, organized in **two le
 1. **Provider** (collapsed row): configure the endpoint + API key **once** (+ optional extra params);
 2. **Models**: list several model IDs under it (same vendor, different tiers); **star ★ one as the default** — nodes without an explicit pick route there automatically.
 
-![Settings tab (data root / Craft / skills / text model / image models / video models / TTS)](./images/panel-settings-en.png)
+![Settings tab (data root / Craft / skill boost / text model / image models / video models / TTS) (EN UI)](./images/panel-settings-en.png)
 
 Expand a provider to edit its details (endpoint, key, output format, extra params, model list):
 
-![Provider detail](./images/provider-detail.png)
+
 
 Key points:
 
@@ -235,3 +239,7 @@ Media lives on disk, organized by project — **copying the folder IS the full m
 | Deleted nodes come back | Old sync race — upgrade to 0.17.11+ |
 | Storyboards always have exactly 6 shots | Old anchoring issue — since 0.17.11 shot counts follow the content beats |
 | Demo-mode images | No model configured, or the node has no pick and no starred default — see section 5 |
+
+Stuck? Open **Help & feedback** from the right panel to join the group or file an issue:
+
+![Help & feedback (EN UI)](./images/help-en.png)
