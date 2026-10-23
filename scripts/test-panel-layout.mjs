@@ -226,7 +226,8 @@ function cssRulesMatchingClass(name) {
   const rail = TABS.IconRail();
   const els = all(rail);
   const acts = els.filter((e) => e.props && e.props['data-action']).map((e) => e.props['data-action']);
-  eq(acts.join(','), 'add-text,add-script,add-storyboard,add-image,add-video,add-finalcut,open-assets,open-bible,run-workflow',
+  // 导演台（open-director）放在动作分区：它和"运行工作流"一样是工具，不是节点类型
+  eq(acts.join(','), 'add-text,add-script,add-storyboard,add-image,add-video,add-finalcut,open-assets,open-bible,open-director,run-workflow',
     '左侧图标列顺序/动作不符合要求');
   ok(/\.dshic-rail\{[^}]*position:absolute/.test((LAYOUT.CSS || '')), '图标列不再是绝对定位悬浮层');
   // 第 2 条：图标列整列垂直居中（内层绝对定位居中，不是贴左上角/撑满整列）

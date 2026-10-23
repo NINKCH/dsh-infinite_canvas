@@ -412,6 +412,53 @@ window.__ModuleLoader__.load({
       'segSummary': '{m} 段 / 共 {n} 镜 / 最长 {s} 秒',
       'segTailChain': '尾帧接力',
       'segNoChain': '硬切（不接力）',
+      // ---- 3D 导演台 ----
+      'directorTitle': '3D 导演台',
+      'directorHint': '摆位与取景：拖视口旋转机位，拖人偶移动站位；导出即得到一张带布景的镜头首帧',
+      'directorDefaultTitle': '未命名布景',
+      'directorActor': '演员',
+      'directorCamera': '主摄影机',
+      'directorKeyLight': '主光',
+      'directorAmbient': '环境光',
+      'directorObjects': '场景对象',
+      'directorAdd': '添加',
+      'directorCameras': '机位',
+      'directorEmpty': '还没有对象，用下面的按钮添加',
+      'directorSelHint': '点视口里的人偶/方块，或从左侧列表选一个对象',
+      'directorDragHint': '拖动空白处：绕主体旋转机位 · 拖动对象：沿地面移动',
+      'directorShotSettings': '镜头设置',
+      'dirShotSize': '景别',
+      'dirCameraMove': '运镜',
+      'directorPrompt': '将写进视频的提示词（自动生成，只读）',
+      'directorExport': '导出当前机位截图',
+      'directorExportHint': '截图会进资产库，同时在画布上生成一个图片节点——接着就能拿它当首帧生成视频',
+      'directorShotName': '导演台截图',
+      'directorExported': '已导出：资产库 + 画布图片节点都已就位',
+      'dirName': '名称',
+      'dirColor': '颜色',
+      'dirFacing': '朝向°',
+      'dirScale': '体型',
+      'dirShow': '显示',
+      'dirHide': '隐藏',
+      'dirToggleVisible': '显示 / 隐藏',
+      'dirPrimBox': '方块',
+      'dirPrimSphere': '球',
+      'dirPrimCylinder': '圆柱',
+      'dirPrimPlane': '平面',
+      'dirSizeEWide': '大远景',
+      'dirSizeWide': '远景',
+      'dirSizeFull': '全景',
+      'dirSizeMedium': '中景',
+      'dirSizeClose': '近景',
+      'dirSizeEClose': '大特写',
+      'dirMoveStatic': '固定机位',
+      'dirMovePush': '推近',
+      'dirMovePull': '拉远',
+      'dirMovePanL': '向左摇',
+      'dirMovePanR': '向右摇',
+      'dirMoveOrbitL': '左环绕',
+      'dirMoveOrbitR': '右环绕',
+      'dirMoveHandheld': '手持微晃',
       'videoPromptPlaceholder': '描述镜头与动作；来自上游分镜表时可留空',
       'finalNotePlaceholder': '成片说明（可选）：转场、字幕与配音设置在各片段节点上',
       'refBadgeTitle': '已连接参考图',
@@ -959,6 +1006,53 @@ window.__ModuleLoader__.load({
       'segSummary': '{m} segments / {n} shots / longest {s}s',
       'segTailChain': 'tail chained',
       'segNoChain': 'hard cut (no chain)',
+      // ---- 3D director stage ----
+      'directorTitle': '3D director stage',
+      'directorHint': 'Block and frame: drag the viewport to orbit the camera, drag a figure to move it; export gives you a shot first frame with real blocking',
+      'directorDefaultTitle': 'Untitled set',
+      'directorActor': 'Actor',
+      'directorCamera': 'Main camera',
+      'directorKeyLight': 'Key light',
+      'directorAmbient': 'Ambient',
+      'directorObjects': 'Scene objects',
+      'directorAdd': 'Add',
+      'directorCameras': 'Cameras',
+      'directorEmpty': 'Nothing yet — use the buttons below',
+      'directorSelHint': 'Click a figure or box in the viewport, or pick an object on the left',
+      'directorDragHint': 'Drag empty space: orbit the camera · drag an object: move it on the ground',
+      'directorShotSettings': 'Shot settings',
+      'dirShotSize': 'Shot size',
+      'dirCameraMove': 'Camera move',
+      'directorPrompt': 'Prompt written into the video (generated, read-only)',
+      'directorExport': 'Export this camera as a still',
+      'directorExportHint': 'The still goes to the asset library and becomes an image node on the canvas — ready to use as a first frame',
+      'directorShotName': 'Director still',
+      'directorExported': 'Exported: asset library and canvas image node are both ready',
+      'dirName': 'Name',
+      'dirColor': 'Colour',
+      'dirFacing': 'Facing°',
+      'dirScale': 'Build',
+      'dirShow': 'Show',
+      'dirHide': 'Hide',
+      'dirToggleVisible': 'Show / hide',
+      'dirPrimBox': 'Box',
+      'dirPrimSphere': 'Sphere',
+      'dirPrimCylinder': 'Cylinder',
+      'dirPrimPlane': 'Plane',
+      'dirSizeEWide': 'Extreme wide',
+      'dirSizeWide': 'Wide',
+      'dirSizeFull': 'Full',
+      'dirSizeMedium': 'Medium',
+      'dirSizeClose': 'Close-up',
+      'dirSizeEClose': 'Extreme close-up',
+      'dirMoveStatic': 'Static',
+      'dirMovePush': 'Push in',
+      'dirMovePull': 'Pull out',
+      'dirMovePanL': 'Pan left',
+      'dirMovePanR': 'Pan right',
+      'dirMoveOrbitL': 'Orbit left',
+      'dirMoveOrbitR': 'Orbit right',
+      'dirMoveHandheld': 'Handheld',
       'videoPromptPlaceholder': 'Describe the shot and action; leave empty when driven by an upstream storyboard',
       'finalNotePlaceholder': 'Final-cut note (optional): transitions, subtitles and voice live on the segment nodes',
       'refBadgeTitle': 'Connected reference images',
@@ -1629,6 +1723,44 @@ window.__ModuleLoader__.load({
 /* 弹窗内部再开确认框/PhotoCraft：层级必须高于统一弹窗（否则被遮罩盖住点不到） */
 .dshic-studio-overlay .dshic-modal-overlay{z-index:340;}
 .dshic-studio-bible{display:flex;flex-direction:column;gap:8px;width:100%;max-width:820px;margin:0 auto;}
+/* ── 3D 导演台：三栏（对象 / 视口 / 属性）；视口是纯 Canvas2D 软件渲染（见 directorRenderScene） ── */
+.dshic-dir-modal{width:min(1220px,calc(100vw - 40px));height:min(820px,calc(100vh - 40px));}
+.dshic-dir-body{flex:1;min-height:0;display:flex;gap:0;overflow:hidden;}
+.dshic-dir-left{width:186px;flex:none;display:flex;flex-direction:column;gap:6px;padding:10px;overflow:auto;
+  border-right:1px solid var(--dsw-alias-border-l1);box-sizing:border-box;}
+.dshic-dir-right{width:264px;flex:none;display:flex;flex-direction:column;gap:6px;padding:10px;overflow:auto;
+  border-left:1px solid var(--dsw-alias-border-l1);box-sizing:border-box;}
+.dshic-dir-sec{font-size:11px;font-weight:700;letter-spacing:.02em;color:var(--dsw-alias-label-secondary);
+  text-transform:uppercase;margin-top:4px;flex:none;}
+.dshic-dir-list{display:flex;flex-direction:column;gap:2px;flex:none;}
+.dshic-dir-item{display:flex;align-items:center;gap:6px;height:28px;padding:0 7px;border-radius:7px;cursor:pointer;
+  font-size:12px;color:var(--dsw-alias-label-primary);box-sizing:border-box;}
+.dshic-dir-item:hover{background:var(--dsw-alias-interactive-bg-hover,color-mix(in srgb,var(--dsw-alias-label-primary) 8%,transparent));}
+.dshic-dir-item.is-active{background:color-mix(in srgb,var(--dsw-alias-brand-primary) 16%,transparent);
+  color:var(--dsw-alias-brand-primary);font-weight:600;}
+.dshic-dir-dot{width:9px;height:9px;border-radius:3px;flex:none;}
+.dshic-dir-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.dshic-dir-kind{font-size:10px;opacity:.55;flex:none;}
+.dshic-dir-add{display:flex;flex-wrap:wrap;gap:3px;flex:none;}
+.dshic-dir-view{flex:1;min-width:0;position:relative;display:flex;background:#0b0d12;}
+.dshic-dir-canvas{flex:1;width:100%;height:100%;display:block;cursor:grab;touch-action:none;}
+.dshic-dir-canvas:active{cursor:grabbing;}
+.dshic-dir-tip{position:absolute;left:10px;bottom:9px;font-size:11px;color:rgba(226,232,240,.72);
+  background:rgba(8,10,14,.58);border-radius:7px;padding:3px 8px;pointer-events:none;max-width:70%;}
+.dshic-dir-msg{position:absolute;left:10px;top:9px;font-size:11.5px;border-radius:7px;padding:4px 9px;
+  background:color-mix(in srgb,var(--dsw-alias-state-success-primary) 86%,#000);color:#fff;}
+.dshic-dir-msg.is-err{background:color-mix(in srgb,var(--dsw-alias-state-error-primary) 88%,#000);}
+.dshic-dir-row{display:flex;align-items:center;gap:7px;flex:none;}
+.dshic-dir-lbl{width:52px;flex:none;font-size:11.5px;color:var(--dsw-alias-label-secondary);}
+.dshic-dir-num{flex:1;min-width:0;height:24px;border-radius:6px;padding:0 6px;font:inherit;font-size:12px;
+  border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);}
+.dshic-dir-txt{flex:1;min-width:0;height:24px;border-radius:6px;padding:0 6px;font:inherit;font-size:12px;
+  border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);}
+.dshic-dir-color{width:34px;height:24px;padding:0;border:1px solid var(--dsw-alias-border-l1);border-radius:6px;
+  background:var(--dsw-alias-bg-layer-2);cursor:pointer;flex:none;}
+.dshic-dir-prompt{width:100%;min-height:104px;resize:vertical;border-radius:7px;padding:7px 8px;font:inherit;font-size:11px;
+  line-height:1.5;border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-2);
+  color:var(--dsw-alias-label-secondary);box-sizing:border-box;flex:none;}
 .dshic-modal-assets{display:flex;flex-direction:column;gap:10px;}
 .dshic-modal-assets .dshic-asset-grid{grid-template-columns:repeat(auto-fill,minmax(158px,1fr));gap:10px;}
 .dshic-modal-assets .dshic-asset-thumb{height:112px;}
@@ -7592,6 +7724,10 @@ window.__ModuleLoader__.load({
       keysOpen: false,       // 左上角快捷键面板是否展开（纯 UI 状态，不持久化）
       skillPalette: false,   // 创作技能浮层（Ctrl/⌘+Shift+K 打开；纯 UI 状态，不持久化）
       canvasHost: null,      // 画布当前宿主：'main'（全屏面板）| 'pane'（会话右栏页签）| null——同一时刻只允许一处实例
+      // 3D 导演台（纯 UI 状态；场景数据存在节点/项目的 director 文档里，见 directorDoc）
+      directorOpen: false,   // 导演台是否打开
+      directorSel: null,     // 选中的对象/机位 id
+      directorTool: 'select', // 'select' | 'move' | 'rotate' | 'camera'
     };
     const listeners = new Set();
     let saveTimer = null;
@@ -9364,6 +9500,7 @@ window.__ModuleLoader__.load({
       search: 'M11 18a7 7 0 100-14 7 7 0 000 14zM20 20l-4-4',
       keyboard: 'M3 6h18v12H3zM7 10h.01M10 10h.01M13 10h.01M16 10h.01M7 13h.01M10 13h.01M13 13h.01M16 13h.01M8 16h8',
       link: 'M10 13a5 5 0 007.1 0l2.4-2.4a5 5 0 00-7.1-7.1L11 4.9M14 11a5 5 0 00-7.1 0L4.5 13.4a5 5 0 007.1 7.1L13 19.1',
+      camera: 'M4 8h3l1.5-2h7L17 8h3v11H4zM12 16a3 3 0 100-6 3 3 0 000 6z',
     };
     function Ic(name, size) { return h(Icon, { d: ICONS[name], size: size || 14 }); }
 
@@ -12194,6 +12331,752 @@ window.__ModuleLoader__.load({
     }
 
     // ============================================================
+    // 3D 导演台（director stage）
+    //
+    // 为什么是软件渲染而不是引 three.js：本插件是**单文件、无构建步骤**的浏览器插件
+    // （client.js 只能 require('react')，没有 node_modules、没有打包器）。three.js 打进来
+    // 是 742 KB minified / 190 KB gzip 的额外产物，还要为它扩 npm 打包白名单和一整套
+    // provenance 记录；而导演台 v1 只需要「摆位 + 取景 + 截一张图」，几何量级是几十个
+    // 凸多面体——用 Canvas2D 做画家算法（按深度排序凸面片）完全够用，零依赖、零体积。
+    // 光栅化部分换成 WebGL 是后续可选项，接口（directorRenderScene）保持不变。
+    //
+    // 场景数据存 localStorage `dsh-ic:director:<projectId>`：导演台是「摆位用的草稿台」，
+    // 不是生产资产；最终产物是导出的那张截图（进资产库 + 画布图片节点）。这样
+    // canvas.db 的项目文档不会因为几百个顶点数组而膨胀。
+    // ============================================================
+    const LS_DIRECTOR = 'dsh-ic:director:';
+    const DIRECTOR_VERSION = 1;
+
+    // ---------- 向量 / 矩阵（最小集，够用即可） ----------
+    const v3 = (x, y, z) => ({ x: x || 0, y: y || 0, z: z || 0 });
+    const vAdd = (a, b) => v3(a.x + b.x, a.y + b.y, a.z + b.z);
+    const vSub = (a, b) => v3(a.x - b.x, a.y - b.y, a.z - b.z);
+    const vMul = (a, k) => v3(a.x * k, a.y * k, a.z * k);
+    const vDot = (a, b) => a.x * b.x + a.y * b.y + a.z * b.z;
+    const vCross = (a, b) => v3(a.y * b.z - a.z * b.y, a.z * b.x - a.x * b.z, a.x * b.y - a.y * b.x);
+    const vLen = (a) => Math.sqrt(vDot(a, a)) || 0;
+    const vNorm = (a) => { const l = vLen(a) || 1; return vMul(a, 1 / l); };
+    const vLerp = (a, b, t) => v3(a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t, a.z + (b.z - a.z) * t);
+    /** 由「机位 + 注视点 + up」生成 view 矩阵（行主序 4×4，扁平数组）。 */
+    function directorLookAt(eye, target, up) {
+      const zAxis = vNorm(vSub(eye, target));          // 相机朝 -z 看
+      const xAxis = vNorm(vCross(up || v3(0, 1, 0), zAxis));
+      const yAxis = vCross(zAxis, xAxis);
+      return {
+        xAxis, yAxis, zAxis, eye,
+        // 世界点 → 相机空间（右手系，相机看 -z）
+        toCam(p) {
+          const d = vSub(p, this.eye);
+          return v3(vDot(d, this.xAxis), vDot(d, this.yAxis), vDot(d, this.zAxis));
+        },
+      };
+    }
+    /** 透视投影：相机空间点 → 归一化屏幕坐标（-1..1）；w<=0 表示在近平面后。 */
+    function directorProject(camPt, fovDeg, aspect) {
+      const near = 0.05;
+      if (camPt.z >= -near) return null;   // 相机身后 / 太近
+      const f = 1 / Math.tan((Math.max(5, Math.min(150, fovDeg)) * Math.PI / 180) / 2);
+      const ndcY = (f * camPt.y) / -camPt.z;
+      const ndcX = (f * camPt.x / (aspect || 1)) / -camPt.z;
+      return { x: ndcX, y: ndcY, z: -camPt.z };
+    }
+
+    // ---------- 场景默认值 ----------
+    function directorDefaultScene() {
+      const now = Date.now();
+      return {
+        version: DIRECTOR_VERSION,
+        title: T('directorDefaultTitle'),
+        objects: [
+          { id: 'obj_actor_1', kind: 'actor', name: T('directorActor') + ' A', color: '#7aa2f7', pos: v3(0, 0, 0), rotY: 0, scale: v3(1, 1, 1), visible: true },
+          { id: 'obj_actor_2', kind: 'actor', name: T('directorActor') + ' B', color: '#e0af68', pos: v3(1.8, 0, 0.6), rotY: -Math.PI * 0.42, scale: v3(1, 1, 1), visible: true },
+        ],
+        cameras: [
+          { id: 'cam_main', name: T('directorCamera'), pos: v3(2.6, 1.7, 4.2), target: v3(0.6, 1.1, 0), fov: 42 },
+        ],
+        lights: [
+          { id: 'lt_key', name: T('directorKeyLight'), dir: vNorm(v3(0.45, -0.8, 0.35)), color: '#fff2d8', intensity: 0.95 },
+          { id: 'lt_amb', name: T('directorAmbient'), dir: vNorm(v3(-0.3, -0.4, -0.85)), color: '#8fa4c8', intensity: 0.45 },
+        ],
+        activeCameraId: 'cam_main',
+        shot: { duration: 5, shotSize: 'medium', cameraMove: 'static', note: '' },
+        createdAt: now,
+        updatedAt: now,
+      };
+    }
+    function directorDocKey(pid) { return LS_DIRECTOR + String(pid || ''); }
+    /** 读导演台场景（损坏/缺失 → 默认场景；绝不抛错，否则面板打不开）。 */
+    function loadStageDoc(pid) {
+      try {
+        const raw = lsGet(directorDocKey(pid), null);
+        if (!raw || typeof raw !== 'object' || raw.version !== DIRECTOR_VERSION) return directorDefaultScene();
+        const s = raw;
+        return {
+          version: DIRECTOR_VERSION,
+          title: String(s.title || T('directorDefaultTitle')),
+          objects: Array.isArray(s.objects) ? s.objects.filter((o) => o && o.id && o.pos) : [],
+          cameras: Array.isArray(s.cameras) && s.cameras.length ? s.cameras.filter((c) => c && c.id && c.pos) : directorDefaultScene().cameras,
+          lights: Array.isArray(s.lights) && s.lights.length ? s.lights : directorDefaultScene().lights,
+          activeCameraId: String(s.activeCameraId || ''),
+          shot: Object.assign({ duration: 5, shotSize: 'medium', cameraMove: 'static', note: '' }, s.shot || {}),
+          createdAt: Number(s.createdAt) || Date.now(),
+          updatedAt: Number(s.updatedAt) || Date.now(),
+        };
+      } catch { return directorDefaultScene(); }
+    }
+    function saveStageDoc(pid, scene) {
+      try {
+        lsSet(directorDocKey(pid), Object.assign({}, scene, { updatedAt: Date.now() }));
+        return true;
+      } catch { return false; }
+    }
+
+    // ---------- 几何构建：把对象变成带颜色的凸面片列表 ----------
+    /** 一个 box 的 6 个面（顶点按逆时针，法线朝外）。 */
+    function directorBoxFaces(cx, cy, cz, sx, sy, sz) {
+      const x0 = cx - sx / 2, x1 = cx + sx / 2;
+      const y0 = cy - sy / 2, y1 = cy + sy / 2;
+      const z0 = cz - sz / 2, z1 = cz + sz / 2;
+      const p = (x, y, z) => v3(x, y, z);
+      return [
+        { v: [p(x0, y0, z1), p(x1, y0, z1), p(x1, y1, z1), p(x0, y1, z1)], shade: 0.06 }, // +z
+        { v: [p(x1, y0, z0), p(x0, y0, z0), p(x0, y1, z0), p(x1, y1, z0)], shade: -0.06 }, // -z
+        { v: [p(x1, y0, z1), p(x1, y0, z0), p(x1, y1, z0), p(x1, y1, z1)], shade: 0.12 }, // +x
+        { v: [p(x0, y0, z0), p(x0, y0, z1), p(x0, y1, z1), p(x0, y1, z0)], shade: -0.12 }, // -x
+        { v: [p(x0, y1, z1), p(x1, y1, z1), p(x1, y1, z0), p(x0, y1, z0)], shade: 0.20 }, // +y（顶面最亮）
+        { v: [p(x0, y0, z0), p(x1, y0, z0), p(x1, y0, z1), p(x0, y0, z1)], shade: -0.20 }, // -y
+      ];
+    }
+    /** 低模球（经纬分段）：用四边形面片近似，够看轮廓就行。 */
+    function directorSphereFaces(cx, cy, cz, r, seg) {
+      const n = Math.max(6, seg || 12), m = Math.max(4, Math.round(n / 2));
+      const out = [];
+      const pt = (i, j) => {
+        const phi = (i / n) * Math.PI * 2;
+        const th = (j / m) * Math.PI;
+        return v3(cx + r * Math.sin(th) * Math.cos(phi), cy + r * Math.cos(th), cz + r * Math.sin(th) * Math.sin(phi));
+      };
+      for (let j = 0; j < m; j++) {
+        for (let i = 0; i < n; i++) {
+          const a = pt(i, j), b = pt(i + 1, j), c = pt(i + 1, j + 1), d = pt(i, j + 1);
+          out.push({ v: [a, b, c, d], shade: 0.05 + 0.22 * ((j + 0.5) / m) * (Math.cos((i + 0.5) / n * Math.PI * 2) * 0.5 + 0.5) });
+        }
+      }
+      return out;
+    }
+    function directorCylinderFaces(cx, cy, cz, r, hgt, seg) {
+      const n = Math.max(6, seg || 12);
+      const out = [];
+      const ring = (y, i) => {
+        const a = (i / n) * Math.PI * 2;
+        return v3(cx + r * Math.cos(a), y, cz + r * Math.sin(a));
+      };
+      for (let i = 0; i < n; i++) {
+        out.push({ v: [ring(cy - hgt / 2, i), ring(cy - hgt / 2, i + 1), ring(cy + hgt / 2, i + 1), ring(cy + hgt / 2, i)], shade: 0.02 + 0.2 * (0.5 + 0.5 * Math.cos((i + 0.5) / n * Math.PI * 2)) });
+      }
+      const top = [], bot = [];
+      for (let i = 0; i < n; i++) { top.push(ring(cy + hgt / 2, i)); bot.push(ring(cy - hgt / 2, n - i)); }
+      out.push({ v: top, shade: 0.24, flat: true });
+      out.push({ v: bot, shade: -0.2, flat: true });
+      return out;
+    }
+    /** 人形占位体：头 + 颈 + 胸 + 腰 + 双腿 + 双臂 + 脚。
+     *  尺寸按真实人体比例（头高≈身高的 1/7.5），否则远看像图腾柱、读不出"人"。 */
+    function directorActorFaces(o) {
+      const s = o.scale || v3(1, 1, 1);
+      const sy = Math.max(0.2, s.y || 1);
+      const H = 1.72 * sy;                                  // 总身高
+      const sxk = s.x || 1, szk = s.z || 1;
+      const headR = H * 0.070;                              // 头半径（头高 ≈ 0.14H ≈ 1/7 身高）
+      const neckH = H * 0.035;
+      const chestH = H * 0.175, waistH = H * 0.115;         // 上身分胸/腰两段，轮廓才不是一根柱子
+      const hipH = H * 0.055;
+      const thighH = H * 0.235, shinH = H * 0.225;          // 大腿 + 小腿 + 脚
+      const footH = H * 0.028;
+      const chestW = H * 0.185 * sxk, chestD = H * 0.105 * szk;   // 肩宽
+      const waistW = H * 0.135 * sxk, waistD = H * 0.090 * szk;   // 腰细一点
+      const hipW = H * 0.150 * sxk;
+      const limbW = H * 0.052 * sxk, limbD = H * 0.052 * szk;     // 四肢（比躯干细，但不能细成牙签）
+      const armW = H * 0.048 * sxk;
+      const rot = Number(o.rotY) || 0;
+      const cy = Math.cos(rot), sn = Math.sin(rot);
+      const lp = (x, y, z) => v3(o.pos.x + x * cy - z * sn, o.pos.y + y, o.pos.z + x * sn + z * cy);
+      /** 一个肢体段：局部中心 (cxL, cyL, czL) + 尺寸 → 世界坐标面片（绕 Y 旋转）。 */
+      const seg = (cxL, cyL, czL, w, hgt, d) => {
+        const c = lp(cxL, cyL, czL);
+        return directorBoxFaces(c.x, c.y, c.z, w, hgt, d).map((f) => ({
+          v: f.v.map((p) => {
+            // 盒心已含世界位置；顶点相对盒心的偏移绕 Y 旋转后再抬回 cyL 高度。
+            // **cyL 必须加回来**：早先漏了它，所有肢体段都塌到脚底、只剩一片扁条（真实渲染一眼可见）。
+            const rel = vSub(p, c);
+            return v3(o.pos.x + (cxL + rel.x) * cy - (czL + rel.z) * sn, o.pos.y + cyL + rel.y, o.pos.z + (cxL + rel.x) * sn + (czL + rel.z) * cy);
+          }),
+          shade: f.shade,
+        }));
+      };
+      const faces = [];
+      // 垂直堆叠（从地面往上）：脚 → 小腿 → 大腿 → 髋 → 腰 → 胸 → 颈 → 头
+      const yFoot = footH / 2;
+      const yShin = footH + shinH / 2;
+      const yThigh = footH + shinH + thighH / 2;
+      const yHip = footH + shinH + thighH + hipH / 2;
+      const yWaist = footH + shinH + thighH + hipH + waistH / 2;
+      const yChest = footH + shinH + thighH + hipH + waistH + chestH / 2;
+      const yNeck = footH + shinH + thighH + hipH + waistH + chestH + neckH / 2;
+      const yHead = footH + shinH + thighH + hipH + waistH + chestH + neckH + headR * 0.95;
+      const legOffX = hipW * 0.26;
+      // 双腿（大腿 + 小腿 + 脚）
+      for (const sgn of [-1, 1]) {
+        faces.push(...seg(sgn * legOffX, yThigh, 0, limbW * 1.25, thighH, limbD * 1.15));
+        faces.push(...seg(sgn * legOffX, yShin, 0, limbW * 1.05, shinH, limbD));
+        faces.push(...seg(sgn * legOffX, yFoot, H * 0.035 * szk, limbW * 1.15, footH, limbD * 2.1)); // 脚掌朝前
+      }
+      // 髋 / 腰 / 胸（三段收放，侧面看有腰线）
+      faces.push(...seg(0, yHip, 0, hipW, hipH, waistD * 1.05));
+      faces.push(...seg(0, yWaist, 0, waistW, waistH, waistD));
+      faces.push(...seg(0, yChest, 0, chestW, chestH, chestD));
+      // 颈
+      faces.push(...seg(0, yNeck, 0, limbW * 0.95, neckH, limbD * 0.95));
+      // 双臂：上臂 + 前臂（贴着胸侧、略微外张）
+      const armOffX = chestW / 2 + armW * 0.55;
+      const upperArmH = chestH * 0.62, foreArmH = chestH * 0.60;
+      const yUpperArm = footH + shinH + thighH + hipH + waistH + chestH - upperArmH / 2;
+      const yForeArm = yUpperArm - upperArmH / 2 - foreArmH / 2;
+      for (const sgn of [-1, 1]) {
+        faces.push(...seg(sgn * armOffX, yUpperArm, 0, armW, upperArmH, armW));
+        faces.push(...seg(sgn * armOffX, yForeArm, 0, armW * 0.9, foreArmH, armW * 0.9));
+      }
+      // 头（球）
+      const hc = lp(0, yHead, 0);
+      faces.push(...directorSphereFaces(hc.x, hc.y, hc.z, headR, 10));
+      return faces;
+    }
+    /** 一个对象的全部面片（按 kind 分派）。 */
+    function directorObjectFaces(o) {
+      if (!o || o.visible === false) return [];
+      const k = String(o.kind || 'box');
+      const sc = o.scale || v3(1, 1, 1);
+      if (k === 'actor') return directorActorFaces(o);
+      if (k === 'sphere') return directorSphereFaces(o.pos.x, o.pos.y + 0.5 * (sc.y || 1), o.pos.z, 0.5 * Math.max(0.1, sc.x || 1), 12);
+      if (k === 'cylinder') return directorCylinderFaces(o.pos.x, o.pos.y + 0.5 * (sc.y || 1), o.pos.z, 0.5 * Math.max(0.1, sc.x || 1), Math.max(0.1, sc.y || 1), 12);
+      if (k === 'plane') {
+        const w = Math.max(0.1, sc.x || 1), d = Math.max(0.1, sc.z || 1);
+        const x0 = o.pos.x - w / 2, x1 = o.pos.x + w / 2, z0 = o.pos.z - d / 2, z1 = o.pos.z + d / 2;
+        return [{ v: [v3(x0, o.pos.y, z0), v3(x1, o.pos.y, z0), v3(x1, o.pos.y, z1), v3(x0, o.pos.y, z1)], shade: 0.1, flat: true }];
+      }
+      // box（默认）
+      return directorBoxFaces(o.pos.x, o.pos.y + 0.5 * (sc.y || 1), o.pos.z, Math.max(0.1, sc.x || 1), Math.max(0.1, sc.y || 1), Math.max(0.1, sc.z || 1));
+    }
+
+    // ---------- 渲染：排序 + 投影 + 填充 ----------
+    /** 世界面法线（用前三个顶点算，凸面片足够）。 */
+    function directorFaceNormal(v) {
+      if (!v || v.length < 3) return v3(0, 1, 0);
+      return vNorm(vCross(vSub(v[1], v[0]), vSub(v[2], v[0])));
+    }
+    function directorShadeColor(hex, k) {
+      const m = /^#?([0-9a-f]{6})$/i.exec(String(hex || '#888888'));
+      const n = m ? parseInt(m[1], 16) : 0x888888;
+      const r = Math.max(0, Math.min(255, Math.round(((n >> 16) & 255) * k)));
+      const g = Math.max(0, Math.min(255, Math.round(((n >> 8) & 255) * k)));
+      const b = Math.max(0, Math.min(255, Math.round((n & 255) * k)));
+      return 'rgb(' + r + ',' + g + ',' + b + ')';
+    }
+    /**
+     * 把场景画到 2D canvas 上（画家算法）。
+     * @returns {{faces:number, drawn:number}} 统计信息（测试与 UI 状态栏用）
+     */
+    function directorRenderScene(ctx, w, h, scene, opts) {
+      const o = opts || {};
+      const cam = (scene.cameras || []).find((c) => c.id === scene.activeCameraId) || (scene.cameras || [])[0];
+      const stats = { faces: 0, drawn: 0 };
+      if (!ctx || !cam) return stats;
+      const view = directorLookAt(cam.pos, cam.target, v3(0, 1, 0));
+      const aspect = (w || 1) / Math.max(1, h || 1);
+      const cx = w / 2, cy = h / 2;
+      const halfMin = Math.min(w, h) / 2;
+      // 背景
+      ctx.fillStyle = o.bg || '#0b0d12';
+      ctx.fillRect(0, 0, w, h);
+      // 地平线渐变（给空间感，不是装饰：没有地平线时群众读不出机位高度）
+      const grad = ctx.createLinearGradient ? ctx.createLinearGradient(0, 0, 0, h) : null;
+      if (grad) {
+        grad.addColorStop(0, o.bgTop || '#141924');
+        grad.addColorStop(0.55, o.bg || '#0b0d12');
+        grad.addColorStop(1, '#07080c');
+        ctx.fillStyle = grad;
+        ctx.fillRect(0, 0, w, h);
+      }
+      // 收集面片（世界空间）
+      const items = [];
+      (scene.objects || []).forEach((ob) => {
+        const fs = directorObjectFaces(ob);
+        stats.faces += fs.length;
+        fs.forEach((f) => items.push({ f, color: ob.color || '#9aa5b1', base: ob }));
+      });
+      // 地面网格：画成线段（单独通道，不参与面片排序）
+      const gridLines = [];
+      if (o.grid !== false) {
+        const G = 10, step = 1;
+        for (let i = -G; i <= G; i += step) {
+          gridLines.push([v3(i, 0, -G), v3(i, 0, G)]);
+          gridLines.push([v3(-G, 0, i), v3(G, 0, i)]);
+        }
+      }
+      const project = (p) => {
+        const cp = view.toCam(p);
+        const nd = directorProject(cp, cam.fov, aspect);
+        if (!nd) return null;
+        return { x: cx + nd.x * halfMin, y: cy - nd.y * halfMin, z: nd.z };
+      };
+      // 网格（先画，永远在物体底层；靠 alpha 弱化，避免抢主体）
+      ctx.lineWidth = 1;
+      ctx.strokeStyle = o.gridColor || 'rgba(122,146,180,0.22)';
+      ctx.beginPath();
+      let gridDrawn = 0;
+      gridLines.forEach(([a, b]) => {
+        const pa = project(a), pb = project(b);
+        if (!pa || !pb) return;
+        ctx.moveTo(pa.x, pa.y); ctx.lineTo(pb.x, pb.y);
+        gridDrawn++;
+      });
+      if (gridDrawn) ctx.stroke();
+      // 面片：按相机空间深度排序（远的先画）
+      const keyLight = (scene.lights || [])[0] || { dir: vNorm(v3(0.4, -0.8, 0.3)), intensity: 1 };
+      const amb = (scene.lights || [])[1] || { intensity: 0.4 };
+      items.forEach((it) => {
+        const proj = it.f.v.map(project);
+        if (proj.some((p) => !p)) { it.skip = true; return; }
+        it.proj = proj;
+        it.depth = proj.reduce((a, p) => a + p.z, 0) / proj.length;
+        // 光照：法线 · 光方向（背面朝光的自动变暗，读得出体积）
+        const nrm = directorFaceNormal(it.f.v);
+        const lam = Math.max(0, -vDot(nrm, keyLight.dir || v3(0, -1, 0))) * (Number(keyLight.intensity) || 1);
+        it.light = Math.max(0.18, Math.min(1.35, 0.32 + lam + (Number(amb.intensity) || 0.4) * 0.35 + (it.f.shade || 0)));
+      });
+      items.sort((a, b) => (b.depth || 0) - (a.depth || 0));
+      items.forEach((it) => {
+        if (it.skip || !it.proj || it.proj.length < 3) return;
+        ctx.beginPath();
+        ctx.moveTo(it.proj[0].x, it.proj[0].y);
+        for (let i = 1; i < it.proj.length; i++) ctx.lineTo(it.proj[i].x, it.proj[i].y);
+        ctx.closePath();
+        ctx.fillStyle = directorShadeColor(it.color, it.light);
+        ctx.fill();
+        // 选中高亮：描边（不做发光，避免廉价感）
+        if (o.selectedId && it.base && it.base.id === o.selectedId) {
+          ctx.strokeStyle = 'rgba(96,165,250,0.95)';
+          ctx.lineWidth = 1.6;
+          ctx.stroke();
+        }
+        stats.drawn++;
+      });
+      // 选中的机位：画一个取景框指示（让用户知道机位在哪）
+      if (o.showCameras !== false) {
+        (scene.cameras || []).forEach((c) => {
+          const p = project(c.pos);
+          const t = project(c.target);
+          if (!p) return;
+          ctx.strokeStyle = c.id === scene.activeCameraId ? 'rgba(96,165,250,0.9)' : 'rgba(148,163,184,0.55)';
+          ctx.lineWidth = 1.2;
+          // 机身：小三角
+          ctx.beginPath();
+          ctx.arc(p.x, p.y, 6, 0, Math.PI * 2);
+          ctx.stroke();
+          if (t) {
+            ctx.beginPath();
+            ctx.moveTo(p.x, p.y); ctx.lineTo(t.x, t.y);
+            ctx.setLineDash && ctx.setLineDash([4, 4]);
+            ctx.stroke();
+            ctx.setLineDash && ctx.setLineDash([]);
+            ctx.beginPath();
+            ctx.arc(t.x, t.y, 3, 0, Math.PI * 2);
+            ctx.stroke();
+          }
+        });
+      }
+      return stats;
+    }
+
+    // ---------- 拾取：屏幕点 → 最前面的对象 ----------
+    function directorPickObject(scene, w, h, sx, sy) {
+      const cam = (scene.cameras || []).find((c) => c.id === scene.activeCameraId) || (scene.cameras || [])[0];
+      if (!cam) return null;
+      const view = directorLookAt(cam.pos, cam.target, v3(0, 1, 0));
+      const aspect = w / Math.max(1, h);
+      const cx = w / 2, cy = h / 2, halfMin = Math.min(w, h) / 2;
+      const project = (p) => {
+        const nd = directorProject(view.toCam(p), cam.fov, aspect);
+        return nd ? { x: cx + nd.x * halfMin, y: cy - nd.y * halfMin, z: nd.z } : null;
+      };
+      const hit = (poly, x, y) => {
+        let inside = false;
+        for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+          const xi = poly[i].x, yi = poly[i].y, xj = poly[j].x, yj = poly[j].y;
+          if (((yi > y) !== (yj > y)) && (x < (xj - xi) * (y - yi) / (yj - yi) + xi)) inside = !inside;
+        }
+        return inside;
+      };
+      let best = null, bestDepth = Infinity;
+      (scene.objects || []).forEach((ob) => {
+        if (ob.visible === false) return;
+        directorObjectFaces(ob).forEach((f) => {
+          const proj = f.v.map(project);
+          if (proj.some((p) => !p)) return;
+          if (!hit(proj, sx, sy)) return;
+          const d = proj.reduce((a, p) => a + p.z, 0) / proj.length;
+          if (d < bestDepth) { bestDepth = d; best = ob; }
+        });
+      });
+      return best;
+    }
+
+    // ---------- 提示词编译：把布景翻译成视频提示词（导演简报的核心） ----------
+    const DIRECTOR_SHOT_SIZES = () => [
+      { id: 'extreme_wide', label: T('dirSizeEWide') },
+      { id: 'wide', label: T('dirSizeWide') },
+      { id: 'full', label: T('dirSizeFull') },
+      { id: 'medium', label: T('dirSizeMedium') },
+      { id: 'close_up', label: T('dirSizeClose') },
+      { id: 'extreme_close_up', label: T('dirSizeEClose') },
+    ];
+    const DIRECTOR_MOVES = () => [
+      { id: 'static', label: T('dirMoveStatic') },
+      { id: 'push_in', label: T('dirMovePush') },
+      { id: 'pull_out', label: T('dirMovePull') },
+      { id: 'pan_left', label: T('dirMovePanL') },
+      { id: 'pan_right', label: T('dirMovePanR') },
+      { id: 'orbit_left', label: T('dirMoveOrbitL') },
+      { id: 'orbit_right', label: T('dirMoveOrbitR') },
+      { id: 'handheld', label: T('dirMoveHandheld') },
+    ];
+    /**
+     * 布景 → 视频提示词（纯函数）。
+     * 为什么要颜色映射：3D 台摆的是彩色人偶，不是真人；如果只把截图丢给视频模型，
+     * 它会把蓝色人偶画成蓝色人。所以必须显式告诉模型"蓝=谁、黄=谁"，并写明"改画成真人"。
+     */
+    function compileDirectorPrompt(scene, opts) {
+      const o = opts || {};
+      const zh = o.zh !== false;
+      const shot = scene.shot || {};
+      const sizeLabel = (DIRECTOR_SHOT_SIZES().find((x) => x.id === shot.shotSize) || {}).label || shot.shotSize || '';
+      const moveLabel = (DIRECTOR_MOVES().find((x) => x.id === shot.cameraMove) || {}).label || shot.cameraMove || '';
+      const cam = (scene.cameras || []).find((c) => c.id === scene.activeCameraId) || (scene.cameras || [])[0] || {};
+      const actors = (scene.objects || []).filter((x) => x.kind === 'actor' && x.visible !== false);
+      const props = (scene.objects || []).filter((x) => x.kind !== 'actor' && x.visible !== false);
+      // 机位高度关系：仰拍/平视/俯拍（从 y 与 target 的关系推断，不写死）
+      const camY = (cam.pos && cam.pos.y) || 1.6;
+      const tgtY = (cam.target && cam.target.y) || 1.0;
+      const angle = camY < tgtY - 0.35 ? (zh ? '低机位仰拍' : 'low angle, looking up')
+        : camY > tgtY + 0.9 ? (zh ? '高机位俯拍' : 'high angle, looking down')
+          : (zh ? '平视机位' : 'eye level');
+      const dist = cam.pos && cam.target ? vLen(vSub(cam.pos, cam.target)) : 3;
+      const lines = [];
+      if (zh) {
+        lines.push('【导演台布景】按以下机位与人物站位生成这一镜；布景是彩色人偶，**必须画成真实人物**（不要保留人偶的颜色与人偶质感）。');
+        lines.push('机位：' + sizeLabel + '，' + angle + '，距主体约 ' + (Math.round(dist * 10) / 10) + ' 米，' + moveLabel + '。');
+        if (actors.length) {
+          lines.push('人物站位与身份映射（颜色只用于识别站位，不能画成彩色人偶）：' +
+            actors.map((a, i) => '角色' + (i + 1) + '（' + String(a.name || '') + '）站在画面' +
+              (a.pos.x < -0.5 ? '左侧' : a.pos.x > 0.5 ? '右侧' : '中央') +
+              (a.pos.z > 0.5 ? '偏近景' : a.pos.z < -0.5 ? '偏远' : '') + '，朝向' +
+              (Math.abs(Number(a.rotY) || 0) < 0.4 ? '镜头正面' : (Number(a.rotY) || 0) > 0 ? '画面右侧' : '画面左侧')).join('；') + '。');
+        }
+        if (props.length) {
+          lines.push('场景陈设：' + props.map((p) => String(p.name || p.kind || '') + '（' + (p.kind === 'plane' ? '平面/地面' : p.kind) + '）').join('、') + '。');
+        }
+        lines.push('镜头时长 ' + (Number(shot.duration) || 5) + ' 秒，' + moveLabel + '要有起点与终点，不要停在半途。');
+      } else {
+        lines.push('[Director stage] Generate this shot from the camera and blocking below; the stage shows coloured mannequins - **render real people**, never keep the mannequin colours or mannequin look.');
+        lines.push('Camera: ' + sizeLabel + ', ' + angle + ', about ' + (Math.round(dist * 10) / 10) + 'm from the subject, ' + moveLabel + '.');
+        if (actors.length) {
+          lines.push('Blocking and identity mapping (colour only identifies who stands where - never paint coloured mannequins): ' +
+            actors.map((a, i) => 'character ' + (i + 1) + ' (' + String(a.name || '') + ') stands ' +
+              (a.pos.x < -0.5 ? 'frame left' : a.pos.x > 0.5 ? 'frame right' : 'centre') +
+              (a.pos.z > 0.5 ? ' nearer' : a.pos.z < -0.5 ? ' further back' : '') + ', facing ' +
+              (Math.abs(Number(a.rotY) || 0) < 0.4 ? 'camera' : (Number(a.rotY) || 0) > 0 ? 'frame right' : 'frame left')).join('; ') + '.');
+        }
+        if (props.length) {
+          lines.push('Set dressing: ' + props.map((p) => String(p.name || p.kind || '') + ' (' + (p.kind === 'plane' ? 'flat/ground' : p.kind) + ')').join(', ') + '.');
+        }
+        lines.push('Shot duration ' + (Number(shot.duration) || 5) + 's; the ' + moveLabel + ' move needs a start and an end - never stop half-way.');
+      }
+      const note = String(shot.note || '').trim();
+      if (note) lines.push(zh ? '补充：' + note : 'Notes: ' + note);
+      return lines.join('\n');
+    }
+
+    // ============================================================
+    // 3D 导演台面板（全屏浮层；入口在左侧图标列）
+    // ============================================================
+    function DirectorStage() {
+      const open = S.directorOpen;
+      const [scene, setScene] = useState(() => loadStageDoc(S.activeId));
+      const [tick, setTick] = useState(0);
+      const [busy, setBusy] = useState(false);
+      const [msg, setMsg] = useState(null);
+      const canvasRef = useRef(null);
+      const dragRef = useRef(null);
+      const sizeRef = useRef({ w: 800, h: 520 });
+      // 打开时重新读一次（换项目/换设备后回到磁盘上的最近状态）
+      useEffect(() => { if (open) { setScene(loadStageDoc(S.activeId)); setMsg(null); } }, [open, S.activeId]);
+      const commit = (next) => {
+        setScene(next);
+        saveStageDoc(S.activeId, next);
+        setTick((x) => x + 1);
+      };
+      const patch = (fn) => {
+        const next = JSON.parse(JSON.stringify(scene));
+        fn(next);
+        next.updatedAt = Date.now();
+        commit(next);
+      };
+      // 渲染：scene/tick/尺寸变化都重画
+      useEffect(() => {
+        if (!open) return;
+        const cv = canvasRef.current;
+        if (!cv) return;
+        const dpr = Math.min(2, (typeof window !== 'undefined' && window.devicePixelRatio) || 1);
+        const rect = cv.getBoundingClientRect ? cv.getBoundingClientRect() : { width: 800, height: 520 };
+        const w = Math.max(320, Math.round((rect.width || 800)));
+        const h = Math.max(220, Math.round((rect.height || 520)));
+        sizeRef.current = { w, h };
+        cv.width = Math.round(w * dpr);
+        cv.height = Math.round(h * dpr);
+        const ctx = cv.getContext && cv.getContext('2d');
+        if (!ctx) return;
+        if (ctx.setTransform) ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        directorRenderScene(ctx, w, h, scene, { selectedId: S.directorSel });
+      }, [open, scene, tick]);
+      if (!open) return null;
+      const cam = scene.cameras.find((c) => c.id === scene.activeCameraId) || scene.cameras[0];
+      const sel = (scene.objects || []).find((x) => x.id === S.directorSel) || null;
+      const px = (e) => {
+        const cv = canvasRef.current;
+        if (!cv || !cv.getBoundingClientRect) return { x: 0, y: 0 };
+        const r = cv.getBoundingClientRect();
+        return { x: e.clientX - r.left, y: e.clientY - r.top };
+      };
+      const onDown = (e) => {
+        const p = px(e);
+        const w = sizeRef.current.w, h = sizeRef.current.h;
+        dragRef.current = { mode: 'orbit', x: p.x, y: p.y, cam: JSON.parse(JSON.stringify(cam)), moved: false };
+        // 先试拾取对象：点中对象就改成"移动"模式
+        const hitObj = directorPickObject(scene, w, h, p.x, p.y);
+        if (hitObj) {
+          S.directorSel = hitObj.id;
+          dragRef.current.mode = 'move';
+          dragRef.current.obj = JSON.parse(JSON.stringify(hitObj));
+          setTick((x) => x + 1);
+        }
+      };
+      const onMove = (e) => {
+        const d = dragRef.current;
+        if (!d) return;
+        const p = px(e);
+        const dx = p.x - d.x, dy = p.y - d.y;
+        if (Math.abs(dx) + Math.abs(dy) > 2) d.moved = true;
+        if (d.mode === 'orbit') {
+          // 绕注视点旋转机位（水平 + 垂直）——没有这个就无法取景
+          const c = d.cam;
+          const rel = vSub(c.pos, c.target);
+          const radius = vLen(rel) || 3;
+          const yaw = Math.atan2(rel.x, rel.z) - dx * 0.006;
+          const pitch = Math.max(-0.25, Math.min(1.2, Math.asin(Math.max(-1, Math.min(1, rel.y / radius))) + dy * 0.004));
+          const ny = radius * Math.sin(pitch);
+          const horiz = Math.max(0.2, radius * Math.cos(pitch));
+          const next = { x: c.target.x + Math.sin(yaw) * horiz, y: c.target.y + ny, z: c.target.z + Math.cos(yaw) * horiz };
+          setScene((s) => {
+            const n = JSON.parse(JSON.stringify(s));
+            const cc = n.cameras.find((x) => x.id === n.activeCameraId) || n.cameras[0];
+            if (cc) cc.pos = next;
+            return n;
+          });
+        } else if (d.mode === 'move') {
+          // 沿地面拖动：屏幕位移 → 世界 X/Z（用机位朝向做基，手感才是"跟着鼠标走"）
+          const c = cam;
+          const fwd = vNorm(vSub(c.target, c.pos));
+          const right = vNorm(vCross(v3(0, 1, 0), fwd));
+          const k = (vLen(vSub(c.pos, c.target)) || 3) * 0.0016;
+          const o = d.obj;
+          const wx = right.x * dx * k + fwd.x * -dy * k;
+          const wz = right.z * dx * k + fwd.z * -dy * k;
+          setScene((s) => {
+            const n = JSON.parse(JSON.stringify(s));
+            const t = n.objects.find((x) => x.id === o.id);
+            if (t) { t.pos = v3(Math.round((o.pos.x + wx) * 100) / 100, o.pos.y, Math.round((o.pos.z + wz) * 100) / 100); }
+            return n;
+          });
+        }
+      };
+      const onUp = () => {
+        const d = dragRef.current;
+        dragRef.current = null;
+        if (d && d.moved) { saveStageDoc(S.activeId, scene); setTick((x) => x + 1); }
+      };
+      // 导出当前机位截图 → 资产库 + 画布图片节点
+      const exportShot = async () => {
+        if (busy) return;
+        setBusy(true); setMsg(null);
+        try {
+          const w = 1280, h = Math.round(1280 / (16 / 9));
+          const cv = document.createElement('canvas');
+          cv.width = w; cv.height = h;
+          const ctx = cv.getContext('2d');
+          directorRenderScene(ctx, w, h, scene, { selectedId: null, showCameras: false });
+          const blob = await new Promise((resolve, reject) => {
+            try { cv.toBlob((b) => (b ? resolve(b) : reject(new Error('截图编码失败'))), 'image/png'); }
+            catch (err) { reject(err); }
+          });
+          const rec = await saveAssetRecord(S.activeId, 'image', blob, {
+            name: T('directorShotName') + ' ' + nowStamp(),
+            prompt: compileDirectorPrompt(scene, { zh: effLang() !== 'en' }),
+            source: 'director',
+            category: 'shot',
+            nodeLabel: T('directorTitle'),
+          });
+          // 画布上生成一个图片节点，直接挂这张截图（用户接着就能拿它当首帧生成视频）
+          update((s) => {
+            const c = worldCenter();
+            const nd = newNode('image', { x: Math.round(c.x - NODE_W / 2), y: Math.round(c.y - NODE_H / 2) });
+            nd.data.assetId = rec.id;
+            nd.data.label = T('directorShotName') + ' ' + nowStamp();
+            nd.data.prompt = compileDirectorPrompt(scene, { zh: effLang() !== 'en' });
+            nd.data.ratio = '16:9';
+            s.graph.nodes[nd.id] = nd;
+            s.sel = new Set([nd.id]);
+            s.assetsTick++;
+          });
+          pushHistory();
+          flushSave();
+          setMsg({ kind: 'ok', text: T('directorExported') });
+        } catch (e) {
+          setMsg({ kind: 'err', text: String((e && e.message) || e) });
+        } finally { setBusy(false); }
+      };
+      const num = (v, d) => (Number.isFinite(Number(v)) ? Number(v) : d);
+      const row = (label, control) => h('div', { className: 'dshic-dir-row' },
+        h('span', { className: 'dshic-dir-lbl' }, label), control);
+      const numInput = (value, onChange, step) => h('input', {
+        type: 'number', step: step || 0.1, value: String(value),
+        className: 'dshic-dir-num',
+        onChange: (e) => onChange(num(e.target.value, 0)),
+      });
+      const selOptions = (scene.objects || []).map((o) => ({ value: o.id, label: String(o.name || o.id) }));
+      return h('div', { className: 'dshic-studio-overlay', 'data-role': 'director-stage' },
+        h('div', { className: 'dshic-studio-modal dshic-dir-modal' },
+          // 头部
+          h('div', { className: 'dshic-studio-head' },
+            h('div', { className: 'dshic-studio-title' }, T('directorTitle')),
+            h('span', { className: 'dshic-hint', style: { flex: 1, minWidth: 0 } }, T('directorHint')),
+            h('button', {
+              type: 'button', className: 'dshic-iconbtn', title: T('cancel'),
+              onClick: () => update((s) => { s.directorOpen = false; s.directorSel = null; }),
+            }, '✕')),
+          // 主体：左（对象列表） / 中（视口） / 右（属性 + 镜头）
+          h('div', { className: 'dshic-dir-body' },
+            h('div', { className: 'dshic-dir-left' },
+              h('div', { className: 'dshic-dir-sec' }, T('directorObjects')),
+              h('div', { className: 'dshic-dir-list' },
+                (scene.objects || []).map((o) => h('div', {
+                  key: o.id,
+                  className: cls('dshic-dir-item', S.directorSel === o.id && 'is-active'),
+                  onClick: () => { S.directorSel = o.id; setTick((x) => x + 1); },
+                },
+                  h('span', { className: 'dshic-dir-dot', style: { background: o.color || '#999' } }),
+                  h('span', { className: 'dshic-dir-name' }, String(o.name || o.id)),
+                  h('span', { className: 'dshic-dir-kind' }, String(o.kind || ''))
+                )),
+                (scene.objects || []).length === 0
+                  ? h('div', { className: 'dshic-hint' }, T('directorEmpty'))
+                  : null),
+              h('div', { className: 'dshic-dir-sec' }, T('directorAdd')),
+              h('div', { className: 'dshic-dir-add' },
+                [['actor', T('directorActor')], ['box', T('dirPrimBox')], ['sphere', T('dirPrimSphere')], ['cylinder', T('dirPrimCylinder')], ['plane', T('dirPrimPlane')]].map(([kind, label]) =>
+                  h('button', {
+                    key: kind, type: 'button', className: 'dshic-mini',
+                    onClick: () => {
+                      const id = 'obj_' + kind + '_' + Date.now().toString(36);
+                      const color = ['#7aa2f7', '#e0af68', '#9ece6a', '#f7768e', '#bb9af7'][(scene.objects || []).length % 5];
+                      patch((n) => { n.objects.push({ id, kind, name: label, color, pos: v3(0, 0, 0), rotY: 0, scale: v3(1, 1, 1), visible: true }); });
+                      S.directorSel = id; setTick((x) => x + 1);
+                    },
+                  }, '+ ' + label)),
+              ),
+              h('div', { className: 'dshic-dir-sec' }, T('directorCameras')),
+              h('div', { className: 'dshic-dir-list' },
+                (scene.cameras || []).map((c) => h('div', {
+                  key: c.id, className: cls('dshic-dir-item', c.id === scene.activeCameraId && 'is-active'),
+                  onClick: () => patch((n) => { n.activeCameraId = c.id; }),
+                }, h('span', { className: 'dshic-dir-kind' }, '🎥'), h('span', { className: 'dshic-dir-name' }, String(c.name || c.id))))),
+            ),
+            // 视口
+            h('div', { className: 'dshic-dir-view' },
+              h('canvas', {
+                ref: canvasRef, className: 'dshic-dir-canvas', 'data-role': 'director-canvas',
+                onPointerDown: onDown, onPointerMove: onMove, onPointerUp: onUp, onPointerLeave: onUp,
+              }),
+              h('div', { className: 'dshic-dir-tip' }, T('directorDragHint')),
+              msg ? h('div', { className: cls('dshic-dir-msg', msg.kind === 'err' && 'is-err') }, msg.text) : null),
+            // 右侧属性
+            h('div', { className: 'dshic-dir-right' },
+              sel
+                ? h('div', null,
+                  h('div', { className: 'dshic-dir-sec' }, String(sel.name || sel.id)),
+                  row(T('dirName'), h('input', {
+                    type: 'text', value: String(sel.name || ''), className: 'dshic-dir-txt',
+                    onChange: (e) => patch((n) => { const t = n.objects.find((x) => x.id === sel.id); if (t) t.name = e.target.value; }),
+                  })),
+                  row(T('dirColor'), h('input', {
+                    type: 'color', value: String(sel.color || '#999999'), className: 'dshic-dir-color',
+                    onChange: (e) => patch((n) => { const t = n.objects.find((x) => x.id === sel.id); if (t) t.color = e.target.value; }),
+                  })),
+                  row('X', numInput(sel.pos.x, (v) => patch((n) => { const t = n.objects.find((x) => x.id === sel.id); if (t) t.pos = v3(v, t.pos.y, t.pos.z); }))),
+                  row('Z', numInput(sel.pos.z, (v) => patch((n) => { const t = n.objects.find((x) => x.id === sel.id); if (t) t.pos = v3(t.pos.x, t.pos.y, v); }))),
+                  row(T('dirFacing'), numInput(Math.round(((Number(sel.rotY) || 0) * 180 / Math.PI) * 10) / 10, (v) => patch((n) => { const t = n.objects.find((x) => x.id === sel.id); if (t) t.rotY = v * Math.PI / 180; }), 5)),
+                  row(T('dirScale'), numInput(sel.scale ? sel.scale.y : 1, (v) => patch((n) => { const t = n.objects.find((x) => x.id === sel.id); if (t) t.scale = v3(v, v, v); }))),
+                  h('div', { className: 'dshic-node-row' },
+                    h('button', {
+                      type: 'button', className: 'dshic-mini is-ghost', title: T('dirToggleVisible'),
+                      onClick: () => patch((n) => { const t = n.objects.find((x) => x.id === sel.id); if (t) t.visible = !(t.visible !== false); }),
+                    }, sel.visible === false ? T('dirShow') : T('dirHide')),
+                    h('button', {
+                      type: 'button', className: 'dshic-mini is-danger', title: T('confirmDel'),
+                      onClick: () => {
+                        patch((n) => { n.objects = n.objects.filter((x) => x.id !== sel.id); });
+                        S.directorSel = null; setTick((x) => x + 1);
+                      },
+                    }, T('confirmDel'))))
+                : h('div', { className: 'dshic-hint' }, T('directorSelHint')),
+              h('div', { className: 'dshic-dir-sec' }, T('directorShotSettings')),
+              row(T('dirShotSize'), h(PopupSelect, {
+                value: String(scene.shot.shotSize || 'medium'), width: 118,
+                options: DIRECTOR_SHOT_SIZES().map((x) => ({ value: x.id, label: x.label })),
+                onChange: (v) => patch((n) => { n.shot.shotSize = v; }),
+              })),
+              row(T('dirCameraMove'), h(PopupSelect, {
+                value: String(scene.shot.cameraMove || 'static'), width: 118,
+                options: DIRECTOR_MOVES().map((x) => ({ value: x.id, label: x.label })),
+                onChange: (v) => patch((n) => { n.shot.cameraMove = v; }),
+              })),
+              row(T('durationLabel'), numInput(scene.shot.duration || 5, (v) => patch((n) => { n.shot.duration = Math.max(0.3, v); }), 0.5)),
+              row('FOV', numInput(cam ? cam.fov : 42, (v) => patch((n) => { const c = n.cameras.find((x) => x.id === n.activeCameraId); if (c) c.fov = Math.max(12, Math.min(110, v)); }), 1)),
+              h('div', { className: 'dshic-dir-sec' }, T('directorPrompt')),
+              h('textarea', {
+                className: 'dshic-dir-prompt', readOnly: true,
+                value: compileDirectorPrompt(scene, { zh: effLang() !== 'en' }),
+              }),
+              h('button', {
+                type: 'button', className: 'dshic-btn dshic-primary', disabled: busy,
+                style: { width: '100%', justifyContent: 'center' },
+                onClick: exportShot,
+              }, busy ? h('span', { className: 'dshic-spin' }) : Ic('image', 12), T('directorExport')),
+              h('div', { className: 'dshic-hint', style: { marginTop: 4 } }, T('directorExportHint')),
+            )),
+        ));
+    }
+
+    // ============================================================
     // 左侧图标列（单列）：加节点 / 资产 / 设定集 / 运行工作流
     // 固定列，不随画布平移缩放；与弹窗当前页对应的图标高亮。
     // ============================================================
@@ -12238,6 +13121,13 @@ window.__ModuleLoader__.load({
           onClick: () => openStudioModal('bible'),
         }, Ic('script', 16)),
         h('div', { key: 'sep-actions', className: 'dshic-rail-sep' }),
+        // 3D 导演台：摆位 + 取景 + 导出镜头首帧（参考项目 BeefTV 的导演台能力，只借鉴设计、独立实现）
+        h('button', {
+          key: 'director', type: 'button',
+          className: cls('dshic-rail-btn', S.directorOpen && 'is-active'),
+          'data-action': 'open-director', title: T('directorTitle'),
+          onClick: () => update((s) => { s.directorOpen = true; }),
+        }, Ic('camera', 16)),
         S.running
           ? h('button', {
               key: 'stop', type: 'button', className: 'dshic-rail-btn is-danger',
@@ -14532,6 +15422,7 @@ window.__ModuleLoader__.load({
           S.rightOpen ? h(Rightbar) : null,
         ),
         h(StudioModal),          // 资产 + 设定集统一弹窗（单例；S.panelModal 控制）
+        h(DirectorStage),        // 3D 导演台（全屏浮层；左侧图标列入口，S.directorOpen 控制）
         h(ProjectNameDialog),    // 新建 / 重命名项目（空名校验）
         S.menu ? h(ContextMenu, { menu: S.menu }) : null,
         S.lightbox ? h(Lightbox) : null,
@@ -15031,6 +15922,12 @@ window.__ModuleLoader__.load({
           // 供 scripts/test-segment-plan.mjs 直接断言
           window.__DSH_IC_SEGMENT__ = { planShotSegments, isCutPoint, segmentNeedsHardFrame, videoSegmentOf, shotContinuityPlan };
           window.__DSH_IC_STORYBOARD_PROMPT__ = { buildStoryboardVideoPrompt };
+          // 3D 导演台：几何/投影/渲染都是纯函数（可脱 DOM 断言），面板组件单独供结构测试
+          window.__DSH_IC_DIRECTOR__ = {
+            DirectorStage, directorDefaultScene, directorRenderScene, directorPickObject,
+            directorObjectFaces, directorActorFaces, directorLookAt, directorProject,
+            compileDirectorPrompt, loadStageDoc, saveStageDoc, directorDocKey,
+          };
           // 面板结构（左侧图标列 / 统一弹窗 / 工具栏项目切换 / 就地改名 / 右栏当前项目面板）：
           // 供 scripts/test-panel-layout.mjs 驱动
           window.__DSH_IC_PANEL__ = {

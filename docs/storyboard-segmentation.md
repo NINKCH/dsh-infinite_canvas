@@ -1,7 +1,7 @@
 # 分镜切段与视频生成衔接改造调研
 
-> 本文是「分镜 → 视频生成」链路的技术调研 + 改造方案。只做设计，不包含代码改动，也不引用第三方实现。
-> 现状分析以 `dsh-infinite_canvas` 仓库 **HEAD `452f647`** 的 `client.js` 为准；工作区若存在并行未提交改造，行号会整体偏移，**以函数名为锚**。
+> 本文是「分镜 → 视频生成」链路的技术调研 + 改造方案。只做设计说明，不包含代码改动，也不引用第三方实现。
+> §1 的"现状/行号"以**修复前基线 `452f647`** 为对象，用来解释动机；当前 HEAD 为 `94d1f47`，其中 `0a5b96d` 已按本文方案落地主链路（切段规划器 / 分段提示词 / 按段铺开 / 弱模型判定），逐项状态见 **§3.5**。检索以函数名为准。
 
 | 项 | 内容 |
 |---|---|
@@ -18,7 +18,7 @@
 
 > 当前项目产出的分镜脚本 + 任务图片去生成视频后，动作都是极简的，甚至可以说只会平移，而且没有特效，切分的也不是很合理。假设视频上限一次 15s，分镜脚本非得切成 10–14 之间等比例很规范，而不是按实际镜头去分组。比如说两个镜头衔接着同一个角色的一个画面，却被封到了两个场景脚本里，这样第二次生成很难和第一个视频衔接上；就算加了首帧参考，第二个视频首帧重复一下，剪辑时不是重影就是卡顿，不流畅。能不能尽可能让场景的切分就是"要换镜头了"的那种切法，这样两次生成的视频就不用去硬接前一个视频？每个视频的动作应该是连贯的。特别是用 MiniMax 时，它没有 Seedance-2.5 那么强，衔接上很难处理。
 
-### 1.2 现状生成链路（HEAD）
+### 1.2 现状生成链路（修复前基线 `452f647`）
 
 | # | 环节 | 代码位置 | 实际行为 |
 |---|---|---|---|
@@ -71,13 +71,12 @@
 |---|---|---|---|---|
 | B1 | **镜头行是一等公民**：`StoryboardRow` 20+ 字段，含 `timeBeats / mustHave / optionalDetails / continuityOut / negativePrompt / assetBindings` | `web/src/types/canvas.ts` L97-143 | 每个镜头不是一段散文，而是一份带"必达项、时间节拍、负面项、连续性出口"的执行合同 | 我们的 `shots[]` 需要补 `timeBeats/camera/vfx/negative` 四类可选字段，让"动作/特效"可被逐镜声明 |
 | B2 | **受保护执行契约**：单镜最多 2 名主要角色、1 个主运镜、1 条主动作链、3 个 `timeBeats`、3 个 `mustHave`，超限必须拆镜 | `backend/internal/prompts/prompt_template_defaults.go` L337-349 | 颗粒度上限是**机械可校验**的，不靠模型自觉 | 分镜生成提示词加入"每镜动作节拍 ≤3、每镜一个主动作"的硬上限 |
-| B3 | **首帧与运动职责分离**：`visualPrompt` 只描述首帧，`videoPrompt` 只描述运动与结尾状态 | 同上 L345 | 避免首帧信息与运动描述重复，减少模型"复读画面" | 我们的 `visual` / `motion` 已经是这个结构，但要禁止 `motion` 再写画面，统一成"起点→方式→终点" |
-| B4 | **台词按时长预算**：1 秒最多约 5 个中文字符（至少 24 字），超长必须拆镜/精简 | 同上 L342 | 台词长度与镜头时长绑定，避免"一句话塞 10 秒" | 分镜生成时按 `duration` 反推台词字数上限，超限拆镜而不是硬压 |
-| B5 | **26 种运镜预设**：`push_in / pull_out / pan / tilt / truck / dolly / crane / orbit / handheld / whip_pan / rack_focus / zoom / low_angle_push / foreground_pass / static_hold …`，每种带 label + 可执行 prompt | `web/src/lib/canvas/cinematic-video-tools.ts` L14-41 | "运镜"是可枚举、可选的专业词汇，不是自由文本动词 | 我们的 `motion` 提供 8–10 个基础预设 + 起点/终点模板；其余保持自由文本 |
-| B6 | **时间节拍模板**：6/9/10/15s 各有 `[0s]/[3s]/[6s]…[Ns]` 的分段节拍 | 同上 L43-84 | 用"时间点 + 该时点发生什么"约束模型，而不是只给总时长 | `timeBeats` 字段直接落地为 3 个时间点（0 / 中段 / 尾点） |
-| B7 | **机位-镜头-焦段-光圈四层提示词库**：8 机位、8 镜头、11 焦段、10 光圈；模板明确声明"这是摄影参数，不是画面里的物体" | `web/src/lib/canvas/camera-prompt-library.ts` L41-230、L253-280 | 把"只会平移"升级为可执行的光学语言；并防止模型把摄影机画进画面 | 我们的 `camera` 字段用"机位 + 焦段/光圈 + 运动"三件套；模板加同款防误绘声明 |
-| B8 | **模型能力表**：`VideoCapabilityConfig.duration`（`selection: range/enum`、min/max/step/values、`fractionalMin`）、`references.maxVideoDurationSeconds / maxVideoTotalDurationSeconds` | `web/src/lib/model-capabilities.ts` L66-114 | 切段前先知道"这台模型一次能吃多少秒、什么离散值" | 新增能力表，`maxClipSeconds` 从能力表来；未知模型按最保守值处理 |
-| B9 | **行级产出绑定**：一行通过 `imageNodeId / videoNodeId` 绑定素材；行时长 1–60s，默认 6s；`row:<id>` 作为生成输入句柄 | `docs/content/docs/backend/storyboard-operations.mdx` L11、L18、L24；`web/src/components/canvas/canvas-node-generation.ts` L435-471 | **镜头行就是生成边界**；行内字段（含 `continuityOut`）跨行显式传递连续性 | 我们保留"多镜合并以省调用"，但合并必须发生在**切点处**；同时让每个视频节点知道自己负责哪几镜 |
+| B3 | **首帧/运动职责分离 + 台词按时长预算**：`visualPrompt` 只描述首帧，`videoPrompt` 只描述运动与结尾状态；`dialogue` 按 1 秒≈5 个中文字符（至少 24 字）限长 | 同上 L342、L345 | 首帧与运动不重复；台词长度与镜头时长绑定 | 我们的 `visual`/`motion` 已是这个结构（统一成"起点→方式→终点"）；分镜生成按 `duration` 反推台词上限，超限拆镜 |
+| B4 | **26 种运镜预设**：`push_in / pull_out / pan / tilt / truck / dolly / crane / orbit / handheld / whip_pan / rack_focus / zoom / low_angle_push / foreground_pass / static_hold …`，每种带 label + 可执行 prompt | `web/src/lib/canvas/cinematic-video-tools.ts` L14-41 | "运镜"是可枚举、可选的专业词汇，不是自由文本动词 | 我们的 `motion` 提供 8–10 个基础预设 + 起点/终点模板；其余保持自由文本 |
+| B5 | **时间节拍模板**：6/9/10/15s 各有 `[0s]/[3s]/[6s]…[Ns]` 的分段节拍 | 同上 L43-84 | 用"时间点 + 该时点发生什么"约束模型，而不是只给总时长 | `timeBeats` 字段直接落地为 3 个时间点（0 / 中段 / 尾点） |
+| B6 | **机位-镜头-焦段-光圈四层提示词库**：8 机位、8 镜头、11 焦段、10 光圈；模板明确声明"这是摄影参数，不是画面里的物体" | `web/src/lib/canvas/camera-prompt-library.ts` L41-230、L253-280 | 把"只会平移"升级为可执行的光学语言；并防止模型把摄影机画进画面 | 我们的 `camera` 字段用"机位 + 焦段/光圈 + 运动"三件套；模板加同款防误绘声明 |
+| B7 | **模型能力表**：`VideoCapabilityConfig.duration`（`selection: range/enum`、min/max/step/values、`fractionalMin`）、`references.maxVideoDurationSeconds / maxVideoTotalDurationSeconds` | `web/src/lib/model-capabilities.ts` L66-114 | 切段前先知道"这台模型一次能吃多少秒、什么离散值" | 新增能力表，`maxClipSeconds` 从能力表来；未知模型按最保守值处理 |
+| B8 | **行级产出绑定**：一行通过 `imageNodeId / videoNodeId` 绑定素材；行时长 1–60s，默认 6s；`row:<id>` 作为生成输入句柄 | `docs/content/docs/backend/storyboard-operations.mdx` L11、L18、L24；`web/src/components/canvas/canvas-node-generation.ts` L435-471 | **镜头行就是生成边界**；行内字段（含 `continuityOut`）跨行显式传递连续性 | 我们保留"多镜合并以省调用"，但合并必须发生在**切点处**；同时让每个视频节点知道自己负责哪几镜 |
 
 **不照搬的三点**：
 
@@ -91,6 +90,8 @@
 
 ## 三、改造方案
 
+> 本节是方案全文。`0a5b96d` 已按本方案落地主链路；**§3.5 给出逐项落地状态与差异**，未落地项继续按本节执行。
+
 ### 3.0 目标与不变量
 
 | 不变量 | 说明 | 保证方式 |
@@ -102,7 +103,7 @@
 
 ### 3.1 切段规划器 segmentation planner
 
-> 建议新增纯函数（命名供实现参考：`planShotSegments`；当前基线 `HEAD 452f647` 不存在，属新增）。
+> 设计中的纯函数（`planShotSegments`）已在 `0a5b96d` 落地（HEAD `94d1f47` · L3070），输出字段与本节一致；未落地的差异项见 §3.5。
 
 #### 3.1.1 输入 / 输出
 
@@ -145,7 +146,7 @@ PLAN(shots, maxSeconds, minSeconds):
           bestEnd = last j with acc <= maxSeconds      // 至少吃镜到上限
           forced = true                                // 本段将标记 seamRisk='forced'
       if bestEnd < i: bestEnd = i; forced = true       // 单镜本身就超限
-      segments.push(buildSegment(i, bestEnd, forced))
+      segments.push(记录本段 i..bestEnd（forced 标记）)
       i = bestEnd + 1
   return segments
 ```
@@ -194,7 +195,7 @@ PLAN(shots, maxSeconds, minSeconds):
 | `seamRisk` | `'none'｜'chain'｜'forced'` | 无风险 / 需尾帧接力 / 硬切 |
 | `needsTailChain` | bool | 见 §3.2；仅"上段末镜与本段首镜同为 continuation 且模型支持硬首帧"时为 true |
 | `reason` | string | 人类可读的切段依据（面板可见） |
-| `forcedRewrite` | object? | `{shotIndex, action:'split'｜'relabel', newSeg}`；S3 降级时给出 |
+| `forcedRewrite` | object? | `{shotIndex, action:'split'｜'relabel', newSeg}`；S3 降级时给出。**落地状态：未实现**——当前用 `warnings[]` + `cutMode='forced'` 表达，不做自动拆镜（见 §3.5） |
 | `warnings[]` | string[] | 需要用户看到的告警（不静默） |
 
 #### 3.1.7 与现有代码的接线点
@@ -211,7 +212,7 @@ PLAN(shots, maxSeconds, minSeconds):
 
 ### 3.2 强弱衔接模型分流
 
-#### 3.2.1 能力表（建议新增，字段名供实现参考）
+#### 3.2.1 能力表（设计目标；现状为轻量替代：分镜表 `segMaxSeconds` + 模型名正则，见 §3.5）
 
 | 字段 | 取值示例 | 用途 |
 |---|---|---|
@@ -299,9 +300,11 @@ needsTailChain =
 
 ### 3.4 画布交互
 
-#### 3.4.1 新增按钮「按镜头切段」
+#### 3.4.1 交互入口「按镜头切段」
 
-位置：分镜表节点底部操作栏（与 `expandStoryboard` 现有入口并列）；仅当 `shots.length > 0` 时可见。
+**落地状态**：`0a5b96d` 已把切段作为 `expandStoryboard` 的默认路径（`segMaxSeconds` 在生成面板配置、分镜表节点显示切段预览、铺开时按段建节点）；下方"独立按钮"是可选增强（若需要显式入口再加，行为同表）。
+
+位置：分镜表节点底部操作栏（若新增独立按钮，与 `expandStoryboard` 现有入口并列）；仅当 `shots.length > 0` 时可见。
 
 | 步 | 行为 |
 |---|---|
@@ -325,6 +328,8 @@ needsTailChain =
 
 #### 3.4.3 实施顺序（每阶段可独立验收）
 
+> 本节是原始实施顺序；`0a5b96d` 已基本按 P1→P4 落地，保留用于回溯与后续补项拆分。
+
 | 阶段 | 内容 | 可独立验收 |
 |---|---|---|
 | P1 | 纯函数规划器 + 单元测试（不接 UI、不改行为） | §4 的 A1–A6、A13 |
@@ -332,11 +337,27 @@ needsTailChain =
 | P3 | 切段铺开 + 节点数据 + frame 连线规则 | §4 的 A7、A9、A10、A11 |
 | P4 | 能力表、弱模型分流、UI 徽标与告警、技能文档同步 | §4 的 A12、A15 |
 
+### 3.5 落地状态对照（HEAD `94d1f47` / `0a5b96d`）
+
+| 方案项 | HEAD 落地情况 | 状态 |
+|---|---|---|
+| 3.1 切段规划器 | `isCutPoint` L3049、`planShotSegments` L3070；输出 `index/shotIds/shots/startIndex/endIndex/duration/firstSeg/lastSeg/opensOnCut/closesOnCut/seamRisk/needsTailChain/reason` + `total/max/cutMode/warnings` | **已落地**；差异：无 `forcedRewrite` 字段（用 `warnings` + `cutMode='forced'` 表达） |
+| 3.1 `needsTailChain` 公式 | 规划器内为 `index>0 && !isCutPoint(firstSeg)`；模型能力在运行期另由 `segmentNeedsHardFrame` 判定 | **部分落地**：公式少了"上段末镜同属 continuation"这一项，可能把"上段以 closeup 收尾、本段 continuation"误标为需接力（低风险，建议按 §3.2.3 收紧） |
+| 3.2 弱衔接分流 | `segmentNeedsHardFrame(seg, modelName)` L3168：模型名正则 `minimax\|hailuo\|kling-?1\|pika\|stability\|svd` 判弱，弱模型返回 false（不接力） | **部分落地**；差异：未引入 §3.2.1 能力表，靠模型名正则（新增厂商易漏，**待核**） |
+| 3.3 提示词升级 | `aiStoryboardShots` 的 JSON 契约 L7249-7271 已输出 `timeBeats/camera/vfx/negative`；`buildStoryboardVideoPrompt` L8126 逐镜注入并按段过滤；段级 `negative` 已合并 | **已落地**（字段名 `timeBeats` 为数组，与 §3.3.1 的"3 个时间点"一致） |
+| 3.3 单镜时长不再抬到 1s | `buildStoryboardVideoPrompt` 内 `durOf = max(0.3, …)`，快切 0.6s 不再被抬成 1s | **已落地**（R3 根因修复） |
+| 3.4 按段铺开 | `expandStoryboard` L11443 按 planner 建多个 video 节点；节点字段 `segShotFrom/segShotTo`；`videoSegmentOf` L8214；`segMaxSeconds` 面板配置 L10471、节点切段预览 L11319 | **已落地**（不是独立按钮，而是铺开默认路径 + 预览；独立按钮为可选增强） |
+| 3.4 frame 连线只给需接力的段 | `expandStoryboard` L11708-11714 循环里 `if (!segs[k].needsTailChain) continue` 才连 `frame`；`runGenNode` L8496 起 `chain` 使用 `segMeta.needsTailChain` + `segmentNeedsHardFrame` | **已落地** |
+| 3.4 分段过期检测（哈希） | 未发现 `segShotFrom/To` 与分镜镜头内容的哈希对比 | **未落地**（风险保留于 §5.1） |
+| 3.1 S3 自动拆镜/改写 | 仅 `warnings` 提示"拆成两镜/标换场"，不自动改写 | **未落地**（当前降级策略是"告警 + 由用户改分镜"） |
+| 验收测试 | `scripts/test-segment-plan.mjs`（275 行）覆盖规划器、弱模型判定、分段提示词、节点字段 | **已落地**（覆盖范围见 §4 末尾说明） |
+| 技能同步 | `assets/canvas-craft/SKILL.md` 已补 timeBeats/camera/vfx/negative 与"切段友好"纪律 | **已落地**（0a5b96d 中 +169 行） |
+
 ---
 
 ## 四、验收口径
 
-> 全部可机械断言；测试建议新增 `scripts/test-storyboard-segmentation.mjs`（本任务**不创建**，由实现任务补），纯函数可直接表驱动 + 属性测试（随机 1000 组 shots）。
+> 下表的测试已部分落地为 `scripts/test-segment-plan.mjs`（覆盖 A1–A6、A8、A12、A15 + 源码级防回退）；**待补项**见本节末尾。
 
 | ID | 断言 | 怎么测 |
 |---|---|---|
@@ -355,6 +376,9 @@ needsTailChain =
 | A13 | 空表 → 0 段、不建节点、有可见提示 | 空 `shots` 调用 |
 | A14 | 段末镜的 `tail` 出现在下一段首镜提示词的承接块里（仅 `needsTailChain=true`） | 拼接两段提示词做包含断言 |
 | A15 | 单镜 > 上限：该段只含此镜，`seamRisk='forced'`，`warnings` 含"拆镜/降时长"，且不截断内容 | 构造 18s 单镜 × 1 的表 |
+
+**已覆盖**（`scripts/test-segment-plan.mjs`）：A1–A6、A8（段内提示词只含本段镜头）、A12（MiniMax/Seedance 判定）、A15（20s 单镜告警），以及"规划器/字段存在、`expandStoryboard` 未退回单节点"的源码级防回退。
+**待补**：A7（`forcedRewrite` 未实现，只能断言告警）、A9（frame 连线数量）、A10（能力表时长吸附）、A11（旧路径快照）、A13（空表）、A14（跨段 `tail` 文本）。
 
 ---
 
@@ -396,7 +420,7 @@ needsTailChain =
 
 ## 附录 A：引用自查
 
-**方法**：用 Node 读取工作区 `client.js`，把本文提到的每个函数/常量名做一次 `includes` 检查。
+**方法**：用 Node 读取 `client.js`（并对照 `git show HEAD:client.js`），把本文提到的每个函数/常量名做一次 `includes` 检查。
 
 ```bash
 node -e "const fs=require('fs');const s=fs.readFileSync('client.js','utf8');\
@@ -408,8 +432,15 @@ console.log(JSON.stringify({total:names.length,pass:p,fail:f}))"
 
 | 类别 | 数量 | 结果 |
 |---|---|---|
-| 既有函数/常量（HEAD `452f647` 基线） | 28 | **28 / 28 通过**，失败 0 |
-| 本文提出的新增函数名（`planShotSegments` / `videoSegmentOf`） | 2 | **待核**：HEAD 基线不存在；写作时工作区存在同名并行实现（未提交），故本次 `includes` 为 2 / 2 通过，但**不视为已交付** |
-| **合计（写作时工作区）** | **30** | **30 / 30 通过，失败 0**；其中 2 个属"拟新增/并行实现"，以实现任务合入为准 |
+| 修复前基线 `452f647` 中已存在 | 28 | **28 / 28 通过**，失败 0 |
+| 本文方案新增、`0a5b96d` 已合入 HEAD | 2（`planShotSegments` / `videoSegmentOf`） | **2 / 2 通过**，失败 0 |
+| **合计（HEAD `94d1f47`）** | **30** | **30 / 30 通过，失败 0** |
 
-> 行号与行为均以 HEAD `452f647` 核对；写作期间 `client.js` 存在并行未提交改动，若行号偏移请按函数名检索。本文不包含代码改动，也未创建除本文件外的任何文件。
+**自查脚本实际输出**：
+
+```text
+HEAD(94d1f47): {"total":30,"pass":30,"fail":[]}
+WORK:          {"total":30,"pass":30,"fail":[]}
+```
+
+> 行号说明：§1 的行号对应修复前基线 `452f647`（用于解释问题）；§3.5 的行号对应 HEAD `94d1f47`。两者若随代码演进偏移，请按函数名检索。本文不包含代码改动。
