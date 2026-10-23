@@ -18,6 +18,7 @@ GitHub Releases carry the same notes in English; maintainer-facing runbooks live
 
 ### Internal
 - `scripts/test-canvas-perf.mjs` (registered in `scripts/regress.mjs`) covers the poster/video lifecycle, poster cache/generation/HEAD/POST/fallback and concurrency limit, Host `/api/poster` write + `../` rejection + GET readback, the `idbGet` order/miss/JSON/throw-fallback cases, the imperative rAF drag (no notify during move, exactly one on pointerup, `is-node-dragging`), and `MediaNodeBody` memo behaviour; `test-node-layout` now accepts the lazy `<video>` (asserts it appears only after play) and `test-drag-alt` looks at the extracted `applyNodeDragFrame`.
+- **The BLK-01 / BLK-02 investigation records now live in the repository** under [`docs/evidence/`](docs/evidence/) instead of outside it: `client.js` cites `docs/evidence/BLK-02-静默错位-20261019.md` for the "never send a relative path without a base" rule and `scripts/test-delete-project.mjs` cites `docs/evidence/BLK-01-删除项目残留-20261019-1512.md` for its ten acceptance criteria, so cloning the repo gives you the evidence those comments depend on.
 
 ## [0.18.7] — 2026-10-22
 

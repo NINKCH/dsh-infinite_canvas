@@ -6028,7 +6028,7 @@ window.__ModuleLoader__.load({
       status: async () => { const r = await craftFetch('/status', {}, 20000, true); return await r.json(); },
       projects: async () => { const r = await craftFetch('/projects'); return await r.json(); },
       // BLK-02：所有文件类调用一律 base(项目绝对目录) + path(相对)，绝不发「无 base 的相对 rel」——
-      // 无 base 时 ArtCraft 按插件进程 cwd 解析，会 200 静默写到 DSH profile 目录（现场证据见 _qa/BLK-02）。
+      // 无 base 时 ArtCraft 按插件进程 cwd 解析，会 200 静默写到 DSH profile 目录（现场证据见 docs/evidence/BLK-02-静默错位-20261019.md）。
       write: async (base, rel, blob) => { const r = await craftFetch('/fs?action=write&base=' + encodeURIComponent(base) + '&path=' + encodeURIComponent(rel), { method: 'POST', body: blob }, 180000); return await r.json(); },
       writeText: async (base, rel, text) => { const r = await craftFetch('/fs?action=write&base=' + encodeURIComponent(base) + '&path=' + encodeURIComponent(rel), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ base, path: rel, text }) }, 60000); return await r.json(); },
       readText: async (base, rel) => { const r = await craftFetch('/fs?op=readtext&base=' + encodeURIComponent(base) + '&path=' + encodeURIComponent(rel)); return (await r.json()).text; },
@@ -6051,7 +6051,7 @@ window.__ModuleLoader__.load({
     // ArtCraft 是纯桥接、**没有自己的数据根**（0.3.x 起 /api/status 也不再返回 dataRoot）。
     // 因此画布必须自己给出绝对基准：每个项目的目录 = <画布数据根>/projects/<物理文件夹>，
     // 由 Host 的 projectDirGet 解析（meta 无条目时回退 id），再以 base + 相对 path 调 ArtCraft。
-    // 绝不发「无 base 的相对 rel」——那样会被按插件进程 cwd 解析、200 却写错目录（见 _qa/BLK-02）。
+    // 绝不发「无 base 的相对 rel」——那样会被按插件进程 cwd 解析、200 却写错目录（见 docs/evidence/BLK-02-静默错位-20261019.md）。
     const craftBaseCache = new Map(); // projectId -> { at, abs }
     async function craftBaseDir(pid) {
       const id = String(pid || S.activeId || '');
