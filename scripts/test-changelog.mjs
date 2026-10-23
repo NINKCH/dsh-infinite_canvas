@@ -109,6 +109,9 @@ const COVERAGE = [
   { sha: '18876bc', keys: [/director stage|导演台|compileDirectorPrompt|mannequin/i] },
   // f403e33 只改 docs/director-3d.md 的自查行数，描述对象与 18876bc 同一件事（导演台），复用同一组关键字。
   { sha: 'f403e33', keys: [/director stage|导演台|compileDirectorPrompt|mannequin/i] },
+  // 3989e9f 只改 docs/UI-RULES.md（图标列顺序补上导演台入口），属同一功能的文档同步；
+  // docs/ 不在"纯收尾"剔除范围内，所以照样要在这里记账。
+  { sha: '3989e9f', keys: [/director stage|导演台|compileDirectorPrompt|mannequin/i] },
 ];
 for (const c of COVERAGE) {
   ok(c.keys.some((re) => re.test(section)), '未发版提交 ' + c.sha + ' 在 Unreleased 段里找不到对应记录（补记不全）');
