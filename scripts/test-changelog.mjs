@@ -107,6 +107,8 @@ const COVERAGE = [
   { sha: 'a23ea41', keys: [/BLK-01|BLK-02|docs\/evidence|evidence/i] },
   { sha: '0a5b96d', keys: [/shot boundaries|切段|planShotSegments|timeBeats|three action beats/i] },
   { sha: '18876bc', keys: [/director stage|导演台|compileDirectorPrompt|mannequin/i] },
+  // f403e33 只改 docs/director-3d.md 的自查行数，描述对象与 18876bc 同一件事（导演台），复用同一组关键字。
+  { sha: 'f403e33', keys: [/director stage|导演台|compileDirectorPrompt|mannequin/i] },
 ];
 for (const c of COVERAGE) {
   ok(c.keys.some((re) => re.test(section)), '未发版提交 ' + c.sha + ' 在 Unreleased 段里找不到对应记录（补记不全）');
