@@ -229,7 +229,75 @@ Media lives on disk, organized by project — **copying the folder IS the full m
 
 ---
 
-## 8. Troubleshooting
+## 8. 3D Director Stage
+
+A blocking & previz workspace inside the same project. Place real glTF characters and set dressing, frame them with real cameras, and send the result back to the canvas as an image or video node.
+
+Open it from the left icon rail → **3D Director Stage**.
+
+### 8.1 Workspace map
+
+| Area | What it does |
+|---|---|
+| **Left tool rail** | Select (0) / Move (1) / Rotate (2) / Scale (3) / Drop to ground (G) / Focus / Upload |
+| **Asset library** | Tabbed and searchable: characters · trees · furniture · buildings · primitives |
+| **Viewport** | Studio or final look, object labels, move/rotate/scale gizmo, shortcut overlay |
+| **Camera PiP** (top right) | Live view of the active camera; switch cameras from here |
+| **Right panel** | Context-sensitive: object properties when something is selected, lens/shot settings when nothing is selected, render settings in Live render |
+| **Timeline** (Dynamic previz / Live render) | Scrub, shot rail, per-shot start/end, keyframe tools, zoom |
+
+![Static previz — studio viewport, object properties and shortcut list](./images/director-static-en.png)
+
+### 8.2 Three viewing modes
+
+| Mode | Look | Playback |
+|---|---|---|
+| **Static previz** | Studio: dark backdrop, grid, neutral two-light rig | Paused — for blocking |
+| **Dynamic previz** | Same fixed studio look | Timeline playback |
+| **Live render** | Final look: daylight, shadows, materials, no guides | Plays the shot sequence |
+
+Static and Dynamic deliberately keep a **fixed studio look**, so placement does not drift when you tune the sun, ground or exposure. Those render settings apply only to **Live render** and the exported clip.
+
+![Dynamic previz — timeline, shot rail and camera keyframes](./images/director-dynamic-en.png)
+
+![Live render — daylight environment, real shadows and sun controls](./images/director-daylight-en.png)
+
+### 8.3 Asset library
+
+Five tabs share one search box. Click an asset to drop it into the scene; characters are real skinned glTF assets with animation clips (idle / walk / run / sneak).
+
+![Characters](./images/director-assets-characters-en.png)
+
+![Trees](./images/director-assets-trees-en.png)
+
+![Furniture](./images/director-assets-furniture-en.png)
+
+![Buildings](./images/director-assets-buildings-en.png)
+
+![Primitives, plus ancient-street set pieces](./images/director-assets-primitives-en.png)
+
+### 8.4 Moving things
+
+- **Gizmo**: axis shafts move, axis-end cubes scale, rings rotate. It follows the object's local axes.
+- **Alt + drag a scale handle** = uniform scale — x/y/z keep their relative proportions.
+- **Shift** while dragging = fine adjust; **Ctrl/⌘** = snap (0.5 m / 5°).
+- **Ctrl/⌘/Shift + left-drag** = box select; a plain click toggles a single object.
+- **W/A/S/D + Q/E** = fly the camera (forward/back, strafe, down/up). Hold **Shift** for 4x speed; the mouse still looks around.
+
+### 8.5 Shots, timeline and cameras
+
+- **Shot rail**: every shot has a start and end; edit them under the timeline.
+- **Camera keyframes**: select a camera, move it, then press **Add key**. Ease can be Smooth / Linear / Constant.
+- **Shot size and move**: presets that also drive the camera distance; **Framing %** shows how much of the subject fills the frame.
+- **Lens**: FOV, focal length and sensor size stay consistent; roll is in degrees.
+
+### 8.6 Export
+
+**Export video** renders the current range at 1280×720 with the same renderer as Live render, then drops the clip back on the canvas as a **video node**. The camera button exports a single **PNG** as an image node. Encoding follows the browser: MP4 (H.264) when available, WebM otherwise.
+
+---
+
+## 9. Troubleshooting
 
 | Symptom | Cause & fix |
 |---|---|

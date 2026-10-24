@@ -75,6 +75,27 @@ The canvas is not a separate window you have to switch to. It opens as a **tab i
 
 > One live canvas at a time (shared node graph and generation state): opening it in the pane while the full-page panel is also open **moves** the canvas rather than duplicating it — the other side shows a "move the canvas here" button.
 
+## 3D Director Stage (previz)
+
+A blocking & previz workspace that lives inside the same project: place real glTF characters and set dressing, frame them with real cameras, and send the result back to the canvas as an image or video node.
+
+- **Three modes** — **Static previz** (studio look, paused), **Dynamic previz** (studio look + timeline playback), **Live render** (final look: daylight, shadows, materials, no guides).
+- **Asset library** — characters, trees, furniture, buildings, primitives, and ancient-street set pieces (pitched roofs, stalls, stone steps) in one searchable rail.
+- **Direct manipulation** — local-axis move/rotate/scale gizmo, box select, **Alt-drag a scale handle = uniform scale**, **W/A/S/D + Q/E fly navigation** (hold Shift for 4x speed).
+- **Shots & timeline** — shot rail with per-shot start/end, camera keyframes, ease curves, markers and loop playback.
+- **Camera & optics** — FOV, focal length, sensor size and roll stay consistent; shot-size presets show the live framing percentage.
+- **Export** — PNG still or MP4/WebM clip, dropped straight back onto the canvas as an image or video node.
+
+![Static previz — studio viewport, object properties and the shortcut list](./docs/images/director-static-en.png)
+
+![Dynamic previz — timeline, shot rail and camera keyframes](./docs/images/director-dynamic-en.png)
+
+![Live render — daylight, real shadows and sun controls](./docs/images/director-daylight-en.png)
+
+Assets are shared with the canvas: the characters, trees, furniture and buildings you already generated are directly usable as previz set dressing.
+
+Full walkthrough — asset tabs, gizmo, keyboard map, shots and export: **[User guide → 3D Director Stage](./docs/guide.en.md#8-3d-director-stage)**.
+
 ## How it works
 
 ```mermaid
