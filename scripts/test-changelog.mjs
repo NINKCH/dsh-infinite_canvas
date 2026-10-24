@@ -114,18 +114,8 @@ if (unrelHasEntries) {
 // OBS-1 硬要求（QA 判据）：清单**手工维护**，绝不从 `git log` 动态生成——动态清单会自证
 // （脚本生成的清单当然自己全中，"缺一必红"退化成摆设）。数量相等 + 逐 sha 关键词命中，两条都拦。
 const COVERAGE = [
-  // 0.18.7→0.19.0：这批提交随 0.19.0 发布；发版后 Unreleased 清空，覆盖校验回落到最新已发布段。
-  // 合并进 main 后 main..dev 归零、本清单应同步清空，下一轮新提交从这里重新记账。
-  { sha: '42bc814', keys: [/poster|IndexedDB read path|imperative|懒挂载|卡顿/i] },
-  { sha: 'f126362', keys: [/screenshot|README|guide|截图/i] },
-  { sha: 'a23ea41', keys: [/BLK-01|BLK-02|docs\/evidence|evidence/i] },
-  { sha: '0a5b96d', keys: [/shot boundaries|切段|planShotSegments|timeBeats|three action beats/i] },
-  { sha: '18876bc', keys: [/director stage|导演台|compileDirectorPrompt|mannequin/i] },
-  // f403e33 只改 docs/director-3d.md 的自查行数，描述对象与 18876bc 同一件事（导演台），复用同一组关键字。
-  { sha: 'f403e33', keys: [/director stage|导演台|compileDirectorPrompt|mannequin/i] },
-  // 3989e9f 只改 docs/UI-RULES.md（图标列顺序补上导演台入口），属同一功能的文档同步；
-  // docs/ 不在"纯收尾"剔除范围内，所以照样要在这里记账。
-  { sha: '3989e9f', keys: [/director stage|导演台|compileDirectorPrompt|mannequin/i] },
+  // 0.19.0 已发布：上一批 7 个未发版提交随该版本进入 main，清单在此清零。
+  // 下一轮从 dev 新建功能提交起，再按提交逐条补记（数量必须与 main..dev 的功能提交数相等）。
 ];
 for (const c of COVERAGE) {
   ok(c.keys.some((re) => re.test(coverageText)), '未发版提交 ' + c.sha + ' 在 CHANGELOG（Unreleased 或最新已发布段）里找不到对应记录（补记不全）');
@@ -242,13 +232,21 @@ if (cntAll && Number(cntAll) > 0) {
   ok(functional.length === COVERAGE.length, 'dev 未发版功能提交数（' + functional.length + '，剔除纯收尾 ' + (shasSet.size - functional.length) + ' 个）≠ CHANGELOG 覆盖清单条数（' + COVERAGE.length + '）——清单与实际脱节，扩清单或清掉已发布项');
   for (const c of COVERAGE) ok(shasSet.has(c.sha), '覆盖清单里的 ' + c.sha + ' 不在 main..dev（已发布或已 amend？请更新手工清单）');
 } else {
+  // 发版后 main 已包含 dev 全部提交：main..dev 为 0 属**正常已发版状态**，不是"跳过校验"。
+  // （旧口径把"无提交"与"git 不可用"混为一谈，导致每次发版提交后 main 上的 --strict 必红。）
+  const gitWorks = git(['rev-parse', '--is-inside-work-tree']) === 'true';
+  const noPending = gitWorks && String(cntAll) === '0';
   const strict = process.argv.includes('--strict');
-  const reason = 'git 不可用（或 main..dev 无提交）：数量相等与逐 sha 存在性校验被跳过';
-  if (strict) {
-    errs.push('SKIP-AS-FAIL（--strict）：' + reason);
-    console.error('SKIP（--strict 下判失败）：' + reason);
+  if (noPending) {
+    console.log('  · main..dev 无提交（已发版状态）：无需逐 sha 校验');
   } else {
-    console.log('  · SKIP：' + reason + '（--strict 下这将判失败）');
+    const reason = 'git 不可用：数量相等与逐 sha 存在性校验被跳过';
+    if (strict) {
+      errs.push('SKIP-AS-FAIL（--strict）：' + reason);
+      console.error('SKIP（--strict 下判失败）：' + reason);
+    } else {
+      console.log('  · SKIP：' + reason + '（--strict 下这将判失败）');
+    }
   }
 }
 
