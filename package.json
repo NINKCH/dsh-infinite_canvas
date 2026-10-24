@@ -1,6 +1,6 @@
 {
     "name":  "@ninkch/dsh-infinite-canvas",
-    "version":  "0.18.7",
+    "version":  "0.19.0",
     "description":  "Node-based short-drama studio for DeepSeek Harness: script → storyboard → assets → shots → voiced, subtitled final cut on an infinite canvas.",
     "keywords":  [
                      "dsh",
@@ -31,7 +31,8 @@
                     ".":  "./index.js",
                     "./client":  "./client.js",
                     "./package.json":  "./package.json",
-                    "./locale/*.json":  "./locale/*.json"
+                    "./locale/*.json":  "./locale/*.json",
+                    "./assets/director/*.js":  "./assets/director/*.js"
                 },
     "files":  [
                   "index.js",
@@ -41,6 +42,8 @@
                   "locale/*.json",
                   "assets/*/SKILL.md",
                   "assets/support/*",
+                  "assets/director/*.js",
+                  "assets/director/models/*.json",
                   "README.md",
                   "README.zh-CN.md",
                   "docs/*.md",
