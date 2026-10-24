@@ -354,10 +354,30 @@ window.__ModuleLoader__.load({
     // ============================================================
     let CTX = null;
     let LANG_OVERRIDE = ''; // '' = 跟随宿主
+    /**
+     * 读宿主的当前语言。
+     *
+     * **契约（实测自 dsh-client-locale 的 LocaleRuntime.getLocale）**：
+     * 返回的是不可变快照 `{ active, locales, revision }`，语言在 `active` 里；
+     * 旧实现读 `snap.locale || snap.id` —— 这两个字段都不存在，于是永远回落到
+     * 'zh'，表现为"英文环境里插件名和界面仍是中文"，反之亦然。
+     * 三种形态都要兼容：字符串（简单 mock/旧版本）、带 active 的快照（当前契约）、
+     * 以及 locale/id 兜底（更老的形态），否则换一版宿主就静默错语言。
+     */
+    function localeIdOf(snap) {
+      if (!snap) return '';
+      if (typeof snap === 'string') return snap;
+      if (typeof snap.active === 'string') return snap.active;
+      if (typeof snap.locale === 'string') return snap.locale;
+      if (typeof snap.id === 'string') return snap.id;
+      return '';
+    }
     function hostLang() {
       try {
-        const snap = CTX && CTX.locale && CTX.locale.getLocale ? CTX.locale.getLocale() : null;
-        const id = typeof snap === 'string' ? snap : ((snap && (snap.locale || snap.id)) || '');
+        const fn = CTX && CTX.locale && (CTX.locale.getLocale || CTX.locale.getSnapshot);
+        const snap = typeof fn === 'function' ? fn.call(CTX.locale) : null;
+        const id = localeIdOf(snap);
+        // 显式选择优先于浏览器语言推断；两者都没有时按中文（本插件的主用户群）
         return String(id).toLowerCase().startsWith('en') ? 'en' : 'zh';
       } catch { return 'zh'; }
     }
@@ -400,6 +420,323 @@ window.__ModuleLoader__.load({
       'emptyScriptHint': '点击节点填写创作意图并生成剧本',
       'noShotsYet': '尚未拆解镜头',
       'multiShotOnce': '多镜头一次生成',
+      'segLabelShort': '段',
+      'expandSegDone': '{n} 镜已按镜头切段铺开为 {m} 段生成（每段独立生成，段间在换镜头处硬切，不硬接画面）',
+      'expandSegChain': '{n} 段沿用上一段尾帧接力',
+      'segPlanTitle': '按镜头切段',
+      'segPlanHint': '按真实镜头边界把分镜切成若干次生成：切点只在换场/特写插入/新角色入场处；同一段连续动作不拆开。',
+      'segMaxLabel': '单段上限',
+      'segMaxHint': '单次生成的最大秒数（按厂商上限填，MiniMax 这类弱衔接模型建议 6–10 秒）',
+      'segClean': '切点整齐：每一段都从换镜头处开始',
+      'segForced': '存在硬切点：有段从动作中间开始，建议先拆镜',
+      'segSummary': '{m} 段 / 共 {n} 镜 / 最长 {s} 秒',
+      'segTailChain': '尾帧接力',
+      'segNoChain': '硬切（不接力）',
+      // ---- 3D 导演台 ----
+      'directorTitle': '3D 导演台',
+      'directorHint': '摆位与取景：拖视口旋转机位，拖人偶移动站位；导出即得到一张带布景的镜头首帧',
+      'directorDefaultTitle': '未命名布景',
+      'directorActor': '演员',
+      'directorCamera': '主摄影机',
+      'directorKeyLight': '主光',
+      'directorAmbient': '环境光',
+      'directorObjects': '场景对象',
+      'directorAdd': '添加',
+      'directorCameras': '机位',
+      'directorEmpty': '还没有对象，用下面的按钮添加',
+      'directorSelHint': '点视口里的人偶/方块，或从左侧列表选一个对象',
+      'directorDragHint': '拖动空白处：绕主体旋转机位 · 拖动对象：沿地面移动',
+      'directorShotSettings': '镜头设置',
+      'dirShotSize': '景别',
+      'dirCameraMove': '运镜',
+      'directorPrompt': '将写进视频的提示词（自动生成，只读）',
+      'directorExport': '导出当前机位截图',
+      'directorExportHint': '截图会进资产库，同时在画布上生成一个图片节点——接着就能拿它当首帧生成视频',
+      'directorShotName': '导演台截图',
+      'directorExported': '已导出：资产库 + 画布图片节点都已就位',
+      'dirName': '名称',
+      'dirColor': '颜色',
+      'dirFacing': '朝向°',
+      'dirScale': '体型',
+      'dirShow': '显示',
+      'dirHide': '隐藏',
+      'dirToggleVisible': '显示 / 隐藏',
+      'dirPrimBox': '方块',
+      'dirPrimSphere': '球',
+      'dirPrimCylinder': '圆柱',
+      'dirPrimPlane': '平面',
+      'dirSizeEWide': '大远景',
+      'dirSizeWide': '远景',
+      'dirSizeFull': '全景',
+      'dirSizeMedium': '中景',
+      'dirSizeClose': '近景',
+      'dirSizeEClose': '大特写',
+      'dirMoveStatic': '固定机位',
+      'dirMovePush': '推近',
+      'dirMovePull': '拉远',
+      'dirMovePanL': '向左摇',
+      'dirMovePanR': '向右摇',
+      'dirMoveOrbitL': '左环绕',
+      'dirMoveOrbitR': '右环绕',
+      'dirMoveHandheld': '手持微晃',
+      'dirRendererGL': '深度缓冲',
+      'dirRendererFallback': '兼容模式（无深度遮挡）',
+      'dirUndo': '撤销',
+      'dirNothingToUndo': '没有可撤销的操作',
+      'dirUndoFailed': '撤销失败：快照损坏',
+      'dirReset': '重置布景',
+      'dirResetConfirm': '重置会清空当前布景（可以撤销）。继续？',
+      'dirResetDone': '已重置为默认布景（Ctrl+Z 可撤销）',
+      'directorShotFail': '截图编码失败',
+      'dirSaved': '已保存',
+      'dirUnsaved': '未保存',
+      'dirOpenBadFile': '文件格式不对（需要导演工作区 .json）',
+      'dirLoading': '加载中…',
+      'dirDropped': '已贴到地面',
+      'dirResetRot': '复位旋转',
+      'dirRotReset': '已恢复正立',
+      'dirTilt': '倾斜',
+      'dirViewSettings': '视图设置',
+      'dirPath': '运动路径',
+      'dirNames': '对象名称',
+      'dirHeightRef': '对象高度参考线',
+      'dirFrameMask': '机位画幅遮罩',
+      'dirAxisIndicator': '视角指示器',
+      'dirWireframe': '线框',
+      'dirExitFull': '退出全屏',
+      'dirEngineFail': '导演台引擎加载失败：',
+      'dirTimeline': '时间轴',
+      'dirObjKey': '对象关键帧',
+      'dirCamPresetOK': '机位已切换',
+      'dirCamPresetFail': '该机位预设无效',
+      'dirCamKeysCleared': '已清除该机位动画关键帧',
+      'dirCamIsCurrent': '当前视角（无需切换）',
+      'dirObjKeyClear': '清除对象关键帧',
+      'dirObjKeyAdded': '对象关键帧已添加',
+      'dirJumpStart': '跳到开头',
+      'dirJumpEnd': '跳到结尾',
+      'dirStaticPreviz': '静态预演',
+      'dirDynamicPreviz': '动态预演',
+      'dirAssets': '资产',
+      'dirObjects': '对象',
+      'dirProps': '属性',
+      'dirDirectorView': '导演视角',
+      'dirResetView': '重置视角',
+      'dirCurrentTime': '当前时间',
+      'dirAction': '动作',
+      'dirSaved': '已保存',
+      'dirTabActors': '角色',
+      'dirTabGeom': '几何体',
+      'dirTabBuild': '建筑',
+      'dirTabTree': '树',
+      'dirTabFurn': '家具',
+      'dirPlay': '播放',
+      'dirPause': '暂停',
+      'dirDuration': '时长',
+      'dirKeyPrevHint': '跳到上一个关键帧',
+      'dirKeyNextHint': '跳到下一个关键帧',
+      'dirKeyDelHint': '删除当前时间的关键帧',
+      'dirKeyDeleted': '关键帧已删除',
+      'dirEaseAuto': '平滑',
+      'dirEaseLinear': '线性',
+      'dirEaseConst': '常量',
+      'dirLoop': '循环',
+      'dirLoopOn': '循环播放已开',
+      'dirLoopOff': '循环播放已关',
+      'dirLoopHint': '播到末尾自动回到 0s',
+      'dirMarker': '标记',
+      'dirMarkerAddHint': '在播放头加标记',
+      'dirZoom': '缩放',
+      'dirExportVideo': '导出视频',
+      'dirRecording': '录制中…',
+      'dirCameras': '机位',
+      'dirCamera': '机位',
+      'dirAddKey': '打关键帧',
+      'dirClearKeys': '清空路径',
+      'dirKeyAdded': '关键帧已添加',
+      'dirLastCamera': '至少保留一个机位',
+      'dirWorkspaceSave': '保存工作区',
+      'dirWorkspaceOpen': '打开工作区',
+      'dirWorkspaceDel': '删除工作区',
+      'dirClearStage': '清空工作区',
+      'dirWsCleared': '工作区已清空',
+      'dirWsAlreadyEmpty': '工作区已经是空的',
+      'dirSelectedN': '已选中',
+      'dirDeletedN': '已删除',
+      'dirWorkspaceName': '工作区名称',
+      'dirDefaultWs': '我的布景',
+      'dirWsSaved': '工作区已保存',
+      'dirWsLoaded': '已载入',
+      'dirWsDeleted': '已删除最近的工作区',
+      'dirWsEmpty': '没有保存的工作区',
+      'dirNoCapture': '当前环境不支持画布录制',
+      'dirPrevizName': '预演视频',
+      'dirVideoSaved': '预演视频已存入资产库',
+      'dirAlsoDownloaded': '（同时已下载到本地）',
+      'dirDownloadedOnly': '已下载到本地（未入库）',
+      'dirSaveFailDownload': '入库失败，已下载到本地：',
+      'dirVideoEmpty': '录制结果为空，请重试',
+      'dirClickToPlace': '点视口放置',
+      'dirTabCams': '机位',
+      'dirSearchAssets': '搜索素材…',
+      'dirClickToPlace': '点视口放置',
+      'dirFullscreen': '全屏',
+      'dirUpload': '上传资源',
+      'dirUploadObj': '上传模型（OBJ）',
+      'dirUploadHint': '支持 Blender「导出 → Wavefront (.obj)」；自动归一化到人高、底面落地。建议先减面（<2 万三角形）。',
+      'dirObjOnly': '只支持 .obj 文件（Blender 导出 Wavefront）',
+      'dirObjTooBig': 'OBJ 文件过大（>900KB）——请在 Blender 里先减面或拆分',
+      'dirObjLoaded': '模型已载入',
+      'dirObjReadFail': '文件读取失败',
+      'dirObjTooLarge': 'OBJ 超过 900KB，请先减面或压缩后再导入',
+      'dirSelObject': '选中对象',
+      'dirName': '名称',
+      'dirPos': '位置',
+      'dirRotY': '朝向',
+      'dirHeight': '身高',
+      'dirScale': '缩放',
+      'dirDup': '复制',
+      'dirDel': '删除',
+      'dirEnv': '环境',
+      'dirEnvPreset': '环境预设',
+      'dirBg': '背景色',
+      'dirGround': '地面',
+      'dirGrid': '网格',
+      'dirExposure': '曝光',
+      'dirLights': '灯光',
+      'dirKeyLightEdit': '主光',
+      'dirFillLightEdit': '补光',
+      'dirLightIntensity': '强度',
+      'dirLightColor': '颜色',
+      'dirLightDir': '方向',
+      'dirShot': '镜头',
+      'dirSkeleton': '骨骼',
+      'dirMaterial': '材质',
+      'dirBaseColor': '基础色',
+      'dirRoughness': '粗糙度',
+      'dirMetallic': '金属度',
+      'dirSpecular': '高光',
+      'dirTonemap': '色调映射',
+      'dirFog': '距离雾',
+      'dirFogOn': '开',
+      'dirFogNear': '雾起始(m)',
+      'dirFogFar': '雾结束(m)',
+      'dirDof': '景深',
+      'dirDofOn': '开',
+      'dirDofFocus': '对焦距离(m)',
+      'dirDofRange': '景深范围(m)',
+      'dirDofBlur': '最大模糊(px)',
+      'dirColorPresets': '预设色',
+      'dirResetColor': '恢复默认',
+      'dirReset': '恢复',
+      'dirBone': '骨骼',
+      'dirBoneRot': '骨骼旋转',
+      'dirPoseLib': '姿态库',
+      'dirPoseAnimAdd': '记录姿态帧',
+      'dirPoseAnimClear': '清空姿态动画',
+      'dirPoseAnimAdded': '姿态帧已记录',
+      'dirPoseAnimCleared': '姿态动画已清空',
+      'dirPoseAnimCount': '姿态帧',
+      'dirActionSeq': '动作片段',
+      'dirActionSeqPick': '选择预设动作…',
+      'dirActionSeqApplied': '动作片段已应用',
+      'dirPoseAnimHint': '相邻姿态帧之间自动平滑过渡',
+      'dirPoseAnimNeedPose': '请先选一个姿态库姿势',
+      'dirPoseApplied': '姿态已应用',
+      'dirPoseClear': '清除姿态',
+      'dirActionNamePh': '动作名（保存后出现在上方动作列表）',
+      'dirActionSave': '保存为动作',
+      'dirActionSaved': '动作已保存',
+      'dirActionSaveFail': '保存失败',
+      'dirActionNeedName': '请先填动作名',
+      'dirActionDelete': '删除动作',
+      'dirActionDeleted': '动作已删除',
+      'dirActionNone': '当前没有选中自建动作',
+      'dirLens': '焦段(mm)',
+      'dirSensor': '传感器',
+      'dirKeys': '快捷键',
+      'dirRenderLive': '实时渲染中 · 所见即成片',
+      'dirSun': '太阳光（物理日光）',
+      'dirSunElev': '太阳高度角(°)',
+      'dirSunAzim': '太阳方位角(°)',
+      'dirSunIntensity': '太阳强度',
+      'dirShadow': '投射阴影',
+      'dirRenderPreview': '实时渲染',
+      'dirClearConfirm': '清空全部对象？',
+      'dirClearConfirmDetail': '将删除所有对象、机位关键帧、分镜与标记（可 Ctrl+Z 撤销）',
+      'dirExportCancel': '取消导出',
+      'dirExportCancelled': '导出已取消',
+      'dirRoll': '滚筒角(°)',
+      'dirRename': '重命名为',
+      'dirRenameHint': '双击重命名',
+      'dirHidden': '隐藏',
+      'dirShotEdit': '当前分镜',
+      'dirShotStart': '开始(s)',
+      'dirShotEnd': '结束(s)',
+      'dirShotDelAt': '删除此镜',
+      'dirCamFrame': '显示相机框',
+      'dirShotSize': '景别',
+      'dirShotApplied': '景别已应用',
+      'dirCurFill': '当前构图',
+      'dirAddShot': '添加镜头',
+      'dirPoseKey': '姿态关键帧',
+      'dirPoseKeyCount': '姿态帧',
+      'dirPoseKeyClear2': '清除姿态帧',
+      'dirPoseKeyAdded': '姿态关键帧已记录',
+      'dirPoseKeyCleared': '姿态关键帧已清空',
+      'dirAxisLocked': '轴已锁定',
+      'dirDelShot': '删镜头',
+      'dirShotAdded': '分镜已添加',
+      'dirShotRemoved': '分镜已删除',
+      'dirNoShots': '没有分镜',
+      'dirShots': '分镜',
+      'dirPathMode': '路径模式',
+      'dirCameraMgr': '机位管理',
+      'dirCamAdd': '新建机位',
+      'dirCamDel': '删机位',
+      'dirCamAdded': '已新建机位（当前视角）',
+      'dirCamDeleted': '机位已删除',
+      'dirPathNone': '无',
+      'dirPathAddPoint': '加点',
+      'dirPathPointAdded': '路径点已添加',
+      'dirPathDraw': '画路径',
+      'dirPathDrawing': '正在画（点地面）',
+      'dirPathDrawHint': '点地面添加路径点，再点按钮结束',
+      'dirPathClear': '清空路径',
+      'dirPathPointDel': '删除路径点',
+      'dirSpecTitle': 'AI 预演规格',
+      'dirSpecShow': '规格 JSON',
+      'dirSpecCopy': '生成规格',
+      'dirSpecCopied': '规格已复制到剪贴板',
+      'dirSpecSaveHost': '存到项目',
+      'dirSpecSaved': '规格已存到项目（AI 可直接调用）',
+      'dirSpecApply': '套用规格',
+      'dirSpecApplied': '已套用 AI 预演规格',
+      'dirSpecBad': '规格解析失败：',
+      'dirSpecPlaceholder': '粘贴场景规格 JSON，或点「生成规格」从当前场景导出',
+      'dirPathPointDeleted': '路径点已删除',
+      'dirPathPointMoved': '路径点已移动',
+      'dirPathPointNone': '请先点选一个路径点',
+      'dirPathCleared': '路径已清除，物体已复位',
+      'dirPathCount': '路径点',
+      'dirLocomotion': '移动驱动（自动步频）',
+      'dirLocoSource': '动作来源',
+      'dirLocoNone': '不驱动',
+      'dirLocoClip': '自动步频（跟随动作）',
+      'dirLocoFollow': '跟随动作',
+      'dirLocoAction': '我的动作',
+      'dirLocoActionPick': '选择自建动作',
+      'dirLocoStride': '步幅(m)',
+      'dirLocoCycle': '循环周期(s)',
+      'dirLocoReadout': '当前',
+      'dirLocoStepsPerSec': '步/秒',
+      'dirPathHint': '物体沿路径运动',
+      'dirPathLine': '折线',
+      'dirPathCurve': '曲线（跟随朝向）',
+      'dirLookAhead': '前瞻距离',
+      'dirMove': '运镜',
+      'dirNoSelection': '点选视口中的对象查看属性；空白处拖拽 = 环绕机位。',
+      'dirGizmoHint': '拖坐标轴移动（X 红 / Y 绿 / Z 蓝 / 黄环旋转）；拖本体只选中。',
       'videoPromptPlaceholder': '描述镜头与动作；来自上游分镜表时可留空',
       'finalNotePlaceholder': '成片说明（可选）：转场、字幕与配音设置在各片段节点上',
       'refBadgeTitle': '已连接参考图',
@@ -935,6 +1272,323 @@ window.__ModuleLoader__.load({
       'emptyScriptHint': 'Click the node to write the idea and generate the script',
       'noShotsYet': 'No shots yet',
       'multiShotOnce': 'one multi-shot generation',
+      'segLabelShort': 'Seg ',
+      'expandSegDone': 'Expanded {n} shots into {m} segments, each generated separately with a clean cut on shot boundaries (no picture matching)',
+      'expandSegChain': '{n} segment(s) chain from the previous tail frame',
+      'segPlanTitle': 'Shot-boundary segments',
+      'segPlanHint': 'Split the storyboard into several generations at real shot boundaries: cuts only land on scene change / insert / new character; one continuous action is never split.',
+      'segMaxLabel': 'Per-segment max',
+      'segMaxHint': 'Max seconds per generation (match the vendor limit; for weak-continuity models like MiniMax use 6-10s)',
+      'segClean': 'Clean cuts: every segment starts on a new shot',
+      'segForced': 'Forced cuts: some segments start mid-action — split those shots first',
+      'segSummary': '{m} segments / {n} shots / longest {s}s',
+      'segTailChain': 'tail chained',
+      'segNoChain': 'hard cut (no chain)',
+      // ---- 3D director stage ----
+      'directorTitle': '3D director stage',
+      'directorHint': 'Block and frame: drag the viewport to orbit the camera, drag a figure to move it; export gives you a shot first frame with real blocking',
+      'directorDefaultTitle': 'Untitled set',
+      'directorActor': 'Actor',
+      'directorCamera': 'Main camera',
+      'directorKeyLight': 'Key light',
+      'directorAmbient': 'Ambient',
+      'directorObjects': 'Scene objects',
+      'directorAdd': 'Add',
+      'directorCameras': 'Cameras',
+      'directorEmpty': 'Nothing yet — use the buttons below',
+      'directorSelHint': 'Click a figure or box in the viewport, or pick an object on the left',
+      'directorDragHint': 'Drag empty space: orbit the camera · drag an object: move it on the ground',
+      'directorShotSettings': 'Shot settings',
+      'dirShotSize': 'Shot size',
+      'dirCameraMove': 'Camera move',
+      'directorPrompt': 'Prompt written into the video (generated, read-only)',
+      'directorExport': 'Export this camera as a still',
+      'directorExportHint': 'The still goes to the asset library and becomes an image node on the canvas — ready to use as a first frame',
+      'directorShotName': 'Director still',
+      'directorExported': 'Exported: asset library and canvas image node are both ready',
+      'dirName': 'Name',
+      'dirColor': 'Colour',
+      'dirFacing': 'Facing°',
+      'dirScale': 'Build',
+      'dirShow': 'Show',
+      'dirHide': 'Hide',
+      'dirToggleVisible': 'Show / hide',
+      'dirPrimBox': 'Box',
+      'dirPrimSphere': 'Sphere',
+      'dirPrimCylinder': 'Cylinder',
+      'dirPrimPlane': 'Plane',
+      'dirSizeEWide': 'Extreme wide',
+      'dirSizeWide': 'Wide',
+      'dirSizeFull': 'Full',
+      'dirSizeMedium': 'Medium',
+      'dirSizeClose': 'Close-up',
+      'dirSizeEClose': 'Extreme close-up',
+      'dirMoveStatic': 'Static',
+      'dirMovePush': 'Push in',
+      'dirMovePull': 'Pull out',
+      'dirMovePanL': 'Pan left',
+      'dirMovePanR': 'Pan right',
+      'dirMoveOrbitL': 'Orbit left',
+      'dirMoveOrbitR': 'Orbit right',
+      'dirMoveHandheld': 'Handheld',
+      'dirRendererGL': 'depth buffer',
+      'dirRendererFallback': 'compat mode (no depth occlusion)',
+      'dirUndo': 'Undo',
+      'dirNothingToUndo': 'Nothing to undo',
+      'dirUndoFailed': 'Undo failed: corrupt snapshot',
+      'dirSaved': 'Saved',
+      'dirUnsaved': 'Unsaved',
+      'dirOpenBadFile': 'Bad file (need director workspace .json)',
+      'dirLoading': 'Loading…',
+      'dirDropped': 'Dropped to floor',
+      'dirResetRot': 'Reset rotation',
+      'dirRotReset': 'Upright restored',
+      'dirTilt': 'Tilt',
+      'dirViewSettings': 'View settings',
+      'dirPath': 'Motion path',
+      'dirNames': 'Object names',
+      'dirHeightRef': 'Height guide',
+      'dirFrameMask': 'Frame mask',
+      'dirAxisIndicator': 'Axis indicator',
+      'dirWireframe': 'Wireframe',
+      'dirExitFull': 'Exit fullscreen',
+      'dirEngineFail': 'Failed to load the director engine: ',
+      'dirTimeline': 'Timeline',
+      'dirObjKey': 'Key object',
+      'dirCamPresetOK': 'Camera switched',
+      'dirCamPresetFail': 'Invalid camera preset',
+      'dirCamKeysCleared': 'Cleared camera keys',
+      'dirCamIsCurrent': 'Current view',
+      'dirObjKeyClear': 'Clear object keys',
+      'dirObjKeyAdded': 'Object key added',
+      'dirJumpStart': 'Jump to start',
+      'dirJumpEnd': 'Jump to end',
+      'dirStaticPreviz': 'Static previz',
+      'dirDynamicPreviz': 'Dynamic previz',
+      'dirAssets': 'Assets',
+      'dirObjects': 'Objects',
+      'dirProps': 'Properties',
+      'dirDirectorView': 'Director view',
+      'dirResetView': 'Reset view',
+      'dirCurrentTime': 'Time',
+      'dirAction': 'Action',
+      'dirSaved': 'Saved',
+      'dirTabActors': 'Actors',
+      'dirTabGeom': 'Shapes',
+      'dirTabBuild': 'Buildings',
+      'dirTabTree': 'Trees',
+      'dirTabFurn': 'Furniture',
+      'dirPlay': 'Play',
+      'dirPause': 'Pause',
+      'dirDuration': 'Duration',
+      'dirKeyPrevHint': 'Previous keyframe',
+      'dirKeyNextHint': 'Next keyframe',
+      'dirKeyDelHint': 'Delete keyframe at playhead',
+      'dirKeyDeleted': 'Keyframe deleted',
+      'dirEaseAuto': 'Smooth',
+      'dirEaseLinear': 'Linear',
+      'dirEaseConst': 'Constant',
+      'dirLoop': 'Loop',
+      'dirLoopOn': 'Loop playback on',
+      'dirLoopOff': 'Loop playback off',
+      'dirLoopHint': 'Wrap to 0s at the end',
+      'dirMarker': 'Marker',
+      'dirMarkerAddHint': 'Add marker at playhead',
+      'dirZoom': 'Zoom',
+      'dirExportVideo': 'Export video',
+      'dirRecording': 'Recording…',
+      'dirCameras': 'Cameras',
+      'dirCamera': 'Camera',
+      'dirAddKey': 'Add key',
+      'dirClearKeys': 'Clear path',
+      'dirKeyAdded': 'Keyframe added',
+      'dirLastCamera': 'Keep at least one camera',
+      'dirWorkspaceSave': 'Save workspace',
+      'dirWorkspaceOpen': 'Open workspace',
+      'dirWorkspaceDel': 'Delete workspace',
+      'dirClearStage': 'Clear stage',
+      'dirWsCleared': 'Stage cleared',
+      'dirWsAlreadyEmpty': 'Stage is already empty',
+      'dirSelectedN': 'Selected',
+      'dirDeletedN': 'Deleted',
+      'dirWorkspaceName': 'Workspace name',
+      'dirDefaultWs': 'My stage',
+      'dirWsSaved': 'Workspace saved',
+      'dirWsLoaded': 'Loaded',
+      'dirWsDeleted': 'Latest workspace deleted',
+      'dirWsEmpty': 'No saved workspaces',
+      'dirNoCapture': 'Canvas capture is not supported here',
+      'dirPrevizName': 'Previz video',
+      'dirVideoSaved': 'Previz video saved to assets',
+      'dirAlsoDownloaded': '(also downloaded)',
+      'dirDownloadedOnly': 'Downloaded (not saved to library)',
+      'dirSaveFailDownload': '入库失败，已下载到本地：',
+      'dirVideoEmpty': 'Recording was empty, try again',
+      'dirClickToPlace': 'Click the viewport to place',
+      'dirTabCams': 'Camera',
+      'dirSearchAssets': 'Search assets…',
+      'dirClickToPlace': 'Click the viewport to place',
+      'dirFullscreen': 'Fullscreen',
+      'dirUpload': 'Upload',
+      'dirUploadObj': 'Upload model (OBJ)',
+      'dirUploadHint': 'Accepts Blender "Export → Wavefront (.obj)"; auto-normalised to human height, feet on ground. Decimate first (<20k tris).',
+      'dirObjOnly': 'Only .obj files are supported (Blender Wavefront export)',
+      'dirObjTooBig': 'OBJ file too large (>900KB) — decimate or split it in Blender first',
+      'dirObjLoaded': 'Model loaded',
+      'dirObjReadFail': 'Failed to read the file',
+      'dirObjTooLarge': 'OBJ exceeds 900KB; reduce the mesh before importing',
+      'dirSelObject': 'Selected object',
+      'dirName': 'Name',
+      'dirPos': 'Position',
+      'dirRotY': 'Facing',
+      'dirHeight': 'Height',
+      'dirScale': 'Scale',
+      'dirDup': 'Duplicate',
+      'dirDel': 'Delete',
+      'dirEnv': 'Environment',
+      'dirEnvPreset': 'Preset',
+      'dirBg': 'Background',
+      'dirGround': 'Ground',
+      'dirGrid': 'Grid',
+      'dirExposure': 'Exposure',
+      'dirLights': 'Lights',
+      'dirKeyLightEdit': 'Key light',
+      'dirFillLightEdit': 'Fill light',
+      'dirLightIntensity': 'Intensity',
+      'dirLightColor': 'Color',
+      'dirLightDir': 'Direction',
+      'dirFog': 'Distance fog',
+      'dirFogOn': 'On',
+      'dirFogNear': 'Fog near (m)',
+      'dirFogFar': 'Fog far (m)',
+      'dirDof': 'Depth of field',
+      'dirDofOn': 'On',
+      'dirDofFocus': 'Focus distance (m)',
+      'dirDofRange': 'DOF range (m)',
+      'dirDofBlur': 'Max blur (px)',
+      'dirCameraMgr': 'Cameras',
+      'dirCamAdd': 'Add camera',
+      'dirCamDel': 'Del camera',
+      'dirCamAdded': 'Camera added (current view)',
+      'dirCamDeleted': 'Camera deleted',
+      'dirPathNone': 'None',
+      'dirPathAddPoint': 'Add point',
+      'dirPathPointAdded': 'Path point added',
+      'dirPathDraw': 'Draw path',
+      'dirPathDrawing': 'Drawing (click ground)',
+      'dirPathDrawHint': 'Click ground to add points, click again to finish',
+      'dirPathClear': 'Clear path',
+      'dirPathPointDel': 'Delete point',
+      'dirSpecTitle': 'AI stage spec',
+      'dirSpecShow': 'Spec JSON',
+      'dirSpecCopy': 'Generate spec',
+      'dirSpecCopied': 'Spec copied',
+      'dirSpecSaveHost': 'Save to project',
+      'dirSpecSaved': 'Spec saved to project (AI can drive it)',
+      'dirSpecApply': 'Apply spec',
+      'dirSpecApplied': 'AI stage spec applied',
+      'dirSpecBad': 'Bad spec: ',
+      'dirSpecPlaceholder': 'Paste a stage spec JSON, or click Generate spec',
+      'dirPathPointDeleted': 'Path point deleted',
+      'dirPathPointMoved': 'Path point moved',
+      'dirPathPointNone': 'Click a path point first',
+      'dirPathCleared': 'Path cleared, object reset',
+      'dirPathCount': 'Points',
+      'dirLocomotion': 'Motion driving (auto cadence)',
+      'dirLocoSource': 'Action source',
+      'dirLocoNone': 'Off',
+      'dirLocoClip': 'Auto cadence (follows Action)',
+      'dirLocoFollow': 'Following',
+      'dirLocoAction': 'My action',
+      'dirLocoActionPick': 'Pick a saved action',
+      'dirLocoStride': 'Stride (m)',
+      'dirLocoCycle': 'Cycle (s)',
+      'dirLocoReadout': 'Current',
+      'dirLocoStepsPerSec': 'steps/s',
+      'dirPathHint': 'Object follows path',
+      'dirShot': 'Shot',
+      'dirSkeleton': 'Skeleton',
+      'dirMaterial': 'Material',
+      'dirBaseColor': 'Base color',
+      'dirRoughness': '粗糙度',
+      'dirMetallic': '金属度',
+      'dirSpecular': '高光',
+      'dirTonemap': '色调映射',
+      'dirColorPresets': 'Presets',
+      'dirResetColor': 'Reset',
+      'dirReset': 'Reset',
+      'dirBone': 'Bone',
+      'dirBoneRot': 'Bone rotation',
+      'dirPoseLib': 'Pose library',
+      'dirPoseAnimAdd': 'Record pose key',
+      'dirPoseAnimClear': 'Clear pose anim',
+      'dirPoseAnimAdded': 'Pose key recorded',
+      'dirPoseAnimCleared': 'Pose animation cleared',
+      'dirPoseAnimCount': 'Pose keys',
+      'dirPoseAnimHint': 'Smoothly blended between pose keys',
+      'dirPoseAnimNeedPose': 'Pick a pose from the library first',
+      'dirActionSeq': 'Action clip',
+      'dirActionSeqPick': 'Pick a preset action…',
+      'dirActionSeqApplied': 'Action clip applied',
+      'dirPoseApplied': 'Pose applied',
+      'dirPoseClear': 'Clear pose',
+      'dirActionNamePh': 'Action name (appears in the list above after saving)',
+      'dirActionSave': 'Save as action',
+      'dirActionSaved': 'Action saved',
+      'dirActionSaveFail': 'Save failed',
+      'dirActionNeedName': 'Enter an action name first',
+      'dirActionDelete': 'Delete action',
+      'dirActionDeleted': 'Action deleted',
+      'dirActionNone': 'No saved action selected',
+      'dirLens': 'Lens(mm)',
+      'dirPathMode': 'Path mode',
+      'dirPathLine': 'Polyline',
+      'dirPathCurve': 'Curve (follow)',
+      'dirExportCancel': 'Cancel export',
+      'dirExportCancelled': 'Export cancelled',
+      'dirLookAhead': 'Look ahead',
+      'dirSensor': 'Sensor',
+      'dirKeys': 'Shortcuts',
+      'dirRenderLive': 'Live render · what you see is the final',
+      'dirSun': 'Sun (physical daylight)',
+      'dirSunElev': 'Sun elevation (deg)',
+      'dirSunAzim': 'Sun azimuth (deg)',
+      'dirSunIntensity': 'Sun intensity',
+      'dirShadow': 'Cast shadows',
+      'dirRenderPreview': 'Live render',
+      'dirClearConfirm': 'Clear all objects?',
+      'dirClearConfirmDetail': 'Deletes all objects, camera keys, shots and markers (Ctrl+Z to undo)',
+      'dirRoll': 'Roll (deg)',
+      'dirRename': 'Rename to',
+      'dirRenameHint': 'Double-click to rename',
+      'dirHidden': 'hidden',
+      'dirShotEdit': 'Current shot',
+      'dirShotStart': 'Start (s)',
+      'dirShotEnd': 'End (s)',
+      'dirShotDelAt': 'Delete this shot',
+      'dirCamFrame': 'Show camera frame',
+      'dirShotSize': 'Shot size',
+      'dirShotApplied': 'Shot applied',
+      'dirCurFill': 'Framing',
+      'dirAddShot': 'Add shot',
+      'dirPoseKey': 'Pose key',
+      'dirPoseKeyCount': 'Pose keys',
+      'dirPoseKeyClear2': 'Clear pose keys',
+      'dirPoseKeyAdded': 'Pose key recorded',
+      'dirPoseKeyCleared': 'Pose keys cleared',
+      'dirAxisLocked': 'axis locked',
+      'dirDelShot': 'Del shot',
+      'dirShotAdded': 'Shot added',
+      'dirShotRemoved': 'Shot removed',
+      'dirNoShots': 'No shots',
+      'dirShots': 'Shots',
+      'dirMove': 'Move',
+      'dirNoSelection': 'Click an object to inspect it; drag empty space to orbit the camera.',
+      'dirGizmoHint': 'Drag the axes to move (X red / Y green / Z blue / yellow ring to rotate); dragging the body only selects.',
+      'dirReset': 'Reset stage',
+      'dirResetConfirm': 'Reset clears the current stage (undoable). Continue?',
+      'dirResetDone': 'Stage reset to default (Ctrl+Z to undo)',
+      'directorShotFail': 'Failed to encode the still',
       'videoPromptPlaceholder': 'Describe the shot and action; leave empty when driven by an upstream storyboard',
       'finalNotePlaceholder': 'Final-cut note (optional): transitions, subtitles and voice live on the segment nodes',
       'refBadgeTitle': 'Connected reference images',
@@ -1580,19 +2234,40 @@ window.__ModuleLoader__.load({
 .dshic-proj-menu-item:hover .dshic-proj-menu-edit,.dshic-proj-menu-item.is-active .dshic-proj-menu-edit{opacity:1;}
 .dshic-proj-menu-item.is-editing{background:var(--dsw-alias-interactive-bg-hover,color-mix(in srgb,var(--dsw-alias-label-primary) 8%,transparent));}
 .dshic-proj-menu-sep{height:1px;background:var(--dshic-line);margin:5px 4px;flex:none;}
-@media (prefers-color-scheme:dark){
-  /* 深色主题：边框跟主题走（浅色 --dshic-line2 在深底上会发亮），当前项改成主题 brand 轻混合 */
-  .dshic-proj-menu{border-color:var(--dsw-alias-border-l2);}
-  .dshic-proj-menu-item.is-active{background:color-mix(in srgb,var(--dsw-alias-brand-primary) 15%,transparent);
-    color:var(--dsw-alias-brand-primary);}
+/* ────────────────────────────────────────────────────────────────
+   深色主题：**跟宿主的外观设置走，不是跟系统走**。
+   宿主的深色是 body[data-ds-dark-theme]（ui-theme 写入的属性）；用户可在
+   「设置 → 外观」里强制深色/浅色，此时系统仍可能是浅色。历史实现只写
+   @media (prefers-color-scheme:dark)，于是"系统浅色 + 应用内深色"的组合下
+   节点底板仍是白卡片、字仍是深色（用户实测反馈的 bug）。
+   变量在这里整体覆盖一次，所有规则只引用变量，所以换主题不需要改规则。
+   ──────────────────────────────────────────────────────────────── */
+body[data-ds-dark-theme] .dshic-page{
+  --dshic-ink:#e9eaee; --dshic-ink2:#a8adb6; --dshic-ink3:#7c828c;
+  --dshic-line:#2a2d34; --dshic-line2:#34383f; --dshic-line-hover:#4a505a;
+  --dshic-card:#1b1e24; --dshic-preview-bg:#12151a; --dshic-subtle:#20242b;
+  --dshic-accent:#5b93ff; --dshic-accent-soft:#1d2b47;
+  --dshic-ok:#3ecf8e; --dshic-run:var(--dshic-accent);
+  --dshic-shadow:0 1px 2px rgba(0,0,0,.5),0 8px 24px rgba(0,0,0,.45);
+  --dshic-shadow-lg:0 12px 40px rgba(0,0,0,.6),0 2px 6px rgba(0,0,0,.45);
+  --dshic-shadow-sel:0 0 0 3px rgba(91,147,255,.24);
+  --dshic-head-bg:linear-gradient(#23272f,var(--dshic-subtle));
+  --dshic-legacy-ink:#7c828c;
+  --dshic-foot-bg:var(--dshic-subtle);
+  --dshic-dash-color:#3a3f48;
+  --dshic-empty-hover:#5a616c; --dshic-empty-hover-bg:#22262d;
+  --dshic-field-bg:#181b21; --dshic-field-hint:#6d737d;
 }
+body[data-ds-dark-theme] .dshic-proj-menu{border-color:var(--dsw-alias-border-l2);}
+body[data-ds-dark-theme] .dshic-proj-menu-item.is-active{background:color-mix(in srgb,var(--dsw-alias-brand-primary) 15%,transparent);
+  color:var(--dsw-alias-brand-primary);}
 /* ── 统一弹窗（资产 + 设定集）────────────────────────────────── */
 .dshic-studio-overlay{position:fixed;inset:0;z-index:300;background:color-mix(in srgb,var(--dsw-alias-label-primary) 30%,transparent);
   display:flex;align-items:center;justify-content:center;padding:24px;box-sizing:border-box;}
 .dshic-studio-modal{width:min(1080px,calc(100vw - 48px));height:min(780px,calc(100vh - 48px));display:flex;flex-direction:column;
   background:var(--dsw-alias-bg-layer-1);border:1px solid var(--dshic-line2);border-radius:16px;
   box-shadow:var(--dshic-shadow-lg);overflow:hidden;box-sizing:border-box;}
-@media (prefers-color-scheme:dark){.dshic-studio-modal{border-color:var(--dsw-alias-border-l2);}}
+body[data-ds-dark-theme] .dshic-studio-modal{border-color:var(--dsw-alias-border-l2);}
 .dshic-studio-head{flex:none;display:flex;align-items:center;gap:10px;padding:10px 14px;border-bottom:1px solid var(--dsw-alias-border-l1);}
 .dshic-studio-tabs{display:flex;gap:4px;}
 .dshic-studio-tab{height:30px;padding:0 14px;border:none;border-radius:8px;background:transparent;color:var(--dsw-alias-label-secondary);
@@ -1605,6 +2280,235 @@ window.__ModuleLoader__.load({
 /* 弹窗内部再开确认框/PhotoCraft：层级必须高于统一弹窗（否则被遮罩盖住点不到） */
 .dshic-studio-overlay .dshic-modal-overlay{z-index:340;}
 .dshic-studio-bible{display:flex;flex-direction:column;gap:8px;width:100%;max-width:820px;margin:0 auto;}
+/* ── 3D 导演台：三栏（对象 / 视口 / 属性）；视口是纯 Canvas2D 软件渲染（见 directorRenderScene） ── */
+.dshic-dir-modal{width:min(1220px,calc(100vw - 40px));height:min(820px,calc(100vh - 40px));}
+.dshic-dir-body{flex:1;min-height:0;display:flex;gap:0;overflow:hidden;}
+.dshic-dir-left{width:186px;flex:none;display:flex;flex-direction:column;gap:6px;padding:10px;overflow:auto;
+  border-right:1px solid var(--dsw-alias-border-l1);box-sizing:border-box;}
+.dshic-dir-right{width:264px;flex:none;display:flex;flex-direction:column;gap:6px;padding:10px;overflow:auto;
+  border-left:1px solid var(--dsw-alias-border-l1);box-sizing:border-box;}
+.dshic-dir-sec{font-size:11px;font-weight:700;letter-spacing:.02em;color:var(--dsw-alias-label-secondary);
+  text-transform:uppercase;margin-top:4px;flex:none;}
+.dshic-dir-list{display:flex;flex-direction:column;gap:2px;flex:none;}
+.dshic-dir-item{display:flex;align-items:center;gap:6px;height:28px;padding:0 7px;border-radius:7px;cursor:pointer;
+  font-size:12px;color:var(--dsw-alias-label-primary);box-sizing:border-box;}
+.dshic-dir-item:hover{background:var(--dsw-alias-interactive-bg-hover,color-mix(in srgb,var(--dsw-alias-label-primary) 8%,transparent));}
+.dshic-dir-item.is-active{background:color-mix(in srgb,var(--dsw-alias-brand-primary) 16%,transparent);
+  color:var(--dsw-alias-brand-primary);font-weight:600;}
+.dshic-dir-dot{width:9px;height:9px;border-radius:3px;flex:none;}
+.dshic-dir-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.dshic-dir-kind{font-size:10px;opacity:.55;flex:none;}
+.dshic-dir-add{display:flex;flex-wrap:wrap;gap:3px;flex:none;}
+.dshic-dir-view{flex:1;min-width:0;position:relative;display:flex;background:#0b0d12;}
+.dshic-dir-canvas{flex:1;width:100%;height:100%;display:block;cursor:grab;touch-action:none;}
+.dshic-dir-canvas:active{cursor:grabbing;}
+.dshic-dir-tip{position:absolute;left:10px;bottom:9px;font-size:11px;color:rgba(226,232,240,.72);
+  background:rgba(8,10,14,.58);border-radius:7px;padding:3px 8px;pointer-events:none;max-width:70%;}
+.dshic-dir-msg{position:absolute;left:10px;top:9px;font-size:11.5px;border-radius:7px;padding:4px 9px;
+  background:color-mix(in srgb,var(--dsw-alias-state-success-primary) 86%,#000);color:#fff;}
+.dshic-dir-loading{flex:1;display:grid;place-items:center;color:var(--dsw-alias-label-secondary);font-size:12px;}
+.dshic-dir-saved{font-size:10px;color:var(--dsw-alias-label-secondary);margin-left:8px;}
+/* ── 3D 导演台（即梦式排版）：顶栏 / 三栏 / 全宽时间轴 ── */
+.dshic-dir-overlay{position:fixed;left:0;right:0;bottom:0;top:38px;z-index:9000;background:color-mix(in srgb,var(--dsw-alias-bg-base) 78%,transparent);display:flex;isolation:isolate;padding:12px;box-sizing:border-box;}
+.dshic-dir-win{flex:1;display:flex;flex-direction:column;min-height:0;background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-primary);border-radius:12px;overflow:hidden;box-shadow:0 18px 60px rgba(0,0,0,.45);border:1px solid var(--dsw-alias-border-l1);}
+.dshic-dir-win.is-full{border-radius:0;border:none;box-shadow:none;}
+.dshic-dir-overlay:has(.dshic-dir-win.is-full){padding:0;background:var(--dsw-alias-bg-base);}
+.dshic-dir-top{flex:none;height:44px;display:flex;align-items:center;gap:10px;padding:0 12px;border-bottom:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-base);position:relative;z-index:2;}
+.dshic-dir-top-l{display:flex;align-items:center;gap:10px;min-width:180px;}
+.dshic-dir-title{font-size:13px;font-weight:600;}
+.dshic-dir-saved{font-size:11px;color:var(--dsw-alias-label-secondary);}
+.dshic-dir-top-c{flex:1;display:flex;justify-content:center;}
+.dshic-dir-seg{display:inline-flex;padding:2px;border-radius:8px;background:var(--dsw-alias-bg-layer-2);}
+.dshic-dir-segbtn{border:none;background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:12px;padding:4px 14px;border-radius:6px;cursor:pointer;}
+.dshic-dir-segbtn.is-on{background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font-weight:600;box-shadow:0 1px 2px rgba(0,0,0,.12);}
+.dshic-dir-top-r{display:flex;align-items:center;gap:6px;min-width:180px;justify-content:flex-end;}
+.dshic-dir-cta{height:28px;padding:0 14px;border:none;border-radius:8px;background:var(--dsw-alias-label-primary);color:var(--dsw-alias-bg-base);font:inherit;font-size:12px;font-weight:600;cursor:pointer;}
+.dshic-dir-cta:disabled{opacity:.5;cursor:default;}
+.dshic-dir-icobtn{width:28px;height:28px;display:inline-grid;place-items:center;border:none;border-radius:7px;background:transparent;color:var(--dsw-alias-label-secondary);font-size:13px;cursor:pointer;}
+.dshic-dir-icobtn:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary);}
+.dshic-dir-icobtn:disabled{opacity:.35;cursor:default;}
+.dshic-dir-top{overflow:hidden;}
+.dshic-dir-top-l{min-width:0;}
+.dshic-dir-title{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.dshic-dir-top-r{min-width:0;flex-wrap:nowrap;overflow:hidden;}
+.dshic-dir-cta{flex:none;white-space:nowrap;}
+.dshic-dir-icobtn{flex:none;}
+.dshic-dir-top-c{min-width:0;}
+.dshic-dir-body{flex:1;display:flex;min-height:0;}
+.dshic-dir-side{flex:none;display:flex;flex-direction:column;min-height:0;background:var(--dsw-alias-bg-layer-1);}
+.dshic-dir-side-l{width:208px;border-right:1px solid var(--dsw-alias-border-l1);}
+.dshic-dir-side-r{width:300px;border-left:1px solid var(--dsw-alias-border-l1);overflow-y:auto;overflow-x:hidden;}
+.dshic-dir-sidehead{flex:none;padding:10px 12px 6px;font-size:12px;font-weight:600;color:var(--dsw-alias-label-primary);}
+.dshic-dir-icontabs{flex:none;display:flex;gap:2px;padding:0 8px 6px;}
+.dshic-dir-icontab{flex:1;height:28px;border:none;border-radius:7px;background:transparent;color:var(--dsw-alias-label-secondary);font-size:14px;cursor:pointer;}
+.dshic-dir-icontab:hover{background:var(--dsw-alias-interactive-bg-hover);}
+.dshic-dir-icontab.is-on{background:color-mix(in srgb,var(--dsw-alias-brand-primary) 14%,transparent);color:var(--dsw-alias-brand-primary);}
+.dshic-dir-uploadbtn{flex:none;margin:0 10px 6px;height:28px;border:1px dashed var(--dsw-alias-border-l2);border-radius:8px;background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:11.5px;cursor:pointer;}
+.dshic-dir-uploadbtn:hover{border-color:var(--dsw-alias-brand-primary);color:var(--dsw-alias-brand-primary);}
+.dshic-dir-search{flex:none;margin:0 10px 8px;height:28px;padding:0 9px;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);font:inherit;font-size:12px;outline:none;}
+.dshic-dir-grid{flex:1;overflow-y:auto;display:grid;grid-template-columns:1fr 1fr;gap:6px;padding:0 8px 10px;align-content:start;min-height:0;}
+.dshic-dir-card{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;min-height:64px;padding:8px 4px;border:1px solid var(--dsw-alias-border-l1);border-radius:9px;background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);cursor:pointer;}
+.dshic-dir-card:hover{border-color:var(--dsw-alias-brand-primary);}
+.dshic-dir-card-img{width:100%;height:64px;object-fit:contain;border-radius:6px;background:var(--dsw-alias-bg-base);}
+.dshic-dir-card-ic{font-size:16px;line-height:1;color:var(--dsw-alias-label-secondary);}
+.dshic-dir-card-lb{font-size:10.5px;line-height:1.25;text-align:center;word-break:break-all;}
+.dshic-dir-stage{flex:1;min-width:0;display:flex;}
+.dshic-dir-viewport{flex:1;position:relative;overflow:hidden;background:#0b0d12;touch-action:none;min-height:0;}
+.dshic-dir-canvas{position:absolute;inset:0;width:100%;height:100%;display:block;}
+.dshic-dir-tools{position:absolute;left:12px;top:12px;display:flex;flex-direction:column;gap:2px;padding:4px;border-radius:10px;background:color-mix(in srgb,#0b0d12 82%,transparent);}
+.dshic-dir-toolcell{display:flex;flex-direction:column;align-items:center;}
+.dshic-dir-toolsep{width:18px;height:1px;margin:3px 0;background:rgba(255,255,255,.16);}
+.dshic-dir-tool{position:relative;width:30px;height:30px;display:grid;place-items:center;border:none;border-radius:8px;background:transparent;color:#c9d3e0;cursor:pointer;padding:0;}
+.dshic-dir-tool svg{display:block;}
+.dshic-dir-tool:hover{background:rgba(255,255,255,.1);}
+.dshic-dir-tool.is-on{background:rgba(91,147,255,.28);color:#bfd4ff;}
+.dshic-dir-framemask{position:absolute;inset:0;pointer-events:none;}
+.dshic-dir-framemask span{position:absolute;background:rgba(255,255,255,.10);}
+.dshic-dir-mask-v1,.dshic-dir-mask-v2{top:0;bottom:0;width:1px;}
+.dshic-dir-mask-v1{left:33.33%;} .dshic-dir-mask-v2{left:66.66%;}
+.dshic-dir-mask-h1,.dshic-dir-mask-h2{left:0;right:0;height:1px;}
+.dshic-dir-mask-h1{top:33.33%;} .dshic-dir-mask-h2{top:66.66%;}
+.dshic-dir-objlabel{position:absolute;transform:translate(-50%,-100%);padding:1px 6px;border-radius:5px;background:rgba(10,14,20,.72);color:#dbe3ee;font-size:11px;white-space:nowrap;pointer-events:none;}
+.dshic-dir-axisind{position:absolute;right:14px;bottom:46px;width:54px;height:54px;pointer-events:none;color:#cfd8e3;font-size:10px;}
+.dshic-dir-axisind span{position:absolute;}
+.dshic-dir-axisind .ax-x{right:0;bottom:12px;color:#e27070;}
+.dshic-dir-axisind .ax-y{left:24px;top:0;color:#6fc37a;}
+.dshic-dir-axisind .ax-z{left:0;bottom:12px;color:#5b93ff;}
+.dshic-dir-viewmenu{position:absolute;left:52px;top:8px;z-index:6;display:flex;flex-direction:column;gap:6px;padding:8px 10px;border-radius:10px;background:rgba(12,16,22,.94);border:1px solid rgba(255,255,255,.12);color:#dbe3ee;font-size:12px;min-width:132px;}
+.dshic-dir-viewmenu-t{font-weight:600;color:#fff;margin-bottom:2px;}
+.dshic-dir-viewmenu label,.dshic-dir-viewmenu-row{display:flex;align-items:center;gap:8px;cursor:pointer;}
+.dshic-dir-viewmenu-row input{margin:0;}
+.dshic-dir-toolnum{position:absolute;right:3px;bottom:1px;font-size:8px;color:rgba(255,255,255,.45);}
+.dshic-dir-pip{position:absolute;right:12px;top:12px;width:240px;border-radius:10px;overflow:hidden;background:#0b0d12;border:1px solid rgba(255,255,255,.12);}
+.dshic-dir-piphead{height:24px;display:flex;align-items:center;justify-content:center;font-size:11px;color:#c9d3e0;background:rgba(0,0,0,.35);}
+.dshic-dir-pipcanvas{display:block;width:240px;height:135px;}
+.dshic-dir-pill{position:absolute;left:50%;bottom:12px;transform:translateX(-50%);height:26px;padding:0 12px;display:flex;align-items:center;border-radius:999px;background:rgba(12,16,22,.72);color:#cfd8e3;font-size:11.5px;}
+.dshic-dir-pill-r{left:auto;right:12px;transform:none;cursor:pointer;}
+.dshic-dir-pillgroup{position:absolute;right:12px;bottom:12px;display:flex;gap:8px;align-items:center;z-index:4;}
+.dshic-dir-pillgroup .dshic-dir-pill{position:static;left:auto;bottom:auto;transform:none;}
+.dshic-dir-pill.is-on{background:rgba(255,255,255,.16);color:#fff;}
+/* 快捷键列表：机位缩略图下方 → 世界坐标上方，右对齐纯文字，10% 透明度，无边框无底色，隐藏滚动条 */
+.dshic-dir-keys{position:absolute;right:12px;top:180px;bottom:104px;display:flex;flex-direction:column;align-items:flex-end;gap:1px;overflow-y:auto;text-align:right;font-size:11px;line-height:1.55;color:rgba(219,227,238,.85);background:none;border:0;pointer-events:auto;scrollbar-width:none;text-shadow:0 1px 2px rgba(0,0,0,.45);z-index:5;}
+.dshic-dir-keys::-webkit-scrollbar{display:none;}
+.dshic-dir-keys-row{white-space:nowrap;}
+.dshic-dir-swatches{display:flex;gap:4px;flex-wrap:wrap;}
+.dshic-dir-swatch{width:18px;height:18px;border-radius:4px;border:1.5px solid rgba(255,255,255,.22);cursor:pointer;padding:0;}
+.dshic-dir-swatch.is-on{border-color:var(--dsw-alias-brand-primary);box-shadow:0 0 0 2px color-mix(in srgb,var(--dsw-alias-brand-primary) 35%,transparent);}
+.dshic-dir-boxsel{position:absolute;pointer-events:none;z-index:7;border:1px solid rgba(96,164,255,.95);background:rgba(64,140,255,.18);box-shadow:0 0 0 1px rgba(64,140,255,.22) inset;border-radius:2px;}
+.dshic-dir-placecursor{position:absolute;transform:translate(-50%,-50%);pointer-events:none;z-index:8;filter:drop-shadow(0 1px 3px rgba(0,0,0,.6));}
+.dshic-dir-exitfull{position:absolute;right:12px;top:12px;height:30px;padding:0 12px;border:none;border-radius:8px;background:rgba(12,16,22,.86);color:#e8edf5;font:inherit;font-size:12px;cursor:pointer;z-index:5;}
+.dshic-dir-exitfull:hover{background:rgba(30,40,56,.95);}
+.dshic-dir-viewport.is-placing{cursor:none !important;}
+.dshic-dir-viewport.is-dragging{cursor:grabbing !important;}
+.dshic-dir-viewport{cursor:default;}
+
+.dshic-dir-icobtn svg{display:block;}
+.dshic-dir-toast{position:absolute;left:50%;bottom:48px;transform:translateX(-50%);padding:5px 12px;border-radius:8px;background:rgba(46,160,67,.92);color:#fff;font-size:11.5px;}
+.dshic-dir-toast.is-err{background:rgba(215,58,73,.94);}
+.dshic-dir-tree{flex:none;padding:0 10px 6px;display:flex;flex-direction:column;gap:2px;}
+.dshic-dir-treegroup{display:flex;align-items:center;gap:6px;padding:4px 2px;font-size:11.5px;color:var(--dsw-alias-label-secondary);}
+.dshic-dir-treekey{flex:1;}
+.dshic-dir-treecount{font-variant-numeric:tabular-nums;opacity:.75;}
+.dshic-dir-treerow{display:flex;align-items:center;gap:2px;}
+.dshic-dir-treerow .dshic-dir-treeitem{flex:1;min-width:0;text-align:left;}
+.dshic-dir-treeitem{height:24px;padding:0 8px;border:none;border-radius:6px;background:transparent;color:var(--dsw-alias-label-primary);font:inherit;font-size:11.5px;text-align:left;cursor:pointer;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.dshic-dir-treeitem:hover{background:var(--dsw-alias-interactive-bg-hover);}
+.dshic-dir-treeitem.is-on{background:color-mix(in srgb,var(--dsw-alias-brand-primary) 14%,transparent);color:var(--dsw-alias-brand-primary);}
+.dshic-dir-keyrow{display:flex;gap:6px;margin-top:6px;}
+.dshic-dir-mini{height:22px;padding:0 8px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:11px;cursor:pointer;}
+.dshic-dir-mini:hover{border-color:var(--dsw-alias-brand-primary);color:var(--dsw-alias-brand-primary);}
+.dshic-dir-mini.is-danger:hover{border-color:var(--dsw-alias-state-error-primary);color:var(--dsw-alias-state-error-primary);}
+.dshic-dir-props{flex:1;padding:0 12px 12px;display:flex;flex-direction:column;gap:6px;min-height:0;}
+.dshic-dir-subhead{font-size:11px;font-weight:600;color:var(--dsw-alias-label-secondary);margin-top:8px;}
+.dshic-dir-envrow{display:flex;align-items:center;gap:6px;font-size:11.5px;color:var(--dsw-alias-label-secondary);}
+.dshic-dir-envrow>span{flex:none;width:64px;}
+.dshic-dir-input{flex:1;min-width:0;height:24px;padding:0 7px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);font:inherit;font-size:11.5px;outline:none;}
+.dshic-dir-color{width:44px;height:24px;padding:0;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:var(--dsw-alias-bg-layer-2);}
+.dshic-dir-row{display:flex;align-items:center;gap:6px;font-size:11.5px;color:var(--dsw-alias-label-secondary);}
+.dshic-dir-row>span{flex:none;width:44px;}
+.dshic-dir-prompt{width:100%;box-sizing:border-box;height:96px;resize:none;padding:7px 9px;border:1px solid var(--dsw-alias-border-l1);border-radius:8px;background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-secondary);font:inherit;font-size:11px;line-height:1.5;}
+.dshic-dir-dock{flex:none;border-top:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-1);overflow-x:auto;overflow-y:hidden;}
+.dshic-dir-dockbar{height:34px;display:flex;align-items:center;gap:8px;padding:0 12px;position:sticky;left:0;min-width:max-content;background:var(--dsw-alias-bg-layer-1);z-index:4;}
+.dshic-dir-docktitle{font-size:11.5px;font-weight:600;color:var(--dsw-alias-label-secondary);}
+.dshic-dir-time{font-size:11px;color:var(--dsw-alias-label-secondary);font-variant-numeric:tabular-nums;white-space:nowrap;}
+.dshic-dir-lightbox{padding:7px 8px;margin:4px 0;border:1px solid var(--dsw-alias-border-l1);border-radius:8px;background:var(--dsw-alias-bg-layer-2);}
+.dshic-dir-scrub{width:220px;accent-color:var(--dsw-alias-brand-primary);}
+.dshic-dir-ruler{position:relative;height:20px;margin:0 12px 2px 100px;border-bottom:1px solid var(--dsw-alias-border-l1);}
+.dshic-dir-ruler-tick{position:absolute;top:0;transform:translateX(-50%);font-size:9.5px;color:var(--dsw-alias-label-tertiary);white-space:nowrap;}
+.dshic-dir-tracklane{cursor:pointer;}
+.dshic-dir-shottrack{height:30px;}
+.dshic-dir-shotblock{position:absolute;top:3px;bottom:3px;border-radius:5px;background:color-mix(in srgb,var(--dsw-alias-brand-primary) 22%,transparent);border:1px solid color-mix(in srgb,var(--dsw-alias-brand-primary) 45%,transparent);color:var(--dsw-alias-brand-primary);font-size:10px;display:flex;align-items:center;padding:0 6px;overflow:hidden;white-space:nowrap;}
+.dshic-dir-tracklabel.is-on{color:var(--dsw-alias-brand-primary);font-weight:600;}
+.dshic-dir-track{height:26px;display:flex;align-items:center;gap:8px;padding:0 12px;border-top:1px solid var(--dsw-alias-border-l1);}
+.dshic-dir-tracklabel{flex:none;width:88px;font-size:11px;color:var(--dsw-alias-label-secondary);}
+.dshic-dir-tracklane{flex:1;position:relative;height:18px;border-radius:4px;background:var(--dsw-alias-bg-layer-2);}
+.dshic-dir-playhead{position:absolute;top:-2px;bottom:-2px;width:2px;background:var(--dsw-alias-brand-primary);}
+.dshic-dir-marker-flag{position:absolute;top:-1px;font-size:12px;color:var(--dsw-alias-brand-warning,#e8a020);cursor:pointer;transform:translateX(-50%);line-height:1;z-index:2;user-select:none;}
+.dshic-dir-marker-flag:hover{color:var(--dsw-alias-brand-primary);}
+.dshic-dir-keydot{position:absolute;top:5px;width:7px;height:7px;border-radius:50%;background:var(--dsw-alias-brand-primary);transform:translateX(-50%);}
+.dshic-dir-modal.is-full{width:100vw;height:100vh;max-width:none;max-height:none;border-radius:0;border:none;}
+/* 窄窗响应式：侧栏收窄、顶栏横向滚动、PiP 缩小，避免操作区被裁掉 */
+@media (max-width: 1100px){
+  .dshic-dir-side-l{width:150px;}
+  .dshic-dir-side-r{width:240px;}
+  .dshic-dir-top{overflow-x:auto;}
+  .dshic-dir-pip{width:170px;height:96px;}
+}
+@media (max-width: 860px){
+  .dshic-dir-side-l{display:none;}
+  .dshic-dir-side-r{width:210px;}
+  .dshic-dir-pip{display:none;}
+}
+.dshic-dir-timeline{flex:none;display:flex;align-items:center;gap:8px;padding:6px 10px;border-top:1px solid var(--dshic-line);background:var(--dshic-card);}
+.dshic-dir-scrub{flex:1;min-width:0;accent-color:var(--dsw-alias-brand-primary);}
+.dshic-dir-time{font-size:11px;color:var(--dsw-alias-label-secondary);white-space:nowrap;font-variant-numeric:tabular-nums;}
+.dshic-dir-camlist{display:flex;gap:4px;flex-wrap:wrap;margin-bottom:4px;}
+.dshic-dir-camlist .dshic-mini.is-on{background:color-mix(in srgb,var(--dsw-alias-brand-primary) 18%,transparent);color:var(--dsw-alias-brand-primary);}
+.dshic-dir-cols{flex:1;display:flex;min-height:0;}
+.dshic-dir-left{flex:none;width:200px;display:flex;flex-direction:column;gap:8px;padding:10px;border-right:1px solid var(--dshic-line);min-height:0;}
+.dshic-dir-tabs{display:flex;gap:3px;flex-wrap:wrap;}
+.dshic-dir-upload{display:flex;align-items:center;justify-content:center;gap:5px;height:28px;border:1px dashed var(--dshic-line2);border-radius:8px;background:var(--dshic-card);color:var(--dshic-ink);font:inherit;font-size:11.5px;cursor:pointer;}.dshic-dir-upload:hover{border-color:var(--dsw-alias-brand-primary);color:var(--dsw-alias-brand-primary);}
+.dshic-dir-tab{border:none;background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:11.5px;padding:4px 8px;border-radius:7px;cursor:pointer;}
+.dshic-dir-tab:hover{background:var(--dsw-alias-interactive-bg-hover);}
+.dshic-dir-tab.is-on{background:color-mix(in srgb,var(--dsw-alias-brand-primary) 16%,transparent);color:var(--dsw-alias-brand-primary);font-weight:600;}
+.dshic-dir-assets{flex:1;overflow-y:auto;display:grid;grid-template-columns:1fr 1fr;gap:6px;align-content:start;min-height:0;padding:2px;}
+.dshic-dir-asset{display:flex;flex-direction:column;align-items:center;gap:4px;border:1px solid var(--dshic-line2);border-radius:9px;background:var(--dshic-card);color:var(--dshic-ink);font:inherit;padding:8px 4px;cursor:pointer;}
+.dshic-dir-asset:hover{border-color:var(--dshic-line-hover);box-shadow:var(--dshic-shadow);}
+.dshic-dir-asset-ic{font-size:15px;line-height:1;color:var(--dsw-alias-label-secondary);}
+.dshic-dir-asset-name{font-size:10.5px;line-height:1.3;text-align:center;word-break:break-all;}
+.dshic-dir-mid{flex:1;min-width:0;display:flex;}
+.dshic-dir-viewport{flex:1;position:relative;background:#0b0d12;overflow:hidden;touch-action:none;min-height:0;}
+.dshic-dir-canvas{position:absolute;inset:0;width:100%;height:100%;display:block;}
+.dshic-dir-right{flex:none;width:280px;overflow-y:auto;padding:10px;display:flex;flex-direction:column;gap:8px;border-left:1px solid var(--dshic-line);min-height:0;}
+.dshic-dir-row{display:flex;align-items:center;gap:6px;font-size:11.5px;color:var(--dsw-alias-label-secondary);margin-bottom:6px;}
+.dshic-dir-row>span{flex:none;width:44px;}
+.dshic-dir-row .dshic-input,.dshic-dir-row .dshic-select{flex:1;min-width:0;height:24px;font-size:11px;}
+.dshic-dir-xyz{flex:1;display:flex;gap:4px;min-width:0;}
+.dshic-dir-xyz .dshic-input{min-width:0;padding:0 5px;}
+.dshic-dir-posegrid{display:grid;grid-template-columns:1fr 1fr;gap:4px;}
+.dshic-dir-posebtn{height:26px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:11px;cursor:pointer;}
+.dshic-dir-posebtn:hover{border-color:var(--dsw-alias-brand-primary);color:var(--dsw-alias-brand-primary);}
+.dshic-dir-posebtn.is-on{background:color-mix(in srgb,var(--dsw-alias-brand-primary) 16%,transparent);color:var(--dsw-alias-brand-primary);border-color:var(--dsw-alias-brand-primary);}
+.dshic-dir-btnrow{display:flex;gap:6px;margin:6px 0 2px;}
+.dshic-dir-btnrow .dshic-mini{flex:1;justify-content:center;display:inline-flex;align-items:center;}
+.dshic-dir-envrow{display:flex;align-items:center;gap:6px;font-size:11.5px;color:var(--dsw-alias-label-secondary);margin-bottom:5px;}
+.dshic-dir-envrow>span{flex:none;width:52px;}
+.dshic-dir-envrow .dshic-select,.dshic-dir-envrow .dshic-input{flex:1;min-width:0;height:24px;font-size:11px;}
+.dshic-dir-envrow input[type="checkbox"]{accent-color:var(--dsw-alias-brand-primary);}
+.dshic-dir-envrow input[type="color"]{height:24px;padding:0;border:1px solid var(--dshic-line2);border-radius:6px;background:var(--dshic-field-bg);width:100%;}
+.dshic-dir-empty{font-size:11.5px;color:var(--dsw-alias-label-secondary);line-height:1.7;padding:8px 0;}
+.dshic-dir-msg.is-err{background:color-mix(in srgb,var(--dsw-alias-state-error-primary) 88%,#000);}
+.dshic-dir-row{display:flex;align-items:center;gap:7px;flex:none;}
+.dshic-dir-lbl{width:52px;flex:none;font-size:11.5px;color:var(--dsw-alias-label-secondary);}
+.dshic-dir-num{flex:1;min-width:0;height:24px;border-radius:6px;padding:0 6px;font:inherit;font-size:12px;
+  border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);}
+.dshic-dir-txt{flex:1;min-width:0;height:24px;border-radius:6px;padding:0 6px;font:inherit;font-size:12px;
+  border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);}
+.dshic-dir-color{width:34px;height:24px;padding:0;border:1px solid var(--dsw-alias-border-l1);border-radius:6px;
+  background:var(--dsw-alias-bg-layer-2);cursor:pointer;flex:none;}
+.dshic-dir-prompt{width:100%;min-height:104px;resize:vertical;border-radius:7px;padding:7px 8px;font:inherit;font-size:11px;
+  line-height:1.5;border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-2);
+  color:var(--dsw-alias-label-secondary);box-sizing:border-box;flex:none;}
 .dshic-modal-assets{display:flex;flex-direction:column;gap:10px;}
 .dshic-modal-assets .dshic-asset-grid{grid-template-columns:repeat(auto-fill,minmax(158px,1fr));gap:10px;}
 .dshic-modal-assets .dshic-asset-thumb{height:112px;}
@@ -1654,7 +2558,7 @@ window.__ModuleLoader__.load({
 .dshic-inline-input.is-toolbar{height:26px;border-radius:8px;}
 .dshic-inline-input.is-menu{flex:0 0 auto;min-width:0;height:26px;}
 .dshic-inline-input.is-panel{flex:1;min-width:0;height:26px;}
-@media (prefers-color-scheme:dark){.dshic-inline-input{border-color:var(--dsw-alias-border-l2);}}
+body[data-ds-dark-theme] .dshic-inline-input{border-color:var(--dsw-alias-border-l2);}
 .dshic-canvas{flex:1;position:relative;overflow:hidden;background-color:var(--dsw-alias-bg-base);
   background-image:radial-gradient(color-mix(in srgb,var(--dsw-alias-border-l2) 55%,transparent) 1px,transparent 1px);
   outline:none;}
@@ -1671,6 +2575,9 @@ window.__ModuleLoader__.load({
 .dshic-node{position:absolute;box-sizing:border-box;width:${NODE_W}px;background:var(--dshic-card);
   border:1px solid var(--dshic-line2);border-radius:var(--dshic-node-r);box-shadow:var(--dshic-shadow);
   cursor:grab;min-height:96px;display:flex;flex-direction:column;
+  /* P2：布局/样式隔离，减少节点内部变化触发的全画布 layout/paint；刻意**不用 paint containment**，
+     否则端口圆点（负偏移到节点外）会被裁掉。 */
+  contain:layout style;
   transition:border-color .18s,box-shadow .18s;}
 .dshic-node:active{cursor:grabbing;}
 .dshic-node:hover{border-color:var(--dshic-line-hover);}
@@ -1809,7 +2716,7 @@ window.__ModuleLoader__.load({
 .dshic-menu-item{display:flex;align-items:center;gap:8px;height:32px;padding:0 10px;border:none;border-radius:9px;background:transparent;
   color:var(--dsw-alias-label-primary);font:inherit;font-size:13px;cursor:pointer;text-align:left;white-space:nowrap;}
 .dshic-menu-item:hover{background:var(--dsw-alias-interactive-bg-hover,color-mix(in srgb,var(--dsw-alias-label-primary) 8%,transparent));}
-@media (prefers-color-scheme:dark){.dshic-menu{border-color:var(--dsw-alias-border-l2);}}
+body[data-ds-dark-theme] .dshic-menu{border-color:var(--dsw-alias-border-l2);}
 .dshic-overlay{position:fixed;inset:0;z-index:50;background:transparent;}
 .dshic-empty{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none;}
 .dshic-empty-card{pointer-events:auto;text-align:center;display:flex;flex-direction:column;gap:10px;align-items:center;
@@ -1834,7 +2741,7 @@ window.__ModuleLoader__.load({
   display:flex;align-items:center;justify-content:center;}
 .dshic-modal{width:340px;max-width:calc(100vw - 48px);background:var(--dsw-alias-bg-layer-1);border:1px solid var(--dshic-line2);
   border-radius:16px;box-shadow:var(--dshic-shadow-lg);padding:16px;display:flex;flex-direction:column;gap:10px;box-sizing:border-box;}
-@media (prefers-color-scheme:dark){.dshic-modal{border-color:var(--dsw-alias-border-l2);}}
+body[data-ds-dark-theme] .dshic-modal{border-color:var(--dsw-alias-border-l2);}
 .dshic-modal-title{font-size:14px;font-weight:600;}
 .dshic-modal-warn{font-size:12px;line-height:18px;color:var(--dsw-alias-label-secondary);}
 .dshic-modal-name{font-weight:600;color:var(--dsw-alias-label-primary);user-select:text;-webkit-user-select:text;cursor:text;}
@@ -1843,7 +2750,7 @@ window.__ModuleLoader__.load({
 .dshic-toast{position:fixed;bottom:22px;left:50%;transform:translateX(-50%);z-index:70;max-width:420px;
   background:var(--dsw-alias-bg-layer-1);border:1px solid var(--dshic-line2);border-radius:14px;
   box-shadow:var(--dshic-shadow-lg);padding:8px 14px;font-size:12px;color:var(--dsw-alias-label-primary);box-sizing:border-box;}
-@media (prefers-color-scheme:dark){.dshic-toast{border-color:var(--dsw-alias-border-l2);}}
+body[data-ds-dark-theme] .dshic-toast{border-color:var(--dsw-alias-border-l2);}
 .dshic-btn-outline{border:1px solid var(--dsw-alias-border-l2);background:transparent;color:var(--dsw-alias-label-primary);}
 .dshic-btn-outline:hover{background:color-mix(in srgb,var(--dsw-alias-label-primary) 8%,transparent);}
 .dshic-select{width:100%;box-sizing:border-box;height:28px;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;
@@ -1942,7 +2849,7 @@ window.__ModuleLoader__.load({
   border-radius:15px;border:1px solid var(--dshic-line2);
   background:var(--dsw-alias-bg-layer-1);
   box-shadow:var(--dshic-shadow-lg);}
-@media (prefers-color-scheme:dark){.dshic-keys-pop{border-color:var(--dsw-alias-border-l2);}}
+body[data-ds-dark-theme] .dshic-keys-pop{border-color:var(--dsw-alias-border-l2);}
 .dshic-keys-title{font-size:12px;font-weight:600;color:var(--dsw-alias-label-primary);margin-bottom:8px;}
 .dshic-keys-group{margin-bottom:9px;}
 .dshic-keys-group-title{font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;
@@ -1979,9 +2886,7 @@ window.__ModuleLoader__.load({
 .dshic-minimap{position:absolute;right:12px;bottom:12px;width:160px;height:100px;background:var(--dsw-alias-bg-layer-1);
   border:1px solid var(--dshic-line2);border-radius:12px;z-index:15;overflow:hidden;cursor:pointer;box-sizing:border-box;
   box-shadow:var(--dshic-shadow-lg);touch-action:none;}
-@media (prefers-color-scheme:dark){
-  .dshic-mask-card,.dshic-minimap{border-color:var(--dsw-alias-border-l2);}
-}
+body[data-ds-dark-theme] .dshic-mask-card,body[data-ds-dark-theme] .dshic-minimap{border-color:var(--dsw-alias-border-l2);}
 .dshic-mm-node{position:absolute;background:color-mix(in srgb,var(--dsw-alias-label-primary) 40%,transparent);border-radius:1px;}
 .dshic-mm-node.is-sel{background:var(--dsw-alias-brand-primary);}
 .dshic-mm-view{position:absolute;border:1.5px solid var(--dsw-alias-brand-primary);border-radius:2px;
@@ -2018,7 +2923,7 @@ window.__ModuleLoader__.load({
   padding:8px 10px;display:flex;flex-direction:column;gap:3px;font-size:11px;line-height:16px;
   color:var(--dsw-alias-label-secondary);box-sizing:border-box;user-select:text;-webkit-user-select:text;}
 .dshic-storage-line{word-break:break-all;}
-@media (prefers-color-scheme:dark){.dshic-storage-details{border-color:var(--dsw-alias-border-l2);}}
+body[data-ds-dark-theme] .dshic-storage-details{border-color:var(--dsw-alias-border-l2);}
 .dshic-node .dshic-textarea,.dshic-node .dshic-input{border-radius:8px;}
 /* ── 统一媒体节点（节点内只显示结果；原型 .node / .body / .media / .foot）────── */
 /* body 是媒体节点的三段容器（标题栏 / 预览区 / 操作栏），三段各自不滚动；高度公式见 nodeSizeForRatio：
@@ -2034,7 +2939,9 @@ window.__ModuleLoader__.load({
 .dshic-node-body.is-textual > .dshic-node-row,
 .dshic-node-body.is-textual > .dshic-card{margin-left:var(--dshic-body-pad-x);margin-right:var(--dshic-body-pad-x);}
 /* 预览区（原型 .media）：flex:1 + 相对定位 + 项目底色；画面贴边，不与边框留内距 */
-.dshic-media-wrap{position:relative;flex:1;min-height:0;background:var(--dshic-preview-bg);overflow:hidden;}
+.dshic-media-wrap{position:relative;flex:1;min-height:0;background:var(--dshic-preview-bg);overflow:hidden;
+  /* P0：可见性裁剪（浏览器级）——视口外的媒体内容跳过绘制/解码，节点框与端口仍在节点层，不影响交互 */
+  content-visibility:auto;contain-intrinsic-size:360px 300px;}
 /* 预览**不裁切**：预览盒比例已严格等于画面比例（nodeSizeForRatio 保证），
    所以用 fill 既不会裁切（旧 cover 会裁掉约 10%）也不会 letterbox；比例一致时 fill == contain。 */
 .dshic-media-fill{position:absolute;inset:0;width:100%;height:100%;object-fit:fill;background:var(--dshic-preview-bg);display:block;}
@@ -2079,6 +2986,10 @@ window.__ModuleLoader__.load({
 .dshic-ctl-range::-moz-range-thumb{width:11px;height:11px;border-radius:50%;background:var(--dshic-card);
   border:1.5px solid var(--dshic-accent);}
 .dshic-media-wrap.is-running .dshic-media-fill{animation:dshic-sheen 1.4s infinite;}
+/* P1：拖动期间临时停掉节点内的 sheen filter 动画（filter 动画会让整块节点每帧重新光栅化） */
+.dshic-canvas.is-node-dragging .dshic-media-wrap.is-running .dshic-media-fill{animation:none !important;}
+/* 视频 poster 生成失败：中性占位（不闪、不破图） */
+.dshic-media-placeholder{position:absolute;inset:0;background:var(--dshic-preview-bg);display:block;}
 @keyframes dshic-sheen{0%{filter:brightness(.92)}50%{filter:brightness(1.06)}100%{filter:brightness(.92)}}
 /* 操作栏（第三段，原型 .foot）：固定高度 NODE_FOOT_H = 7 + 24 + 7 + 1px border-top；
    border-top + 上下内距保证按钮与画面之间有明显间距（不贴边），且 flex:none 不参与画面比例 */
@@ -2217,7 +3128,7 @@ window.__ModuleLoader__.load({
 .dshic-pick-car{color:var(--dshic-field-hint);font-size:9px;flex:none;}
 /* 模型/比例等下拉：实底容器（浅色白 / 深色跟随）+ 线框 + 14px 圆角 + --dshic-shadow-lg */
 .dshic-pick-menu{position:fixed;z-index:240;background:var(--dsw-alias-bg-layer-1);border:1px solid var(--dshic-line2);border-radius:14px;box-shadow:var(--dshic-shadow-lg);display:flex;flex-direction:column;max-height:280px;overflow:hidden;box-sizing:border-box;}
-@media (prefers-color-scheme:dark){.dshic-pick-menu{border-color:var(--dsw-alias-border-l2);}}
+body[data-ds-dark-theme] .dshic-pick-menu{border-color:var(--dsw-alias-border-l2);}
 .dshic-pick-search{padding:7px;border-bottom:1px solid var(--dshic-line);flex:none;}
 .dshic-pick-search .dshic-input{height:26px;font-size:12px;}
 .dshic-pick-list{overflow-y:auto;padding:5px;flex:1;}
@@ -2229,9 +3140,7 @@ window.__ModuleLoader__.load({
 .dshic-pick-sub{margin-left:auto;color:var(--dsw-alias-label-secondary);font-size:10px;flex:none;max-width:45%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 .dshic-pick-item.is-on .dshic-pick-sub{color:inherit;opacity:.8;}
 .dshic-pick-empty{padding:14px 10px;font-size:var(--dshic-empty-text);color:var(--dsw-alias-label-secondary);text-align:center;}
-@media (prefers-color-scheme:dark){
-  .dshic-pick-item.is-on{background:color-mix(in srgb,var(--dsw-alias-brand-primary) 15%,transparent);color:var(--dsw-alias-brand-primary);}
-}
+body[data-ds-dark-theme] .dshic-pick-item.is-on{background:color-mix(in srgb,var(--dsw-alias-brand-primary) 15%,transparent);color:var(--dsw-alias-brand-primary);}
 .dshic-pick.dshic-at{padding:0 7px;justify-content:center;font-weight:600;}
 /* 发送按钮（原型 .send）：34px 圆形 / 黑底白箭头 */
 .dshic-send{width:var(--dshic-send-size);height:var(--dshic-send-size);border-radius:50%;border:0;
@@ -2994,6 +3903,149 @@ window.__ModuleLoader__.load({
           ? '[First-frame anchor] The input first frame IS the last frame of the previous segment: frame 1 must match it exactly (framing, blocking, facing, handheld props, light) and motion starts only after frame 1.'
           : '[First-frame anchor] [Picture 1] is the last frame of the previous segment (a continuity reference, not a style reference): frame 1 must match it - framing, blocking, facing, handheld props and key light unchanged; only continue the motion.');
     }
+    // ============================================================
+    // 按镜头切段（segmentation planner）：一个分镜表 ≠ 一次生成
+    //
+    // 为什么要有它：历史上「一个分镜表 = 一次视频生成」，整表时长取各镜之和直接怼给模型。
+    // 用户的实测反馈是灾难性的——13 镜 / 62 秒的分镜表被塞进一次 15 秒上限的请求，模型
+    // 只能自己压缩：动作被砍成"平移"，镜头数对不上，切点也不落在真实镜头上。更要命的是
+    // 如果切点落在两镜之间，而这两镜本来就是「同一个角色的同一段连续动作」（continuation），
+    // 那第二次生成根本接不上第一次：即便冻了首帧，剪辑处也是重影/卡顿。
+    //
+    // 铁律（本文件里所有切段逻辑的唯一事实源）：
+    //   ① 切点只允许落在**镜头边界**上，且该镜头必须是"换镜头"类型
+    //      （scene_change / closeup / new_character），或是段首（opening/第 1 镜）；
+    //   ② 一段内部连续的 continuation 镜头**必须整段留在同一生成段**——动作相位不可拆；
+    //   ③ 一段时长 ≤ 厂商单次上限；超了就在最近的合法切点处断开，绝不从镜头中间切；
+    //   ④ 找不到合法切点又超长 → 降级：强行在该镜前断开并把下一镜改写成 scene_change，
+    //      同时给这段打 seamRisk:'forced'（UI 要如实显示"这段是硬切的"，不静默）；
+    //   ⑤ 只有 ① 之外的情况（上一段末镜与本段首镜同为 continuation）才需要尾帧接力。
+    // ============================================================
+    /** 该 seg 是否构成一个"可以安全开始新生成段"的切点。opening 只在全表第 1 镜成立。 */
+    function isCutPoint(seg) {
+      return seg === 'scene_change' || seg === 'closeup' || seg === 'new_character' || seg === 'opening';
+    }
+    /**
+     * 把一张分镜表的镜头按「真实镜头边界」切成若干生成段。
+     *
+     * @param shots 分镜镜头数组（data.shots）
+     * @param opts  { maxSeconds（单次生成上限，默认 15）, minSeconds（单段下限，默认 2）,
+     *                hardMax（厂商物理上限，超了必须拆，默认同 maxSeconds） }
+     * @returns {{ segments: Array, total: number, max: number, cutMode: string, warnings: string[] }}
+     *   segments[i] = {
+     *     index, shotIds, shots, startIndex, endIndex,
+     *     duration,             // 本段总时长（秒，一位小数）
+     *     firstSeg, lastSeg,    // 本段首/末镜的段落类型
+     *     opensOnCut,           // 本段是否从一个合法切点开始（第 1 段恒真）
+     *     closesOnCut,          // 本段末镜是否本身就是"换镜头"（=下一段天然切点，无需接力）
+     *     seamRisk,             // 'none' | 'chain'（靠尾帧接力）| 'forced'（找不到切点被硬切）
+     *     needsTailChain,       // 是否需要把上一段尾帧接到本段首帧
+     *     reason,               // 人类可读的切段依据（面板上显示）
+     *   }
+     */
+    function planShotSegments(shots, opts) {
+      const o = opts || {};
+      const list = (Array.isArray(shots) ? shots : []).filter((s) => s && (String(s.visual || '').trim() || String(s.motion || '').trim() || (Array.isArray(s.dialogue) && s.dialogue.length)));
+      const maxSeconds = Math.max(1, Number(o.maxSeconds) || 15);
+      const minSeconds = Math.max(0, Math.min(Number(o.minSeconds) || 2, maxSeconds));
+      const warnings = [];
+      const durOf = (s) => Math.max(0.3, Math.round((Number(s && s.duration) || 3) * 10) / 10);
+      // 预解每镜的段落类型（与 shotContinuityPlan 同一套推断，保证分段与提示词口径一致）
+      const plans = list.map((s, i) => shotContinuityPlan(s, list[i - 1] || null, i));
+      const total = Math.round(list.reduce((a, s) => a + durOf(s), 0) * 10) / 10;
+      if (!list.length) return { segments: [], total: 0, max: maxSeconds, cutMode: 'empty', warnings: ['分镜表里没有可用镜头'] };
+
+      /** 从 from 开始贪心找到一个"可以在 to 前断开"的位置：
+       *  返回该段的结束下标（含）；-1 表示从 from 开始连第一镜都放不下。 */
+      const findBreak = (from) => {
+        let acc = 0;
+        let bestCut = -1;   // 最近一次合法切点之后的位置（即"下一镜是新镜头"的下标）
+        for (let i = from; i < list.length; i++) {
+          const d = durOf(list[i]);
+          if (acc + d > maxSeconds + 1e-6) {
+            // 放不下了。若当前累计还没超过下限，也要至少吃一镜（单镜超长的情况由下面兜底）
+            break;
+          }
+          acc += d;
+          // 判断"i 之后可以断开"：下一镜是切点，或本镜本身就是换镜头（切在它之后）
+          const nextIsCut = i + 1 < list.length && isCutPoint(plans[i + 1] && plans[i + 1].seg);
+          const thisIsCut = isCutPoint(plans[i] && plans[i].seg);
+          if (nextIsCut || thisIsCut || i === list.length - 1) bestCut = i;
+        }
+        if (bestCut < from) {
+          // 连一镜都塞不进上限：退化为"只取这一镜"，交给下面标记 forced
+          return { end: from, forced: true, acc: durOf(list[from]) };
+        }
+        return { end: bestCut, forced: false, acc };
+      };
+
+      const segments = [];
+      let i = 0;
+      while (i < list.length && segments.length < 64) {
+        // 段首必须是切点；若不是（说明上一段是被 forced 断开的），本镜保持原 seg
+        const brk = findBreak(i);
+        let end = brk.end;
+        let seamRisk = 'none';
+        let reason = '';
+        const firstSeg = (plans[i] && plans[i].seg) || 'continuation';
+        const opensOnCut = segments.length === 0 || isCutPoint(firstSeg);
+        if (!opensOnCut) {
+          seamRisk = 'forced';
+          reason = '上一段超长被迫硬切，本段从镜中断点继续，动作相位可能不连续';
+          warnings.push(`第 ${i + 1} 镜起的一段是硬切（上一段超长且找不到换镜头切点）：这一段与上一段的接缝只能靠尾帧+提示词硬接`);
+        }
+        // 段内若含"必须承接"的 continuation，且不是首段、且首镜也不是切点 → 需要尾帧接力
+        const needsTailChain = segments.length > 0 && !isCutPoint(firstSeg);
+        if (needsTailChain) {
+          seamRisk = seamRisk === 'forced' ? 'forced' : 'chain';
+          reason = reason || '本段首镜是续帧镜头，需用上一段尾帧接力';
+        }
+        const segShots = list.slice(i, end + 1);
+        const duration = Math.round(segShots.reduce((a, s) => a + durOf(s), 0) * 10) / 10;
+        const lastSeg = (plans[end] && plans[end].seg) || 'continuation';
+        const closesOnCut = isCutPoint(lastSeg) || end === list.length - 1;
+        if (!reason) {
+          reason = closesOnCut
+            ? '本段以换镜头收尾，下一段天然切换、无需接力'
+            : '本段在换镜头切点处开始';
+        }
+        segments.push({
+          index: segments.length,
+          shotIds: segShots.map((s, k) => i + k),
+          shots: segShots,
+          startIndex: i,
+          endIndex: end,
+          duration,
+          firstSeg,
+          lastSeg,
+          opensOnCut,
+          closesOnCut,
+          seamRisk,
+          needsTailChain,
+          reason,
+        });
+        if (end === i && brk.forced) {
+          warnings.push(`第 ${i + 1} 镜单镜时长 ${durOf(list[i])}s 已超单次生成上限 ${maxSeconds}s：这一段只能单独生成，并期望厂商钳制或报错`);
+        }
+        i = end + 1;
+      }
+      // cutMode：整表能不能被整齐切成"每次都是换镜头"的段——决定要不要提示用户重拆分镜
+      const cleanCuts = segments.every((s) => s.opensOnCut);
+      const cutMode = cleanCuts ? 'clean' : 'forced';
+      if (cutMode === 'forced') {
+        warnings.push('本次切段存在硬切点：建议把超长的续帧段在分镜里拆成两镜（第二镜标换场/特写插入），让切点落在真实镜头上');
+      }
+      if (segments.length > 1 && !cleanCuts) {
+        warnings.push(`共 ${segments.length} 段，其中 ${segments.filter((s) => !s.opensOnCut).length} 段从镜中断点开始——弱衔接模型（如 MiniMax）对这些段会明显吃力`);
+      }
+      return { segments, total, max: maxSeconds, cutMode, warnings };
+    }
+    /** 单段是否值得依赖"尾帧接力"：只有强衔接模型 + 该段确实跨了连续动作才算。 */
+    function segmentNeedsHardFrame(seg, modelName) {
+      if (!seg || !seg.needsTailChain) return false;
+      const weak = /minimax|hailuo|kling-?1|pika|stability|svd/i.test(String(modelName || ''));
+      return !weak;
+    }
     /**
      * 尾帧选帧评分：不是"取最后一帧"——最后一帧常落在动作顶点/运动模糊/遮挡/收敛抖动上。
      * 返回 0-1 分，越高越适合当下一段首帧（动作进行中、清晰、无遮挡、不抖）。
@@ -3553,7 +4605,19 @@ window.__ModuleLoader__.load({
       });
     }
     const assetMem = new Map(); // id -> rec：服务端元数据缓存（0.18 起服务端是资产库唯一事实源）
+    /** 资产记录读取（0.18.6+ 性能修复）：内存缓存 → 服务端（sqlite 模式为唯一事实源）→ 旧 IndexedDB 兜底。
+     *  0.18 起新资产只写磁盘 + canvas.db；旧实现每次都先查一次 IDB 事务（拖动/批量渲染时白开销），
+     *  老 blob 资产还会被命中并把几十 MB 视频钉在内存。
+     *  新顺序：
+     *   - sqlite 模式：先 hostRpc('assetsGet')；仅当返回空时，迁移期允许**每个 id 只查一次** IDB（idbMiss 记忆 miss）。
+     *   - JSON 降级模式：IDB 就是事实源，先查 IDB；hostRpc 仅兜底。
+     *   - hostRpc 抛错：回退 IDB（不记 miss，下次仍可重试服务端）。 */
+    const idbMiss = new Set(); // sqlite 模式下：IDB 查过一次 miss 的 id（永不再查）
+    let idbRawCalls = 0; // 测试/诊断：IDB 查询次数（性能修复后 sqlite 命中应保持 0）
+    let idbGetRawImpl = null; // 测试注入
     async function idbGetRaw(id) {
+      idbRawCalls++;
+      if (idbGetRawImpl) return idbGetRawImpl(id);
       const db = await openDb();
       return new Promise((resolve, reject) => {
         const rq = db.transaction(DB_STORE, 'readonly').objectStore(DB_STORE).get(id);
@@ -3561,10 +4625,25 @@ window.__ModuleLoader__.load({
         rq.onerror = () => reject(rq.error);
       });
     }
-    /** 资产记录读取（0.18）：内存缓存 → 服务端 → 旧 IndexedDB 兜底（迁移期遗留 blob）。 */
     async function idbGet(id) {
       if (!id) return null;
       if (assetMem.has(id)) return assetMem.get(id) || null;
+      if (S.store === 'sqlite') {
+        let serverOk = false;
+        try {
+          const r = await hostRpc('assetsGet', { ids: [id] });
+          serverOk = true;
+          const rec = (r && r.items && r.items[0]) || null;
+          if (rec) { assetMem.set(rec.id, rec); assetNameCache.set(rec.id, rec.name); return rec; }
+        } catch { serverOk = false; }
+        // 服务端不可用 → 回退 IDB；服务端可用但无记录 → 迁移期只查一次（miss 后永不再查）
+        if (serverOk && idbMiss.has(id)) return null;
+        const local = await idbGetRaw(id).catch(() => null);
+        if (local) return local;
+        if (serverOk) idbMiss.add(id);
+        return null;
+      }
+      // 非 sqlite（JSON 降级/旧环境）：本地 IDB 优先，服务端兜底
       const local = await idbGetRaw(id).catch(() => null);
       if (local) return local;
       try {
@@ -3580,7 +4659,7 @@ window.__ModuleLoader__.load({
       if (assetUrlCache.has(id)) {
         const u = assetUrlCache.get(id);
         assetUrlCache.delete(id);
-        if (typeof u === 'string' && u.startsWith('blob:')) { try { URL.revokeObjectURL(u); } catch { /* 忽略 */ } }
+        revokeBlobUrl(u && u.url);
       }
       const db = await openDb();
       return new Promise((resolve, reject) => {
@@ -3663,8 +4742,41 @@ window.__ModuleLoader__.load({
         rq.onerror = () => reject(rq.error);
       });
     }
-    const assetUrlCache = new Map();
+    // ── 资产内容 URL 缓存（内存策略）──────────────────────────────────────────
+    // 只缓存 ≤8MB 的 blob objectURL（图片/小视频）；更大的 blob（典型 >8MB 视频）**不缓存**，
+    // 由使用方（useAssetUrl 卸载 / poster 生成结束）立即 revoke。理由：objectURL 会把整个 Blob
+    // 钉在内存里，0.18 后媒体文件本来就在磁盘、可直接用 /api/file 流式读取；把几十 MB 视频
+    // 缓存起来对拖动帧毫无收益，只会让标签页内存随浏览过的视频线性上涨。
+    // 小对象仍按 LRU 限制条数 + 总字节（40 条 / 48MB），避免大量图片把内存撑爆。
+    const ASSET_URL_MAX_ENTRIES = 40;
+    const ASSET_URL_MAX_BYTES = 48 * 1024 * 1024;
+    const ASSET_URL_LARGE_BYTES = 8 * 1024 * 1024;
+    const assetUrlCache = new Map(); // id -> { url, size }
     const assetNameCache = new Map(); // assetId -> name（连线绑定的同步名称查询）
+    function revokeBlobUrl(u) {
+      if (typeof u === 'string' && u.startsWith('blob:')) { try { URL.revokeObjectURL(u); } catch { /* 忽略 */ } }
+    }
+    function assetUrlCacheBytes() {
+      let n = 0;
+      for (const v of assetUrlCache.values()) n += (v && v.size) || 0;
+      return n;
+    }
+    function trimAssetUrlCache() {
+      while (assetUrlCache.size > ASSET_URL_MAX_ENTRIES || assetUrlCacheBytes() > ASSET_URL_MAX_BYTES) {
+        const first = assetUrlCache.entries().next();
+        if (first.done) break;
+        assetUrlCache.delete(first.value[0]);
+        revokeBlobUrl(first.value[1] && first.value[1].url);
+      }
+    }
+    function assetUrlCached(id) {
+      const hit = assetUrlCache.get(id);
+      if (!hit) return null;
+      // LRU：命中时挪到队尾
+      assetUrlCache.delete(id);
+      assetUrlCache.set(id, hit);
+      return hit.url;
+    }
     function fileUrlFor(rel) { return '/' + NS + '/api/file?rel=' + encodeURIComponent(rel); }
     /** 磁盘落盘扩展名（IC-B3 统一后唯一保留的 mime→ext 映射）：mime 子类型直取，
      *  非法子类型回退 .bin。与 extForDownload 的区别：落盘时 mime 已由生成链路给出
@@ -3682,23 +4794,24 @@ window.__ModuleLoader__.load({
     }
     async function assetUrl(id) {
       if (!id) return null;
-      if (assetUrlCache.has(id)) return assetUrlCache.get(id);
+      const cached = assetUrlCached(id);
+      if (cached) return cached;
       const rec = await idbGet(id);
       if (!rec) return null;
       let url = contentUrlFor(rec);
       if (!url && rec.blob) {
-        // IndexedDB 资产：objectURL 有内存成本 → 缓存总量设上限，超出时释放最早的一批
-        if (assetUrlCache.size >= 60) {
-          const first = assetUrlCache.keys().next();
-          if (!first.done) {
-            const oldUrl = assetUrlCache.get(first.value);
-            assetUrlCache.delete(first.value);
-            if (typeof oldUrl === 'string' && oldUrl.startsWith('blob:')) { try { URL.revokeObjectURL(oldUrl); } catch { /* 忽略 */ } }
-          }
-        }
+        const size = Number(rec.blob.size) || 0;
         url = URL.createObjectURL(rec.blob);
+        // 大 blob（>8MB）不缓存 objectURL：由 useAssetUrl/poster 使用方在结束时 revoke
+        if (size <= ASSET_URL_LARGE_BYTES) {
+          assetUrlCache.set(id, { url, size });
+          trimAssetUrlCache();
+        }
+      } else if (url) {
+        // 磁盘/CAS URL 不占内存，缓存起来避免重复 idbGet 拼串
+        assetUrlCache.set(id, { url, size: 0 });
+        trimAssetUrlCache();
       }
-      if (url) assetUrlCache.set(id, url);
       return url;
     }
     /** 取资产 Blob：CAS/磁盘资产经 Host 文件服务拉取（远程同样可用），旧资产直接读 IndexedDB。 */
@@ -3815,9 +4928,169 @@ window.__ModuleLoader__.load({
       useEffect(() => {
         let ok = true;
         assetUrl(id).then((u) => { if (ok) setUrl(u); });
-        return () => { ok = false; };
+        return () => {
+          ok = false;
+          // 未进缓存的大 blob URL：组件卸载/换资产时立即释放（缓存内的由 LRU 统一释放）
+          if (url && url.startsWith('blob:')) {
+            let cached = false;
+            for (const v of assetUrlCache.values()) if (v && v.url === url) { cached = true; break; }
+            if (!cached) revokeBlobUrl(url);
+          }
+        };
       }, [id]);
       return url;
+    }
+
+    // ============================================================
+    // 视频静态封面（poster）：默认只画一张 img（零视频解码），播放时才挂 <video>
+    // ============================================================
+    const posterCache = new Map();     // assetId -> poster URL（内存命中直接返回，不再探测/解码）
+    const posterInflight = new Map();  // assetId -> Promise（并发同 id 只生成一次）
+    const posterQueue = [];            // 生成任务串行队列
+    let posterActive = 0;
+    const POSTER_MAX_CONCURRENT = 2;   // 同时最多 2 个离屏解码，避免一次开 10 个解码器
+    const posterStats = { active: 0, max: 0, generated: 0 }; // 测试/诊断用
+    function pumpPosterQueue() {
+      while (posterActive < POSTER_MAX_CONCURRENT && posterQueue.length) {
+        const job = posterQueue.shift();
+        posterActive++;
+        posterStats.active = posterActive;
+        posterStats.max = Math.max(posterStats.max, posterActive);
+        Promise.resolve().then(job.task).then(job.resolve, job.reject).finally(() => {
+          posterActive--;
+          posterStats.active = posterActive;
+          pumpPosterQueue();
+        });
+      }
+    }
+    function enqueuePosterTask(task) {
+      return new Promise((resolve, reject) => { posterQueue.push({ task, resolve, reject }); pumpPosterQueue(); });
+    }
+    async function probePosterUrl(rel) {
+      if (!rel) return null;
+      const url = fileUrlFor(rel + '.poster.jpg');
+      try {
+        const r = await fetch(url, { method: 'HEAD' });
+        return r && r.ok ? url : null;
+      } catch { return null; }
+    }
+    function dataUrlToBlob(dataUrl) {
+      const s = String(dataUrl || '');
+      const comma = s.indexOf(',');
+      const head = comma >= 0 ? s.slice(0, comma) : '';
+      const body = comma >= 0 ? s.slice(comma + 1) : '';
+      const mime = (/data:([^;]+)/.exec(head) || [])[1] || 'image/jpeg';
+      const bin = typeof atob === 'function' ? atob(body) : '';
+      const arr = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+      return new Blob([arr], { type: mime });
+    }
+    /** 离屏 <video> 取首帧 → JPEG dataURL；任何失败都静默返回 null（节点显示中性占位，不闪）。 */
+    function extractVideoPosterDataUrl(src) {
+      return new Promise((resolve) => {
+        let v = null;
+        let done = false;
+        let timer = null;
+        const finish = (out) => {
+          if (done) return;
+          done = true;
+          if (timer) clearTimeout(timer);
+          try { if (v) { v.onloadeddata = null; v.onseeked = null; v.onerror = null; v.removeAttribute('src'); if (v.load) v.load(); } } catch { /* 忽略 */ }
+          resolve(out || null);
+        };
+        try {
+          v = document.createElement('video');
+          v.preload = 'auto';
+          v.muted = true;
+          v.playsInline = true;
+          v.onerror = () => finish(null);
+          v.onloadeddata = () => {
+            try { v.currentTime = Math.min(0.05, (Number(v.duration) || 1) / 10); } catch { finish(null); }
+          };
+          v.onseeked = () => {
+            try {
+              const w = Number(v.videoWidth) || 0;
+              const h = Number(v.videoHeight) || 0;
+              if (!(w > 0 && h > 0)) return finish(null);
+              const cv = document.createElement('canvas');
+              cv.width = w; cv.height = h;
+              const ctx = cv.getContext && cv.getContext('2d');
+              if (!ctx) return finish(null);
+              ctx.drawImage(v, 0, 0, w, h);
+              finish(cv.toDataURL('image/jpeg', 0.72));
+            } catch { finish(null); }
+          };
+          timer = setTimeout(() => finish(null), 8000);
+          v.src = src;
+          try { if (v.load) v.load(); } catch { /* 忽略 */ }
+        } catch { finish(null); }
+      });
+    }
+    /** 生成并落盘 poster：已有 `<rel>.poster.jpg` 直接复用（HEAD 200）；否则离屏解码一次首帧 →
+     *  POST /api/poster 落盘 → 返回磁盘 URL。失败静默返回 null。 */
+    async function generatePosterFor(assetId, rec) {
+      let tempUrl = null;
+      try {
+        const src = contentUrlFor(rec) || (tempUrl = await assetUrl(assetId));
+        if (!src) return null;
+        const dataUrl = await extractVideoPosterDataUrl(src);
+        if (!dataUrl) return null;
+        if (rec && rec.rel) {
+          try {
+            const r = await fetch('/' + NS + '/api/poster?rel=' + encodeURIComponent(rec.rel), {
+              method: 'POST', headers: { 'content-type': 'image/jpeg' }, body: dataUrlToBlob(dataUrl),
+            });
+            if (r && r.ok) return fileUrlFor(rec.rel + '.poster.jpg');
+          } catch { /* 落盘失败 → 用内存 dataURL 兜底，画面仍不闪 */ }
+        }
+        return dataUrl;
+      } catch { return null; } finally {
+        if (tempUrl) {
+          let cached = false;
+          for (const v of assetUrlCache.values()) if (v && v.url === tempUrl) { cached = true; break; }
+          if (!cached) revokeBlobUrl(tempUrl);
+        }
+      }
+    }
+    /** 视频封面 URL：内存缓存 → 磁盘 HEAD 探测 → 单次生成（并发同 id 去重 + 全局 ≤2 并发）。 */
+    function videoPosterUrl(assetId) {
+      if (!assetId) return Promise.resolve(null);
+      if (posterCache.has(assetId)) return Promise.resolve(posterCache.get(assetId));
+      if (posterInflight.has(assetId)) return posterInflight.get(assetId);
+      const task = (async () => {
+        const rec = await idbGet(assetId);
+        if (!rec) return null;
+        const existing = await probePosterUrl(rec.rel);
+        if (existing) { posterCache.set(assetId, existing); return existing; }
+        return enqueuePosterTask(async () => {
+          if (posterCache.has(assetId)) return posterCache.get(assetId);
+          const made = await generatePosterFor(assetId, rec);
+          if (made) { posterCache.set(assetId, made); posterStats.generated++; }
+          return made;
+        });
+      })();
+      posterInflight.set(assetId, task);
+      const clear = () => { posterInflight.delete(assetId); };
+      task.then(clear, clear);
+      return task;
+    }
+    function useVideoPoster(assetId) {
+      const [poster, setPoster] = useState(null);
+      const [state, setState] = useState('idle'); // idle | loading | ready | error
+      useEffect(() => {
+        if (!assetId) { setPoster(null); setState('idle'); return undefined; }
+        const hit = posterCache.get(assetId);
+        if (hit) { setPoster(hit); setState('ready'); return undefined; }
+        let ok = true;
+        setState('loading');
+        videoPosterUrl(assetId).then((u) => {
+          if (!ok) return;
+          setPoster(u);
+          setState(u ? 'ready' : 'error');
+        }).catch(() => { if (ok) { setPoster(null); setState('error'); } });
+        return () => { ok = false; };
+      }, [assetId]);
+      return { poster, state };
     }
 
     // ============================================================
@@ -5798,7 +7071,7 @@ window.__ModuleLoader__.load({
       status: async () => { const r = await craftFetch('/status', {}, 20000, true); return await r.json(); },
       projects: async () => { const r = await craftFetch('/projects'); return await r.json(); },
       // BLK-02：所有文件类调用一律 base(项目绝对目录) + path(相对)，绝不发「无 base 的相对 rel」——
-      // 无 base 时 ArtCraft 按插件进程 cwd 解析，会 200 静默写到 DSH profile 目录（现场证据见 _qa/BLK-02）。
+      // 无 base 时 ArtCraft 按插件进程 cwd 解析，会 200 静默写到 DSH profile 目录（现场证据见 docs/evidence/BLK-02-静默错位-20261019.md）。
       write: async (base, rel, blob) => { const r = await craftFetch('/fs?action=write&base=' + encodeURIComponent(base) + '&path=' + encodeURIComponent(rel), { method: 'POST', body: blob }, 180000); return await r.json(); },
       writeText: async (base, rel, text) => { const r = await craftFetch('/fs?action=write&base=' + encodeURIComponent(base) + '&path=' + encodeURIComponent(rel), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ base, path: rel, text }) }, 60000); return await r.json(); },
       readText: async (base, rel) => { const r = await craftFetch('/fs?op=readtext&base=' + encodeURIComponent(base) + '&path=' + encodeURIComponent(rel)); return (await r.json()).text; },
@@ -5821,7 +7094,7 @@ window.__ModuleLoader__.load({
     // ArtCraft 是纯桥接、**没有自己的数据根**（0.3.x 起 /api/status 也不再返回 dataRoot）。
     // 因此画布必须自己给出绝对基准：每个项目的目录 = <画布数据根>/projects/<物理文件夹>，
     // 由 Host 的 projectDirGet 解析（meta 无条目时回退 id），再以 base + 相对 path 调 ArtCraft。
-    // 绝不发「无 base 的相对 rel」——那样会被按插件进程 cwd 解析、200 却写错目录（见 _qa/BLK-02）。
+    // 绝不发「无 base 的相对 rel」——那样会被按插件进程 cwd 解析、200 却写错目录（见 docs/evidence/BLK-02-静默错位-20261019.md）。
     const craftBaseCache = new Map(); // projectId -> { at, abs }
     async function craftBaseDir(pid) {
       const id = String(pid || S.activeId || '');
@@ -6849,27 +8122,32 @@ window.__ModuleLoader__.load({
       const contFields = (() => {
         if (zh) {
           return contOn
-            ? '{"title":"…","visual":"…","motion":"…","tail":"…","cam":"…","start":"…","seg":"continuation","characters":["…"],"scene":"…","props":["…"],"duration":3,"dialogue":[{"role":"陈拾","line":"收件时间，1999……"}],"sfx":"邮包搭扣声、撕纸声"}'
-            : '{"title":"…","visual":"…","motion":"…","characters":["…"],"scene":"…","props":["…"],"duration":3,"dialogue":[{"role":"陈拾","line":"收件时间，1999……"}],"sfx":"邮包搭扣声、撕纸声"}';
+            ? '{"title":"…","visual":"…","motion":"…","timeBeats":["0s …","中段 …","结尾 …"],"camera":"…","vfx":"…","negative":"…","tail":"…","cam":"…","start":"…","seg":"continuation","characters":["…"],"scene":"…","props":["…"],"duration":3,"dialogue":[{"role":"陈拾","line":"收件时间，1999……"}],"sfx":"邮包搭扣声、撕纸声"}'
+            : '{"title":"…","visual":"…","motion":"…","timeBeats":["0s …","中段 …","结尾 …"],"camera":"…","vfx":"…","negative":"…","characters":["…"],"scene":"…","props":["…"],"duration":3,"dialogue":[{"role":"陈拾","line":"收件时间，1999……"}],"sfx":"邮包搭扣声、撕纸声"}';
         }
         return contOn
-          ? '{"title":"…","visual":"…","motion":"…","tail":"…","cam":"…","start":"…","seg":"continuation","characters":["…"],"scene":"…","props":["…"],"duration":3,"dialogue":[{"role":"Chen","line":"…"}],"sfx":"zipper snap, paper tear"}'
-          : '{"title":"…","visual":"…","motion":"…","characters":["…"],"scene":"…","props":["…"],"duration":3,"dialogue":[{"role":"Chen","line":"…"}],"sfx":"zipper snap, paper tear"}';
+          ? '{"title":"…","visual":"…","motion":"…","timeBeats":["0s …","mid …","end …"],"camera":"…","vfx":"…","negative":"…","tail":"…","cam":"…","start":"…","seg":"continuation","characters":["…"],"scene":"…","props":["…"],"duration":3,"dialogue":[{"role":"Chen","line":"…"}],"sfx":"zipper snap, paper tear"}'
+          : '{"title":"…","visual":"…","motion":"…","timeBeats":["0s …","mid …","end …"],"camera":"…","vfx":"…","negative":"…","characters":["…"],"scene":"…","props":["…"],"duration":3,"dialogue":[{"role":"Chen","line":"…"}],"sfx":"zipper snap, paper tear"}';
       })();
       const jsonContract = zh
         ? [
-            '把剧本拆解为「多镜头一次性视频生成」的分镜脚本：铺开后由**一个视频节点**把全部镜头按顺序与时长写进同一条提示词，由视频模型一次性生成整段视频（镜头间由模型直接硬切，不是一镜一视频再拼接）。',
+            '把剧本拆解为「按镜头切段生成」的分镜脚本：铺开时系统会按真实镜头边界把分镜切成若干次生成，每次只把本段的镜头写进同一条提示词，由视频模型生成那一段（镜头间由模型直接硬切，不是一镜一视频再拼接）。',
             '只输出一个 JSON 对象：{"shots":[' + contFields + ']}。',
             '规则：',
             '- visual 是本镜画面描述（景别、人物外观与站位、场景、光线、构图，60 字内）；',
             '- **visual 与 motion 里的角色/场景/道具必须写成 @资产名@ 引用形式**（前后各一个 @ 精确包裹，如「@陈拾@ 在 @城市街头@ 的围挡旁拿起 @奇怪快递件@」）；名称必须与设定集/资产**逐字一致**；剧本原文里已出现的 @资产名@ 锚点要在镜头中原样保留（名称逐字一致）；名称内不得含 @、空格或标点；@ 后绝不允许直接跟其他文字（必须以 @ 闭合）——系统会隐藏两个 @ 并把名称显示为蓝色加粗，未登记的 @名称@ 会被一致性检查提示补充；',
             '- motion 是本镜动作与运镜（主体动作节拍、机位运动方向与速度、情绪节奏，50 字内）；与 visual 不重复；',
+            '- **【动作层次·硬性】timeBeats 是本镜的三个时间节拍（数组，按时间顺序）**：把"一个动作"拆成 **起势 → 发力 → 落点** 三拍，每拍写**可见的**身体/道具状态，如 ["0s 右手抬到一半、指节收紧","1.2s 手继续抬到胸口、肩线前压","3s 停在信封贴住心口、雨珠从指缝滑落"]。**只写一个节拍 = 模型只会演一个姿势（用户实测：动作极简、只会平移）**；凡 ≥2s 的镜头必须写满 3 拍，≤1s 的快切镜可以只写 1 拍。**每一拍都必须能拍出来，不写"他感到/他意识到"**；',
+            '- **camera 是本镜的机位/焦段/运镜三件套**（不是只写"推近/平移"）：写成「景别 + 焦段光圈 + 运镜起点→终点」，如「中近景 50mm f/2.0，从腰高缓推至面部，匀速、到面部前 0.2 秒减速停住」。**禁止只写"推近/拉远/平移"这类空模板**（那是用户看到的"只会平移"的直接来源）；**一镜只能有一个主运镜**，要两个就拆镜；',
+            '- **vfx 是本镜必须可见的物理特效/细节**（不写就没有，模型不会自己加）：按题材点名 1–3 项——雨丝斜打 / 尘粒在光柱中浮动 / 雪片近大远小 / 逆光镜头光斑 / 路灯钠黄溢光 / 闪电瞬时照亮 / 衣角被风掀起 / 水面涟漪扩散 / 纸张翻飞 / 轻微手持晃动 / 运动模糊拖影 / 烟雾弥漫 / 蒸汽升腾。写**可拍摄的物理现象**，不写"画面很唯美"这类空话；**每场至少 3 镜要有 vfx**；',
             '- characters/scene/props 使用剧本与设定集中的名称（不带 @），便于匹配资产；无道具给空数组；',
             '- **dialogue 是本镜的角色台词**：把剧本中落在这一镜的对白逐行搬进来（{"role":"角色名","line":"台词原文"}），台词必须**逐字来自剧本**、不新写不改写；本镜无台词给空数组；一镜尽量只放一个角色的台词（单说话人镜头利于声音参考提取）；',
             '- **【音话同步·硬性】有台词的镜头必须让说话角色在画面内开口说话**：景别用近景/中近景，脸部朝向可见（正面或 3/4 侧脸），禁止背对镜头、脸部被遮挡、人物出画；visual 或 motion 里必须写明「开口说话、口型清晰可见」；台词**绝不能**处理成画外音/旁白（否则成片里人嘴是闭的、声音飘在背景里）；若某句台词在剧本里说话人无法入画，就把这句台词安排到能看见他说话的那一镜；',
             '- **sfx 是本镜的音效/环境音**：剧本里括号标注的「（音效：…）（环境音：…）」按内容对齐到最贴近的镜头**逐字搬入**（多个用顿号连接）；无音效的镜头给空字符串——音效是成片声音设计的一部分，绝不丢弃；',
+            '- **negative 是本镜要排除的失败项**（逗号分隔的短语）：默认写通用项「换脸、五官漂移、服装变化、手部畸形、多指、穿模、闪烁、风格突变、动作僵硬、嘴型与台词不同步」，再按题材补 1–2 项（古装加「现代物件」；室内加「窗外光线突变」；多人加「人物身份互换」）；',
             '- **【完整覆盖】分镜必须覆盖所给剧本的全部内容**：每一个动作、每一句对白都要落在某个镜头里——不概述、不省略、不跳过、不"挑选重点"；镜头数量与总时长由剧本体量自然决定，宁多勿漏（容量超限由上层拆分剧本处理，不由分镜偷工减料）；',
             '- **镜头按实际内容切分**：一个连续动作段落 = 一镜，数量由内容自然决定（3-10 镜都正常）——绝不凑数、绝不使用固定数量；',
+            '- **【切段友好·硬性】镜头边界要落在真能"换镜头"的地方**：系统会把这张分镜切成几次生成，切点只落在「换场 / 特写插入 / 新角色入场」三种镜头边界上。所以：同一个角色的**同一段连续动作绝不要拆成多镜分别标 continuation**（宁可给这一镜更长的 duration），一旦拆开又跨了生成段，两次生成就对不上；确实要换机位时，就让下一个镜头变成**换场/特写插入/新角色入场**中任意一种（哪怕只是插入一镜大特写），这样切点才干净、剪辑时是硬切而不是硬接。**反向约束**：不要为了凑切点而把一场戏拆成很多"换场"（那是假换场，会让画面在同一个空间里跳）；',
             '- **JSON 字符串值内部禁止出现半角双引号 "**——引用文字（牌匾/字幕/台词原文）一律用「」；',
             '- duration 为该镜时长，**支持一位小数**；**按节奏谱系分配、拒绝均匀分布**：普通叙事/对话/环境交代 2–4s，快速冲突/打斗/追逐 0.3–0.8s（快切），重要反转/冲击/卡点 1–2s，长镜头情绪沉淀 ≥5s——同一场里至少制造一次明显的节奏变化（例：3s 叙事 → 0.6s 快切×2 → 1.5s 反转 → 5s 情绪长镜），画面再精致、时长全一样就没有节奏感；总时长按内容需要写足（不设硬上限）；镜头顺序即叙事顺序，末镜收束情绪；**若下方给了「承接约束」，第 1 镜必须承接上一场尾镜的画面与人物状态（不得重新建立场景/跳回远景），无承接约束时首镜才交代场景**；',
             '- **按情绪选景别**：孤独/绝望/宏大危机=远景；对峙/动作/关系建立=全景；对话/试探/信息交换=中景；震惊/怀疑/内心动摇=近景；崩溃/嘶吼/情绪爆发=特写；关键细节/道具揭示=大特写——冲突用全景、揭秘转近景、爆发给特写、反转可拉远，景别变化本身在讲情绪；',
@@ -6888,19 +8166,24 @@ window.__ModuleLoader__.load({
             '- **轴线一致**：两人对话，同一轴线关系（如男左女右）在相邻镜必须保持一致，不得越轴。',
           ] : []).join('\n')
         : [
-            'Break the script into shots for ONE multi-shot video generation: after expansion, a single video node composes ALL shots (in order, with durations) into one prompt, and the video model generates the whole clip in one call (hard cuts inside the model — not one video per shot stitched together).',
+            'Break the script into shots for SHOT-BOUNDARY SEGMENTED generation: when expanded, the system splits the storyboard at real shot boundaries into several generations, each composing only its own shots into one prompt (the video model generates that segment; hard cuts inside the model — not one video per shot stitched together).',
             'Output only one JSON object: {"shots":[' + contFields + ']}.',
             'Rules:',
             '- visual = the shot\'s frame description (shot size, wardrobe, staging, light, framing, <=60 words);',
             '- **characters/scenes/props inside visual and motion must be written as @Name@ references** (an @ on each side, e.g. "@Chen@ picks up @Parcel@ by @Street@"); names must match the bible/assets VERBATIM, with no @, space or punctuation inside; an @ must never be followed directly by other text (always close with @) - the UI hides the @s and shows the name in blue bold; unregistered @Name@ is flagged by the consistency check;',
             '- motion = action & camera for the shot (action beats, camera move, emotional rhythm, <=50 words); do not repeat visual;',
+            '- **[ACTION LAYERING - HARD] timeBeats is this shot\'s three time beats (array, in order)**: split "one action" into **wind-up -> drive -> settle**, each beat describing a VISIBLE body/prop state, e.g. ["0s right hand half-way up, knuckles tightening","1.2s hand reaches the chest, shoulder line pressing forward","3s it settles over the envelope, a raindrop sliding off the fingers"]. **A single beat means the model performs a single pose (measured user feedback: minimal motion, pan-only)**; any shot >=2s must carry 3 beats, rapid cuts <=1s may carry 1. **Every beat must be filmable - never "he feels / he realizes"**;',
+            '- **camera = body/lens/move for this shot** (not just "push in / pan"): write "shot size + focal length & aperture + move start->end", e.g. "medium close-up 50mm f/2.0, slow push from waist height to the face, constant speed, decelerating to a stop 0.2s before the face". **Never use empty template verbs like push in / pull out / pan alone** (that is exactly what produces the "pan-only" result); **one primary camera move per shot** - if you need two, split the shot;',
+            '- **vfx = physical effects/details that must be visible in this shot** (if unwritten they simply do not exist; the model will not add them): name 1-3 per shot by genre - slanted rain / dust motes floating in a light shaft / snowflakes near-to-far / backlit lens flare / sodium-vapour streetlamp spill / lightning flash lighting the set / coat hem lifted by wind / ripples spreading on water / paper sheets tumbling / subtle handheld shake / motion-blur trails / drifting smoke / rising steam. Write **filmable physical phenomena**, never "a beautiful frame"; **at least 3 shots per scene must carry vfx**;',
             '- characters/scene/props arrays must use plain names from the script and series bible (no @) so assets match; empty props array if none;',
             '- **dialogue = the character lines that fall in this shot**, moved verbatim from the script ({"role":"Name","line":"exact line"}); never rewrite lines; empty array if none; keep one speaker per shot when possible (helps voice-reference extraction);',
             '- **[LIP-SYNC - HARD] any shot carrying dialogue must show the speaker TALKING ON SCREEN**: use a close-up / medium close-up with the face visible (frontal or 3/4), never back-to-camera, never obscured, never off-frame; state "speaks on screen, mouth clearly visible" in visual or motion; dialogue must NEVER become voice-over/narration (otherwise the final cut has a closed mouth with the voice floating in the background); if a line cannot be on camera in the script, move that line to the shot where the speaker is visible;',
             '- **sfx = sound cues / ambience for this shot**: bracketed notes like (SFX: ...) (Ambience: ...) from the script are moved verbatim into the closest matching shot (join multiples with commas); empty string if none — sound design is part of the film, never drop it;',
+            '- **negative = failure modes this shot must exclude** (comma-separated phrases): always include "face swap, facial drift, wardrobe change, deformed hands, extra fingers, clipping, flicker, style jump, stiff motion, lip-sync mismatch", plus 1-2 genre additions (period drama: "modern objects"; interior: "abrupt window light change"; multiple people: "identity swap");',
             '- **[FULL COVERAGE] the shots must cover EVERYTHING in the given script**: every action and every line must land in some shot — no summarizing, no omitting, no cherry-picking; shot count and total duration follow naturally from the script size (more is better than missing); capacity overflow is handled upstream by splitting the script, never by thinning the shots;',
             '- **Never use straight double quotes " inside JSON string values** — quoted text (signs/subtitles/lines) uses 「」 instead;',
             '- **Split shots by actual content**: one continuous action beat = one shot; the count is decided by the content (3-10 shots are all normal) — never pad, never use a fixed number;',
+            '- **[SEGMENTATION-FRIENDLY - HARD] shot boundaries must land where a cut can actually happen**: the system splits this storyboard into several generations, and a split is only allowed on a "cut" boundary - scene change / insert close-up / new character enters. Therefore: never break ONE character\'s ONE continuous action into several `continuation` shots (give that single shot a longer duration instead) - if it gets split across two generations, the two clips cannot be matched. When you genuinely change the camera, make the next shot one of scene change / insert close-up / new character (even a single insert close-up is enough) so the boundary is a clean cut rather than a forced match. **Do not fake it**: never label shots `scene_change` just to create cut points inside the same space - that reads as a jump;',
             '- duration is the shot length in seconds, **one decimal allowed**; **assign by pacing spectrum, never uniform**: normal narrative/dialogue 2-4s, fast conflict/fight/chase 0.3-0.8s (rapid cuts), key reversal/impact 1-2s, long emotional take >=5s — every scene must contain at least one obvious rhythm change (e.g. 3s narrative -> 0.6s cuts x2 -> 1.5s reversal -> 5s emotional take); identical durations kill the rhythm; total duration follows what the scene needs - no hard cap (vendor limits differ and change; if exceeded the video call reports it explicitly, then you split or adjust); shot order = narrative order; last shot lands the emotion; **if a CONTINUITY CONSTRAINT is given below, shot 1 must continue the previous scene\'s last frame and character state (no re-establishing, no wide reset); only without a constraint does shot 1 establish the scene**;',
             '- **Pick the shot size by emotion**: loneliness/despair/grand crisis = wide; confrontation/action/relationship = full; dialogue/probing/info exchange = medium; shock/suspicion/inner shake = close-up; breakdown/screaming/emotional burst = extreme close-up; key detail/prop reveal = big close-up — conflicts play wide, reveals move close, bursts go extreme, reversals can pull wide; the changing distance itself tells the emotion;',
             '- **Rapid cuts (<1.5s) get minimal visual/motion** (one action, one piece of in-frame information); long durations are earned by information density — duration must match content;',
@@ -7014,6 +8297,12 @@ window.__ModuleLoader__.load({
         cam: String(s.cam || '').trim().slice(0, 80),
         start: String(s.start || '').trim().slice(0, 120),
         seg: String(s.seg || '').trim().toLowerCase().slice(0, 20),
+        // 动作层次 / 机位三件套 / 物理特效 / 负向要求：这是"动作极简、只会平移、没有特效"的直接解药。
+        // 逐镜存进分镜数据，提示词组装时原样带上（没写就是空，绝不臆造）。
+        timeBeats: Array.isArray(s.timeBeats) ? s.timeBeats.map(String).map((x) => x.trim()).filter(Boolean).slice(0, 4) : [],
+        camera: String(s.camera || '').trim().slice(0, 160),
+        vfx: String(s.vfx || '').trim().slice(0, 160),
+        negative: String(s.negative || '').trim().slice(0, 200),
         characters: Array.isArray(s.characters) ? s.characters.map(String).slice(0, 6) : [],
         scene: String(s.scene || ''),
         props: Array.isArray(s.props) ? s.props.map(String).slice(0, 6) : [],
@@ -7179,12 +8468,24 @@ window.__ModuleLoader__.load({
       keysOpen: false,       // 左上角快捷键面板是否展开（纯 UI 状态，不持久化）
       skillPalette: false,   // 创作技能浮层（Ctrl/⌘+Shift+K 打开；纯 UI 状态，不持久化）
       canvasHost: null,      // 画布当前宿主：'main'（全屏面板）| 'pane'（会话右栏页签）| null——同一时刻只允许一处实例
+      // 3D 导演台（纯 UI 状态；场景数据存在节点/项目的 director 文档里，见 directorDoc）
+      directorOpen: false,
+      directorFull: false,          // 导演台是否全屏
+      directorPendingPlace: null,   // 待放置资产（点选预设后进入放置模式）
+      directorTool: 'select',       // 'select' | 'move' | 'rotate' | 'camera'
+      directorSnap: false,          // 磁铁吸附（Ctrl 临时开启）
+      directorSel: null,            // 选中的对象/机位 id
+      directorTimelineOpen: false,  // 时间轴面板是否展开
+      directorCamFollow: false,     // 视口是否跟随分镜机位（播放时开；点机位树/预设=手动查看，立即切视角）
+      directorEase: 'auto',         // 默认插值模式
+      directorTlZoom: 140,          // 时间轴缩放（px/秒）
     };
     const listeners = new Set();
     let saveTimer = null;
     let commitViewTimer = null;
 
-    function notify() { S.tick++; for (const fn of listeners) fn(); }
+    let notifyCount = 0; // 测试/诊断用：全树通知次数（拖动帧内必须不增长）
+    function notify() { notifyCount++; S.tick++; for (const fn of listeners) fn(); }
     function subscribe(fn) { listeners.add(fn); return () => listeners.delete(fn); }
     function update(fn, opts) {
       const edgesBefore = S.graph ? S.graph.edges : null; // 引用比较：fn 换了数组说明发生过边增删
@@ -7698,30 +8999,65 @@ window.__ModuleLoader__.load({
     }
 
     // 输入解析：生成节点的实际 prompt（文本节点 / 分镜节点的画面、动作输出）
-    /** 分镜表 → 一次多镜头视频生成的提示词：所有镜头按顺序、按时长写进同一条提示词，
-     *  由支持多镜头的视频模型**一次性生成整段视频**（而不是一镜一视频再拼接）。
+    /** 分镜表 → 一次多镜头视频生成的提示词：**只写这一段负责的镜头**（按顺序 + 时长），
+     *  由视频模型一次性生成整段视频。
+     *
+     *  为什么带 segment：整表一次生成时，模型的时长预算被摊薄，动作只能被压成"平移"。
+     *  按镜头切段后，每次只给 2–4 镜，动作才有演出的余地；段与段之间靠切点衔接，不硬接。
+     *
+     *  每镜增补三个"模型看不懂就没有"的字段（缺了就是空白，模型不会自己加）：
+     *   timeBeats（动作三节拍：起势 → 发力 → 落点）、camera（机位/焦段/运镜起点→终点）、
+     *   vfx（物理特效）。它们来自分镜表数据；没写就不注入，绝不臆造。
+     *
      *  各镜内的 @实体 引用原样保留：@引用只注入设定集文字，参考图仍只取连进 ref 口的连线。 */
-    function buildStoryboardVideoPrompt(sb) {
-      const shots = ((sb && sb.data && sb.data.shots) || []).filter((s) => s && (String(s.visual || '').trim() || String(s.motion || '').trim()));
+    function buildStoryboardVideoPrompt(sb, segment) {
+      const all = ((sb && sb.data && sb.data.shots) || []).filter((s) => s && (String(s.visual || '').trim() || String(s.motion || '').trim()));
+      const seg = segment || null;
+      const shots = seg ? all.slice(seg.from, seg.to + 1) : all;
       if (!shots.length) return '';
       const zh = effLang() !== 'en';
-      const total = shots.reduce((a, s) => a + Math.max(1, Number(s.duration) || 3), 0);
+      const durOf = (s) => Math.max(0.3, Number(s.duration) || 3);
+      const total = Math.round(shots.reduce((a, s) => a + durOf(s), 0) * 10) / 10;
       const hasDialogue = shots.some((s) => (s.dialogue || []).length);
-      const lines = [
-        zh
+      const head = seg && seg.count > 1
+        ? (zh
+          ? `【按镜头切段 · 第 ${seg.index + 1}/${seg.count} 段】本段只生成 ${shots.length} 镜、总时长 ${total} 秒（全表第 ${seg.from + 1}–${seg.to + 1} 镜）。严格按下列顺序与时长切镜（每镜时长不可变），镜头之间直接硬切，不要叠加转场。`
+          : `[Shot-boundary segment ${seg.index + 1}/${seg.count}] Generate ONLY these ${shots.length} shots, ${total}s total (shots ${seg.from + 1}-${seg.to + 1} of the storyboard). Cut strictly in this order with exact per-shot durations, hard cuts only, no transitions.`)
+        : (zh
           ? `【多镜头一次性生成】共 ${shots.length} 镜、总时长 ${total} 秒。严格按下列顺序与时长切镜（每镜时长不可变），镜头之间直接硬切，不要叠加转场：`
-          : `[Multi-shot single generation] ${shots.length} shots, ${total}s total. Cut strictly in this order with exact per-shot durations, hard cuts only, no transitions:`,
-      ];
+          : `[Multi-shot single generation] ${shots.length} shots, ${total}s total. Cut strictly in this order with exact per-shot durations, hard cuts only, no transitions:`);
+      const lines = [head];
+      // 切段边界说明：让模型知道这一段是"从切点开始"还是"接着上一段的动作"
+      if (seg && seg.count > 1) {
+        if (seg.needsTailChain) {
+          lines.push(zh
+            ? '本段首镜承接上一段结尾：首帧已由系统取上一段尾帧提供，第 1 帧必须与之完全一致，只允许往后延续动作（不重演、不重建场景、不换机位）。'
+            : 'This segment continues the previous one: the first frame is supplied from the previous segment tail; frame 1 must match it exactly and only continue the motion (no replay, no re-establishing, no camera reset).');
+        } else {
+          lines.push(zh
+            ? '本段从一个**换镜头切点**开始：不要承接上一段的画面，直接按本段第 1 镜建立新的构图与机位（环境声/情绪可以延续）。这样剪辑时就是一次干净的切，不需要硬接前一段画面。'
+            : 'This segment begins on a CUT: do not continue the previous segment picture; establish this segment\'s first shot fresh (ambience/mood may carry). This is what makes the edit a clean cut instead of a forced match.');
+        }
+      }
       if (hasDialogue) {
         lines.push(zh
           ? '标注「台词」的对白必须由**画面内可见的角色当场开口说出**（口型与台词同步、语气贴合情绪、面部朝镜头可见）；严禁处理成画外音/旁白；同步音频开启时按台词生成人声。'
           : 'Dialogue must be SPOKEN ON SCREEN by the visible character (lip-synced to the line, matching emotion, face toward camera); never render it as voice-over/narration; generate speech when synced audio is on.');
       }
       shots.forEach((s, i) => {
-        const dur = Math.max(1, Number(s.duration) || 3);
+        const dur = durOf(s);
         const parts = [];
         if (String(s.visual || '').trim()) parts.push(String(s.visual).trim());
         if (String(s.motion || '').trim()) parts.push((zh ? '运镜/动作：' : 'Camera/Action: ') + String(s.motion).trim());
+        // 动作三节拍：这是"动作极简、只会平移"的直接解药——不写节拍，模型只演一个姿势
+        const beats = Array.isArray(s.timeBeats) ? s.timeBeats.filter((b) => String(b || '').trim()) : [];
+        if (beats.length) {
+          parts.push((zh ? '动作节拍（按时间推进，不可省略任何一拍）' : 'Action beats (in order, none may be skipped)') + '：' + beats.join(zh ? ' → ' : ' -> '));
+        }
+        const cam = String(s.camera || '').trim();
+        if (cam) parts.push((zh ? '机位/焦段/运镜' : 'Camera/lens/move') + '：' + cam);
+        const vfx = String(s.vfx || '').trim();
+        if (vfx) parts.push((zh ? '物理特效（必须可见）' : 'Physical VFX (must be visible)') + '：' + vfx);
         const dls = (s.dialogue || []).map((d) => String(d && d.role || '').trim() + '：' + String(d && d.line || '').trim()).filter((x) => x.replace('：', '').trim());
         if (dls.length) {
           parts.push(zh
@@ -7731,6 +9067,14 @@ window.__ModuleLoader__.load({
         if (String(s.sfx || '').trim()) parts.push((zh ? '音效：' : 'SFX: ') + String(s.sfx).trim());
         lines.push((zh ? `镜头${i + 1}（${dur}s）：` : `Shot ${i + 1} (${dur}s): `) + parts.join(zh ? '；' : '; '));
       });
+      // 段级负向要求：模型默认会漂移、穿模、闪烁，不点名就一定会出现
+      const negAll = shots.map((s) => String(s.negative || '').trim()).filter(Boolean);
+      const negLine = negAll.length
+        ? [...new Set(negAll.join('、').split(/[、,，;；]/).map((x) => x.trim()).filter(Boolean))].join('、')
+        : '';
+      lines.push(zh
+        ? '禁止：换脸、五官漂移、服装变化、手部畸形、多指、穿模、画面闪烁、风格突变、动作僵硬、人物凭空出现或消失、口型与台词不同步' + (negLine ? '、' + negLine : '') + '。'
+        : 'Never: face swap, facial drift, wardrobe change, deformed hands, extra fingers, clipping, flicker, style jump, stiff motion, characters popping in or out, lip-sync mismatch' + (negLine ? ', ' + negLine : '') + '.');
       return lines.join('\n');
     }
     function resolvePrompt(n) {
@@ -7744,14 +9088,22 @@ window.__ModuleLoader__.load({
             const v = (src.data[field] || '').trim();
             if (v) return v;
           }
-          // 上游是分镜表 → 多镜头一次性生成：全部镜头组合成一条提示词（时长 = 各镜之和）
+          // 上游是分镜表 → 多镜头一次性生成：只组合**本段负责的镜头**（按镜头切段铺开时）
           if (src.type === 'storyboard') {
-            const composed = buildStoryboardVideoPrompt(src);
+            const composed = buildStoryboardVideoPrompt(src, videoSegmentOf(n));
             if (composed) return composed;
           }
         }
       }
       return (n.data.prompt || '').trim();
+    }
+    /** 视频节点上的「本段镜头区间」（按镜头切段铺开时写入 data.segShotFrom/To）。 */
+    function videoSegmentOf(n) {
+      const d = (n && n.data) || {};
+      const from = Number(d.segShotFrom);
+      const to = Number(d.segShotTo);
+      if (!Number.isFinite(from) || !Number.isFinite(to) || to < from) return null;
+      return { from: Math.max(0, Math.floor(from)), to: Math.floor(to), index: Number(d.segIndex) || 0, count: Number(d.segCount) || 1, needsTailChain: d.needsTailChain === true, seamRisk: String(d.seamRisk || 'none') };
     }
     // 节点输出端口所服务的资产（视频生成 last 端口 → 尾帧图资产）
     function servedAssetId(src, fromPort) {
@@ -8099,7 +9451,18 @@ window.__ModuleLoader__.load({
             const src = e2 && S.graph.nodes[e2.fromNode];
             return src && src.type === 'storyboard' ? src : null;
           })();
-          const shotList = sbUp && Array.isArray(sbUp.data.shots) ? sbUp.data.shots : [];
+          const shotListAll = sbUp && Array.isArray(sbUp.data.shots) ? sbUp.data.shots : [];
+          // 按镜头切段：上游分镜表被"按镜头切段"铺开过时，每个视频节点只负责自己那一段镜头。
+          // 只取本段的镜头去组提示词——绝不把整表的镜头都塞进一次请求（那正是"动作被压成平移"的根因）。
+          const segMeta = (() => {
+            const d = (n.data || {});
+            if (!shotListAll.length) return null;
+            const from = Number(d.segShotFrom);
+            const to = Number(d.segShotTo);
+            if (!Number.isFinite(from) || !Number.isFinite(to) || to < from) return null;
+            return { from: Math.max(0, Math.floor(from)), to: Math.min(shotListAll.length - 1, Math.floor(to)), index: Number(d.segIndex) || 0, count: Number(d.segCount) || 1, needsTailChain: d.needsTailChain === true, seamRisk: String(d.seamRisk || 'none') };
+          })();
+          const shotList = segMeta ? shotListAll.slice(segMeta.from, segMeta.to + 1) : shotListAll;
           const handWritten = String(n.data.prompt || '').trim();
           // 分镜衔接规划：段落类型（续帧/换场/新角色/特写插入）+ 首镜承接口 + 是否接力尾帧
           const zh = effLang() !== 'en';
@@ -8119,9 +9482,10 @@ window.__ModuleLoader__.load({
             // 第 1 镜没有表内上一镜时，可承接上一个分镜表 → 实质是续帧
             if (seg === 'opening' && prevNote) seg = 'continuation';
             const join = (seg === 'scene_change' || seg === 'new_character') ? 'loose' : seg === 'closeup' ? 'cut' : 'strict';
-            // 只有续帧段才自动取上一段尾帧；其余段落没有可承接的画面
-            const chain = contOn && seg === 'continuation';
-            return { first, chain, seg, join, fromShot: contOn && !!prevNote, contOn };
+            // 接力判定：切段铺开时以**规划器**为准（它知道本段是否从切点开始）；
+            // 直接把整表塞一次生成的旧路径才退回"首镜是续帧就接力"。
+            const chain = contOn && (segMeta ? (segMeta.needsTailChain && seg === 'continuation') : seg === 'continuation');
+            return { first, chain, seg, join, fromShot: contOn && (segMeta ? segMeta.needsTailChain : !!prevNote), contOn, segMeta };
           })();
           // 首帧来源：① frame 口连线（用户显式）② 续帧链自动取「上一个视频」的尾帧
           let frameBlob = await resolveAssetBlob(n.id, 'frame');
@@ -8398,7 +9762,66 @@ window.__ModuleLoader__.load({
     // ============================================================
     // altNoPush：本次拖动是否处于「按住 Alt 自由摆放」模式（不推挤邻居、也不吸附加固）。
     // 注意每次 pointermove 都重新读 e.altKey，所以拖动中途按下/松开 Alt 会实时切换。
-    const drag = { mode: null, sx: 0, sy: 0, moved: false, nodeStarts: null, marquee: null, linkFrom: null, shift: false, altNoPush: false };
+    const drag = {
+      mode: null, sx: 0, sy: 0, moved: false, nodeStarts: null, marquee: null, linkFrom: null, shift: false, altNoPush: false,
+      // P1：拖动期间的 rAF 合并 + 吸附候选（拖起时算一次，指针移动帧里只遍历候选，不遍历全部节点）
+      snapCandidates: null, raf: 0, pendingEvent: null, lastEvent: null,
+    };
+    /** 吸附/推挤候选：被拖节点 + 与其相连的节点 + 起手位置附近（约 1.5 个视口）的节点。
+     *  拖动帧里只遍历这份小列表（不再每帧 Object.values(全图)）。 */
+    function buildDragCandidates(movingIds) {
+      const moving = new Set(movingIds || []);
+      const out = new Map();
+      const add = (id) => {
+        if (!id || moving.has(id)) return;
+        const nd = S.graph.nodes[id];
+        if (nd && nd.type !== 'group') out.set(id, nd);
+      };
+      for (const e of S.graph.edges) {
+        if (moving.has(e.fromNode)) add(e.toNode);
+        if (moving.has(e.toNode)) add(e.fromNode);
+      }
+      const prim = drag.nodeStarts && drag.nodeStarts[0];
+      const pn = prim && S.graph.nodes[prim.id];
+      if (pn) {
+        const rect = containerRect();
+        const marginX = Math.max(480, (Number(rect.width) || 800) * 1.5 / (V.scale || 1));
+        const marginY = Math.max(480, (Number(rect.height) || 600) * 1.5 / (V.scale || 1));
+        const pcx = pn.x + (pn.w || 240) / 2;
+        const pcy = pn.y + (pn.h || 96) / 2;
+        for (const other of Object.values(S.graph.nodes)) {
+          if (!other || moving.has(other.id) || other.type === 'group' || (other.data && other.data.hidden)) continue;
+          const ocx = other.x + (other.w || 240) / 2;
+          const ocy = other.y + (other.h || 96) / 2;
+          if (Math.abs(ocx - pcx) <= marginX && Math.abs(ocy - pcy) <= marginY) out.set(other.id, other);
+        }
+      }
+      return [...out.values()];
+    }
+    // ── 边路径 rAF 合并：拖动帧里只标记"受影响的边"，每帧最多重算一次，且只重算这些边 ──
+    let edgeRaf = 0;
+    const edgePending = new Set();
+    function flushEdgePaths() {
+      if (!edgePending.size) return;
+      const byId = new Map(S.graph.edges.map((e) => [e.id, e]));
+      for (const id of edgePending) {
+        const e = byId.get(id);
+        const pathEl = edgePathEls.get(id);
+        if (e && pathEl) pathEl.setAttribute('d', edgePath(e));
+      }
+      edgePending.clear();
+    }
+    function scheduleEdgePaths(movedIds) {
+      for (const e of S.graph.edges) {
+        if (movedIds.has(e.fromNode) || movedIds.has(e.toNode)) edgePending.add(e.id);
+      }
+      if (!edgePending.size || edgeRaf) return;
+      edgeRaf = requestAnimationFrame(() => { edgeRaf = 0; flushEdgePaths(); });
+    }
+    function cancelEdgeRaf() {
+      if (edgeRaf) { try { cancelAnimationFrame(edgeRaf); } catch { /* 忽略 */ } edgeRaf = 0; }
+      flushEdgePaths();
+    }
 
     /** 点击节点内容区打开面板：面板渲染条件要求 composerId ∈ S.sel，
      *  而视频控件/分镜清单会在 pointerdown 里 stopPropagation（不经节点根选中），
@@ -8489,6 +9912,12 @@ window.__ModuleLoader__.load({
         const nd = S.graph.nodes[id];
         return nd ? { id, x: nd.x, y: nd.y } : null;
       }).filter(Boolean);
+      // P1：吸附候选只在拖起时算一次（邻居 + 附近节点），拖动帧内不再遍历全图
+      drag.snapCandidates = buildDragCandidates(allIds);
+      drag.pendingEvent = null; drag.lastEvent = null;
+      if (drag.raf) { try { cancelAnimationFrame(drag.raf); } catch { /* 忽略 */ } drag.raf = 0; }
+      // P2：拖动期间禁用节点 sheen filter 动画（filter 动画会让整块节点每帧重新光栅化）
+      try { if (canvasEl) canvasEl.classList.add('is-node-dragging'); } catch { /* 忽略 */ }
       try { canvasEl.setPointerCapture(e.pointerId); } catch { /* 忽略 */ }
     }
     function onPortPointerDown(e, n, port, dir) {
@@ -8516,81 +9945,103 @@ window.__ModuleLoader__.load({
       tempEdgeEl.setAttribute('d', d);
       tempEdgeEl.style.display = 'block';
     }
+    /** P1：拖动节点只在 rAF 帧里应用最新一次指针位置（pointermove 可高频合并）。
+     *  帧内只遍历「吸附候选」（被拖节点 + 邻居），不遍历全部节点；不调用 notify。 */
+    function applyNodeDragFrame(e) {
+      const dxs = e.clientX - drag.sx;
+      const dys = e.clientY - drag.sy;
+      if (Math.abs(dxs) + Math.abs(dys) > 2) drag.moved = true;
+      let dxw = dxs / V.scale, dyw = dys / V.scale;
+      // 按住 Alt = 自由摆放：跳过对齐吸附 + 跳过碰撞推挤（允许穿过/覆盖其他节点）。
+      // 典型场景：矩阵布局里挪中间的节点，普通拖动会把整片邻居推开打乱布局，Alt 拖动只挪它自己。
+      // 实时读 e.altKey（而不是只看起手那一刻）：拖动途中按下/松开立即生效。
+      const noPush = !!e.altKey;
+      drag.altNoPush = noPush;
+      // 对齐吸附：以首个拖动节点为基准，与其他节点左/中/右、上/中/下对齐（容差 6px）
+      const prim = drag.nodeStarts[0];
+      const ndP = prim && S.graph.nodes[prim.id];
+      if (ndP && !e.shiftKey && !noPush && drag.nodeStarts.length) {
+        const snap = 6 / V.scale;
+        const ph = ndP.h || 96;
+        const px = prim.x + dxw, py = prim.y + dyw;
+        const pm = { l: px, cx: px + ndP.w / 2, r: px + ndP.w, t: py, cy: py + ph / 2, b: py + ph };
+        let bestV = null, bestH = null;
+        const candidates = drag.snapCandidates && drag.snapCandidates.length ? drag.snapCandidates : [];
+        for (const other of candidates) {
+          if (!other || other.id === prim.id || other.type === 'group') continue;
+          const oh = other.h || 96;
+          const om = { l: other.x, cx: other.x + other.w / 2, r: other.x + other.w, t: other.y, cy: other.y + oh / 2, b: other.y + oh };
+          for (const pk of ['l', 'cx', 'r']) for (const ok of ['l', 'cx', 'r']) {
+            const d = Math.abs(pm[pk] - om[ok]);
+            if (d <= snap && (!bestV || d < bestV.d)) bestV = { d, line: om[ok], delta: om[ok] - pm[pk] };
+          }
+          for (const pk of ['t', 'cy', 'b']) for (const ok of ['t', 'cy', 'b']) {
+            const d = Math.abs(pm[pk] - om[ok]);
+            if (d <= snap && (!bestH || d < bestH.d)) bestH = { d, line: om[ok], delta: om[ok] - pm[pk] };
+          }
+        }
+        if (bestV) dxw += bestV.delta;
+        if (bestH) dyw += bestH.delta;
+        showGuides(bestV ? bestV.line : null, bestH ? bestH.line : null);
+      } else if (noPush) {
+        hideGuides(); // Alt 自由摆放：吸附线一并隐藏，避免"看着被吸住其实没吸"
+      }
+      // Alt 自由摆放的可见反馈：被拖节点加虚线轮廓，用户能立刻分清"现在没在推挤"
+      for (const st of drag.nodeStarts) {
+        const el = nodeEls.get(st.id);
+        if (!el) continue;
+        if (noPush) el.classList.add('is-free-drag');
+        else el.classList.remove('is-free-drag');
+      }
+      const movedIds = new Set();
+      for (const st of drag.nodeStarts) {
+        const el = nodeEls.get(st.id);
+        const nd = S.graph.nodes[st.id];
+        if (!el || !nd) continue;
+        const nx = Math.round(st.x + dxw), ny = Math.round(st.y + dyw);
+        nd.x = nx; nd.y = ny; // 直接写模型（尚未通知 React）
+        el.style.left = nx + 'px';
+        el.style.top = ny + 'px';
+        movedIds.add(st.id);
+      }
+      // —— 实时碰撞推挤（物理感）：拖动节点碰到谁，谁沿远离方向实时让位；被推者再推别人（级联）。
+      //    上下左右同理：下节点上移碰到上节点 → 上节点实时上移；全程无弹跳，松手即定格。
+      //    按住 Alt 时**整段禁用**（不推挤 = 允许覆盖穿过），松手后位置照旧保留，不会弹回。
+      if (!noPush) resolvePushNow(movedIds, drag.snapCandidates);
+      if (movedIds.size) {
+        // 边路径：合并到一帧一次，且只重算与移动节点相连的边
+        scheduleEdgePaths(movedIds);
+        // 选中的节点在拖动：紧贴它的生成面板同步跟随（否则会看起来与节点脱节）
+        try { if (composerReposition) composerReposition(); } catch { /* 定位失败不影响拖动 */ }
+      }
+    }
+    /** 指针抬起前把最后一帧拖拽补上（rAF 尚未执行的最后一次 pointermove 不能丢）。 */
+    function flushNodeDragFrame() {
+      if (drag.raf) { try { cancelAnimationFrame(drag.raf); } catch { /* 忽略 */ } drag.raf = 0; }
+      const ev = drag.pendingEvent || drag.lastEvent;
+      drag.pendingEvent = null;
+      if (ev && drag.mode === 'node' && drag.nodeStarts) applyNodeDragFrame(ev);
+    }
     function onCanvasPointerMove(e) {
       if (!drag.mode) return;
+      if (drag.mode === 'node') {
+        drag.lastEvent = e;
+        drag.pendingEvent = e;
+        if (!drag.raf) {
+          drag.raf = requestAnimationFrame(() => {
+            drag.raf = 0;
+            const ev = drag.pendingEvent;
+            drag.pendingEvent = null;
+            if (ev && drag.mode === 'node') applyNodeDragFrame(ev);
+          });
+        }
+        return;
+      }
       const dxs = e.clientX - drag.sx;
       const dys = e.clientY - drag.sy;
       if (drag.mode === 'pan') {
         setView(V.x + dxs, V.y + dys, V.scale, false);
         drag.sx = e.clientX; drag.sy = e.clientY;
-      } else if (drag.mode === 'node') {
-        if (Math.abs(dxs) + Math.abs(dys) > 2) drag.moved = true;
-        let dxw = dxs / V.scale, dyw = dys / V.scale;
-        // 按住 Alt = 自由摆放：跳过对齐吸附 + 跳过碰撞推挤（允许穿过/覆盖其他节点）。
-        // 典型场景：矩阵布局里挪中间的节点，普通拖动会把整片邻居推开打乱布局，Alt 拖动只挪它自己。
-        // 实时读 e.altKey（而不是只看起手那一刻）：拖动途中按下/松开立即生效。
-        const noPush = !!e.altKey;
-        drag.altNoPush = noPush;
-        // 对齐吸附：以首个拖动节点为基准，与其他节点左/中/右、上/中/下对齐（容差 6px）
-        const prim = drag.nodeStarts[0];
-        const ndP = prim && S.graph.nodes[prim.id];
-        if (ndP && !e.shiftKey && !noPush && drag.nodeStarts.length) {
-          const snap = 6 / V.scale;
-          const ph = ndP.h || 96;
-          const px = prim.x + dxw, py = prim.y + dyw;
-          const pm = { l: px, cx: px + ndP.w / 2, r: px + ndP.w, t: py, cy: py + ph / 2, b: py + ph };
-          let bestV = null, bestH = null;
-          for (const other of Object.values(S.graph.nodes)) {
-            if (!other || other.id === prim.id || other.type === 'group') continue;
-            const oh = other.h || 96;
-            const om = { l: other.x, cx: other.x + other.w / 2, r: other.x + other.w, t: other.y, cy: other.y + oh / 2, b: other.y + oh };
-            for (const pk of ['l', 'cx', 'r']) for (const ok of ['l', 'cx', 'r']) {
-              const d = Math.abs(pm[pk] - om[ok]);
-              if (d <= snap && (!bestV || d < bestV.d)) bestV = { d, line: om[ok], delta: om[ok] - pm[pk] };
-            }
-            for (const pk of ['t', 'cy', 'b']) for (const ok of ['t', 'cy', 'b']) {
-              const d = Math.abs(pm[pk] - om[ok]);
-              if (d <= snap && (!bestH || d < bestH.d)) bestH = { d, line: om[ok], delta: om[ok] - pm[pk] };
-            }
-          }
-          if (bestV) dxw += bestV.delta;
-          if (bestH) dyw += bestH.delta;
-          showGuides(bestV ? bestV.line : null, bestH ? bestH.line : null);
-        } else if (noPush) {
-          hideGuides(); // Alt 自由摆放：吸附线一并隐藏，避免"看着被吸住其实没吸"
-        }
-        // Alt 自由摆放的可见反馈：被拖节点加虚线轮廓，用户能立刻分清"现在没在推挤"
-        for (const st of drag.nodeStarts) {
-          const el = nodeEls.get(st.id);
-          if (!el) continue;
-          if (noPush) el.classList.add('is-free-drag');
-          else el.classList.remove('is-free-drag');
-        }
-        const movedIds = new Set();
-        for (const st of drag.nodeStarts) {
-          const el = nodeEls.get(st.id);
-          const nd = S.graph.nodes[st.id];
-          if (!el || !nd) continue;
-          const nx = Math.round(st.x + dxw), ny = Math.round(st.y + dyw);
-          nd.x = nx; nd.y = ny; // 直接写模型（尚未通知 React）
-          el.style.left = nx + 'px';
-          el.style.top = ny + 'px';
-          movedIds.add(st.id);
-        }
-        // —— 实时碰撞推挤（物理感）：拖动节点碰到谁，谁沿远离方向实时让位；被推者再推别人（级联）。
-        //    上下左右同理：下节点上移碰到上节点 → 上节点实时上移；全程无弹跳，松手即定格。
-        //    按住 Alt 时**整段禁用**（不推挤 = 允许覆盖穿过），松手后位置照旧保留，不会弹回。
-        if (!noPush) resolvePushNow(movedIds);
-
-        if (movedIds.size) {
-          for (const e2 of S.graph.edges) {
-            if (!movedIds.has(e2.fromNode) && !movedIds.has(e2.toNode)) continue;
-            const p = edgePathEls.get(e2.id);
-            if (p) p.setAttribute('d', edgePath(e2));
-          }
-          // 选中的节点在拖动：紧贴它的生成面板同步跟随（否则会看起来与节点脱节）
-          try { if (composerReposition) composerReposition(); } catch { /* 定位失败不影响拖动 */ }
-        }
       } else if (drag.mode === 'marquee') {
         const w = screenToWorld(e.clientX, e.clientY);
         drag.marquee.x1 = w.x; drag.marquee.y1 = w.y;
@@ -8612,6 +10063,9 @@ window.__ModuleLoader__.load({
     function onCanvasPointerUp(e) {
       if (!drag.mode) return;
       const mode = drag.mode;
+      // 收尾：先补上最后一帧拖拽（rAF 尚未执行的 pointermove），清掉视觉 class 与 Alt 标记
+      if (mode === 'node') flushNodeDragFrame();
+      try { if (canvasEl) canvasEl.classList.remove('is-node-dragging'); } catch { /* 忽略 */ }
       // 收尾：清掉 Alt 自由摆放的视觉标记（无论是否发生过移动，避免虚线轮廓残留在节点上）
       if (mode === 'node') {
         for (const st of (drag.nodeStarts || [])) {
@@ -8621,8 +10075,8 @@ window.__ModuleLoader__.load({
         drag.altNoPush = false;
       }
       if (mode === 'node' && drag.moved) {
-        // 拖动期间直接写了模型坐标，这里只需通知 + 保存
-        notify();
+        // 拖动期间直接写了模型坐标与边 path，这里只需一次性地重算剩余边 + 通知 + 保存
+        cancelEdgeRaf();
         pushHistory();
         scheduleSave();
         hideGuides();
@@ -8661,7 +10115,9 @@ window.__ModuleLoader__.load({
       drag.nodeStarts = null;
       drag.marquee = null;
       drag.linkFrom = null;
-      notify();
+      drag.snapCandidates = null;
+      drag.pendingEvent = null; drag.lastEvent = null;
+      notify(); // 拖动/平移/连线的唯一一次全树通知（拖动帧内绝不 notify）
     }
     function onCanvasDoubleClick(e) {
       if (e.target.closest && (e.target.closest('[data-node-id]') || e.target.closest('.dshic-composer'))) return;
@@ -8722,6 +10178,7 @@ window.__ModuleLoader__.load({
     // 全局键盘：删除 / 复制
     function onWindowKeyDown(e) {
       if (!S.ready) return;
+      if (S.directorOpen) return;   // 导演台有自己的 capture 键盘层；背后画布绝不能同时响应
       const ae = document.activeElement;
       const typing = ae && (ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA' || ae.isContentEditable);
       if (e.key === 'Escape') {
@@ -8795,6 +10252,7 @@ window.__ModuleLoader__.load({
       search: 'M11 18a7 7 0 100-14 7 7 0 000 14zM20 20l-4-4',
       keyboard: 'M3 6h18v12H3zM7 10h.01M10 10h.01M13 10h.01M16 10h.01M7 13h.01M10 13h.01M13 13h.01M16 13h.01M8 16h8',
       link: 'M10 13a5 5 0 007.1 0l2.4-2.4a5 5 0 00-7.1-7.1L11 4.9M14 11a5 5 0 00-7.1 0L4.5 13.4a5 5 0 007.1 7.1L13 19.1',
+      camera: 'M4 8h3l1.5-2h7L17 8h3v11H4zM12 16a3 3 0 100-6 3 3 0 000 6z',
     };
     function Ic(name, size) { return h(Icon, { d: ICONS[name], size: size || 14 }); }
 
@@ -8827,8 +10285,11 @@ window.__ModuleLoader__.load({
     /** 实时碰撞推挤共享核心（拖动 / 节点尺寸变化共用）：与 movers 里节点相交的其他节点，
      *  沿远离主动节点的方向让位（重叠较少的轴先动，上下左右机会均等），被推者再推别人，级联最多 4 轮。
      *  高频路径：直接写模型坐标并同步被推节点的 DOM（不触发 React 重渲染），由调用方在静止时收尾落盘。 */
-    function resolvePushNow(movers) {
+    function resolvePushNow(movers, candidateNodes) {
       const PUSH_GAP = 8; // 触距：小于静止间距，贴近"贴上就推"的手感
+      const candidates = Array.isArray(candidateNodes)
+        ? candidateNodes
+        : Object.values(S.graph.nodes);
       let frontier = [...movers];
       for (let pass = 0; pass < 4 && frontier.length; pass++) {
         const next = [];
@@ -8836,7 +10297,7 @@ window.__ModuleLoader__.load({
           const a = S.graph.nodes[fid];
           if (!a) continue;
           const al = a.x, ar = a.x + (a.w || 240), at = a.y, ab = a.y + (a.h || 96);
-          for (const other of Object.values(S.graph.nodes)) {
+          for (const other of candidates) {
             if (!other || movers.has(other.id) || other.type === 'group' || (other.data && other.data.hidden)) continue;
             const bl = other.x, br = other.x + (other.w || 240), bt = other.y, bb = other.y + (other.h || 96);
             if (al >= br + PUSH_GAP || ar + PUSH_GAP <= bl || at >= bb + PUSH_GAP || ab + PUSH_GAP <= bt) continue; // 未相交
@@ -8968,7 +10429,7 @@ window.__ModuleLoader__.load({
       pushHistory();
     }
 
-    function NodeShell({ n }) {
+    function NodeShell({ n, edgeSig }) {
       const st = n.data.status || 'idle';
       const selected = S.sel.has(n.id);
       const refCb = useCallback((el) => {
@@ -9121,7 +10582,7 @@ window.__ModuleLoader__.load({
           className: cls('dshic-node-body', isMedia && 'is-media', !isMedia && isTextual && 'is-textual'),
           ...(isMedia ? null : { 'data-node-content': '1' }),
         },
-          ...(isMedia ? [headEl, nodeBody(n)] : [nodeBody(n)])),
+          ...(isMedia ? [headEl, nodeBody(n, edgeSig)] : [nodeBody(n, edgeSig)])),
         // 尺寸把手：右/左/下/上四条边 + 右下角（双击底边回到默认 360 高）
         h('div', { className: 'dshic-rs dshic-rs-e', title: T('resizeHint'), onPointerDown: (e) => startResize(e, 'e') }),
         h('div', { className: 'dshic-rs dshic-rs-w', title: T('resizeHint'), onPointerDown: (e) => startResize(e, 'w') }),
@@ -9896,6 +11357,15 @@ window.__ModuleLoader__.load({
                 onChange: (v) => setStoryboardPrev(n.id, v || null),
               })
             : null,
+          // 单段生成上限：切段规划器按它决定"一张分镜表切成几次生成"。
+          // MiniMax 这类弱衔接模型建议填 6–10；Seedance 2.5 可以填到 15。
+          isStoryboard
+            ? h(PopupSelect, {
+                value: String(Number(n.data.segMaxSeconds) || 15), width: 84, title: T('segMaxLabel'), className: 'is-segmax',
+                options: [6, 8, 10, 12, 15, 20, 30].map((x) => ({ value: String(x), label: x + 's' })),
+                onChange: (v) => setData('segMaxSeconds', Number(v)),
+              })
+            : null,
           (isImage || isVideo || isFinalCut)
             ? h(PopupSelect, { value: n.data.ratio || '16:9', options: ratioOpts, onChange: onRatio, width: 74, title: T('ratioLabel') })
             : null,
@@ -10115,7 +11585,8 @@ window.__ModuleLoader__.load({
     /** 统一媒体节点（图片/视频合并后唯一的结果节点）：节点内只显示结果。
      *  有 assetId → 预览 + 左上状态徽标 + 右上参考图角标；无结果 → 虚线空态「点击描述画面生成…」；
      *  空节点不放任何生成按钮（生成动作在 GenComposer 的发送按钮）。点击节点任意位置打开面板。 */
-    function MediaNodeBody({ n, kind }) {
+    function MediaNodeBodyInner({ n, kind, refSig }) {
+      void refSig;
       // 视频产物自动提取尾帧（含外部注入/导入的视频）：last 口与跨镜衔接不依赖"必须由本节点生成"
       useEffect(() => {
         if (kind !== 'video' || !n.data.assetId) return;
@@ -10171,9 +11642,14 @@ window.__ModuleLoader__.load({
         return () => { ok = false; };
       }, [n.id, S.assetsTick, S.store]);
       const assetUrlV = useAssetUrl(n.data.assetId);
+      // 视频默认只画静态 poster；<video> 只在播放时挂载（见下方播放状态机）
+      const videoPoster = useVideoPoster(kind === 'video' ? n.data.assetId : null);
+      const posterUrl = videoPoster.poster;
+      const posterState = videoPoster.state;
       const [mediaState, setMediaState] = useState('idle'); // idle | ready | error（未就绪一律骨架，绝不破图）
       // 视频播放状态机输入：playing=正在播放（决定控件条是否出现）/ ended=已播完（圆形键换成重播）
       const videoRef = useRef(null);
+      const resumeTimeRef = useRef(0); // 暂停时记住进度：再次播放从原处继续（交互不回退）
       const [playing, setPlaying] = useState(false);
       const [ended, setEnded] = useState(false);
       // 控件条读数：进度（timeupdate 驱动）/ 总时长（metadata）/ 音量与静音
@@ -10186,6 +11662,7 @@ window.__ModuleLoader__.load({
         setMediaState('idle');
         setPlaying(false); setEnded(false);
         setCurrent(0); setDuration(0);
+        resumeTimeRef.current = 0;
       }, [n.data.assetId]);
       const refEdges = S.graph.edges.filter((x) => x.toNode === n.id && x.toPort === 'ref');
       const firstRefSrc = refEdges.length ? S.graph.nodes[refEdges[0].fromNode] : null;
@@ -10215,19 +11692,36 @@ window.__ModuleLoader__.load({
         });
       };
       const imgShown = done && !!assetUrlV && kind === 'image' && mediaState !== 'error';
-      const vidShown = done && !!assetUrlV && kind === 'video' && mediaState !== 'error';
-      /** 视频播放/暂停：真实 <video> 执行，播放键自身 stopPropagation——点它只播放、不弹面板。
-       *  已播完再点 = 从头重播。 */
+      const videoPlaying = done && kind === 'video' && playing;
+      // 视频：有 poster 即视为就绪（mediaState ready 由 poster 的 onLoad 设置，不再依赖 <video> 元数据）
+      const posterLoading = done && kind === 'video' && !posterUrl && (posterState === 'idle' || posterState === 'loading');
+      const posterFailed = done && kind === 'video' && !posterUrl && posterState === 'error';
+      /** 视频播放/暂停：默认只有 poster；播放时才挂真实 <video>（播完/暂停即卸载回 poster）。
+       *  播放键自身 stopPropagation——点它只播放、不弹面板；已播完再点 = 从头重播。 */
       const togglePlay = () => {
         const v = videoRef.current;
-        if (!v) return;
+        if (!v) {
+          // 没有 <video>（当前是 poster）：请求播放 → 下一帧挂载 video 并自动 play
+          if (ended) { resumeTimeRef.current = 0; setEnded(false); }
+          setCurrent(resumeTimeRef.current || 0);
+          setPlaying(true);
+          return;
+        }
         if (v.paused || v.ended) {
-          if (v.ended) { try { v.currentTime = 0; } catch { /* 忽略 */ } }
+          if (v.ended) { try { v.currentTime = 0; } catch { /* 忽略 */ } resumeTimeRef.current = 0; }
           try { const p = v.play(); if (p && typeof p.catch === 'function') p.catch(() => { /* 自动播放被拦：保留播放键 */ }); } catch { /* 忽略 */ }
         } else {
-          try { v.pause(); } catch { /* 忽略 */ }
+          try { resumeTimeRef.current = Number(v.currentTime) || 0; v.pause(); } catch { /* 忽略 */ }
+          setPlaying(false);
         }
       };
+      // 播放时 video 挂载后自动 play（用户点击是手势，不会被自动播放策略拦）
+      useEffect(() => {
+        if (!playing) return;
+        const v = videoRef.current;
+        if (!v) return;
+        try { const p = v.play(); if (p && typeof p.catch === 'function') p.catch(() => { /* 保留播放键 */ }); } catch { /* 忽略 */ }
+      }, [playing, n.data.assetId]);
       /** 进度条拖动 seek（控件条只在播放中出现，拖动期间不打断播放）。 */
       const seekVideo = (t) => {
         const v = videoRef.current;
@@ -10265,10 +11759,27 @@ window.__ModuleLoader__.load({
       return [
         // data-node-content：预览区（含空态）是唯一会弹生成面板的点击区域
         h('div', { key: 'media', className: cls('dshic-media-wrap', running && 'is-running'), 'data-node-content': '1' },
-          // 骨架层永远铺满内容区：图片/视频未就绪（加载中、资产暂取不到、解码失败）显示中性骨架，
-          // 绝不出现 <img alt> 破图占位，也绝不出现 letterbox 空白带。图片加载完成后骨架自动撤掉。
-          done && mediaState !== 'ready'
+          // 骨架层：图片未就绪 / 视频**首次取 poster** 期间才出现；有 poster 后任何重渲染都直接出画面
+          done && (kind === 'video' ? posterLoading : mediaState !== 'ready')
             ? h('div', { key: 'sk', className: cls('dshic-media-skeleton', mediaState === 'error' && 'is-error') })
+            : null,
+          // 视频 poster（首选路径）：一张廉价 img，浏览器磁盘缓存 + 零视频解码
+          done && kind === 'video' && posterUrl
+            ? h('img', {
+                key: 'poster', className: 'dshic-media-fill', src: posterUrl, draggable: false,
+                onLoad: (e) => {
+                  setMediaState('ready');
+                  const el = e && e.currentTarget;
+                  recordMediaDims(el && el.naturalWidth, el && el.naturalHeight);
+                },
+                onError: () => setMediaState('error'),
+                onPointerDown: (e) => { e.stopPropagation(); },
+                onClick: (e) => { e.stopPropagation(); if (e && e.detail > 1) return; openPanel(); },
+                onDoubleClick: (e) => { e.stopPropagation(); togglePlay(); },
+              })
+            : null,
+          posterFailed
+            ? h('div', { key: 'poster-fail', className: 'dshic-media-placeholder', 'aria-hidden': 'true' })
             : null,
           imgShown
             ? h('img', {
@@ -10278,9 +11789,11 @@ window.__ModuleLoader__.load({
                 onDoubleClick: (e) => { e.stopPropagation(); openLightbox('image', assetUrlV, n.data.label); },
               })
             : null,
-          vidShown
+          // 播放时才挂真实 <video>（poster 作为 poster 属性兜底，挂载瞬间也不闪）
+          videoPlaying
             ? h('video', {
-                key: 'vid', ref: videoRef, className: 'dshic-media-fill', src: assetUrlV, preload: 'metadata',
+                key: 'vid', ref: videoRef, className: 'dshic-media-fill', src: assetUrlV || undefined,
+                poster: posterUrl || undefined, preload: 'metadata', autoPlay: true,
                 // 视频控件保留 stopPropagation（拖动/选择不被视频吃掉），单击画面打开生成面板；
                 // 双击画面 = 播放/暂停（原型行为）；播放键自身另行 stopPropagation。
                 onPointerDown: (e) => { e.stopPropagation(); },
@@ -10289,20 +11802,23 @@ window.__ModuleLoader__.load({
                 // 状态机输入：play→控件条出现；pause→控件条消失；ended→控件条消失 + 圆形键变重播
                 onPlay: () => { setPlaying(true); setEnded(false); },
                 onPause: () => setPlaying(false),
-                onEnded: () => { setPlaying(false); setEnded(true); },
+                onEnded: () => { resumeTimeRef.current = 0; setPlaying(false); setEnded(true); },
                 onTimeUpdate: (e) => { const el = e && e.currentTarget; setCurrent(Number(el && el.currentTime) || 0); },
                 onDurationChange: (e) => { const el = e && e.currentTarget; setDuration(Number(el && el.duration) || 0); },
                 onLoadedMetadata: (e) => {
-                  setMediaState('ready');
                   const el = e && e.currentTarget;
-                  recordMediaDims(el && el.videoWidth, el && el.videoHeight);
-                  setDuration(Number(el && el.duration) || 0);
+                  if (!el) return;
+                  setDuration(Number(el.duration) || 0);
+                  // 暂停后再播放：从暂停点继续（交互与旧版一致）
+                  const resume = resumeTimeRef.current || 0;
+                  if (resume > 0 && Number(el.duration) > resume) { try { el.currentTime = resume; } catch { /* 忽略 */ } }
+                  setMediaState('ready');
                 },
                 onError: () => setMediaState('error'),
               })
             : null,
           // 未播放 / 暂停 / 播完：画面中央只有一个圆形半透明播放键（播完换成重播图标）
-          vidShown && vidMode !== 'controls'
+          done && kind === 'video' && vidMode !== 'controls'
             ? h('button', {
                 key: 'play', type: 'button',
                 className: cls('dshic-media-play', vidMode === 'replay' && 'is-replay'),
@@ -10312,7 +11828,7 @@ window.__ModuleLoader__.load({
               }, h('i', {}))
             : null,
           // 播放中：底部控件条（播放/暂停 + 可拖动进度条 + 当前/总时长 + 音量含静音）
-          vidShown && vidMode === 'controls'
+          done && kind === 'video' && vidMode === 'controls'
             ? h(VideoControls, {
                 mode: vidMode, current, duration, volume, muted,
                 onToggle: togglePlay, onSeek: seekVideo, onVolume: setVideoVolume, onMute: toggleMute,
@@ -10369,6 +11885,34 @@ window.__ModuleLoader__.load({
           : null,
       ];
     }
+
+    /** 媒体体渲染签名（memo 比较用）：只包含会影响画面的标量字段。
+     *  注意 update() 是原地 mutate，节点/对象引用不会变——不能只比引用，否则出图/状态变化不会重渲染。 */
+    function mediaNodeRenderSig(n) {
+      if (!n) return '';
+      const d = n.data || {};
+      const hist = Array.isArray(d.history) ? d.history.map((x) => (x && x.assetId) || '').join(',') : '';
+      return [n.id, n.type, n.w, n.h, n.x, n.y, n.z, d.label, d.status, d.statusText, d.progress, d.error,
+        d.assetId, d.lastAssetId, d.lastAssetVideo, d.ratio, d.assetW, d.assetH, d.imageCount, d.aiStatus, hist,
+        d.running].join('|');
+    }
+    /** MediaNodeBody memo 比较：相同渲染签名 + 相同连线签名 → 跳过重渲染（选中/悬浮等全树状态不会带动媒体重渲染）。 */
+    function mediaNodePropsEqual(prev, next) {
+      if (!prev || !next) return false;
+      if (prev.kind !== next.kind) return false;
+      if (String(prev.refSig || '') !== String(next.refSig || '')) return false;
+      return Number(prev.rev || 0) === Number(next.rev || 0);
+    }
+    /** 渲染前刷新节点的稳定版本号：仅当渲染签名真的变化才自增（_rev 供 memo 比较）。 */
+    function bumpNodeRev(n) {
+      const sig = mediaNodeRenderSig(n);
+      if (!n || n.__revSig === sig) return Number(n && n._rev) || 0;
+      n.__revSig = sig;
+      n._rev = (Number(n._rev) || 0) + 1;
+      return n._rev;
+    }
+    const memoComponent = (fn, eq) => ((React && typeof React.memo === 'function') ? React.memo(fn, eq) : fn);
+    const MediaNodeBody = memoComponent(MediaNodeBodyInner, mediaNodePropsEqual);
 
     function HistThumb({ assetId, active, onClick, title }) {
       const url = useAssetUrl(assetId);
@@ -10654,11 +12198,14 @@ window.__ModuleLoader__.load({
       ];
     }
 
-    /** 分镜表节点：节点内只显示结果（N 镜 · 总时长 + 镜头清单）；镜头数/承接分镜/生成在 GenComposer 面板里。 */
+    /** 分镜表节点：节点内只显示结果（N 镜 · 总时长 + 镜头清单 + 切段预览）；镜头数/承接分镜/生成在 GenComposer 面板里。 */
     function StoryboardNodeBody({ n }) {
       const running = n.data.aiStatus === 'running';
       const shots = n.data.shots || [];
       const totalDur = shots.reduce((a, sh) => a + Math.max(0, Number(sh.duration) || 0), 0);
+      // 切段预览：把"这张分镜表会被切成几次生成、每次几镜几秒、哪些段要接尾帧"直接显示在节点上，
+      // 用户铺开前就知道会切成什么样——不用等到生成完才发现接不上。
+      const segPlan = shots.length ? planShotSegments(shots, { maxSeconds: Number(n.data.segMaxSeconds) || 15 }) : null;
       // 一致性告警的手动重校验：告警是**生成时刻**算的，之后补全设定集不会让它们自动消失——
       // 点刷新按当前设定集重算（checkShotConsistency 读的是实时 bible/资产名索引）
       const [wvChecking, setWvChecking] = useState(false);
@@ -10675,6 +12222,16 @@ window.__ModuleLoader__.load({
         h('div', { key: 'sum', className: 'dshic-shot-summary' },
           h('b', {}, shots.length ? (shots.length + ' ' + T('shotsUnit')) : T('noShotsYet')),
           shots.length ? h('span', {}, ' · ' + totalDur + 's · ' + T('multiShotOnce')) : null),
+        // 切段摘要：M 段 / 共 N 镜 / 最长 S 秒；forced 时用告警色如实标出
+        segPlan && segPlan.segments.length > 1
+          ? h('div', { key: 'segsum', className: 'dshic-hint', 'data-role': 'seg-summary', title: T('segPlanHint') },
+              h('span', { style: { color: segPlan.cutMode === 'clean' ? 'var(--dsw-alias-state-success-primary)' : 'var(--dsw-alias-state-warn-primary)' } },
+                (segPlan.cutMode === 'clean' ? '✂ ' : '⚠ ') + T('segSummary')
+                  .replace('{m}', String(segPlan.segments.length))
+                  .replace('{n}', String(shots.length))
+                  .replace('{s}', String(Math.max(...segPlan.segments.map((sg) => sg.duration))))),
+              h('span', { style: { opacity: 0.75 } }, ' · ' + (segPlan.cutMode === 'clean' ? T('segClean') : T('segForced'))))
+          : null,
         n.data.contFrom
           ? h('div', { key: 'cont', className: 'dshic-hint' }, '↩ ' + T('contFrom') + '：' + n.data.contFrom + ' ' + T('lastFrame'))
           : null,
@@ -10763,13 +12320,22 @@ window.__ModuleLoader__.load({
       ];
     }
 
-    // 分镜表 → 画布（现代多镜头工作流）：**一个分镜表 = 一次视频生成**。
-    // 分镜表(镜头脚本)连到 1 个视频生成节点的 prompt 端口（运行时把全部镜头按顺序+时长组合成
-    // 一条多镜头提示词，一次性生成整段视频）；角色/场景/道具参考图按实体**跨镜去重**后连到 ref 端口；
-    // 视频生成 → 1 个视频资产。不再一镜一视频、无需拼接。
+    // 分镜表 → 画布（按镜头切段工作流）：**一个分镜表 = 若干段，每段一次视频生成**。
+    //
+    // 为什么改：旧实现是「整个分镜表 = 一次生成」，13 镜 60 秒也塞进一次请求，模型只能砍动作。
+    // 现在的规则（见 planShotSegments 的注释）：
+    //   · 段边界只落在"换镜头"处（换场 / 特写插入 / 新角色入场）；
+    //   · 同一段连续动作（continuation）整段留在同一生成段，绝不从动作中间切；
+    //   · 每段时长 ≤ 单次生成上限（默认 15s，节点上可改）；
+    //   · 只有真的跨了连续动作、且模型够强时，才把上一段尾帧接到本段首帧；
+    //     弱衔接模型（MiniMax 等）默认走"每段以切点收尾"，剪辑时是干净硬切，不硬接。
     async function expandStoryboard(n) {
       const shots = (n.data.shots || []).slice();
       if (!shots.length) { toast(T('expandNoShots')); return; }
+      const zh = effLang() !== 'en';
+      // 切段规划：纯函数，可在面板上预览，也由 scripts/test-segment-plan.mjs 直接断言
+      const plan = planShotSegments(shots, { maxSeconds: Number(n.data.segMaxSeconds) || 15 });
+      const segs = plan.segments.length ? plan.segments : [{ index: 0, shots, startIndex: 0, endIndex: shots.length - 1, duration: plan.total, firstSeg: 'opening', lastSeg: 'continuation', opensOnCut: true, closesOnCut: true, seamRisk: 'none', needsTailChain: false, reason: '' }];
       // 项目资产名称索引（用于把角色/场景/道具连接到已有资产节点）
       const recs = await idbByProject(S.activeId).catch(() => []);
       const norm = (s) => String(s || '').trim().toLowerCase();
@@ -10787,10 +12353,10 @@ window.__ModuleLoader__.load({
         pushEntity(sh.scene, 'scene');
         (sh.props || []).forEach((nm) => pushEntity(nm, 'prop'));
       }
-      const zh = effLang() !== 'en';
       const bible = loadBible(S.activeId);
       let reuseAssets = 0; // 资产库已有 → 只挂节点
       let newGens = 0;     // 库中没有 → 新建带提示词的图片生成节点
+      const videoNodeIds = [];
       update((s) => {
         // 资产库命中（名称相等优先，其次包含匹配）——有图就直接挂资产节点，绝不重复生成
         const findLibraryAsset = (name) => {
@@ -10832,17 +12398,15 @@ window.__ModuleLoader__.load({
         };
         const baseX = n.x + n.w + 140;
         const baseY = n.y - 40;
-        // 生成时长 = 各镜时长之和（多镜头一次性生成的总时长），由视频模型内部切镜
-        const total = shots.reduce((a, sh) => a + Math.max(1, Number(sh.duration) || 3), 0);
-        // 合并后的视频节点：生成与结果同属一个节点（旧布局是 video-gen → video-asset 两个节点）
-        const videoGen = mk('video', baseX + 540, baseY + 20, { prompt: '', duration: Math.max(1, Math.round(total)) });
+        // ① 实体参考图节点：全表去重，只建一次（放在分镜表右侧第一列）
+        const entityNodeOf = new Map(); // lower(name) -> node
         entities.forEach((ent, i) => {
           const y = baseY + i * 380;
           const hit = findLibraryAsset(ent.name);
           if (hit) {
             let an = findAssetNodeById(hit.id);
             if (!an) an = mk('image', baseX, y, { assetId: hit.id }, hit.raw || hit.name);
-            linkRaw(an, 'out', videoGen, 'ref');
+            entityNodeOf.set(ent.name.toLowerCase(), an);
             reuseAssets++;
             return;
           }
@@ -10854,26 +12418,80 @@ window.__ModuleLoader__.load({
             gn = mk('image', baseX, y, { prompt: spec.prompt, size: spec.size, ratio: spec.ratio }, spec.label);
             newGens++;
           }
-          linkRaw(gn, 'out', videoGen, 'ref');
+          entityNodeOf.set(ent.name.toLowerCase(), gn);
         });
-        linkRaw(n, 'out', videoGen, 'prompt'); // 多镜头提示词来自上游分镜表（不复制文本）
-        // 把「上一段视频」的尾帧接到本段的 frame：铺开时就建好，用户按顺序生成即可自动接力。
-        // 找上一段的规则与 autoPrevVideoNode 一致（同分镜表兄弟段 / 沿 prev 链上溯的上游分镜表所连视频）。
-        (() => {
-          const prevVid = autoPrevVideoNode(videoGen);
-          if (!prevVid || !prevVid.id) return;
+        // ② 每段一个视频节点：只负责本段的镜头（data.segShotFrom/To 决定提示词里写哪几镜）
+        const videoColX = baseX + 540;
+        const rowStride = Math.max(420, entities.length * 380 + 60);
+        segs.forEach((seg, k) => {
+          const y = baseY + 20 + k * rowStride;
+          const dur = Math.max(1, Math.round(seg.duration));
+          const label = segs.length > 1
+            ? ((String(n.data.label || '').trim() || T('nStoryboard')) + ' · ' + T('segLabelShort') + (k + 1) + '/' + segs.length)
+            : '';
+          const v = mk('video', videoColX, y, {
+            prompt: '',
+            duration: dur,
+            segShotFrom: seg.startIndex,
+            segShotTo: seg.endIndex,
+            segIndex: k,
+            segCount: segs.length,
+            needsTailChain: seg.needsTailChain === true,
+            seamRisk: seg.seamRisk || 'none',
+          }, label);
+          linkRaw(n, 'out', v, 'prompt'); // 提示词来自上游分镜表（运行时只取本段的镜头）
+          // 本段自己用到的实体参考图（跨段共用同一批图片节点，连线各自独立）
+          const seen = new Set();
+          const linkEntity = (nm) => {
+            const q = norm(nm);
+            if (!q || seen.has(q)) return;
+            seen.add(q);
+            const nd = entityNodeOf.get(q);
+            if (nd) linkRaw(nd, 'out', v, 'ref');
+          };
+          for (const sh of seg.shots) {
+            (sh.characters || []).forEach(linkEntity);
+            linkEntity(sh.scene);
+            (sh.props || []).forEach(linkEntity);
+          }
+          videoNodeIds.push(v.id);
+        });
+        // ③ 尾帧接力：只接"确实跨了连续动作"的段；从切点开始的段一律不接（剪辑时是干净切）
+        for (let k = 1; k < videoNodeIds.length; k++) {
+          if (!segs[k] || !segs[k].needsTailChain) continue;
+          const prevVid = s.graph.nodes[videoNodeIds[k - 1]];
+          const curVid = s.graph.nodes[videoNodeIds[k]];
+          if (!prevVid || !curVid) continue;
           const fromPort = prevVid.data && prevVid.data.lastPickAssetId ? 'tailpick' : 'last';
-          linkRaw(prevVid, fromPort, videoGen, 'frame');
-        })();
-        s.sel = new Set([videoGen.id]);
+          linkRaw(prevVid, fromPort, curVid, 'frame');
+        }
+        // ④ 第 1 段若还承接「上一个分镜表」，沿用 autoPrevVideoNode（跨分镜表续帧）
+        if (videoNodeIds.length) {
+          const firstVid = s.graph.nodes[videoNodeIds[0]];
+          const prevVid = firstVid && autoPrevVideoNode(firstVid);
+          if (prevVid && prevVid.id) {
+            const fromPort = prevVid.data && prevVid.data.lastPickAssetId ? 'tailpick' : 'last';
+            linkRaw(prevVid, fromPort, firstVid, 'frame');
+          }
+        }
+        s.sel = new Set(videoNodeIds);
       });
       pushHistory();
       flushSave(); // 批量铺开立即推送，Host 侧立即可见
       toast(T('expandDone').replace('{n}', String(shots.length)));
+      if (segs.length > 1) {
+        const chained = segs.filter((sg) => sg.needsTailChain).length;
+        setTimeout(() => toast(T('expandSegDone').replace('{n}', String(shots.length)).replace('{m}', String(segs.length))
+          + (chained ? ' · ' + T('expandSegChain').replace('{n}', String(chained)) : '')), 300);
+      }
+      // 切段警告如实回传（硬切点 / 单镜超长）——绝不静默
+      if (plan.warnings && plan.warnings.length) {
+        setTimeout(() => toast(plan.warnings[0]), 700);
+      }
       // 铺开结果如实告知：哪些实体资产库已有、哪些新建了待生成的资产节点（提示词已写好）
       if (newGens) {
         setTimeout(() => toast(T('expandGenCreated').replace('{n}', String(newGens))
-          + (reuseAssets ? ' · ' + T('expandAssetReused').replace('{n}', String(reuseAssets)) : '')), 400);
+          + (reuseAssets ? ' · ' + T('expandAssetReused').replace('{n}', String(reuseAssets)) : '')), 1100);
       }
       setTimeout(() => fitView(), 60);
     }
@@ -11104,15 +12722,15 @@ window.__ModuleLoader__.load({
       ];
     }
 
-    function nodeBody(n) {
+    function nodeBody(n, edgeSig) {
       // 兜底：文档入口已归一，但历史上存进撤销快照/外部注入的节点类型仍可能是旧名
       const type = normalizeNodeType(n.type);
       if (type === 'text') return h(TextNodeBody, { n });
       if (type === 'shot') return h(ShotNodeBody, { n });
       if (type === 'script') return h(ScriptNodeBody, { n });
       if (type === 'storyboard') return h(StoryboardNodeBody, { n });
-      if (type === 'image') return h(MediaNodeBody, { n, kind: 'image' });
-      if (type === 'video') return h(MediaNodeBody, { n, kind: 'video' });
+      if (type === 'image') return h(MediaNodeBody, { n, kind: 'image', refSig: edgeSig || '', rev: bumpNodeRev(n) });
+      if (type === 'video') return h(MediaNodeBody, { n, kind: 'video', refSig: edgeSig || '', rev: bumpNodeRev(n) });
       if (type === 'finalcut') return h(FinalCutNodeBody, { n });
       return null;
     }
@@ -11465,6 +13083,2423 @@ window.__ModuleLoader__.load({
     }
 
     // ============================================================
+    // 3D 导演台 —— 引擎已拆分到 assets/director/engine.js（代码分割）
+    //
+    // 为什么拆：数学/几何/渲染/OBJ 解析/机位与资产预设是纯逻辑，不依赖 React 与画布
+    // 状态；留在 client.js 里既难测又难维护。引擎是**自包含 ES 模块**（零 import），
+    // 浏览器经 plugin-asset 路由动态 import()（首次打开导演台才加载），Node 测试直接
+    // ESM import 同一份文件——两端同一份代码，不存在"测试测的是拷贝"的问题。
+    //
+    // 本文件只保留：引擎加载器 + DirectorStage（React 面板）+ 图标列入口。
+    // ============================================================
+    const DIRECTOR_ENGINE_REL = 'assets/director/engine.js';
+    let ENG = null;                 // 引擎模块（加载完成后可同步使用）
+    let ENG_PROMISE = null;
+    function loadDirectorEngine() {
+      if (ENG) return Promise.resolve(ENG);
+      if (!ENG_PROMISE) {
+        /**
+         * 引擎加载的两级方案（两次真实报错换来的认知）：
+         *  ① client.js 被打包进 dsh-app:// 协议执行，模块 base 是 dsh-app://app/ ——
+         *     相对 import('./assets/...') 和**根相对 import('/infinite-canvas/...')**
+         *     都会被解析成 dsh-app://app/...（用户两次实测截图），fetch 不到任何东西。
+         *     所以必须带上 location.origin 构成真正的 http 绝对 URL；
+         *  ② 若宿主把自定义协议注册为拦截一切 import，http 绝对 URL 也进不去 ——
+         *     兜底用 fetch（走 document base，必然是 http；插件全部 RPC 都这么跑通的）
+         *     取引擎源码 → 包成 text/javascript 的 Blob → blob: URL import。
+         *     blob: 是绝对 URL，不经过任何协议解析。
+         */
+        // 加唯一 query 破坏缓存：否则浏览器会一直用旧的 engine.js（改引擎看不到效果）
+        const stamp = '&_v=' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+        const rel = '/' + NS + '/api/plugin-asset?rel=' + encodeURIComponent(DIRECTOR_ENGINE_REL) + stamp;
+        const origin = (typeof location !== 'undefined' && location.origin && String(location.origin).indexOf('http') === 0)
+          ? location.origin : '';
+        ENG_PROMISE = (async () => {
+          try {
+            const m = await import(origin + rel);
+            ENG = m;
+            try { window.__DSH_IC_ENGINE_V__ = m.ENGINE_VERSION || '?'; } catch (err) { void err; }
+            return m;
+          } catch (e1) {
+            const res = await fetch(rel, { cache: 'no-store' });
+            if (!res.ok) throw e1;
+            const src = await res.text();
+            const blobUrl = URL.createObjectURL(new Blob([src], { type: 'text/javascript' }));
+            try {
+              const m = await import(blobUrl);
+              ENG = m;
+              return m;
+            } finally {
+              setTimeout(() => { try { URL.revokeObjectURL(blobUrl); } catch { /* 忽略 */ } }, 30000);
+            }
+          }
+        })();
+        ENG_PROMISE.catch(() => { ENG_PROMISE = null; });   // 失败允许下次重试
+      }
+      return ENG_PROMISE;
+    }
+    // ---------- 资产缩略图（共享离屏渲染器，按需渲染并缓存，避免每卡一个 GL context） ----------
+    const THUMB_CACHE = new Map();     // key -> dataURL
+    let THUMB_GL = null;               // { canvas, renderer, size }
+    const THUMB_SIZE = 128;
+    function thumbRenderer() {
+      if (THUMB_GL) return THUMB_GL;
+      const E2 = directorEngine();
+      if (!E2 || typeof document === 'undefined') return null;
+      const cv = document.createElement('canvas');
+      cv.width = THUMB_SIZE;
+      cv.height = THUMB_SIZE;
+      const r = E2.createDirectorGlRenderer(cv);
+      if (!r) return null;
+      r.resize(THUMB_SIZE, THUMB_SIZE);
+      THUMB_GL = { canvas: cv, renderer: r };
+      return THUMB_GL;
+    }
+    // 缩略图异步队列：非人物资产需要先 loadModel 才能渲染
+    const THUMB_PENDING = new Set();
+    let THUMB_ONREADY = null;
+    function requestThumb(assetId, key, opts) {
+      if (THUMB_CACHE.has(key) || THUMB_PENDING.has(key)) return;
+      THUMB_PENDING.add(key);
+      Promise.resolve()
+        .then(() => loadModel(assetId))
+        .then(() => { thumbOf(key, assetId, opts); })
+        .catch(() => { /* 忽略 */ })
+        .finally(() => {
+          THUMB_PENDING.delete(key);
+          if (THUMB_ONREADY) THUMB_ONREADY();
+        });
+    }
+    function setThumbReadyHook(fn) { THUMB_ONREADY = fn; }
+
+    /** 几何体缩略图（程序化面片，直接渲染，不需要加载模型）。 */
+    function renderGeomThumb(key, preset) {
+      if (THUMB_CACHE.has(key)) return THUMB_CACHE.get(key);
+      const t = thumbRenderer();
+      const E2 = directorEngine();
+      if (!t || !E2) return '';
+      try {
+        const kind = preset.kind === 'body' ? 'body' : preset.kind;
+        const obj = { id: 'tg:' + key, kind, preset: preset.id, pos: { x: 0, y: 0, z: 0 }, rotY: 0.5, h: 1.2, s: 1, scale: { x: 1, y: 1, z: 1 }, visible: true };
+        const scene = {
+          version: 2, objects: [obj],
+          cameras: [{ id: 'c', name: 'c', pos: { x: 2.1, y: 1.5, z: 2.6 }, target: { x: 0, y: 0.55, z: 0 }, fov: 42, roll: 0 }],
+          lights: [{ id: 'k', dir: E2.vNorm({ x: 0.5, y: -0.75, z: 0.42 }), color: '#ffffff', intensity: 1.05 },
+                   { id: 'f', dir: E2.vNorm({ x: -0.4, y: -0.3, z: -0.8 }), color: '#8fa4c8', intensity: 0.4 }],
+          env: { bg: '#1b1f27', groundVisible: false, grid: false, exposure: 1, guides: { heightRef: false, path: false, names: false } },
+          activeCameraId: 'c', shot: { duration: 5 },
+        };
+        t.renderer.draw(scene, {});
+        const url = t.canvas.toDataURL('image/png');
+        THUMB_CACHE.set(key, url);
+        return url;
+      } catch { return ''; }
+    }
+
+    /** 渲染某模型（可带体型）的缩略图；同步返回缓存，未渲染则返回 '' 并排队渲染。 */
+    function thumbOf(key, assetId, opts) {
+      if (THUMB_CACHE.has(key)) return THUMB_CACHE.get(key);
+      const t = thumbRenderer();
+      if (!t) return '';
+      const E2 = directorEngine();
+      const asset = E2 && E2.gltfAssetOf(assetId);
+      if (!asset) return '';
+      try {
+        const o = opts || {};
+        const bnd = E2.assetBounds(asset);
+        const rawH = Number(asset.rawHeight) || bnd.height || 1.7;
+        const spanX = Math.max(0.001, bnd.maxX - bnd.minX);
+        const spanY = Math.max(0.001, bnd.height);
+        const spanZ = Math.max(0.001, bnd.maxZ - bnd.minZ);
+        // 缩略图按"模型自身原始尺寸"取景，不受目标高度影响（否则远处/近处都难看）
+        const radius = 0.5 * Math.sqrt(spanX * spanX + spanY * spanY + spanZ * spanZ);
+        const fov = 40;
+        // 让包围球刚好占画面 ~72%，四周留白
+        const dist = (radius / Math.sin((fov * Math.PI / 180) / 2)) * 1.30;
+        const ctrY = (bnd.minY + bnd.maxY) / 2;
+        const ctrX = (bnd.minX + bnd.maxX) / 2;
+        const ctrZ = (bnd.minZ + bnd.maxZ) / 2;
+        const h = o.h || rawH;
+        const clip = (asset.animations && asset.animations[0] && asset.animations[0].name) || '';
+        const obj = {
+          // id 必须唯一：渲染器内部用 ob.id 做网格/蒙皮缓存键，全叫 'thumb' 会串模型
+          id: 'thumb:' + assetId + ':' + (o.typeId || ''), kind: 'model', assetId, typeId: o.typeId || null,
+          pos: { x: 0, y: 0, z: 0 }, rotY: -0.35,
+          // 缩略图用原始模型尺寸（h = rawHeight → 缩放 1），保证形状不变形
+          h: rawH, scale: { x: 1, y: 1, z: 1 },
+          clip, animTime: 0.4, visible: true,
+        };
+        const scene = {
+          version: 2, objects: [obj],
+          cameras: [{ id: 'c', name: 'c', pos: { x: ctrX + dist * 0.42, y: ctrY + dist * 0.20, z: ctrZ + dist }, target: { x: ctrX, y: ctrY, z: ctrZ }, fov, roll: 0 }],
+          lights: [{ id: 'k', dir: E2.vNorm({ x: 0.5, y: -0.75, z: 0.42 }), color: '#ffffff', intensity: 1.05 },
+                   { id: 'f', dir: E2.vNorm({ x: -0.4, y: -0.3, z: -0.8 }), color: '#8fa4c8', intensity: 0.4 }],
+          env: { bg: '#1b1f27', groundVisible: false, grid: false, exposure: 1, guides: { heightRef: false, path: false, names: false } },
+          activeCameraId: 'c', shot: { duration: 5 },
+        };
+        t.renderer.draw(scene, {});
+        const url = t.canvas.toDataURL('image/png');
+        THUMB_CACHE.set(key, url);
+        return url;
+      } catch { return ''; }
+    }
+
+    // ---------- 真实模型资产（assets/director/models/*.json） ----------
+    const MODEL_DIR = 'assets/director/models/';
+    let MODEL_INDEX = null;          // 清单 [{id,label,height,clips}]
+    const MODEL_CACHE = new Set();
+    function pluginAssetUrl(rel) { return '/' + NS + '/api/plugin-asset?rel=' + encodeURIComponent(rel); }
+    async function loadModelIndex() {
+      if (MODEL_INDEX) return MODEL_INDEX;
+      const r = await fetch(pluginAssetUrl(MODEL_DIR + 'index.json'));
+      if (!r.ok) return [];
+      const j = await r.json();
+      MODEL_INDEX = (j && j.models) || [];
+      return MODEL_INDEX;
+    }
+    /** 按需加载一个模型并注册进引擎；返回 asset。 */
+    async function loadModel(id) {
+      const E2 = directorEngine();
+      if (!E2) return null;
+      const cached = E2.gltfAssetOf(id);
+      if (cached) return cached;
+      const r = await fetch(pluginAssetUrl(MODEL_DIR + id + '.json'));
+      if (!r.ok) throw new Error('模型加载失败 ' + id);
+      const asset = E2.decodeModelPack(await r.json());
+      MODEL_CACHE.add(id);
+      return E2.registerGltfAsset(id, asset);
+    }
+
+    /** 引擎未就绪时的同步兜底：面板显示加载态，不崩。 */
+    function directorEngine() { return ENG; }
+
+    // 景别 / 运镜下拉（UI 文案走 T()，值与引擎约定一致）
+    // 景别取自引擎 SHOT_FILLS（每个景别都有明确的"占画面高度比例"）
+    // 骨骼动画片段名 → 本地化标签（中文界面显示中文，英文界面显示英文）
+    const CLIP_LABELS = {
+      idle: { zh: '待机', en: 'Idle' }, run: { zh: '奔跑', en: 'Run' },
+      walk: { zh: '行走', en: 'Walk' }, sneak_pose: { zh: '潜行', en: 'Sneak' },
+      jump: { zh: '跳跃', en: 'Jump' }, dance: { zh: '舞蹈', en: 'Dance' },
+      death: { zh: '倒地', en: 'Death' }, hit: { zh: '受击', en: 'Hit' },
+    };
+    const clipLabel = (name) => {
+      const key = String(name || '').toLowerCase().replace(/\s+/g, '_');
+      const hit2 = CLIP_LABELS[key];
+      if (hit2) return effLang() === 'en' ? hit2.en : hit2.zh;
+      return String(name || '');
+    };
+    const DIRECTOR_SHOT_SIZES = () => {
+      const E2 = directorEngine();
+      const list = (E2 && E2.SHOT_FILLS) || [];
+      return list.map((x) => ({ id: x.id, label: effLang() === 'en' ? x.en : x.zh, fill: x.fill, targetH: x.targetH }));
+    };
+    const DIRECTOR_MOVES = () => [
+      { id: 'static', label: T('dirMoveStatic') },
+      { id: 'push_in', label: T('dirMovePush') },
+      { id: 'pull_out', label: T('dirMovePull') },
+      { id: 'pan_left', label: T('dirMovePanL') },
+      { id: 'pan_right', label: T('dirMovePanR') },
+      { id: 'orbit_left', label: T('dirMoveOrbitL') },
+      { id: 'orbit_right', label: T('dirMoveOrbitR') },
+      { id: 'handheld', label: T('dirMoveHandheld') },
+    ];
+    /** 本地化后的角色/几何/建筑/机位预设清单（引擎给 zh/en 双语字段）。 */
+    function directorPresetLists() {
+      const en = effLang() === 'en';
+      const E = directorEngine();
+      if (!E) return { actors: [], geoms: [], builds: [], cams: [] };
+      const lbl = (x) => (en ? x.en : x.zh);
+      return {
+        actors: E.ACTOR_PRESETS.map((p, i) => ({ ...p, label: lbl(p) + ' ' + (i + 1) })),
+        geoms: E.GEOMETRY_PRESETS.map((p) => ({ ...p, label: lbl(p) })),
+        builds: E.BUILDING_PRESETS.map((p) => ({ ...p, label: lbl(p) })),
+        cams: E.CAMERA_PRESETS.map((p) => ({ ...p, label: lbl(p) })),
+      };
+    }
+    // ============================================================
+    // 3D 导演台面板（即梦式三栏：资产库 / 视口 / 属性）
+    //
+    // 交互契约（与主流 DCC 一致，解决"拖模型反向走"的历史 bug）：
+    //   · 点中**对象本体** = 只选中，不移动；
+    //   · 想移动 → 拖选中对象出现的**坐标轴 gizmo**（X 红 / Y 绿 / Z 蓝 / 旋转环 黄），
+    //     轴拖拽用「鼠标射线 ∩ 轴线」求参数（axisDragDelta），鼠标斜着拖也不漂；
+    //   · 空白处拖拽 = 环绕机位（orbit），滚轮 = 缩放距离。
+    // ============================================================
+// 导演台快捷键说明（单一来源，中英并列；只列当前真实可用的按键）
+const DIRECTOR_KEY_HELP = [
+  { k: '0', zh: '选择工具', en: 'Select tool' },
+  { k: '1', zh: '移动工具', en: 'Move tool' },
+  { k: '2', zh: '旋转工具', en: 'Rotate tool' },
+  { k: '3', zh: '缩放工具', en: 'Scale tool' },
+  { k: 'G', zh: '落回地面', en: 'Drop to ground' },
+  { k: 'W / S', zh: '前进 / 后退', en: 'Move forward / back' },
+  { k: 'A / D', zh: '左移 / 右移', en: 'Strafe left / right' },
+  { k: 'Q / E', zh: '下降 / 上升', en: 'Move down / up' },
+  { k: 'Shift + 漫游', zh: '加速 4×', en: 'Speed boost 4x' },
+  { k: 'Space', zh: '播放 / 暂停', en: 'Play / pause' },
+  { k: 'X / Y / Z', zh: '拖动中锁定单轴', en: 'Lock axis while dragging' },
+  { k: 'Alt+拖轴端方块', zh: '等比缩放（三轴同倍率）', en: 'Uniform scale (hz. handle)' },
+  { k: 'Shift', zh: '精调（位移/缩放缩小 10 倍）', en: 'Fine adjust' },
+  { k: 'Ctrl / ⌘', zh: '吸附（0.5m / 5°）', en: 'Snap' },
+  { k: 'Delete', zh: '删除选中对象', en: 'Delete selection' },
+  { k: 'Ctrl+Z', zh: '撤销', en: 'Undo' },
+  { k: 'Ctrl+Shift+Z', zh: '重做', en: 'Redo' },
+  { k: 'Esc', zh: '取消 / 取消选择 / 关闭', en: 'Cancel / deselect / close' },
+  { k: '右键 / 中键拖动', zh: '环绕视角', en: 'Orbit view' },
+  { k: '左键拖空白', zh: '平移视角', en: 'Pan view' },
+  { k: '滚轮', zh: '推拉视角', en: 'Dolly / zoom' },
+  { k: 'Ctrl/Shift+左键拖', zh: '框选多个对象', en: 'Box select' },
+];
+
+    function DirectorStage() {
+      const open = S.directorOpen;
+      const [engReady, setEngReady] = useState(!!ENG);
+      const [scene, setScene] = useState(() => (directorEngine() ? directorEngine().loadStageDoc(S.activeId, T('directorDefaultTitle')) : null));
+      const [tick, setTick] = useState(0);
+      const [busy, setBusy] = useState(false);
+      const [recording, setRecording] = useState(false);
+      const [exportPct, setExportPct] = useState(0);      // 导出进度 0..1（0=未导出）
+      const exportCancelRef = useRef(false);               // 导出取消标志
+      const [msg, setMsg] = useState(null);
+      const msgTimerRef = useRef(null);
+      // 提示自动消失（成功 3s / 错误 6s）：旧提示不再常驻遮挡视口
+      useEffect(() => {
+        if (msgTimerRef.current) { clearTimeout(msgTimerRef.current); msgTimerRef.current = null; }
+        if (!msg || !msg.text) return undefined;
+        msgTimerRef.current = setTimeout(() => setMsg(null), msg.kind === 'err' ? 6000 : 3000);
+        return () => { if (msgTimerRef.current) clearTimeout(msgTimerRef.current); };
+      }, [msg]);
+      const [tab, setTab] = useState('human');
+      const [viewRev, setViewRev] = useState(0);
+      const bumpView = () => setViewRev((v) => v + 1);
+      const [rendererKind, setRendererKind] = useState('');
+      useEffect(() => { setThumbReadyHook(() => bumpView()); return () => setThumbReadyHook(null); }, []);
+      const [assetQ, setAssetQ] = useState('');
+      const [playing, setPlaying] = useState(false);
+    // 循环播放（时间轴）：播到末尾回到 0s；关闭则停在末尾
+    const [loopPlay, setLoopPlay] = useState(false);
+    const loopPlayRef = useRef(false);
+    loopPlayRef.current = loopPlay;
+      const [playT, setPlayT] = useState(0);
+    // 导出视频函数在下方定义：用 ref 打破 TDZ（结构测试对「定义前使用」零容忍）
+    const exportVideoRef = useRef(null);
+    const [actionName, setActionName] = useState('');
+    const [specText, setSpecText] = useState('');
+    const [specOpen, setSpecOpen] = useState(false);
+      const [boxSel, setBoxSel] = useState(null);   // 框选矩形 {x0,y0,x1,y1}
+      const [dirtyState, setDirtyState] = useState(false);  // 有未保存改动
+      const [previzMode, setPrevizMode] = useState('static'); // 'static' | 'dynamic' | 'render'（模式，不随暂停改变）
+      // ── 视口刷新收敛为单一 revision（方案C）──
+      // 任何「不影响 scene 但影响画面」的变化（切模式/选中/悬停/显示开关）都必须 bumpView()，
+      // 渲染 effect 只认这个 revision → 不再出现「切了模式要等点击画面才刷新」。
+      const canvasRef = useRef(null);
+      const pipRef = useRef(null);
+      const pipGlRef = useRef(null);
+      const glRef = useRef(null);
+      const rendererKindRef = useRef('');
+      const sizeRef = useRef({ w: 800, h: 520 });
+      const pointerRef = useRef({ x: -999, y: -999, inside: false });
+      const sceneRef = useRef(scene);
+      sceneRef.current = scene;                       // 播放循环里读最新布景，但不触发 effect 重建
+      const durRef = useRef(6);
+      durRef.current = Math.max(0.5,
+        ...(scene && Array.isArray(scene.shots) && scene.shots.length ? scene.shots.map((s2) => Number(s2.end) || 0) : [Number(scene && scene.shot && scene.shot.duration) || 6]));
+      const dragRef = useRef(null);
+      const fileRef = useRef(null);
+      const recRef = useRef(null);
+      const undoRef = useRef([]);
+      const redoRef = useRef([]);
+      const wheelUndoTimerRef = useRef(null);
+      const wheelGestureOpenRef = useRef(false);
+      const wheelBeforeRef = useRef(null);
+      const [undoDepth, setUndoDepth] = useState(0);
+      const [redoDepth, setRedoDepth] = useState(0);
+
+      const markDirty = () => { S.directorDirty = true; setDirtyState(true); };
+      const pushUndoSnapshot = (snapshot) => {
+        try {
+          undoRef.current.push(typeof snapshot === 'string' ? snapshot : JSON.stringify(snapshot || scene));
+          if (undoRef.current.length > 40) undoRef.current.shift();
+          redoRef.current = [];
+          setUndoDepth(undoRef.current.length);
+          setRedoDepth(0);
+        } catch { /* 忽略 */ }
+      };
+      const pushUndo = () => pushUndoSnapshot(scene);
+      const applyHistoryScene = (text) => {
+        const n = JSON.parse(text);
+        setScene(n); markDirty(); directorEngine().saveStageDoc(S.activeId, n); bumpView();
+      };
+      const undo = () => {
+        const prev = undoRef.current.pop();
+        setUndoDepth(undoRef.current.length);
+        if (!prev) { setMsg({ kind: 'err', text: T('dirNothingToUndo') }); return; }
+        try {
+          redoRef.current.push(JSON.stringify(scene)); if (redoRef.current.length > 40) redoRef.current.shift();
+          setRedoDepth(redoRef.current.length);
+          applyHistoryScene(prev);
+        } catch { setMsg({ kind: 'err', text: T('dirUndoFailed') }); }
+      };
+      const redo = () => {
+        const next = redoRef.current.pop();
+        setRedoDepth(redoRef.current.length);
+        if (!next) return;
+        try {
+          undoRef.current.push(JSON.stringify(scene)); if (undoRef.current.length > 40) undoRef.current.shift();
+          setUndoDepth(undoRef.current.length);
+          applyHistoryScene(next);
+        } catch { setMsg({ kind: 'err', text: T('dirUndoFailed') }); }
+      };
+      const commit = (next) => { setScene(next); markDirty(); const E2 = directorEngine(); if (E2) E2.saveStageDoc(S.activeId, next); bumpView(); };
+      /** 成片场景（实时渲染预览 / 截图 / 视频导出共用）：保留颜色材质灯光，只剥编辑辅助。 */
+      const directorFilmScene = (src) => {
+        const E2 = directorEngine();
+        return (E2 && E2.buildExportScene) ? E2.buildExportScene(src) : src;
+      };
+      /** 影棚编辑场景（静态/动态预演视口）：固定深色影棚+网格+中性布光，不随渲染参数变化。 */
+      /** 统一模式切换：静态=暂停；实时渲染=跟随分镜并播放；动态=保持播放。全部走 bumpView 立即重绘。 */
+      const setMode = (m) => {
+        setPrevizMode(m);
+        if (m === 'static') setPlaying(false);
+        if (m === 'render') { S.directorCamFollow = true; setPlaying(true); }
+        bumpView();
+      };
+      const directorStudioScene = (src) => {
+        const E2 = directorEngine();
+        return (E2 && E2.buildStudioScene) ? E2.buildStudioScene(src) : src;
+      };
+      const patch = (fn) => { pushUndo(); const n = JSON.parse(JSON.stringify(scene)); fn(n); n.updatedAt = Date.now(); commit(n); };
+      const pickSave = (next) => { markDirty(); const E2 = directorEngine(); if (E2) E2.saveStageDoc(S.activeId, next); };
+
+      // 引擎 + 模型清单
+      useEffect(() => {
+        if (!open) return;
+        loadDirectorEngine().then(() => {
+          setEngReady(true);
+          const localStage = ENG.loadStageDoc(S.activeId, T('directorDefaultTitle'));
+          setScene(localStage);
+        // ── AI 规格自动套用：仅当 Host 规格比本地场景更新（或本地尚无修改）时应用 ──
+        (async () => {
+          try {
+            const r = await hostRpc('directorStageLoad', { projectId: S.activeId });
+            const localUpdated = Number(localStage && localStage.updatedAt) || 0;
+            const hostUpdated = Number(r && r.savedAt) || 0;
+            if (r && r.ok && r.found && r.spec && (!localUpdated || hostUpdated > localUpdated)) {
+              const built = ENG.buildStageFromSpec ? ENG.buildStageFromSpec(r.spec) : null;
+              if (built) {
+                built.updatedAt = hostUpdated || Date.now();
+                ENG.saveStageDoc(S.activeId, built);
+                setScene(built);
+                setMsg({ kind: 'ok', text: T('dirSpecApplied') });
+                // AI 全自动出片：规格里带 autoExport:true 时，套用后直接走「导出视频」
+                if (r.spec && r.spec.autoExport) {
+                  setTimeout(() => { try { if (exportVideoRef.current) exportVideoRef.current(); } catch (e3) { setMsg({ kind: 'err', text: String(e3 && e3.message || e3) }); } }, 600);
+                }
+              }
+            }
+          } catch { /* 没有规格就用本地场景 */ }
+        })();
+          bumpView();
+          // 场景里引用到的模型必须全部预加载：否则 tree/furniture/building 等资产在重开后会退化成方块
+          const preloadSceneAssets = async () => {
+            try {
+              const sc = ENG.loadStageDoc(S.activeId, T('directorDefaultTitle'));
+              const ids = [...new Set((sc.objects || [])
+                .filter((o) => o && (o.kind === 'model' || o.kind === 'gltf') && o.assetId)
+                .map((o) => String(o.assetId)))];
+              await Promise.all(ids.map((id) => loadModel(id).catch(() => null)));
+            } catch { /* 预加载失败不阻塞打开 */ }
+            bumpView();
+          };
+          loadModelIndex().then(async (l) => { if (l && l.length) bumpView(); await loadModel('xbot').catch(() => {}); await preloadSceneAssets(); bumpView(); }).catch(() => {});
+        }).catch((e) => setMsg({ kind: 'err', text: T('dirEngineFail') + ' ' + String((e && e.message) || e) }));
+      }, [open, S.activeId]);
+
+      // 播放循环（只依赖 playing/open；不依赖 scene，否则每帧重渲染都重启 rAF → 暂停失灵）
+      useEffect(() => {
+        if (!open || !playing) return undefined;
+        let raf = 0;
+        let last = (typeof performance !== 'undefined' ? performance.now() : Date.now());
+        let alive = true;
+        const step = () => {
+          if (!alive) return;
+          const now = (typeof performance !== 'undefined' ? performance.now() : Date.now());
+          const dt = Math.min(0.1, Math.max(0, (now - last) / 1000));
+          last = now;
+          const dur = Math.max(0.5, durRef.current || 6);
+          let reachedEnd = false;
+          setPlayT((t) => {
+            let nt = t + dt;
+            if (nt >= dur) {
+              if (loopPlayRef.current) nt = 0;
+              else { nt = dur; reachedEnd = true; }
+            }
+            return nt;
+          });
+          if (reachedEnd) { alive = false; setPlaying(false); return; }
+          raf = requestAnimationFrame(step);
+        };
+        raf = requestAnimationFrame(step);
+        return () => { alive = false; if (raf) cancelAnimationFrame(raf); };
+      }, [open, playing]);
+
+      // 渲染（主视口 + 机位 PiP）
+      useEffect(() => {
+        if (!open || !engReady || !scene) return;
+        const E2 = directorEngine();
+        const cv = canvasRef.current;
+        if (!cv || !E2) return;
+        const dpr = Math.min(2, (typeof window !== 'undefined' && window.devicePixelRatio) || 1);
+        const rect = cv.getBoundingClientRect ? cv.getBoundingClientRect() : { width: 800, height: 520 };
+        const w = Math.max(320, Math.round(rect.width || 800));
+        const h = Math.max(220, Math.round(rect.height || 520));
+        sizeRef.current = { w, h };
+        const sc0 = E2.applyPlayhead(scene, playT);
+        const sc = previzMode === 'render' ? directorFilmScene(sc0) : directorStudioScene(sc0);
+        // 手动模式（用户点了机位树/预设）：视口直接显示选中机位——
+        // applyPlayhead 在有分镜时永远返回分镜机位，不覆盖的话"点机位没反应"（用户实测）
+        if (!S.directorCamFollow && scene.activeCameraId) sc.activeCameraId = scene.activeCameraId;
+        S.directorLiveScene = sc;   // 实时（播放头）场景：拾取/gizmo/标注必须与渲染一致
+        // 滚轮/拖拽之后，用「实时相机」覆盖插值结果（否则关键帧会把滚轮效果锁回去 → 滚轮/平移失效）
+        if (S.directorWheelTick && Date.now() - S.directorWheelTick < 400) {
+          const liveCam = (scene.cameras || []).find((c) => c.id === scene.activeCameraId);
+          const outCam = (sc.cameras || []).find((c) => c.id === scene.activeCameraId);
+          if (liveCam && outCam) { outCam.pos = liveCam.pos; outCam.target = liveCam.target; }
+        }
+        // ── 拖拽编辑优先（Blender auto-key 语义的前半段）──
+        // 打了关键帧后 applyPlayhead 会用插值覆盖 pos/rot —— 拖拽中必须显示实时编辑值，
+        // 否则"拖不动"（历史 bug：打完关键帧 gizmo 失效）。
+        if (S.directorDragging && dragRef.current) {
+          const d = dragRef.current;
+          if ((d.mode === 'axis' || d.mode === 'rotate' || d.mode === 'scaleAxis' || d.mode === 'scale') && d.obj && d.obj.id) {
+            const live = (scene.objects || []).find((o) => o.id === d.obj.id);
+            const out = (sc.objects || []).find((o) => o.id === d.obj.id);
+            if (live && out) { out.pos = live.pos; out.rotY = live.rotY; out.rx = live.rx; out.rz = live.rz; out.scale = live.scale; out.h = live.h; }
+          }
+          if (d.mode === 'orbit' || d.mode === 'pan') {
+            const liveCam = (scene.cameras || []).find((c) => c.id === scene.activeCameraId);
+            const outCam = (sc.cameras || []).find((c) => c.id === scene.activeCameraId);
+            if (liveCam && outCam) { outCam.pos = liveCam.pos; outCam.target = liveCam.target; }
+          }
+        }
+        if (!glRef.current) glRef.current = E2.createDirectorGlRenderer(cv);
+        if (glRef.current) {
+          if (rendererKindRef.current !== 'webgl') { rendererKindRef.current = 'webgl'; setRendererKind('webgl'); }
+          glRef.current.resize(w, h, dpr);
+          // 实时渲染 = 成片：画地面、关闭 gizmo/路径选中框（与导出的 opts 完全一致）
+          if (previzMode === 'render') {
+            glRef.current.draw(sc, { selectedId: null, gizmo: false, renderGround: true, renderOnly: true });
+          } else {
+            glRef.current.draw(sc, { selectedId: S.directorSel, gizmo: true, hoverAxis: S.directorHoverAxis || '', pathSel: S.directorPathSel });
+          }
+          try {
+            const pc = pipRef.current;
+            if (pc) {
+              if (!pipGlRef.current) pipGlRef.current = E2.createDirectorGlRenderer(pc);
+              if (pipGlRef.current) {
+                pipGlRef.current.resize(240, 135, dpr);
+                pipGlRef.current.draw(Object.assign({}, sc, { env: Object.assign({}, sc.env, { grid: false, groundVisible: false }) }), { gizmo: false });
+              }
+            }
+          } catch { /* PiP 失败不影响主视口 */ }
+          return;
+        }
+        if (rendererKindRef.current !== 'canvas2d') { rendererKindRef.current = 'canvas2d'; setRendererKind('canvas2d'); }
+        cv.width = Math.round(w * dpr);
+        cv.height = Math.round(h * dpr);
+        const ctx = cv.getContext && cv.getContext('2d');
+        if (!ctx) return;
+        if (ctx.setTransform) ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        E2.directorRenderScene(ctx, w, h, sc, { selectedId: S.directorSel, pathSel: S.directorPathSel });
+      }, [open, engReady, scene, tick, playT, viewRev]);
+
+      useEffect(() => () => {
+        if (wheelUndoTimerRef.current) { clearTimeout(wheelUndoTimerRef.current); wheelUndoTimerRef.current = null; }
+        if (glRef.current) { try { glRef.current.dispose(); } catch { /* 忽略 */ } glRef.current = null; rendererKindRef.current = ''; }
+        if (pipGlRef.current) { try { pipGlRef.current.dispose(); } catch { /* 忽略 */ } pipGlRef.current = null; }
+      }, [open]);
+
+      // 快捷键
+      // ── 键盘漫游（Lumion / D5 手感）：W/S 前后、A/D 左右、Q/E 升降、Shift 加速 ──
+      const FLY_CODES = new Set(['KeyW', 'KeyA', 'KeyS', 'KeyD', 'KeyQ', 'KeyE']);
+      const flyRef = useRef({ keys: new Set(), raf: 0, last: 0, before: null, shift: false });
+      const flyStop = () => {
+        const f = flyRef.current;
+        if (f.raf) { cancelAnimationFrame(f.raf); f.raf = 0; }
+        f.last = 0;
+        if (f.before) {
+          f.before = null;
+          markDirty();
+          setScene((s2) => {
+            const E2 = directorEngine();
+            if (E2) E2.saveStageDoc(S.activeId, s2);
+            return s2;
+          });
+        }
+      };
+      const flyStepFrame = (ts) => {
+        const f = flyRef.current;
+        if (!f.keys.size) { f.raf = 0; return; }
+        if (!f.last) f.last = ts;
+        const dt = Math.min(0.1, Math.max(0, (ts - f.last) / 1000));   // clamp：切后台回来不瞬移
+        f.last = ts;
+        const input = {
+          f: (f.keys.has('KeyW') ? 1 : 0) + (f.keys.has('KeyS') ? -1 : 0),
+          r: (f.keys.has('KeyD') ? 1 : 0) + (f.keys.has('KeyA') ? -1 : 0),
+          u: (f.keys.has('KeyE') ? 1 : 0) + (f.keys.has('KeyQ') ? -1 : 0),
+        };
+        setScene((s2) => {
+          const E2 = directorEngine();
+          if (!E2 || !E2.cameraFlyStep) return s2;
+          const c2 = (s2.cameras || []).find((x) => x.id === s2.activeCameraId);
+          if (!c2) return s2;
+          const r2 = E2.cameraFlyStep(c2, input, dt, { speed: 4, fast: f.shift, minY: 0.15 });
+          if (!r2) return s2;
+          const n = JSON.parse(JSON.stringify(s2));
+          const c3 = (n.cameras || []).find((x) => x.id === n.activeCameraId);
+          if (!c3) return s2;
+          c3.pos = r2.pos;
+          c3.target = r2.target;
+          return n;
+        });
+        bumpView();
+        f.raf = requestAnimationFrame(flyStepFrame);
+      };
+      const flyStart = () => {
+        const f = flyRef.current;
+        if (f.raf) return;
+        // 跟随时先接管当前所见机位，避免第一帧跳变（与 orbit/pan 同一套语义）
+        if (S.directorCamFollow) {
+          const live = ((S.directorLiveScene && S.directorLiveScene.cameras) || []).find((c) => c.id === (S.directorLiveScene || {}).activeCameraId);
+          const hostId = scene.activeCameraId;
+          if (live && live.id !== hostId) {
+            setScene((s2) => {
+              const n = JSON.parse(JSON.stringify(s2));
+              const h2 = (n.cameras || []).find((c) => c.id === hostId);
+              if (h2) { h2.pos = JSON.parse(JSON.stringify(live.pos)); h2.target = JSON.parse(JSON.stringify(live.target)); }
+              return n;
+            });
+          }
+          S.directorCamFollow = false;
+        }
+        f.before = JSON.stringify(scene);
+        pushUndo();                     // 整段漫游算一次撤销
+        f.last = 0;
+        f.raf = requestAnimationFrame(flyStepFrame);
+      };
+
+      useEffect(() => {
+        if (!open) return undefined;
+        const onKey = (e) => {
+          if (e && e.stopPropagation) e.stopPropagation();
+          const t = e && e.target;
+          const tag = t && t.tagName ? String(t.tagName).toLowerCase() : '';
+          if (tag === 'input' || tag === 'textarea' || tag === 'select' || (t && t.isContentEditable)) return;
+          const keyLower = String(e.key).toLowerCase();
+          if ((e.ctrlKey || e.metaKey) && !e.shiftKey && keyLower === 'z') { e.preventDefault(); undo(); return; }
+          if ((e.ctrlKey || e.metaKey) && ((e.shiftKey && keyLower === 'z') || keyLower === 'y')) { e.preventDefault(); redo(); return; }
+          if (e.key === 'Shift') { flyRef.current.shift = true; return; }
+          if (FLY_CODES.has(e.code) && !e.ctrlKey && !e.metaKey && !e.altKey && !(S.directorDragging && dragRef.current)) {
+            e.preventDefault();
+            flyRef.current.keys.add(e.code);
+            flyStart();
+            return;
+          }
+          if (e.key === ' ') { e.preventDefault(); setPrevizMode('dynamic'); S.directorCamFollow = true; setPlaying((v) => !v); bumpView(); return; }
+          if (!e.ctrlKey && !e.metaKey) {
+            // 轴约束：拖拽中按 X/Y/Z 锁定单轴（Blender 的 modal key constraint）
+            if (S.directorDragging && dragRef.current && 'xyz'.includes(String(e.key).toLowerCase())) {
+              const locked = String(e.key).toLowerCase();
+              const d = dragRef.current;
+              if (d.mode === 'axis' || d.mode === 'rotate' || d.mode === 'scale' || d.mode === 'scaleAxis') {
+                e.preventDefault();
+                d.axis = locked;
+                d.mode = 'axis';   // 锁轴后变成该轴移动
+                setMsg({ kind: 'ok', text: 'X/Y/Z'.charAt('xyz'.indexOf(locked)) + ' ' + T('dirAxisLocked') });
+                return;
+              }
+            }
+            const map = { '0': 'select', '1': 'move', '2': 'rotate', '3': 'scale', g: 'ground' };
+            const toolId = map[String(e.key).toLowerCase()];
+            if (toolId) {
+              e.preventDefault();
+              if (toolId === 'ground') {
+                if (S.directorSel) { patch((n) => { const t2 = n.objects.find((x) => x.id === S.directorSel); if (t2) t2.pos.y = 0; }); setMsg({ kind: 'ok', text: T('dirDropped') }); }
+                return;
+              }
+              update((st) => { st.directorTool = toolId; });
+              return;
+            }
+          }
+          if (e.key === 'Escape') {
+            if (flyRef.current.keys.size) { flyRef.current.keys.clear(); flyStop(); }
+            if (S.directorPendingPlace) { S.directorPendingPlace = null; setMsg(null); bumpView(); return; }
+            if (S.directorPathPick) { S.directorPathPick = false; S.directorPathSel = null; setMsg(null); bumpView(); return; }
+            if (S.directorViewMenu) { update((st) => { st.directorViewMenu = false; }); return; }
+            if (S.directorFull) { update((st) => { st.directorFull = false; }); return; }
+            if (S.directorSel) { S.directorSel = null; S.directorSelSet = null; bumpView(); } else update((st) => { st.directorOpen = false; });
+            return;
+          }
+          if (e.key === 'Delete' || e.key === 'Backspace') {
+            // 批量删除：优先删框选集合，其次删单个选中
+            const ids = (S.directorSelSet && S.directorSelSet.length) ? S.directorSelSet.slice() : (S.directorSel ? [S.directorSel] : []);
+            if (!ids.length) return;
+            e.preventDefault();
+            patch((n) => { n.objects = (n.objects || []).filter((x) => !ids.includes(x.id)); });
+            S.directorSel = null; S.directorSelSet = null;
+            setMsg({ kind: 'ok', text: T('dirDeletedN') + ' ' + ids.length });
+            bumpView();
+          }
+        };
+        const onKeyUp = (e) => {
+          if (e.key === 'Shift') { flyRef.current.shift = false; return; }
+          if (!FLY_CODES.has(e.code)) return;
+          flyRef.current.keys.delete(e.code);
+          if (!flyRef.current.keys.size) flyStop();
+        };
+        const onFlyBlur = () => { flyRef.current.keys.clear(); flyRef.current.shift = false; flyStop(); };
+        const onFlyVis = () => { if (document.hidden) onFlyBlur(); };
+        window.addEventListener('keydown', onKey, true);
+        window.addEventListener('keyup', onKeyUp, true);
+        window.addEventListener('blur', onFlyBlur);
+        document.addEventListener('visibilitychange', onFlyVis);
+        return () => {
+          window.removeEventListener('keydown', onKey, true);
+          window.removeEventListener('keyup', onKeyUp, true);
+          window.removeEventListener('blur', onFlyBlur);
+          document.removeEventListener('visibilitychange', onFlyVis);
+        };
+      }, [open, scene]);
+
+      if (!open) return null;
+      if (!engReady || !scene) {
+        return h('div', { className: 'dshic-dir-overlay' },
+          h('div', { className: 'dshic-dir-win' },
+            h('div', { className: 'dshic-dir-top' }, h('span', { className: 'dshic-dir-title' }, T('directorTitle')),
+              h('button', { type: 'button', className: 'dshic-dir-icobtn', onClick: () => update((st) => { st.directorOpen = false; }) }, '\u2715')),
+            h('div', { className: 'dshic-dir-loading' }, msg ? msg.text : T('dirLoading'))));
+      }
+
+      const E = directorEngine();
+      const cam = (scene.cameras || []).find((c) => c.id === scene.activeCameraId) || (scene.cameras || [])[0];
+      const sel = (scene.objects || []).find((x) => x.id === S.directorSel) || null;
+      /** 给选中对象在播放头处打关键帧（位置 / 朝向 / 翻滚）。 */
+      const addObjKey = () => {
+        if (!sel) { setMsg({ kind: 'err', text: T('dirNoSelection') }); return; }
+        patch((n) => {
+          const o2 = n.objects.find((x) => x.id === sel.id);
+          if (!o2) return;
+          o2.keys = (Array.isArray(o2.keys) ? o2.keys : []).filter((k) => Math.abs(k.t - playT) > 0.05);
+          o2.keys.push({
+            t: +playT.toFixed(2),
+            pos: { x: o2.pos.x, y: o2.pos.y, z: o2.pos.z },
+            rotY: Number(o2.rotY) || 0,
+            rx: Number(o2.rx) || 0,
+            rz: Number(o2.rz) || 0,
+            ease: S.directorEase || 'auto',
+          });
+          o2.keys.sort((a, b) => a.t - b.t);
+        });
+        setMsg({ kind: 'ok', text: T('dirObjKeyAdded') });
+      };
+      /** 清空选中对象的关键帧。 */
+      const clearObjKeys = () => {
+        if (!sel) { setMsg({ kind: 'err', text: T('dirNoSelection') }); return; }
+        patch((n) => { const o2 = n.objects.find((x) => x.id === sel.id); if (o2) o2.keys = []; });
+        setMsg({ kind: 'ok', text: T('dirObjKeyClear') });
+      };
+      /** 把当前姿态记为关键帧（在播放头处，骨骼姿态会随时间过渡）。 */
+      const addPoseKey = () => {
+        if (!sel || sel.kind !== 'model') { setMsg({ kind: 'err', text: T('dirNoSelection') }); return; }
+        patch((n) => {
+          const o2 = n.objects.find((x) => x.id === sel.id);
+          if (!o2) return;
+          if (!Array.isArray(o2.poseKeys)) o2.poseKeys = [];
+          o2.poseKeys = o2.poseKeys.filter((k) => Math.abs(k.t - playT) > 0.05);
+          o2.poseKeys.push({ t: +playT.toFixed(2), bonePose: JSON.parse(JSON.stringify(o2.bonePose || {})) });
+          o2.poseKeys.sort((a, b) => a.t - b.t);
+        });
+        setMsg({ kind: 'ok', text: T('dirPoseKeyAdded') });
+      };
+      const clearPoseKeys = () => {
+        if (!sel) { setMsg({ kind: 'err', text: T('dirNoSelection') }); return; }
+        patch((n) => { const o2 = n.objects.find((x) => x.id === sel.id); if (o2) o2.poseKeys = []; });
+        setMsg({ kind: 'ok', text: T('dirPoseKeyCleared') });
+      };
+      /** 添加分镜：当前机位从播放头处开始，默认 2 秒。 */
+      const addShotAt = () => {
+        patch((n) => {
+          if (!Array.isArray(n.shots)) n.shots = [];
+          const start = +playT.toFixed(2);
+          n.shots.push({ cameraId: n.activeCameraId || '', start, end: start + 2, label: '镜头 ' + (n.shots.length + 1) });
+          n.shots.sort((a, b) => a.start - b.start);
+        });
+        setMsg({ kind: 'ok', text: T('dirShotAdded') });
+      };
+      /** 删除最后一个分镜。 */
+      /** 删除播放头所在的分镜。 */
+      const removeShotAtPlayhead = () => {
+        const list = scene.shots || [];
+        if (!list.length) { setMsg({ kind: 'err', text: T('dirNoShots') }); return; }
+        const hit = list.findIndex((s2) => playT >= (Number(s2.start) || 0) && playT < (Number(s2.end) || 0));
+        patch((n) => { n.shots.splice(hit >= 0 ? hit : n.shots.length - 1, 1); });
+        setMsg({ kind: 'ok', text: T('dirShotRemoved') });
+      };
+      /** 改当前分镜的起止时间。 */
+      const editShotTiming = (field, value) => {
+        patch((n) => {
+          const list = n.shots || [];
+          const hit = list.findIndex((s2) => playT >= (Number(s2.start) || 0) && playT < (Number(s2.end) || 0));
+          const sh = list[hit >= 0 ? hit : list.length - 1];
+          if (!sh) return;
+          const v = Math.max(0, Number(value) || 0);
+          if (field === 'start') sh.start = Math.min(v, (Number(sh.end) || v + 0.3) - 0.2);
+          else sh.end = Math.max(v, (Number(sh.start) || 0) + 0.2);
+          list.sort((x, y) => (x.start || 0) - (y.start || 0));
+        });
+      };
+      const removeLastShot = () => {
+        if (!(scene.shots || []).length) { setMsg({ kind: 'err', text: T('dirNoShots') }); return; }
+        patch((n) => { if (Array.isArray(n.shots)) n.shots.pop(); });
+        setMsg({ kind: 'ok', text: T('dirShotRemoved') });
+      };
+
+      const durS = Math.max(1, Number(E.sequenceDuration ? E.sequenceDuration(scene) : scene.shot && scene.shot.duration) || 6);
+      // ── 时间轴（动态预演时显示）：标尺 + 机位/对象轨道 + 播放头 ──
+      const seekFrom = (e2) => {
+        const r2 = e2.currentTarget.getBoundingClientRect();
+        const k = Math.max(0, Math.min(1, (e2.clientX - r2.left) / Math.max(1, r2.width)));
+        setPlayT(+(k * durS).toFixed(3));
+      };
+      const headAt = (Math.min(playT, durS) / durS) * 100 + '%';
+      const timelineWidth = Math.max(600, Math.round(durS * (Number(S.directorTlZoom) || 140)));
+      const trackRow2 = (label, keys, isSel, onSelect) => h('div', { className: 'dshic-dir-track', style: { width: (timelineWidth + 112) + 'px' } },
+        h('span', { className: cls('dshic-dir-tracklabel', isSel && 'is-on') }, label),
+        h('div', {
+          className: 'dshic-dir-tracklane',
+          onPointerDown: (e2) => { seekFrom(e2); if (onSelect) onSelect(); },
+        },
+          (keys || []).map((k, i) => h('span', {
+            key: i, className: 'dshic-dir-keydot', title: Number(k.t).toFixed(2) + 's',
+            style: { left: (Math.min(Number(k.t) || 0, durS) / durS) * 100 + '%' },
+          })),
+          h('span', { className: 'dshic-dir-playhead', style: { left: headAt } })));
+      // 当前操作对象的关键帧（时间轴跳转/改插值用）
+      const curKeysRef = () => {
+        const cam2 = (scene.cameras || []).find((c) => c.id === scene.activeCameraId);
+        const ob2 = (scene.objects || []).find((x) => x.id === S.directorSel);
+        if (ob2 && Array.isArray(ob2.keys) && ob2.keys.length) return ob2.keys.concat(Array.isArray(ob2.poseAnim) ? ob2.poseAnim : []);
+        if (cam2 && Array.isArray(cam2.keys)) return cam2.keys;
+        return [];
+      };
+      const timelineDock = (previzMode === 'dynamic' || previzMode === 'render' || S.directorTimelineOpen) ? h('div', { className: 'dshic-dir-dock' },
+        h('div', { className: 'dshic-dir-dockbar' },
+          h('span', { className: 'dshic-dir-docktitle' }, T('dirTimeline')),
+          h('button', { type: 'button', className: 'dshic-dir-icobtn', 'data-action': 'dir-play', title: playing ? T('dirPause') : T('dirPlay'), onClick: () => { setPrevizMode('dynamic'); S.directorCamFollow = true; setPlaying((v) => !v); } }, playing ? '\u23f8' : '\u25b6'),
+          h('button', { type: 'button', className: 'dshic-dir-icobtn', title: T('dirJumpStart'), onClick: () => setPlayT(0) }, '\u23ee'),
+          h('button', { type: 'button', className: 'dshic-dir-icobtn', title: T('dirJumpEnd'), onClick: () => setPlayT(Math.max(0, durS - 0.05)) }, '\u23ed'),
+          h('span', { className: 'dshic-dir-time' }, playT.toFixed(2) + 's'),
+          h('span', { className: 'dshic-dir-time' }, Math.round(playT * 30) + 'f / ' + Math.round(durS * 30) + 'f'),
+          h('span', { style: { flex: 1 } }),
+              h('button', { type: 'button', className: 'dshic-dir-mini', 'data-action': 'dir-pose-key', onClick: addPoseKey }, '\u263a ' + T('dirPoseKey')),
+              h('button', { type: 'button', className: 'dshic-dir-mini', 'data-action': 'dir-add-shot', onClick: addShotAt }, '\u25b6 ' + T('dirAddShot')),
+              h('button', { type: 'button', className: 'dshic-dir-mini', 'data-action': 'dir-del-shot', onClick: removeLastShot }, '\u2716 ' + T('dirDelShot')),
+          h('button', { type: 'button', className: 'dshic-dir-mini', 'data-action': 'dir-obj-key', onClick: addObjKey }, T('dirObjKey') + ' @' + playT.toFixed(1) + 's'),
+          h('button', { type: 'button', className: 'dshic-dir-mini', 'data-action': 'dir-obj-key-clear', onClick: clearObjKeys }, T('dirObjKeyClear')),
+          h('button', { type: 'button', className: 'dshic-dir-mini', 'data-action': 'dir-key-prev', title: T('dirKeyPrevHint'),
+            onClick: () => { const ks = (curKeysRef() || []); const t2 = E.prevKeyTime(ks, playT); if (t2 !== null) setPlayT(t2); } }, '◀|'),
+          h('button', { type: 'button', className: 'dshic-dir-mini', 'data-action': 'dir-key-next', title: T('dirKeyNextHint'),
+            onClick: () => { const ks = (curKeysRef() || []); const t2 = E.nextKeyTime(ks, playT); if (t2 !== null) setPlayT(t2); } }, '|▶'),
+          h('button', { type: 'button', className: 'dshic-dir-mini is-danger', 'data-action': 'dir-key-del', title: T('dirKeyDelHint'),
+            onClick: () => {
+              patch((n) => {
+                const cam2 = (n.cameras || []).find((c) => c.id === n.activeCameraId);
+                if (cam2 && Array.isArray(cam2.keys)) { const idx = E.keyIndexAt(cam2.keys, playT); if (idx >= 0) cam2.keys.splice(idx, 1); }
+                const ob2 = (n.objects || []).find((x) => x.id === S.directorSel);
+                if (ob2 && Array.isArray(ob2.keys)) { const idx = E.keyIndexAt(ob2.keys, playT); if (idx >= 0) ob2.keys.splice(idx, 1); }
+              });
+              setMsg({ kind: 'ok', text: T('dirKeyDeleted') });
+            } }, '✖|'),
+          h('select', {
+            className: 'dshic-dir-input', style: { width: '86px' }, 'data-action': 'dir-key-ease', value: S.directorEase || 'auto',
+            onChange: (e2) => {
+              const mode = e2.target.value;
+              S.directorEase = mode;
+              patch((n) => {
+                const cam2 = (n.cameras || []).find((c) => c.id === n.activeCameraId);
+                if (cam2 && Array.isArray(cam2.keys)) { const idx = E.keyIndexAt(cam2.keys, playT); if (idx >= 0) cam2.keys[idx].ease = mode; }
+                const ob2 = (n.objects || []).find((x) => x.id === S.directorSel);
+                if (ob2 && Array.isArray(ob2.keys)) { const idx = E.keyIndexAt(ob2.keys, playT); if (idx >= 0) ob2.keys[idx].ease = mode; }
+              });
+              bumpView();
+            },
+          }, [
+            h('option', { key: 'auto', value: 'auto' }, T('dirEaseAuto')),
+            h('option', { key: 'linear', value: 'linear' }, T('dirEaseLinear')),
+            h('option', { key: 'constant', value: 'constant' }, T('dirEaseConst')),
+          ]),
+          h('button', { type: 'button', className: 'dshic-dir-mini', 'data-action': 'dir-loop', title: T('dirLoopHint'),
+            onClick: () => { const next = !loopPlay; setLoopPlay(next); setMsg({ kind: 'ok', text: next ? T('dirLoopOn') : T('dirLoopOff') }); } },
+            (loopPlay ? '↻ ' : '⟳ ') + T('dirLoop')),
+          h('button', { type: 'button', className: 'dshic-dir-mini', 'data-action': 'dir-marker-add', title: T('dirMarkerAddHint'),
+            onClick: () => { patch((n) => { E.addMarker(n, playT, T('dirMarker') + ' ' + playT.toFixed(1) + 's'); }); bumpView(); } }, '⚑+'),
+          h('button', { type: 'button', className: 'dshic-dir-mini is-danger', 'data-action': 'dir-marker-del',
+            onClick: () => { patch((n) => { E.removeMarkerAt(n, playT); }); bumpView(); } }, '⚑−'),
+          h('span', { className: 'dshic-dir-time' }, T('dirZoom')),
+          h('input', {
+            type: 'range', className: 'dshic-dir-scrub', style: { width: '86px' }, min: 60, max: 400, step: 10,
+            value: String(S.directorTlZoom || 140), 'data-action': 'dir-tl-zoom',
+            onChange: (e2) => { S.directorTlZoom = Number(e2.target.value) || 140; bumpView(); },
+          }),
+          h('span', { className: 'dshic-dir-time' }, T('dirDuration')),
+          h('input', {
+            className: 'dshic-dir-input', style: { width: '62px' }, type: 'number', min: 1, max: 120, step: 1,
+            value: String(durS),
+            onChange: (e2) => patch((n) => {
+              const nextDur = Math.max(1, Math.min(120, Number(e2.target.value) || 6));
+              n.shot.duration = nextDur;
+              if (Array.isArray(n.shots) && n.shots.length) {
+                n.shots.sort((a, b) => (a.start || 0) - (b.start || 0));
+                const last = n.shots[n.shots.length - 1];
+                last.end = Math.max(Number(last.start) + 0.05, nextDur);
+              }
+            }),
+          }),
+          h('input', {
+            type: 'range', className: 'dshic-dir-scrub', min: 0, max: String(durS), step: '0.05',
+            value: String(Math.min(playT, durS)),
+            onChange: (e2) => setPlayT(Number(e2.target.value)),
+          })),
+        h('div', { className: 'dshic-dir-ruler', style: { width: timelineWidth + 'px' }, onPointerDown: seekFrom },
+          Array.from({ length: Math.floor(durS) + 1 }).map((_, i) =>
+            h('span', { key: i, className: 'dshic-dir-ruler-tick', style: { left: (i / durS) * 100 + '%' } }, i + 's')),
+          (scene.markers || []).map((mk) => h('span', {
+            key: 'mk-' + mk.t,
+            className: 'dshic-dir-marker-flag',
+            title: (mk.label || '') + ' ' + Number(mk.t).toFixed(2) + 's',
+            style: { left: (Math.min(1, (Number(mk.t) || 0) / Math.max(0.01, durS)) * 100) + '%' },
+            onClick: (e2) => { e2.stopPropagation(); setPlayT(Number(mk.t) || 0); },
+          }, '\u2691')),
+          h('span', { className: 'dshic-dir-playhead', style: { left: headAt } })),
+        h('div', { className: 'dshic-dir-track dshic-dir-shottrack', style: { width: (timelineWidth + 112) + 'px' } },
+          h('span', { className: 'dshic-dir-tracklabel' }, T('dirShots') || T('dirShot')),
+          h('div', { className: 'dshic-dir-tracklane' },
+            (scene.shots || []).map((s2, si) => {
+              const start = Math.max(0, Number(s2.start) || 0);
+              const end = Math.max(start + 0.05, Number(s2.end) || start + 2);
+              const camera = (scene.cameras || []).find((c) => c.id === s2.cameraId);
+              return h('button', {
+                key: s2.id || ('shot-' + si), type: 'button', className: 'dshic-dir-shotblock',
+                title: (camera ? camera.name : s2.cameraId) + ' · ' + start.toFixed(2) + '–' + end.toFixed(2) + 's',
+                style: { left: (Math.min(1, start / durS) * 100) + '%', width: (Math.max(0.8, Math.min(1, (end - start) / durS) * 100)) + '%' },
+                onClick: (e2) => { e2.stopPropagation(); S.directorCamFollow = true; setPlayT(start); if (s2.cameraId) setScene((n) => Object.assign({}, n, { activeCameraId: s2.cameraId })); },
+              }, (si + 1) + ' · ' + String((camera && camera.name) || s2.cameraId || '')); 
+            }),
+            h('span', { className: 'dshic-dir-playhead', style: { left: headAt } }))),
+        h('div', { className: 'dshic-dir-keyrow' },
+          h('span', { className: 'dshic-dir-time' }, T('dirShotEdit')),
+          h('input', { className: 'dshic-dir-input', style: { width: '58px' }, type: 'number', step: 0.1, min: 0, 'data-action': 'dir-shot-start', placeholder: T('dirShotStart'), onChange: (e2) => editShotTiming('start', e2.target.value) }),
+          h('input', { className: 'dshic-dir-input', style: { width: '58px' }, type: 'number', step: 0.1, min: 0, 'data-action': 'dir-shot-end', placeholder: T('dirShotEnd'), onChange: (e2) => editShotTiming('end', e2.target.value) }),
+          h('button', { type: 'button', className: 'dshic-dir-mini is-danger', 'data-action': 'dir-shot-del-at', onClick: removeShotAtPlayhead }, '✖ ' + T('dirShotDelAt'))),
+        (scene.cameras || []).map((c) => h('span', { key: 'ct-' + c.id },
+          trackRow2('\u2317 ' + String(c.name || c.id), c.keys, c.id === scene.activeCameraId, () => { S.directorCamFollow = false; setScene((n) => Object.assign({}, n, { activeCameraId: c.id })); bumpView(); }))),
+        (scene.objects || []).map((ob) => {
+          const allObjKeys = (ob.keys || []).concat(
+            (ob.poseKeys || []).map((k) => ({ t: k.t, _pose: true })),
+            (ob.poseAnim || []).map((k) => ({ t: k.t, _poseAnim: true }))
+          );
+          return h('span', { key: 'ot-' + ob.id },
+            trackRow2('\u263a ' + String(ob.name || ob.id), allObjKeys, ob.id === S.directorSel, () => { S.directorSel = ob.id; bumpView(); }));
+        })) : null;
+
+      const lists = directorPresetLists();
+      const q = assetQ.trim().toLowerCase();
+      const fil = (arr) => (q ? arr.filter((x) => String(x.label || '').toLowerCase().includes(q)) : arr);
+      const pointerPx = (e) => {
+        const cv = canvasRef.current;
+        if (!cv || !cv.getBoundingClientRect) return { x: 0, y: 0 };
+        const r = cv.getBoundingClientRect();
+        return { x: e.clientX - r.left, y: e.clientY - r.top };
+      };
+
+      // 落位 / 上传 / 复制 / 删除
+      const placeAt = (pos) => {
+        const pend = S.directorPendingPlace;
+        if (!pend) return;
+        S.directorPendingPlace = null;
+        const kind = pend.kind;
+        const p = pend.preset;
+        patch((n) => {
+          const id = 'obj_' + Date.now().toString(36);
+          const base = { id, kind, name: p.label || p.id, pos: E.v3(Math.round(pos.x * 4) / 4, 0, Math.round(pos.z * 4) / 4), rotY: 0, visible: true };
+          if (kind === 'mannequin') Object.assign(base, { kind: 'model', assetId: 'xbot', typeId: p.typeId, h: p.h, scale: E.v3(p.w || 1, 1, p.d || 1), clip: (E.gltfAssetOf('xbot') && E.gltfAssetOf('xbot').animations[0] ? E.gltfAssetOf('xbot').animations[0].name : ''), animTime: 0, color: p.color || '' });
+          else if (kind === 'model') Object.assign(base, { assetId: p.id, h: p.height || 1.7, clip: '', animTime: 0, color: p.color || '' });
+          else if (kind === 'actor') Object.assign(base, { preset: p.id, h: 1, pose: 'stand' });
+          else if (kind === 'building') Object.assign(base, { preset: p.id, s: 1 });
+          else if (kind === 'geom') Object.assign(base, { preset: p.id, scale: (p.scale ? Object.assign({}, p.scale) : { x: 1, y: 1, z: 1 }) });
+          else Object.assign(base, { scale: (p.scale ? Object.assign({}, p.scale) : { x: 1, y: 1, z: 1 }) });
+          n.objects.push(base);
+          S.directorSel = id;
+        });
+        bumpView();
+      };
+      const addPreset = (kind, p) => { S.directorPendingPlace = { kind, preset: p }; setMsg(null); bumpView(); };
+      /** 12 体型：同一关节人偶资产（xbot）+ 体型比例，点视口落位。 */
+      const addMannequin = async (t) => {
+        await loadModel('xbot').catch((err) => setMsg({ kind: 'err', text: String((err && err.message) || err) }));
+        S.directorPendingPlace = { kind: 'mannequin', preset: { id: 'xbot', typeId: t.id, label: (effLang() === 'en' ? t.en : t.zh), h: t.h, w: t.w, d: t.d, color: t.color || '' } };
+
+        bumpView();
+      };
+      const addModel = async (m) => {
+        await loadModel(m.id).catch((err) => setMsg({ kind: 'err', text: String((err && err.message) || err) }));
+        S.directorPendingPlace = { kind: 'model', preset: { id: m.id, label: m.label, height: m.height } };
+
+        bumpView();
+      };
+      const onUpload = (ev) => {
+        const f = ev && ev.target && ev.target.files && ev.target.files[0];
+        if (!f) return;
+        if (!/\.obj$/i.test(f.name)) { setMsg({ kind: 'err', text: T('dirObjOnly') }); return; }
+        if (Number(f.size) > 900000) { setMsg({ kind: 'err', text: T('dirObjTooLarge') }); ev.target.value = ''; return; }
+        const rd = new FileReader();
+        rd.onload = () => {
+          try {
+            const parsed = E.parseObjText(String(rd.result || ''), 1.7);
+            patch((n) => {
+              const id = 'obj_' + Date.now().toString(36);
+              n.objects.push({ id, kind: 'obj', name: f.name.replace(/\.obj$/i, ''), pos: E.v3(0, 0, 0), rotY: 0, h: 1.7, objFaces: parsed.faces, triCount: parsed.triCount, scale: E.v3(1, 1, 1), visible: true });
+              S.directorSel = id;
+            });
+            setMsg({ kind: 'ok', text: T('dirObjLoaded') + ' (' + parsed.triCount + ')' });
+          } catch (err) { setMsg({ kind: 'err', text: String((err && err.message) || err) }); }
+        };
+        rd.readAsText(f);
+        ev.target.value = '';
+      };
+      const dupSel = () => { if (!sel) return; patch((n) => { const c = JSON.parse(JSON.stringify(sel)); c.id = 'obj_' + Date.now().toString(36); c.pos = E.v3(c.pos.x + 0.8, c.pos.y, c.pos.z); n.objects.push(c); S.directorSel = c.id; }); };
+      const delSel = () => { if (!sel) return; patch((n) => { n.objects = n.objects.filter((x) => x.id !== sel.id); }); S.directorSel = null; bumpView(); };
+
+      // 机位 / 关键帧
+      const addCamera = () => patch((n) => {
+        const base = (n.cameras || []).find((c) => c.id === n.activeCameraId) || (n.cameras || [])[0] || { pos: E.v3(3, 1.6, 4), target: E.v3(0, 1, 0), fov: 42 };
+        const id = 'cam_' + Date.now().toString(36);
+        n.cameras.push({ id, name: T('dirCamera') + ' ' + ((n.cameras || []).length + 1), pos: JSON.parse(JSON.stringify(base.pos)), target: JSON.parse(JSON.stringify(base.target)), fov: base.fov || 42, roll: 0, keys: [] });
+        n.activeCameraId = id;
+        S.directorCamFollow = false;   // 新机位=立即查看
+      });
+      const delCamera = () => {
+        if ((scene.cameras || []).length <= 1) { setMsg({ kind: 'err', text: T('dirLastCamera') }); return; }
+        patch((n) => {
+          const deletedId = n.activeCameraId;
+          n.cameras = n.cameras.filter((c) => c.id !== deletedId);
+          n.activeCameraId = (n.cameras[0] || {}).id || '';
+          n.shots = (n.shots || []).filter((s2) => s2.cameraId !== deletedId);
+        });
+      };
+      const addKeyframe = () => {
+        patch((n) => {
+          const c = (n.cameras || []).find((x) => x.id === n.activeCameraId);
+          if (!c) return;
+          c.keys = (Array.isArray(c.keys) ? c.keys : []).filter((k) => Math.abs(k.t - playT) > 0.05);
+          c.keys.push({ t: +playT.toFixed(2), pos: JSON.parse(JSON.stringify(c.pos)), target: JSON.parse(JSON.stringify(c.target)), fov: Number(c.fov) || 42, roll: Number(c.roll) || 0, ease: S.directorEase || 'auto' });
+          c.keys.sort((a, b) => a.t - b.t);
+        });
+        setMsg({ kind: 'ok', text: T('dirKeyAdded') });
+      };
+      const clearKeyframes = () => patch((n) => { const c = (n.cameras || []).find((x) => x.id === n.activeCameraId); if (c) c.keys = []; });
+      /** 清空工作区：删掉所有对象、重置机位与机位关键帧（保留环境设置）。 */
+      const clearStage = () => {
+        const n = (scene.objects || []).length;
+        if (!n) { setMsg({ kind: 'ok', text: T('dirWsAlreadyEmpty') }); return; }
+        // 清空是不可逆的大动作：先确认（并说明会连带重置分镜轨，避免导出时长与画面不符）
+        const ask = (typeof window !== 'undefined' && window.confirm) ? window.confirm(T('dirClearConfirm') + '\n' + T('dirClearConfirmDetail')) : true;
+        if (!ask) return;
+        pushUndo();
+        const fresh = JSON.parse(JSON.stringify(scene));
+        const baseDur = Math.max(1, Number((fresh.shot && fresh.shot.duration) || 6));
+        fresh.objects = [];
+        fresh.cameras = fresh.cameras.map((c) => Object.assign({}, c, { keys: [] }));
+        // 同步重置分镜与标记：否则分镜轨/导出时长仍指向已清空的内容
+        fresh.shots = [{ id: 'shot1', cameraId: (fresh.cameras[0] || {}).id || '', start: 0, end: baseDur }];
+        fresh.markers = [];
+        S.directorSel = null;
+        S.directorSelSet = null;
+        S.directorCamFollow = false;
+        setScene(fresh);
+        const E2 = directorEngine();
+        if (E2) E2.saveStageDoc(S.activeId, fresh);
+        markDirty();
+        bumpView();
+        setMsg({ kind: 'ok', text: T('dirWsCleared') + ' (' + n + ')' });
+      };
+      const applyCamPreset = (pid) => {
+        if (pid === 'current') { setMsg({ kind: 'ok', text: T('dirCamIsCurrent') }); return; }
+        pushUndo();
+        const n = JSON.parse(JSON.stringify(scene));
+        const ok = E.applyCameraPreset(n, pid, S.directorSel);
+        if (!ok) { setMsg({ kind: 'err', text: T('dirCamPresetFail') }); return; }
+        // 关键点：机位若有动画关键帧，applyPlayhead 渲染时会把机位改回关键帧位置，
+        // 表现就是"点预设没反应"。应用预设时清空该机位关键帧（预设=重新定机位）。
+        const cam2 = (n.cameras || []).find((c) => c.id === n.activeCameraId);
+        if (cam2 && Array.isArray(cam2.keys) && cam2.keys.length) {
+          cam2.keys = [];
+          setMsg({ kind: 'ok', text: T('dirCamPresetOK') + ' · ' + T('dirCamKeysCleared') });
+        } else {
+          setMsg({ kind: 'ok', text: T('dirCamPresetOK') });
+        }
+        S.directorCamFollow = false;   // 预设=重新定机位，立即看到结果
+        commit(n);
+      };
+
+      // 导出：截图 / 预演视频
+      const exportShot = async () => {
+        if (busy) return;
+        setBusy(true); setMsg(null);
+        try {
+          const w = 1280, h = 720;
+          const cv = document.createElement('canvas');
+          cv.width = w; cv.height = h;
+          let used = 'canvas2d';
+          const glOut = E.createDirectorGlRenderer(cv);
+          if (glOut) {
+            glOut.resize(w, h, 1);
+            // 成片：与实时渲染预览同一份场景（保留颜色材质，剥辅助线），地面按「无限地面」开关
+            glOut.draw(E.applyPlayhead(directorFilmScene(scene), playT), { selectedId: null, renderGround: true, renderOnly: true });
+            used = 'webgl';
+            try { glOut.dispose(); } catch { /* 忽略 */ }
+          }
+          else E.directorRenderScene(cv.getContext('2d'), w, h, E.applyPlayhead(directorFilmScene(scene), playT), { selectedId: null });
+          const blob = await new Promise((res2, rej) => { try { cv.toBlob((b) => (b ? res2(b) : rej(new Error('blob'))), 'image/png'); } catch (e2) { rej(e2); } });
+          const savedShot = await saveAssetRecord(S.activeId, 'image', blob, { name: T('directorShotName') + ' ' + nowStamp(), prompt: E.compileDirectorPrompt(scene, { zh: effLang() !== 'en' }), source: 'director', category: 'shot', nodeLabel: T('directorTitle') });
+          const center = worldCenter();
+          const shotNode = addNodeAt('image', { x: center.x, y: center.y });
+          update((st) => {
+            const g = st.graph.nodes[shotNode.id];
+            if (g) g.data = Object.assign({}, g.data, {
+              assetId: savedShot.id,
+              prompt: savedShot.prompt || '',
+              label: savedShot.name || T('directorShotName'),
+              status: 'done',
+            });
+            st.assetsTick++;
+          });
+          setMsg({ kind: 'ok', text: T('directorExported') + ' · ' + (used === 'webgl' ? T('dirRendererGL') : T('dirRendererFallback')) });
+        } catch (e2) { setMsg({ kind: 'err', text: String((e2 && e2.message) || e2) }); } finally { setBusy(false); }
+      };
+      /** 导出预演视频：离屏 GL 逐帧渲染 + MediaRecorder 录制。
+       *  不用主视口 captureStream —— WebGL context 未开 preserveDrawingBuffer 会录出黑屏。 */
+      const exportVideo = async () => {
+    exportVideoRef.current = exportVideo;   // 供 AI 规格自动出片调用
+        if (recording) return;
+        const total = Math.max(1, (E.sequenceDuration && E.sequenceDuration(scene)) || Number(durS) || 6);
+        const W = 1280, H = 720, FPS = 30;
+        exportCancelRef.current = false;
+        setExportPct(0.001);
+        setRecording(true);
+        setMsg({ kind: 'ok', text: T('dirRecording') });
+        // 分步报错：出错时直接指出是哪一步（否则 "reading 'x'" 查不到出处）
+        const step = (name, fn) => { try { return fn(); } catch (er) { throw new Error('导出视频[' + name + ']: ' + String((er && er.message) || er)); } };
+        try {
+          const ocv = document.createElement('canvas');
+          ocv.width = W; ocv.height = H;
+          const glr = step('创建渲染器', () => E.createDirectorGlRenderer(ocv));
+          if (!glr) throw new Error(T('dirEngineFail'));
+          step('调整尺寸', () => glr.resize(W, H, 1));
+          const stream = step('捕获流', () => (ocv.captureStream ? ocv.captureStream(FPS) : null));
+          if (!stream) throw new Error(T('dirNoCapture'));
+          // 优先 MP4（H.264）；浏览器不支持则回退 webm
+          const CANDIDATES = ['video/mp4;codecs=avc1.42E01E', 'video/mp4;codecs=h264', 'video/mp4', 'video/webm;codecs=vp9', 'video/webm'];
+          let mime = 'video/webm';
+          if (typeof MediaRecorder !== 'undefined' && MediaRecorder.isTypeSupported) {
+            for (const m2 of CANDIDATES) { if (MediaRecorder.isTypeSupported(m2)) { mime = m2; break; } }
+          }
+          const rec = step('创建录制器', () => new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: 8e6 }));
+          const chunks = [];
+          rec.ondataavailable = (ev2) => { if (ev2.data && ev2.data.size) chunks.push(ev2.data); };
+          const stopped = new Promise((res2) => { rec.onstop = res2; });
+          rec.start(100);
+          // 成片场景：与「实时渲染」预览走同一个 buildExportScene + 同一组 draw opts，
+          // 保证"预览看到什么样，导出就是什么样"（保留颜色/材质/灯光，只剥网格/路径/标签/gizmo）
+          const exportScene = directorFilmScene(scene);
+          const frames = Math.round(total * FPS);
+          for (let i = 0; i <= frames; i++) {
+            const t2 = i / FPS;
+            if (exportCancelRef.current) { try { rec.stop(); } catch { /* 忽略 */ } throw new Error(T('dirExportCancelled')); }
+            if (i % 3 === 0) setExportPct(frames > 0 ? i / frames : 0);
+            step('渲染帧' + i, () => glr.draw(E.applyPlayhead(exportScene, t2), { selectedId: null, renderGround: true, renderOnly: true }));
+            if (i % 6 === 0) setPlayT(Math.min(t2, total));
+            await new Promise((r2) => (typeof requestAnimationFrame === 'function' ? requestAnimationFrame(r2) : setTimeout(r2, 16)));
+          }
+          rec.stop();
+          await stopped;
+          try { glr.dispose(); } catch { /* 忽略 */ }
+          const isMp4 = /mp4/i.test(String(mime));
+          const blob = new Blob(chunks, { type: isMp4 ? 'video/mp4' : 'video/webm' });
+          if (!blob.size) throw new Error(T('dirVideoEmpty'));
+          // 保存到资产库（软失败：失败就只下载，不整体报错）
+          let saved = null;
+          try {
+            saved = await saveAssetRecord(S.activeId, 'video', blob, {
+              name: T('dirPrevizName') + ' ' + nowStamp(),
+              prompt: E.compileDirectorPrompt(scene, { zh: effLang() !== 'en' }),
+              source: 'director', category: 'shot', nodeLabel: T('directorTitle'),
+            });
+          } catch (saveErr) {
+            saved = null;
+          }
+          // 无论是否入库都下载一份，保证用户拿到产物（导出永不因入库失败而失败）
+          let downloaded = false;
+          try {
+            const url = URL.createObjectURL(blob);
+            const a2 = document.createElement('a');
+            a2.href = url;
+            a2.download = 'previz-' + Date.now().toString(36) + (isMp4 ? '.mp4' : '.webm');
+            document.body.appendChild(a2);
+            a2.click();
+            downloaded = true;
+            setTimeout(() => { try { URL.revokeObjectURL(url); a2.remove(); } catch { /* 忽略 */ } }, 4000);
+          } catch { downloaded = false; }
+          if (saved) {
+            try {
+              const center = worldCenter();
+              const videoNode = addNodeAt('video', { x: center.x + 40, y: center.y + 40 });
+              update((st) => {
+                const g = st.graph.nodes[videoNode.id];
+                if (g) g.data = Object.assign({}, g.data, {
+                  assetId: saved.id,
+                  prompt: saved.prompt || '',
+                  label: saved.name || T('dirPrevizName'),
+                  duration: total,
+                  status: 'done',
+                });
+                st.assetsTick++;
+              });
+            } catch { /* 节点失败不影响产物 */ }
+            setMsg({ kind: 'ok', text: T('dirVideoSaved') + (downloaded ? ' · ' + T('dirAlsoDownloaded') : '') });
+          } else if (downloaded) {
+            setMsg({ kind: 'ok', text: T('dirDownloadedOnly') });
+          } else {
+            throw new Error(T('dirSaveFailDownload'));
+          }
+        } catch (e2) {
+          setMsg({ kind: 'err', text: String((e2 && e2.message) || e2) });
+        } finally {
+          setRecording(false);
+          setExportPct(0);
+          setPlaying(false);
+          bumpView();
+        }
+      };
+
+      // 视口交互
+      const trackPointer = (ev) => {
+        const p = pointerPx(ev);
+        pointerRef.current = { x: p.x, y: p.y, inside: true };
+        return p;
+      };
+      /** gizmo 拖动起点：普通拖动与 Alt+等比缩放共用同一份取数逻辑（live 对象优先）。 */
+      const startGizmoDrag = (g, uniform, p, w, h, camNow) => {
+        const liveSc = S.directorLiveScene || scene;
+        const obStore = (scene.objects || []).find((x) => x.id === S.directorSel);
+        const obLive = (liveSc.objects || []).find((x) => x.id === S.directorSel) || obStore;
+        if (!obStore || !obLive) return false;
+        const isRot = /^rot/.test(String(g.axis));
+        const isScale = g.op === 'scale';
+        update((st) => { st.directorTool = isRot ? 'rotate' : isScale ? 'scale' : 'move'; });
+        S.directorHoverAxis = isRot ? String(g.axis) : (isScale ? 'scale:' + g.axis : String(g.axis));
+        const axisVec = E.objectAxes ? E.objectAxes(obLive)[g.axis] : (g.axis === 'x' ? E.v3(1, 0, 0) : g.axis === 'y' ? E.v3(0, 1, 0) : E.v3(0, 0, 1));
+        dragRef.current = {
+          mode: isRot ? 'rotate' : isScale ? 'scaleAxis' : 'axis',
+          axis: g.axis, axisVec, x: p.x, y: p.y,
+          obj: JSON.parse(JSON.stringify(obStore)),
+          origin: JSON.parse(JSON.stringify(obLive.pos)),
+          eye: JSON.parse(JSON.stringify(camNow.pos)),
+          scale0: obLive.scale ? JSON.parse(JSON.stringify(obLive.scale)) : { x: 1, y: 1, z: 1 },
+          rot0: Number(obLive.rotY) || 0,
+          pos0: JSON.parse(JSON.stringify(obLive.pos)),
+          hasPath: Array.isArray(obStore.path) && obStore.path.length >= 2,
+          pathOrg0: (obStore.pathOrigin ? JSON.parse(JSON.stringify(obStore.pathOrigin))
+            : (Array.isArray(obStore.path) && obStore.path[0] ? JSON.parse(JSON.stringify(obStore.path[0])) : JSON.parse(JSON.stringify(obLive.pos)))),
+          uniform0: !!uniform,
+          before: JSON.stringify(scene),
+        };
+        return true;
+      };
+      /** Ctrl/Shift+点对象：增删选中（多选集合同步 directorSel）。 */
+      const boxToggleSel = (id) => {
+        if (!id) return;
+        const cur = Array.isArray(S.directorSelSet) ? S.directorSelSet.slice() : (S.directorSel ? [S.directorSel] : []);
+        const i = cur.indexOf(id);
+        if (i >= 0) cur.splice(i, 1); else cur.push(id);
+        S.directorSelSet = cur.length ? cur : null;
+        S.directorSel = cur.length ? cur[cur.length - 1] : null;
+        bumpView();
+      };
+
+      const onDown = (ev) => {
+        if (!cam) return;
+        const p = trackPointer(ev);
+        const w = sizeRef.current.w, h = sizeRef.current.h;
+        // 路径绘制模式：只拦「左键」（右键/中键/Alt+左键 仍可环绕·平移，滚轮仍可缩放，
+        // 这样才能把相机移到 100 米外继续点第二个路径点）
+        if (S.directorPathPick && S.directorSel && ev.button === 0 && !ev.altKey) {
+          const gp0 = E.groundPointFromScreen(cam, w, h, p.x, p.y);
+          if (gp0) {
+            patch((n) => {
+              const o2 = n.objects.find((x) => x.id === S.directorSel);
+              if (!o2) return;
+              if (!Array.isArray(o2.path)) o2.path = [];
+              if (!o2.pathOrigin) o2.pathOrigin = { x: o2.pos.x, y: o2.pos.y, z: o2.pos.z };
+              // 首个点用物体当前位置作为起点，保证「物体不瞬移 + 起点在线上」
+              if (!o2.path.length) o2.path.push({ x: Math.round(o2.pos.x * 100) / 100, y: 0, z: Math.round(o2.pos.z * 100) / 100 });
+              o2.path.push({ x: Math.round(gp0.x * 100) / 100, y: 0, z: Math.round(gp0.z * 100) / 100 });
+            });
+            setMsg({ kind: 'ok', text: T('dirPathPointAdded') + ' (' + gp0.x.toFixed(1) + ', ' + gp0.z.toFixed(1) + ')' });
+          }
+          return;
+        }
+        // 路径点编辑：左键点在已有点上 → 进入拖拽（拖动时按地面平面反投影）
+        if (ev.button === 0 && !ev.altKey && E.directorPickPathPoint) {
+          const pp = E.directorPickPathPoint(S.directorLiveScene || scene, w, h, p.x, p.y, 18);
+          if (pp) {
+            S.directorSel = pp.objId;
+            S.directorPathSel = { objId: pp.objId, index: pp.index };
+            dragRef.current = { mode: 'pathpoint', objId: pp.objId, index: pp.index, x: p.x, y: p.y, before: JSON.stringify(scene) };
+            setTick((x2) => x2 + 1);
+            return;
+          }
+        }
+        if (S.directorPendingPlace) {
+          const gp = E.groundPointFromScreen(cam, w, h, p.x, p.y);
+          if (gp) placeAt(gp);
+          bumpView();
+          return;
+        }
+        // Alt+左键按在「轴端缩放手柄」上 = 等比缩放（必须先于 orbit 判定，否则永远被环绕吃掉）
+        if (ev.button === 0 && ev.altKey && S.directorSel) {
+          const liveScAlt = S.directorLiveScene || scene;
+          const gAlt = E.directorPickGizmo(liveScAlt, S.directorSel, w, h, p.x, p.y);
+          if (gAlt && gAlt.op === 'scale' && startGizmoDrag(gAlt, true, p, w, h, cam)) return;
+        }
+        // 右键（或中键）= 环绕旋转；左键 = 平移（Blender 手感：平移不改变朝向）
+        if (ev.button === 2 || ev.button === 1 || (ev.button === 0 && ev.altKey)) {
+          // 跟随分镜中拖动 = 切自由视角：先把当前所见（live 机位）视角写入选中机位，视角不跳变
+          if (S.directorCamFollow) {
+            const live = ((S.directorLiveScene && S.directorLiveScene.cameras) || []).find((c) => c.id === (S.directorLiveScene || {}).activeCameraId);
+            const host = (scene.cameras || []).find((c) => c.id === scene.activeCameraId);
+            if (live && host && live.id !== host.id) { host.pos = JSON.parse(JSON.stringify(live.pos)); host.target = JSON.parse(JSON.stringify(live.target)); }
+            S.directorCamFollow = false;
+          }
+          dragRef.current = { mode: 'orbit', x: p.x, y: p.y, cam: JSON.parse(JSON.stringify(cam)), before: JSON.stringify(scene) };
+          return;
+        }
+        // Ctrl/Shift/Cmd + 左键 = 框选 / 增量点选（已选中对象时也能继续框选）
+        if (ev.button === 0 && !ev.altKey && (ev.ctrlKey || ev.metaKey || ev.shiftKey)) {
+          const liveScBox = S.directorLiveScene || scene;
+          const hit0 = E.directorPickObject(liveScBox, w, h, p.x, p.y, { tol: 10 });
+          dragRef.current = { mode: 'box', x: p.x, y: p.y, hitId: hit0 ? hit0.id : null, add: !!(ev.shiftKey || ev.metaKey) };
+          setBoxSel({ x0: p.x, y0: p.y, x1: p.x, y1: p.y });
+          return;
+        }
+        if (S.directorSel) {
+          const liveSc = S.directorLiveScene || scene;
+          const g = E.directorPickGizmo(liveSc, S.directorSel, w, h, p.x, p.y);
+          if (g && startGizmoDrag(g, false, p, w, h, cam)) return;
+        }
+        const hit = E.directorPickObject(S.directorLiveScene || scene, w, h, p.x, p.y, { tol: 10 });
+        if (hit) { S.directorSel = hit.id; dragRef.current = { mode: 'select', x: p.x, y: p.y }; bumpView(); return; }
+        if (S.directorSel) { S.directorSel = null; bumpView(); }
+        // 空白左键拖拽 = 平移画面（Blender 手感）；中键/Alt+左键 = 环绕
+        // 跟随分镜中平移 = 切自由视角（同 orbit：从当前所见视角无缝接管）
+        if (S.directorCamFollow) {
+          const live = ((S.directorLiveScene && S.directorLiveScene.cameras) || []).find((c) => c.id === (S.directorLiveScene || {}).activeCameraId);
+          const host = (scene.cameras || []).find((c) => c.id === scene.activeCameraId);
+          if (live && host && live.id !== host.id) { host.pos = JSON.parse(JSON.stringify(live.pos)); host.target = JSON.parse(JSON.stringify(live.target)); }
+          S.directorCamFollow = false;
+        }
+        dragRef.current = { mode: 'pan', x: p.x, y: p.y, cam: JSON.parse(JSON.stringify(cam)), before: JSON.stringify(scene) };
+      };
+      const onMove = (ev) => {
+        const d = dragRef.current;
+        if (!d) {
+          // 没在拖拽时也要跟随指针（放置模式的图标要跟着鼠标走）
+          trackPointer(ev);
+          // ── gizmo 悬停高亮：鼠标扫过轴/环/缩放块时加粗提亮（Blender 手感）──
+          if (S.directorSel && E.directorPickGizmo) {
+            const p2 = pointerPx(ev);
+            const g2 = E.directorPickGizmo(S.directorLiveScene || scene, S.directorSel, sizeRef.current.w, sizeRef.current.h, p2.x, p2.y);
+            const key = g2 ? (/^rot/.test(String(g2.axis)) ? String(g2.axis) : (g2.op === 'scale' ? 'scale:' + g2.axis : String(g2.axis))) : '';
+            if (key !== (S.directorHoverAxis || '')) { S.directorHoverAxis = key; bumpView(); }
+          } else if (S.directorHoverAxis) { S.directorHoverAxis = ''; bumpView(); }
+          if (S.directorPendingPlace) bumpView();
+          return;
+        }
+        S.directorDragging = true;
+        const p = trackPointer(ev);
+        const dx = p.x - d.x, dy = p.y - d.y;
+        if (d.mode === 'pathpoint') {
+          const gp = E.groundPointFromScreen(cam, sizeRef.current.w, sizeRef.current.h, p.x, p.y);
+          if (gp) {
+            // 路径点统一存世界绝对坐标
+            const nx = Math.round(gp.x * 100) / 100;
+            const nz = Math.round(gp.z * 100) / 100;
+            setScene((s2) => {
+              const ob = (s2.objects || []).find((x2) => x2.id === d.objId);
+              if (ob && Array.isArray(ob.path) && ob.path[d.index]) { ob.path[d.index] = { x: nx, y: 0, z: nz }; }
+              return Object.assign({}, s2);
+            });
+          }
+          return;
+        }
+        if (d.mode === 'box') {
+          setBoxSel((b) => (b ? { x0: b.x0, y0: b.y0, x1: p.x, y1: p.y } : b));
+          return;
+        }
+        if (d.mode === 'pan') {
+          const c = d.cam;
+          const fwd = E.vNorm(E.vSub(c.target, c.pos));
+          const right = E.vNorm(E.vCross(fwd, E.v3(0, 1, 0)));
+          const upv = E.vNorm(E.vCross(right, fwd));
+          // 精确 1:1 平移（屏幕 1px ↔ 世界 1px），但带场景尺度上限保护：
+          // 相机远离时（如 100m）每像素世界长度极大，会「拖一下飞出去」（历史 bug）。
+          const dist0 = E.vLen(E.vSub(c.pos, c.target)) || 3;
+          const fovRad = ((Number(c.fov) || 42) * Math.PI) / 180;
+          const vh = Math.max(120, sizeRef.current.h || 600);
+          let sceneR = 4;
+          for (const ob of (scene.objects || [])) {
+            if (!ob || !ob.pos) continue;
+            const r = Math.hypot(ob.pos.x, ob.pos.z) + Math.max(1, Number(ob.h) || 1.7);
+            if (r > sceneR) sceneR = r;
+          }
+          // 相机距离与场景尺度取较小值 → 永远不会按 100m 的尺度拖动
+          const dist = Math.min(dist0, sceneR * 1.5);
+          const worldPerPx = (2 * dist * Math.tan(fovRad / 2)) / vh;
+          const k2 = worldPerPx * 0.55;   // 再放缓：DCC 平移手感是偏慢的
+          const mx = -dx * k2, my = dy * k2;
+          setScene((s2) => {
+            const n = JSON.parse(JSON.stringify(s2));
+            const cc = n.cameras.find((x) => x.id === n.activeCameraId);
+            if (cc) {
+              cc.pos = E.v3(cc.pos.x + right.x * mx + upv.x * my, cc.pos.y + right.y * mx + upv.y * my, cc.pos.z + right.z * mx + upv.z * my);
+              cc.target = E.v3(cc.target.x + right.x * mx + upv.x * my, cc.target.y + right.y * mx + upv.y * my, cc.target.z + right.z * mx + upv.z * my);
+            }
+            return n;
+          });
+          return;
+        }
+        if (d.mode === 'orbit') {
+          const c = d.cam;
+          const radius = Math.hypot(c.pos.x - c.target.x, c.pos.y - c.target.y, c.pos.z - c.target.z) || 3;
+          const yaw = Math.atan2(c.pos.x - c.target.x, c.pos.z - c.target.z) - dx * 0.0024;   // 环绕灵敏度（原 0.006 过热）
+          const pitch = Math.max(-0.25, Math.min(1.35, Math.asin(Math.max(-1, Math.min(1, (c.pos.y - c.target.y) / radius))) + dy * 0.0018));
+          const ny = radius * Math.sin(pitch);
+          const hz = Math.max(0.2, radius * Math.cos(pitch));
+          const next = { x: c.target.x + Math.sin(yaw) * hz, y: c.target.y + ny, z: c.target.z + Math.cos(yaw) * hz };
+          setScene((s2) => { const n = JSON.parse(JSON.stringify(s2)); const cc = n.cameras.find((x) => x.id === n.activeCameraId); if (cc) cc.pos = next; return n; });
+          return;
+        }
+        if (d.mode === 'axis') {
+          const ray = E.screenRayDir(cam, sizeRef.current.w, sizeRef.current.h, p.x, p.y);
+          const startRay = E.screenRayDir(cam, sizeRef.current.w, sizeRef.current.h, d.x, d.y);
+          const axisVec = d.axisVec || (d.axis === 'x' ? E.v3(1, 0, 0) : d.axis === 'y' ? E.v3(0, 1, 0) : E.v3(0, 0, 1));
+          let delta = E.axisDragDelta(d.origin, axisVec, d.eye, ray) - E.axisDragDelta(d.origin, axisVec, d.eye, startRay);
+          // Blender 吸附语义：Ctrl/磁铁开 → 吸附 0.5m 网格；Shift → 精确模式（÷10）
+          if (S.directorSnap === true || ev.ctrlKey || ev.metaKey) delta = 0.5 * Math.round(delta / 0.5);
+          else if (ev.shiftKey) delta *= 0.1;
+          setScene((s2) => {
+            const n = JSON.parse(JSON.stringify(s2));
+            const t2 = n.objects.find((x) => x.id === d.obj.id);
+            if (t2) {
+              const np = E.vAdd(d.origin, E.vMul(axisVec, delta));
+              t2.pos = E.v3(np.x, Math.max(0, np.y), np.z);
+              // 有路径的对象：applyPlayhead 每帧用 pathOrigin 重算 pos，只改 pos 松手就弹回。
+              // 因此把平移量同步写进 pathOrigin（渲染位置 = pathOrigin + 采样偏移，整体跟着走）。
+              if (d.hasPath) {
+                const org0 = d.pathOrg0 || d.pos0 || { x: 0, y: 0, z: 0 };
+                const dxy = E.vSub(t2.pos, d.pos0 || t2.pos);
+                t2.pathOrigin = { x: (Number(org0.x) || 0) + dxy.x, y: (Number(org0.y) || 0) + dxy.y, z: (Number(org0.z) || 0) + dxy.z };
+              }
+            }
+            return n;
+          });
+          return;
+        }
+        if (d.mode === 'rotate') {
+          const ax = String(d.axis || 'roty');
+          // 绝对角 = 起始角 + 从拖动起点算出的总位移角。
+          // 历史 bug：每帧在「当前角」上再加「从起点算的总位移」→ 角度越拖越快（平方级累加）。
+          const total = (ax === 'roty' ? dx : dy) * 0.008;   // 水平环横向拖、立环纵向拖
+          const rotField = ax === 'rotx' ? 'rx' : ax === 'rotz' ? 'rz' : 'rotY';
+          const startRot = ax === 'roty' ? (Number(d.rot0) || 0) : (Number(d.obj[rotField]) || 0);
+          let nextRot = startRot + total;
+          // 旋转吸附：Ctrl/磁铁开 → 5° 步进（Blender 默认旋转吸附 5°）
+          if (S.directorSnap === true || ev.ctrlKey || ev.metaKey) {
+            const step5 = (5 * Math.PI) / 180;
+            nextRot = step5 * Math.round(nextRot / step5);
+          }
+          setScene((s2) => {
+            const n = JSON.parse(JSON.stringify(s2));
+            const t2 = n.objects.find((x) => x.id === d.obj.id);
+            if (t2) {
+              t2[rotField] = nextRot;
+              // 有路径且自动朝向时，pathFace 会把 rotY 覆盖回去 → 手动旋转后关闭自动朝向
+              if (ax === 'roty' && d.hasPath && t2.pathFace !== false) t2.pathFace = false;
+            }
+            return n;
+          });
+          return;
+        }
+        if (d.mode === 'scaleAxis') {
+          const ax = d.axis === 'y' ? 'y' : d.axis === 'x' ? 'x' : 'z';
+          const axisVec = d.axisVec || (ax === 'x' ? E.v3(1, 0, 0) : ax === 'y' ? E.v3(0, 1, 0) : E.v3(0, 0, 1));
+          const ray = E.screenRayDir(cam, sizeRef.current.w, sizeRef.current.h, p.x, p.y);
+          const startRay = E.screenRayDir(cam, sizeRef.current.w, sizeRef.current.h, d.x, d.y);
+          let delta = E.axisDragDelta(d.origin, axisVec, d.eye, ray) - E.axisDragDelta(d.origin, axisVec, d.eye, startRay);
+          // 沿轴正方向（从物体中心往手柄外拉）= 放大；往中心推 = 缩小。
+          // 指数映射让远近相机下都稳定，Shift 精调，Ctrl/磁铁按 0.1 倍率吸附。
+          const refLen = Math.max(0.25, (Number(d.obj.h) || 1.7) / 3);
+          if (ev.shiftKey) delta *= 0.1;
+          const base = Math.max(0.01, Number(d.scale0 && d.scale0[ax]) || 1);
+          const next = E.axisScaleFromDelta(base, delta, refLen, S.directorSnap === true || ev.ctrlKey || ev.metaKey);
+          // Alt+拖 = 等比缩放：xyz 三轴一起应用同一倍率（用户实测需求）
+          const uniform = ev.altKey;
+          setScene((s2) => {
+            const n = JSON.parse(JSON.stringify(s2));
+            const t2 = n.objects.find((x) => x.id === d.obj.id);
+            if (t2) {
+              const base0 = Object.assign({ x: 1, y: 1, z: 1 }, d.scale0 || {});
+              if (uniform) {
+                // 等比缩放按「倍率」作用于三轴：非均匀初始比例（如建筑 3×5×2）不会被拉正
+                const k = next / base;
+                const cl = (v) => Math.max(0.02, Math.min(20, v));
+                t2.scale = { x: cl(base0.x * k), y: cl(base0.y * k), z: cl(base0.z * k) };
+              } else {
+                t2.scale = Object.assign({ x: 1, y: 1, z: 1 }, t2.scale || {}, { [ax]: next });
+              }
+            }
+            return n;
+          });
+          return;
+        }
+        if (d.mode === 'scale') {
+          const base = Number(d.obj.s) || 1;
+          const next = Math.max(0.15, Math.min(8, base * (1 + dx * 0.006)));
+          setScene((s2) => { const n = JSON.parse(JSON.stringify(s2)); const t2 = n.objects.find((x) => x.id === d.obj.id); if (t2) t2.s = next; return n; });
+        }
+      };
+      const onUp = () => {
+        const d = dragRef.current;
+        dragRef.current = null;
+        S.directorDragging = false;
+        // ── 框选收口：矩形内对象全部选中（Ctrl/Shift 拖拽结束）──
+        if (d && d.mode === 'box') {
+          const b = boxSel;
+          setBoxSel(null);
+          const tiny = !b || (Math.abs(b.x1 - b.x0) < 4 && Math.abs(b.y1 - b.y0) < 4);
+          if (tiny) {
+            // 没拖动 = 点击：Ctrl/Shift+点对象 = 增删选中；点空白 = 清空
+            if (d.hitId) boxToggleSel(d.hitId);
+            else if (S.directorSel || S.directorSelSet) { S.directorSel = null; S.directorSelSet = null; bumpView(); }
+            return;
+          }
+          if (b) {
+            const x0 = Math.min(b.x0, b.x1), x1 = Math.max(b.x0, b.x1);
+            const y0 = Math.min(b.y0, b.y1), y1 = Math.max(b.y0, b.y1);
+            const picked = E.objectsInRect(S.directorLiveScene || scene, sizeRef.current.w, sizeRef.current.h, x0, y0, x1, y1);
+            const base = (d.add && Array.isArray(S.directorSelSet)) ? S.directorSelSet : [];
+            const merged = [...new Set([...base, ...picked])];
+            if (merged.length) {
+              S.directorSelSet = merged;
+              S.directorSel = merged[merged.length - 1];
+              setMsg({ kind: 'ok', text: T('dirSelectedN') + ' ' + merged.length });
+            } else if (!d.add) {
+              S.directorSelSet = null;
+              S.directorSel = null;
+            }
+            bumpView();
+          }
+          return;
+        }
+        // 路径点拖拽收口：写入舞台文档并提示
+        if (d && d.mode === 'pathpoint') {
+          if (d.before) pushUndoSnapshot(d.before);
+          setScene((s2) => { const n = JSON.parse(JSON.stringify(s2)); n.updatedAt = Date.now(); E.saveStageDoc(S.activeId, n); return n; });
+          markDirty();
+          const ob2 = (scene.objects || []).find((x2) => x2.id === d.objId);
+          const pt = ob2 && Array.isArray(ob2.path) ? ob2.path[d.index] : null;
+          if (pt) setMsg({ kind: 'ok', text: T('dirPathPointMoved') + ' #' + (d.index + 1) + ' (' + Number(pt.x).toFixed(1) + ', ' + Number(pt.z).toFixed(1) + ')' });
+          setTick((x2) => x2 + 1);
+          return;
+        }
+        if (d && d.mode !== 'select') {
+          // ── auto-key（Blender 语义）：对象/机位已有动画关键帧时，松手自动在当前播放头补一帧 ──
+          // 否则插值会吃掉这次拖动，对象"弹回"旧位置。
+          const isObjDrag = (d.mode === 'axis' || d.mode === 'rotate' || d.mode === 'scaleAxis' || d.mode === 'scale');
+          const isCamDrag = (d.mode === 'orbit' || d.mode === 'pan');
+          if ((isObjDrag || isCamDrag) && d.before) pushUndoSnapshot(d.before);
+          setScene((s2) => {
+            const n = JSON.parse(JSON.stringify(s2));
+            if (isObjDrag && d.obj && d.obj.id) {
+              const o2 = n.objects.find((x) => x.id === d.obj.id);
+              if (o2 && Array.isArray(o2.keys) && o2.keys.length) {
+                o2.keys = o2.keys.filter((k) => Math.abs(k.t - playT) > 0.05);
+                o2.keys.push({ t: +playT.toFixed(2), pos: Object.assign({}, o2.pos), rotY: Number(o2.rotY) || 0, rx: Number(o2.rx) || 0, rz: Number(o2.rz) || 0, ease: S.directorEase || 'auto' });
+                o2.keys.sort((a, b) => a.t - b.t);
+              }
+            }
+            if (isCamDrag) {
+              const c2 = n.cameras.find((x) => x.id === n.activeCameraId);
+              if (c2 && Array.isArray(c2.keys) && c2.keys.length) {
+                c2.keys = c2.keys.filter((k) => Math.abs(k.t - playT) > 0.05);
+                c2.keys.push({ t: +playT.toFixed(2), pos: Object.assign({}, c2.pos), target: Object.assign({}, c2.target), fov: Number(c2.fov) || 42, roll: Number(c2.roll) || 0, ease: S.directorEase || 'auto' });
+                c2.keys.sort((a, b) => a.t - b.t);
+              }
+            }
+            n.updatedAt = Date.now();
+            if (isObjDrag || isCamDrag) E.saveStageDoc(S.activeId, n);
+            return n;
+          });
+          if (isObjDrag || isCamDrag) { markDirty(); bumpView(); }
+        }
+      };
+      const onWheel = (ev) => {
+        if (!cam) return;
+        ev.preventDefault();
+        // 跟随分镜中滚轮 = 切自由视角（从当前所见机位无缝接管）
+        if (S.directorCamFollow) {
+          const live = ((S.directorLiveScene && S.directorLiveScene.cameras) || []).find((c) => c.id === (S.directorLiveScene || {}).activeCameraId);
+          const host = (scene.cameras || []).find((c) => c.id === scene.activeCameraId);
+          if (live && host && live.id !== host.id) { host.pos = JSON.parse(JSON.stringify(live.pos)); host.target = JSON.parse(JSON.stringify(live.target)); }
+          S.directorCamFollow = false;
+        }
+        if (!wheelGestureOpenRef.current) {
+          wheelGestureOpenRef.current = true;
+          wheelBeforeRef.current = JSON.stringify(scene);
+        }
+        if (wheelUndoTimerRef.current) clearTimeout(wheelUndoTimerRef.current);
+        const k = ev.deltaY > 0 ? 1.08 : 1 / 1.08;
+        setScene((s2) => {
+          const n = JSON.parse(JSON.stringify(s2));
+          const cc = n.cameras.find((x) => x.id === n.activeCameraId);
+          if (cc) {
+            const t2 = cc.target;
+            cc.pos = E.v3(t2.x + (cc.pos.x - t2.x) * k, t2.y + (cc.pos.y - t2.y) * k, t2.z + (cc.pos.z - t2.z) * k);
+            // auto-key：相机有动画关键帧时，滚轮缩放也要在播放头补帧，否则会被插值锁回去（滚轮失效）
+            if (Array.isArray(cc.keys) && cc.keys.length) {
+              cc.keys = cc.keys.filter((kk) => Math.abs(kk.t - playT) > 0.05);
+              cc.keys.push({ t: +playT.toFixed(2), pos: Object.assign({}, cc.pos), target: Object.assign({}, cc.target), fov: Number(cc.fov) || 42, roll: Number(cc.roll) || 0, ease: S.directorEase || 'auto' });
+              cc.keys.sort((a, b) => a.t - b.t);
+            }
+          }
+          return n;
+        });
+        wheelUndoTimerRef.current = setTimeout(() => {
+          if (wheelBeforeRef.current) pushUndoSnapshot(wheelBeforeRef.current);
+          wheelBeforeRef.current = null;
+          wheelGestureOpenRef.current = false;
+          setScene((s2) => { const n = JSON.parse(JSON.stringify(s2)); n.updatedAt = Date.now(); E.saveStageDoc(S.activeId, n); return n; });
+          markDirty(); bumpView();
+        }, 180);
+        S.directorWheelTick = Date.now();   // 标记「刚滚过轮」，渲染时显示实时相机
+        bumpView();
+      };
+
+      // 单色线性图标（跟随文字色，风格与画布图标列一致）
+      const miniIcon = (d, size) => h('svg', {
+        width: size || 14, height: size || 14, viewBox: '0 0 24 24', fill: 'none',
+        stroke: 'currentColor', strokeWidth: 1.8, strokeLinecap: 'round', strokeLinejoin: 'round',
+        'aria-hidden': 'true',
+      }, h('path', { d }));
+      const ICON_SAVE = 'M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2zM17 21v-8H7v8M7 3v5h8';
+      const ICON_OPEN = 'M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z';
+      const ICON_DEL = 'M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14M10 11v5M14 11v5';
+      const ICON_UNDO = 'M9 14 4 9l5-5M4 9h9a7 7 0 0 1 0 14H7';
+      const ICON_REDO = 'M15 14l5-5-5-5M20 9h-9a7 7 0 0 0 0 14h6';
+      const ICON_FULL = 'M4 9V4h5M20 15v5h-5M20 9V4h-5M4 15v5h5';
+      const ICON_EXIT = 'M6 6l12 12M18 6L6 18';
+      const envRow = (label, node2) => h('div', { className: 'dshic-dir-envrow' }, h('span', null, label), node2);
+      const num3 = (v, on) => h('div', { className: 'dshic-dir-xyz' }, ['X', 'Y', 'Z'].map((ax, i) => h('input', {
+        key: ax, className: 'dshic-dir-input', type: 'number', step: 0.25, value: String(Number(v[i]) || 0),
+        onChange: (e2) => on(Number(e2.target.value), i),
+      })));
+      const TAB_DEFS = [
+        { id: 'human', label: T('dirTabActors'), path: 'M12 4a3 3 0 1 0 0 6 3 3 0 0 0 0-6zM6.5 20.5c0-3.6 2.5-6 5.5-6s5.5 2.4 5.5 6' },
+        { id: 'tree', label: T('dirTabTree'), path: 'M12 3 6 12h3.6L6.5 17h11L14.4 12H18zM12 17v4' },
+        { id: 'furniture', label: T('dirTabFurn'), path: 'M7 10V7a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v3M5 10h14v6H5zM7 16v3M17 16v3' },
+        { id: 'building', label: T('dirTabBuild'), path: 'M5 21V6l7-3 7 3v15M9 21v-4h6v4M8.5 9h1.5M14 9h1.5M8.5 12.5h1.5M14 12.5h1.5' },
+        { id: 'geoms', label: T('dirTabGeom'), path: 'M12 3.5 20 8v8l-8 4.5L4 16V8zM4 8l8 4.5L20 8M12 12.5V20.5' },
+        { id: 'cams', label: T('dirTabCams'), path: 'M4 8.5h9v7H4zM13 11l6-2.5v7L13 13' },
+      ];
+      const cardBtn = (key, icon, label, onClick, thumbUrl) => h('button', { key, type: 'button', className: 'dshic-dir-card', onClick },
+        thumbUrl
+          ? h('img', { className: 'dshic-dir-card-img', src: thumbUrl, alt: '', draggable: false })
+          : h('span', { className: 'dshic-dir-card-ic' }, icon),
+        h('span', { className: 'dshic-dir-card-lb' }, label));
+      // 工具条语义（对齐 Blender / 即梦）：
+      //  0 选择  1 移动  2 旋转  3 缩放  G 落地面  眼睛 视图设置
+      // 图标取自参考图（指针/移动十字/旋转圆箭头/缩放大对角/落地面/眼睛），全部为单色线性 SVG
+      const TOOL_DEFS = [
+        { id: 'select', path: 'M6 3.2 18.4 12l-5.6 1.1L11 19.6z', key: '0', zh: '选择', en: 'Select' },
+        { id: 'move', path: 'M12 3.5v17M3.5 12h17M12 3.5 9.6 6M12 3.5 14.4 6M12 20.5 9.6 18M12 20.5l2.4-2.5M3.5 12 6 9.6M3.5 12 6 14.4M20.5 12 18 9.6M20.5 12 18 14.4', key: '1', zh: '移动', en: 'Move' },
+        { id: 'rotate', path: 'M19.4 12a7.4 7.4 0 1 1-2.2-5.2M19.6 4.2v4.4h-4.4', key: '2', zh: '旋转', en: 'Rotate' },
+        { id: 'scale', path: 'M4.5 19.5 19.5 4.5M19.5 4.5h-5.2M19.5 4.5v5.2M4.5 19.5h5.2M4.5 19.5v-5.2', key: '3', zh: '缩放', en: 'Scale' },
+        { id: 'ground', path: 'M12 3.5v10.2M12 13.7l-3.4-3.4M12 13.7l3.4-3.4M4 17.5h16M7.5 20.5h9', key: 'G', zh: '落地面', en: 'Drop to floor', divider: true },
+        { id: 'view', path: 'M12 6.2c-4.6 0-7.6 5.8-7.6 5.8s3 5.8 7.6 5.8 7.6-5.8 7.6-5.8-3-5.8-7.6-5.8zM12 14.6a2.6 2.6 0 1 0 0-5.2 2.6 2.6 0 0 0 0 5.2z', key: '', zh: '视图设置', en: 'View settings', divider: true },
+        { id: 'snap', path: 'M6 3.5v7.5a6 6 0 0 0 12 0V3.5h-3.6v7.5a2.4 2.4 0 0 1-4.8 0V3.5zM5 20.5h14', key: '', zh: '吸附', en: 'Snap', divider: true },
+      ];
+      const onTool = (id) => {
+        if (id === 'ground') {
+          // G：把选中的对象贴到地面（y=0）
+          if (!sel) { setMsg({ kind: 'err', text: T('dirNoSelection') }); return; }
+          patch((n) => { const t2 = n.objects.find((x) => x.id === sel.id); if (t2) t2.pos.y = 0; });
+          setMsg({ kind: 'ok', text: T('dirDropped') });
+          return;
+        }
+        if (id === 'view') { update((st) => { st.directorViewMenu = !st.directorViewMenu; }); return; }
+        if (id === 'snap') { update((st) => { st.directorSnap = !st.directorSnap; }); return; }
+        update((st) => { st.directorTool = id; st.directorViewMenu = false; });
+      };
+      const toolBtn = (t2) => h('span', { key: t2.id, className: 'dshic-dir-toolcell' },
+        t2.divider ? h('span', { className: 'dshic-dir-toolsep' }) : null,
+        h('button', {
+          type: 'button', className: cls('dshic-dir-tool', (t2.id === 'snap' ? !!S.directorSnap : S.directorTool === t2.id) && 'is-on'),
+          'data-tool': t2.id, title: (effLang() === 'en' ? t2.en : t2.zh) + (t2.key ? ' · ' + t2.key : ''),
+          'aria-label': effLang() === 'en' ? t2.en : t2.zh,
+          onClick: () => onTool(t2.id),
+        },
+        h('svg', {
+          width: 18, height: 18, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor',
+          strokeWidth: 1.6, strokeLinecap: 'round', strokeLinejoin: 'round', 'aria-hidden': 'true',
+        }, h('path', { d: t2.path })),
+        t2.key ? h('span', { className: 'dshic-dir-toolnum' }, t2.key) : null));
+      // 对象名称标签：用与引擎相同的投影把 3D 位置换成屏幕坐标
+      // 实时渲染模式 = 看成片：标签/坐标轴等编辑辅助一律不画（与导出完全一致）
+      const guides2 = (scene.env || {}).guides || {};
+      const isRenderMode = previzMode === 'render';
+      const showNames = !isRenderMode && guides2.names !== false;
+      const showAxis = !isRenderMode && guides2.axisIndicator !== false;
+      const labels = (() => {
+        if (!showNames || !cam) return [];
+        const w = sizeRef.current.w, h2 = sizeRef.current.h;
+        const aspect = w / Math.max(1, h2);
+        const view = E.directorViewOf(cam);
+        const cx2 = w / 2, cy2 = h2 / 2, hw = w / 2, hh = h2 / 2;
+        return ((S.directorLiveScene || scene).objects || []).filter((ob) => ob.visible !== false).map((ob) => {
+          const anchor = E.directorObjectAnchor ? E.directorObjectAnchor(ob) : null;
+          const p = anchor ? anchor.center : E.v3(ob.pos.x, (Number(ob.h) || 1.7), ob.pos.z);
+          const nd = E.directorProject(view.toCam(p), cam.fov, aspect);
+          if (!nd) return null;
+          return { id: ob.id, label: String(ob.name || ob.id), x: cx2 + nd.x * hw, y: cy2 - nd.y * hh - 10 };
+        }).filter(Boolean);
+      })();
+      const phLeft = (Math.min(playT, durS) / durS) * 100 + '%';
+      const trackRow = (label, dots) => h('div', { className: 'dshic-dir-track' },
+        h('span', { className: 'dshic-dir-tracklabel' }, label),
+        h('div', { className: 'dshic-dir-tracklane' }, dots || null, h('span', { className: 'dshic-dir-playhead', style: { left: phLeft } })));
+      const activeKeys = ((scene.cameras || []).find((c) => c.id === scene.activeCameraId) || {}).keys || [];
+
+      return h('div', { className: 'dshic-dir-overlay' },
+        h('div', { className: cls('dshic-dir-win', S.directorFull && 'is-full') },
+          h('div', { className: 'dshic-dir-top' },
+            h('div', { className: 'dshic-dir-top-l' },
+              h('span', { className: 'dshic-dir-title' }, T('directorTitle')),
+              h('span', { className: 'dshic-dir-saved' }, dirtyState ? T('dirUnsaved') : T('dirSaved'))),
+            h('div', { className: 'dshic-dir-top-c' },
+              h('div', { className: 'dshic-dir-seg' },
+                h('button', { type: 'button', className: cls('dshic-dir-segbtn', previzMode === 'static' && 'is-on'), 'data-action': 'dir-static', onClick: () => { setMode('static'); } }, T('dirStaticPreviz')),
+                h('button', { type: 'button', className: cls('dshic-dir-segbtn', previzMode === 'dynamic' && 'is-on'), 'data-action': 'dir-dynamic', onClick: () => { setMode('dynamic'); } }, T('dirDynamicPreviz')),
+                h('button', { type: 'button', className: cls('dshic-dir-segbtn', previzMode === 'render' && 'is-on'), 'data-action': 'dir-render-preview', onClick: () => { setMode('render'); } }, T('dirRenderPreview')))),
+            h('div', { className: 'dshic-dir-top-r' },
+              h('button', { type: 'button', className: 'dshic-dir-cta', 'data-action': 'dir-export-video', disabled: recording, onClick: exportVideo }, recording ? T('dirRecording') : T('dirExportVideo')),
+              recording ? h('button', { type: 'button', className: 'dshic-dir-cta is-danger', 'data-action': 'dir-export-cancel', onClick: () => { exportCancelRef.current = true; } }, '✕ ' + T('dirExportCancel') + ' ' + Math.round(exportPct * 100) + '%') : null,
+              h('button', { type: 'button', className: 'dshic-dir-icobtn', title: T('dirWorkspaceSave'), 'data-action': 'dir-save-file', onClick: () => {
+                // 保存为文件：下载完整工作区 JSON（下次用「打开文件」继续工作）
+                try {
+                  const doc = { format: 'dsh-director-stage', version: 1, name: String(scene.title || T('dirDefaultWs')), savedAt: new Date().toISOString(), scene: JSON.parse(JSON.stringify(scene)) };
+                  const blob = new Blob([JSON.stringify(doc, null, 2)], { type: 'application/json' });
+                  const url = URL.createObjectURL(blob);
+                  const a2 = document.createElement('a');
+                  a2.href = url;
+                  a2.download = String(doc.name).replace(/[\\/:*?"<>|]/g, '_').slice(0, 40) + '-' + new Date().toISOString().slice(0, 10) + '.dshstage.json';
+                  document.body.appendChild(a2); a2.click();
+                  setTimeout(() => { try { URL.revokeObjectURL(url); a2.remove(); } catch { /* 忽略 */ } }, 4000);
+                  try {
+                    const list = E.listWorkspaces(S.activeId);
+                    list.push({ id: 'ws_' + Date.now().toString(36), name: String(doc.name), scene: JSON.parse(JSON.stringify(scene)), at: Date.now() });
+                    E.saveWorkspaces(S.activeId, list);
+                  } catch { /* 忽略 */ }
+                  S.directorDirty = false; setDirtyState(false);
+                  setMsg({ kind: 'ok', text: T('dirWsSaved') });
+                  bumpView();
+                } catch (e2) { setMsg({ kind: 'err', text: String((e2 && e2.message) || e2) }); }
+              } }, miniIcon(ICON_SAVE)),
+              h('button', { type: 'button', className: 'dshic-dir-icobtn', title: T('dirWorkspaceOpen'), 'data-action': 'dir-open-file', onClick: () => {
+                // 打开工作区文件（.dshstage.json）：读回场景继续工作
+                try {
+                  const inp = document.createElement('input');
+                  inp.type = 'file'; inp.accept = '.json,application/json';
+                  inp.onchange = () => {
+                    const f = inp.files && inp.files[0];
+                    if (!f) return;
+                    const rd = new FileReader();
+                    rd.onload = () => {
+                      try {
+                        const doc = JSON.parse(String(rd.result || '{}'));
+                        const rawNext = (doc && doc.scene) ? doc.scene : doc;
+                        if (!rawNext || !Array.isArray(rawNext.objects)) throw new Error(T('dirOpenBadFile'));
+                        const E2 = directorEngine();
+                        const next = E2 && E2.migrateStageScene ? E2.migrateStageScene(rawNext) : rawNext;
+                        if (!Array.isArray(next.cameras) || !next.cameras.length) throw new Error(T('dirOpenBadFile'));
+                        if (!Array.isArray(next.lights)) next.lights = [];
+                        if (!next.env) next.env = {};
+                        pushUndo();
+                        setScene(next);
+                        if (E2) E2.saveStageDoc(S.activeId, next);
+                        S.directorSel = null; S.directorSelSet = null;
+                        S.directorDirty = false; setDirtyState(false);
+                        setMsg({ kind: 'ok', text: T('dirWsLoaded') + ' ' + String((doc && doc.name) || f.name) });
+                        bumpView();
+                      } catch (e3) { setMsg({ kind: 'err', text: T('dirOpenBadFile') }); }
+                    };
+                    rd.readAsText(f);
+                  };
+                  inp.click();
+                } catch (e2) { setMsg({ kind: 'err', text: String((e2 && e2.message) || e2) }); }
+              } }, miniIcon(ICON_OPEN)),
+              h('button', {
+                type: 'button', className: 'dshic-dir-icobtn', title: T('dirClearStage'), 'data-action': 'dir-clear-stage',
+                onClick: clearStage,
+              }, miniIcon(ICON_DEL)),
+              h('button', { type: 'button', className: 'dshic-dir-icobtn', title: T('dirUndo'), disabled: undoDepth === 0, onClick: undo, 'aria-label': T('dirUndo') }, miniIcon(ICON_UNDO)),
+              h('button', { type: 'button', className: 'dshic-dir-icobtn', title: T('redo'), disabled: redoDepth === 0, onClick: redo, 'aria-label': T('redo') }, miniIcon(ICON_REDO)),
+              h('button', { type: 'button', className: 'dshic-dir-icobtn', title: T('dirFullscreen'), onClick: () => update((st) => { st.directorFull = !st.directorFull; }) }, miniIcon(ICON_FULL)),
+              h('button', { type: 'button', className: 'dshic-dir-icobtn', title: T('cancel'), onClick: () => update((st) => { st.directorOpen = false; st.directorSel = null; }) }, miniIcon(ICON_EXIT)))),
+          h('div', { className: 'dshic-dir-body' },
+            h('aside', { className: 'dshic-dir-side dshic-dir-side-l' },
+              h('div', { className: 'dshic-dir-sidehead' }, T('dirAssets')),
+              h('div', { className: 'dshic-dir-icontabs' },
+                TAB_DEFS.map((it) => h('button', {
+                  key: it.id, type: 'button', title: it.label, 'data-role': 'dir-tab-' + it.id,
+                  className: cls('dshic-dir-icontab', tab === it.id && 'is-on'), onClick: () => setTab(it.id),
+                }, h('svg', {
+                  width: 17, height: 17, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor',
+                  strokeWidth: 1.7, strokeLinecap: 'round', strokeLinejoin: 'round', 'aria-hidden': 'true',
+                }, h('path', { d: it.path }))))),
+              h('button', { type: 'button', className: 'dshic-dir-uploadbtn', 'data-action': 'dir-upload', onClick: () => fileRef.current && fileRef.current.click() }, T('dirUpload')),
+              h('input', { className: 'dshic-dir-search', placeholder: T('dirSearchAssets'), value: assetQ, onChange: (e2) => setAssetQ(e2.target.value) }),
+              h('div', { className: 'dshic-dir-grid' },
+                ['tree', 'furniture', 'building'].includes(tab) && fil((MODEL_INDEX || []).filter((m) => (m.category || 'human') === tab)).map((m) =>
+                  (() => {
+                    const key2 = 'model:' + m.id;
+                    const url = THUMB_CACHE.get(key2) || '';
+                    if (!url) requestThumb(m.id, key2, { h: m.height });
+                    return cardBtn('m-' + m.id, '\u2302', m.label, () => addModel(m), url);
+                  })()),
+                tab === 'human' && fil((E.MANNEQUIN_TYPES || []).map((t, i) => ({ id: t.id, label: (effLang() === 'en' ? t.en : t.zh), t, i }))).map((it) =>
+                  cardBtn('q-' + it.id, '\u263a', it.label, () => addMannequin(it.t),
+                    thumbOf('type:' + it.id, 'xbot', { typeId: it.id, h: it.t.h }))),
+                tab === 'geoms' && fil(lists.geoms).map((p) => {
+                  const key2 = 'geom:' + p.id;
+                  let url = THUMB_CACHE.get(key2) || '';
+                  if (!url) url = renderGeomThumb(key2, p);
+                  return cardBtn('g-' + p.id, '\u25c7', p.label, () => addPreset('geom', p), url);
+                }),
+                tab === 'cams' && fil(lists.cams).map((p) => cardBtn('c-' + p.id, '\u2317', p.label, () => applyCamPreset(p.id)))),
+              h('input', { ref: fileRef, type: 'file', style: { display: 'none' }, onChange: onUpload })),
+            h('main', { className: 'dshic-dir-stage' },
+              h('div', {
+                className: cls('dshic-dir-viewport', S.directorPendingPlace && 'is-placing', S.directorDragging && 'is-dragging'), 'data-role': 'dir-viewport',
+                onPointerDown: onDown, onPointerMove: onMove, onPointerUp: onUp, onPointerLeave: onUp, onWheel: onWheel,
+                onContextMenu: (e2) => { if (e2 && e2.preventDefault) e2.preventDefault(); },
+              },
+                h('canvas', { ref: canvasRef, className: 'dshic-dir-canvas' }),
+                h('div', { className: 'dshic-dir-tools' }, TOOL_DEFS.map((t2) => toolBtn(t2))),
+                S.directorViewMenu ? h('div', { className: 'dshic-dir-viewmenu' },
+                  ['ground', 'grid', 'path', 'names', 'heightRef', 'axisIndicator'].map((id) => {
+                    const LABEL = {
+                      ground: T('dirGround'), grid: T('dirGrid'), path: T('dirPath'),
+                      names: T('dirNames'), heightRef: T('dirHeightRef'), frameMask: T('dirFrameMask'),
+                      axisIndicator: T('dirAxisIndicator'),
+                    };
+                    const on = id === 'grid' ? (scene.env || {}).grid !== false
+                      : id === 'ground' ? (scene.env || {}).groundInRender !== false
+                      : ((scene.env || {}).guides || {})[id] !== false;
+                    return h('label', { key: id, className: 'dshic-dir-viewmenu-row' },
+                      h('input', {
+                        type: 'checkbox', checked: on,
+                        onChange: (e2) => {
+                          if (id === 'grid') patch((n) => { n.env.grid = e2.target.checked; });
+                          // 地面开关只影响「渲染/导出白模」，预览里地面始终隐形（只有网格）
+                          else if (id === 'ground') patch((n) => { n.env.groundInRender = e2.target.checked; });
+                          else patch((n) => { n.env.guides = Object.assign({}, n.env.guides || {}, { [id]: e2.target.checked }); });
+                        },
+                      }),
+                      h('span', null, LABEL[id]));
+                  })) : null,
+                h('div', { className: 'dshic-dir-pip' },
+                  h('div', { className: 'dshic-dir-piphead' }, T('dirCamera') + ' \u25be'),
+                  h('canvas', { ref: pipRef, className: 'dshic-dir-pipcanvas', width: 240, height: 135 })),
+                msg ? h('div', { className: cls('dshic-dir-toast', msg.kind === 'err' && 'is-err') }, msg.text) : null,
+                boxSel ? h('div', {
+                  className: 'dshic-dir-boxsel',
+                  style: {
+                    left: Math.min(boxSel.x0, boxSel.x1) + 'px',
+                    top: Math.min(boxSel.y0, boxSel.y1) + 'px',
+                    width: Math.abs(boxSel.x1 - boxSel.x0) + 'px',
+                    height: Math.abs(boxSel.y1 - boxSel.y0) + 'px',
+                  },
+                }) : null,
+                S.directorPendingPlace ? h('div', {
+                  className: 'dshic-dir-placecursor',
+                  style: { left: pointerRef.current.x + 'px', top: pointerRef.current.y + 'px' },
+                },
+                  h('svg', { width: 30, height: 30, viewBox: '0 0 30 30', fill: 'none', stroke: '#4c9aff', strokeWidth: 2, strokeLinecap: 'round' },
+                    h('circle', { cx: 15, cy: 12, r: 8 }),
+                    h('path', { d: 'M15 19v7M12 23l3 3 3-3' }))) : null,
+                S.directorFull ? h('button', {
+                  type: 'button', className: 'dshic-dir-exitfull', 'data-action': 'dir-exit-full', title: T('cancel'),
+                  onClick: () => update((st) => { st.directorFull = false; }),
+                }, '\u2715 ' + T('dirExitFull')) : null,
+                h('div', { className: 'dshic-dir-pillgroup' },
+                  h('div', { className: cls('dshic-dir-pill', S.directorKeysOpen && 'is-on'), 'data-action': 'dir-keys-toggle', onClick: () => { S.directorKeysOpen = !S.directorKeysOpen; bumpView(); } }, T('dirKeys')),
+                  isRenderMode ? null : isRenderMode ? null : h('div', { className: 'dshic-dir-pill dshic-dir-pill-r', 'data-action': 'dir-reset-view', onClick: () => { pushUndo(); const n = JSON.parse(JSON.stringify(scene)); E.resetView(n); E.saveStageDoc(S.activeId, n); S.directorCamFollow = false; setScene(n); bumpView(); } }, T('dirResetView')),
+                ),
+                S.directorKeysOpen ? h('div', { className: 'dshic-dir-keys', 'data-action': 'dir-keys' },
+                  DIRECTOR_KEY_HELP.map((row) => h('div', { key: row.k, className: 'dshic-dir-keys-row' }, row.k + '  ' + (effLang() === 'en' ? row.en : row.zh)))) : null,
+                labels.map((lb) => h('div', { key: lb.id, className: 'dshic-dir-objlabel', style: { left: lb.x + 'px', top: lb.y + 'px' } }, lb.label)),
+                showAxis ? h('div', { className: 'dshic-dir-axisind' },
+                  h('span', { className: 'ax-x' }, 'X'), h('span', { className: 'ax-y' }, 'Y'), h('span', { className: 'ax-z' }, 'Z')) : null)),
+            h('aside', { className: 'dshic-dir-side dshic-dir-side-r' },
+              h('div', { className: 'dshic-dir-sidehead' }, T('dirObjects')),
+              h('div', { className: 'dshic-dir-tree' },
+                h('div', { className: 'dshic-dir-treegroup' },
+                  h('span', { className: 'dshic-dir-treekey' }, T('dirCameras')),
+                  h('span', { className: 'dshic-dir-treecount' }, String((scene.cameras || []).length)),
+                  h('button', { type: 'button', className: 'dshic-dir-mini', 'data-action': 'dir-cam-add', onClick: addCamera }, '+'),
+                  h('button', { type: 'button', className: 'dshic-dir-mini is-danger', 'data-action': 'dir-cam-del', onClick: delCamera }, '\u2212')),
+                (scene.cameras || []).map((c) => h('button', {
+                  key: c.id, type: 'button', className: cls('dshic-dir-treeitem', c.id === scene.activeCameraId && 'is-on'),
+                  'data-camera': c.id, onClick: () => {
+                    // 纯查看选择：立即切视角，不进撤销/脏标记（Ctrl+Z 不该撤销"看哪台机位"）
+                    S.directorCamFollow = false;
+                    setScene((n) => Object.assign({}, n, { activeCameraId: c.id }));
+                    bumpView();
+                  },
+                }, String(c.name || c.id))),
+                h('div', { className: 'dshic-dir-treegroup' },
+                  h('span', { className: 'dshic-dir-treekey' }, T('dirObjects')),
+                  h('span', { className: 'dshic-dir-treecount' }, String((scene.objects || []).length))),
+                (scene.objects || []).map((ob) => h('div', { key: ob.id, className: 'dshic-dir-treerow' },
+                  h('button', {
+                    type: 'button', className: 'dshic-dir-mini', 'data-action': 'dir-obj-vis', title: T('dirToggleVisible'),
+                    onClick: () => patch((n) => { const o2 = n.objects.find((x) => x.id === ob.id); if (o2) o2.visible = o2.visible === false; }),
+                  }, ob.visible === false ? '\u25cb' : '\u25c9'),
+                  h('button', {
+                    type: 'button', className: cls('dshic-dir-treeitem', ob.id === S.directorSel && 'is-on'),
+                    'data-object': ob.id, title: T('dirRenameHint'),
+                    onClick: () => { S.directorSel = ob.id; bumpView(); },
+                    onDoubleClick: () => {
+                      const nm = (typeof window !== 'undefined' && window.prompt) ? window.prompt(T('dirRename'), String(ob.name || ob.id)) : null;
+                      if (nm && String(nm).trim()) patch((n) => { const o2 = n.objects.find((x) => x.id === ob.id); if (o2) o2.name = String(nm).trim().slice(0, 40); });
+                    },
+                  }, String(ob.name || ob.id) + (ob.visible === false ? ' · ' + T('dirHidden') : '')),
+                )),
+                h('div', { className: 'dshic-dir-keyrow' },
+                  h('button', { type: 'button', className: 'dshic-dir-mini', 'data-action': 'dir-key-add', onClick: addKeyframe }, T('dirAddKey')),
+                  h('button', { type: 'button', className: 'dshic-dir-mini', 'data-action': 'dir-key-clear', onClick: clearKeyframes }, T('dirClearKeys')))),
+              h('div', { className: 'dshic-dir-sidehead' }, T('dirProps')),
+              h('div', { className: 'dshic-dir-props' },
+                ...(previzMode === 'render' ? [
+                envRow(T('dirEnvPreset'), h('select', { className: 'dshic-dir-input', value: String((scene.env || {}).preset || 'studio'), onChange: (e2) => patch((n) => { E.applyEnvPreset(n, e2.target.value); }) },
+                  E.ENV_PRESETS.map((p) => h('option', { key: p.id, value: p.id }, effLang() === 'en' ? p.en : p.zh)))),
+                envRow(T('dirBg'), h('input', { className: 'dshic-dir-color', type: 'color', value: String((scene.env || {}).bg || '#171717'), onChange: (e2) => patch((n) => { n.env.bg = e2.target.value; }) })),
+
+                envRow(T('dirGrid'), h('input', { type: 'checkbox', checked: (scene.env || {}).grid !== false, onChange: (e2) => patch((n) => { n.env.grid = e2.target.checked; }) })),
+                // 无限地面开关：渲染预览里也能选（关掉只剩天空，便于看剪影/构图）
+                envRow(T('dirGround'), h('input', { type: 'checkbox', 'data-action': 'dir-ground-on', checked: (scene.env || {}).groundInRender !== false,
+                  onChange: (e2) => patch((n) => { n.env.groundInRender = e2.target.checked; }) })),
+                envRow(T('dirExposure'), h('input', { className: 'dshic-dir-input', type: 'number', step: 0.05, min: 0.4, max: 2.4, value: String(Number((scene.env || {}).exposure) || 1), onChange: (e2) => patch((n) => { n.env.exposure = Math.max(0.4, Math.min(2.4, Number(e2.target.value) || 1)); }) })),
+                h('div', { className: 'dshic-dir-subhead' }, T('dirSun')),
+                (() => {
+                  // 太阳：高度角/方位角 → 方向向量（比直接填 XYZ 直观，物理渲染常用语义）
+                  const key = (scene.lights || [])[0] || { dir: E.v3(0.42, -0.72, 0.55), color: '#fff3dd', intensity: 1.9 };
+                  const kd = key.dir || E.v3(0.42, -0.72, 0.55);
+                  const elev = Math.round((Math.asin(Math.max(-1, Math.min(1, -Number(kd.y) || 0.72))) * 180) / Math.PI);
+                  const azim = Math.round((Math.atan2(Number(kd.x) || 0.42, Number(kd.z) || 0.55) * 180) / Math.PI);
+                  const setSun = (e2, a2) => patch((n) => {
+                    if (!Array.isArray(n.lights)) n.lights = [];
+                    while (!n.lights.length) n.lights.push({ id: 'key', dir: E.v3(0.42, -0.72, 0.55), color: '#fff3dd', intensity: 1.9 });
+                    const el = Math.max(1, Math.min(89, Number(e2) || 35)) * Math.PI / 180;
+                    const az = (Number(a2) || 0) * Math.PI / 180;
+                    n.lights[0].dir = E.vNorm(E.v3(Math.cos(el) * Math.sin(az), -Math.sin(el), Math.cos(el) * Math.cos(az)));
+                  });
+                  return h('div', { className: 'dshic-dir-lightbox' },
+                    envRow(T('dirSunElev'), h('input', { className: 'dshic-dir-input', type: 'range', min: 1, max: 89, step: 1, 'data-action': 'dir-sun-elev', value: String(elev),
+                      onChange: (e2) => setSun(e2.target.value, azim) })),
+                    envRow(T('dirSunAzim'), h('input', { className: 'dshic-dir-input', type: 'range', min: -180, max: 180, step: 1, 'data-action': 'dir-sun-azim', value: String(azim),
+                      onChange: (e2) => setSun(elev, e2.target.value) })),
+                    envRow(T('dirSunIntensity'), h('input', { className: 'dshic-dir-input', type: 'number', min: 0, max: 6, step: 0.05, 'data-action': 'dir-sun-intensity', value: String(Number(key.intensity) || 0),
+                      onChange: (e2) => patch((n) => { if (!Array.isArray(n.lights) || !n.lights.length) n.lights = [{ id: 'key', dir: E.v3(0.42, -0.72, 0.55), color: '#fff3dd', intensity: 1.9 }]; n.lights[0].intensity = Math.max(0, Math.min(6, Number(e2.target.value) || 0)); }) })),
+                    envRow(T('dirShadow'), h('input', { type: 'checkbox', 'data-action': 'dir-shadow-on', checked: (scene.env || {}).shadowOn !== false,
+                      onChange: (e2) => patch((n) => { n.env.shadowOn = e2.target.checked; }) })));
+                })(),
+                h('div', { className: 'dshic-dir-subhead' }, T('dirLights')),
+                [0, 1].map((li) => {
+                  const light = (scene.lights || [])[li] || {
+                    id: li === 0 ? 'key' : 'fill',
+                    dir: li === 0 ? E.v3(0.42, -0.72, 0.55) : E.v3(-0.45, -0.35, -0.6),
+                    color: '#ffffff', intensity: li === 0 ? 1.2 : 0.45,
+                  };
+                  const lightLabel = li === 0 ? T('dirKeyLightEdit') : T('dirFillLightEdit');
+                  return h('div', { key: 'light-' + li, className: 'dshic-dir-lightbox' },
+                    h('div', { className: 'dshic-dir-time' }, lightLabel),
+                    envRow(T('dirLightColor'), h('input', { className: 'dshic-dir-color', type: 'color', value: String(light.color || '#ffffff'),
+                      onChange: (e2) => patch((n) => { if (!Array.isArray(n.lights)) n.lights = []; while (n.lights.length <= li) n.lights.push(JSON.parse(JSON.stringify(light))); n.lights[li].color = e2.target.value; }) })),
+                    envRow(T('dirLightIntensity'), h('input', { className: 'dshic-dir-input', type: 'number', min: 0, max: 5, step: 0.05, value: String(Number(light.intensity) || 0),
+                      onChange: (e2) => patch((n) => { if (!Array.isArray(n.lights)) n.lights = []; while (n.lights.length <= li) n.lights.push(JSON.parse(JSON.stringify(light))); n.lights[li].intensity = Math.max(0, Math.min(5, Number(e2.target.value) || 0)); }) })),
+                    envRow(T('dirLightDir'), num3([light.dir.x, light.dir.y, light.dir.z], (v, ai) => patch((n) => {
+                      if (!Array.isArray(n.lights)) n.lights = [];
+                      while (n.lights.length <= li) n.lights.push(JSON.parse(JSON.stringify(light)));
+                      const d2 = n.lights[li].dir || E.v3(0, -1, 0);
+                      d2[ai === 0 ? 'x' : ai === 1 ? 'y' : 'z'] = v;
+                      n.lights[li].dir = E.vNorm(d2);
+                    }))));
+                }),
+                envRow(T('dirTonemap'), h('select', {
+                  className: 'dshic-dir-input', 'data-action': 'dir-tonemap',
+                  value: String((scene.env || {}).tonemap || 'agx'),
+                  onChange: (e2) => patch((n) => { n.env = Object.assign({}, n.env || {}, { tonemap: e2.target.value }); }),
+                }, [
+                  h('option', { key: 'agx', value: 'agx' }, 'AgX'),
+                  h('option', { key: 'srgb', value: 'srgb' }, 'sRGB'),
+                ])),
+                // ── 距离雾 ──
+                envRow(T('dirFog'), h('div', { className: 'dshic-dir-keyrow' },
+                  h('label', null, h('input', { type: 'checkbox', 'data-action': 'dir-fog-on', checked: !!(((scene.env || {}).fog) || {}).enabled,
+                    onChange: (e2) => patch((n) => { n.env = Object.assign({}, n.env || {}, { fog: Object.assign({ enabled: false, color: '#aab4c0', near: 6, far: 40, density: 1 }, (n.env || {}).fog || {}, { enabled: e2.target.checked }) }); }) }), T('dirFogOn')),
+                  h('input', { className: 'dshic-dir-color', type: 'color', value: String((((scene.env || {}).fog) || {}).color || '#aab4c0'),
+                    onChange: (e2) => patch((n) => { n.env = Object.assign({}, n.env || {}, { fog: Object.assign({ enabled: true, near: 6, far: 40, density: 1 }, (n.env || {}).fog || {}, { color: e2.target.value }) }); }) }))),
+                envRow(T('dirFogNear'), h('input', { className: 'dshic-dir-input', type: 'number', step: 0.5, min: 0, 'data-action': 'dir-fog-near',
+                  value: String(((((scene.env || {}).fog) || {}).near !== undefined ? ((scene.env || {}).fog).near : 6)),
+                  onChange: (e2) => patch((n) => { n.env = Object.assign({}, n.env || {}, { fog: Object.assign({ enabled: true, color: '#aab4c0', far: 40, density: 1 }, (n.env || {}).fog || {}, { near: Number(e2.target.value) || 0 }) }); }) })),
+                envRow(T('dirFogFar'), h('input', { className: 'dshic-dir-input', type: 'number', step: 1, min: 1, 'data-action': 'dir-fog-far',
+                  value: String(((((scene.env || {}).fog) || {}).far !== undefined ? ((scene.env || {}).fog).far : 40)),
+                  onChange: (e2) => patch((n) => { n.env = Object.assign({}, n.env || {}, { fog: Object.assign({ enabled: true, color: '#aab4c0', near: 6, density: 1 }, (n.env || {}).fog || {}, { far: Math.max(1, Number(e2.target.value) || 40) }) }); }) })),
+                ] : []),
+                // ── 景深 ──
+                ...(!sel && previzMode !== 'render' ? [
+                envRow(T('dirDof'), h('label', null, h('input', { type: 'checkbox', 'data-action': 'dir-dof-on', checked: !!(((scene.env || {}).dof) || {}).enabled,
+                  onChange: (e2) => patch((n) => { n.env = Object.assign({}, n.env || {}, { dof: Object.assign({ enabled: false, focus: 5, range: 4, maxBlur: 6 }, (n.env || {}).dof || {}, { enabled: e2.target.checked }) }); }) }), T('dirDofOn'))),
+                envRow(T('dirDofFocus'), h('input', { className: 'dshic-dir-input', type: 'number', step: 0.5, min: 0.5, 'data-action': 'dir-dof-focus',
+                  value: String(((((scene.env || {}).dof) || {}).focus !== undefined ? ((scene.env || {}).dof).focus : 5)),
+                  onChange: (e2) => patch((n) => { n.env = Object.assign({}, n.env || {}, { dof: Object.assign({ enabled: true, range: 4, maxBlur: 6 }, (n.env || {}).dof || {}, { focus: Math.max(0.5, Number(e2.target.value) || 5) }) }); }) })),
+                envRow(T('dirDofRange'), h('input', { className: 'dshic-dir-input', type: 'number', step: 0.5, min: 0.2, 'data-action': 'dir-dof-range',
+                  value: String(((((scene.env || {}).dof) || {}).range !== undefined ? ((scene.env || {}).dof).range : 4)),
+                  onChange: (e2) => patch((n) => { n.env = Object.assign({}, n.env || {}, { dof: Object.assign({ enabled: true, focus: 5, maxBlur: 6 }, (n.env || {}).dof || {}, { range: Math.max(0.2, Number(e2.target.value) || 4) }) }); }) })),
+                envRow(T('dirDofBlur'), h('input', { className: 'dshic-dir-input', type: 'number', step: 1, min: 1, max: 24, 'data-action': 'dir-dof-blur',
+                  value: String(((((scene.env || {}).dof) || {}).maxBlur !== undefined ? ((scene.env || {}).dof).maxBlur : 6)),
+                  onChange: (e2) => patch((n) => { n.env = Object.assign({}, n.env || {}, { dof: Object.assign({ enabled: true, focus: 5, range: 4 }, (n.env || {}).dof || {}, { maxBlur: Math.max(1, Number(e2.target.value) || 6) }) }); }) })),
+                ] : []),
+                sel ? h('div', null,
+                  h('div', { className: 'dshic-dir-subhead' }, T('dirSelObject')),
+                  h('div', { className: 'dshic-dir-row' }, h('span', null, T('dirPos')), num3([sel.pos.x, sel.pos.y, sel.pos.z], (v, i) => patch((n) => { const t2 = n.objects.find((x) => x.id === sel.id); if (t2) t2.pos[i === 0 ? 'x' : i === 1 ? 'y' : 'z'] = i === 1 ? Math.max(0, v) : v; }))),
+                  h('div', { className: 'dshic-dir-row' }, h('span', null, T('dirRotY')), h('input', {
+                    className: 'dshic-dir-input', type: 'number', step: 15,
+                    value: String(Math.round(((Number(sel.rotY) || 0) * 180 / Math.PI + 540) % 360 - 180)),
+                    onChange: (e2) => patch((n) => { const t2 = n.objects.find((x) => x.id === sel.id); if (t2) t2.rotY = (Number(e2.target.value) || 0) * Math.PI / 180; }),
+                  })),
+                  (Number(sel.rx) || Number(sel.rz)) ? h('div', { className: 'dshic-dir-row' },
+                    h('span', null, T('dirTilt')),
+                    h('button', {
+                      type: 'button', className: 'dshic-dir-mini', 'data-action': 'dir-reset-rot',
+                      onClick: () => { patch((n) => { const t2 = n.objects.find((x) => x.id === sel.id); if (t2) { t2.rx = 0; t2.rz = 0; } }); setMsg({ kind: 'ok', text: T('dirRotReset') }); },
+                    }, '\u21ba ' + T('dirResetRot'))) : null,
+                  // ── 路径规划：画线 → 物体沿线运动 ──
+                  h('div', { className: 'dshic-dir-row' },
+                    h('span', null, T('dirPathMode')),
+                    h('select', {
+                      className: 'dshic-dir-input', value: String(sel.pathMode || 'none'),
+                      onChange: (e2) => patch((n2) => { const o2 = n2.objects.find((x) => x.id === sel.id); if (o2) o2.pathMode = e2.target.value; }),
+                    }, [
+                      h('option', { key: 'none', value: 'none' }, T('dirPathNone')),
+                      h('option', { key: 'curve', value: 'curve' }, T('dirPathCurve')),
+                      h('option', { key: 'linear', value: 'linear' }, T('dirPathLine')),
+                    ])),
+                  h('div', { className: 'dshic-dir-keyrow' },
+                    h('button', {
+                      type: 'button', className: 'dshic-dir-mini', 'data-action': 'dir-path-add',
+                      onClick: () => {
+                        patch((n2) => {
+                          const o2 = n2.objects.find((x) => x.id === sel.id);
+                          if (!o2) return;
+                          if (!Array.isArray(o2.path)) o2.path = [];
+                          if (!o2.pathOrigin) o2.pathOrigin = { x: o2.pos.x, y: o2.pos.y, z: o2.pos.z };
+                          o2.path.push({ x: o2.pos.x, y: o2.pos.y, z: o2.pos.z });
+                        });
+                        setMsg({ kind: 'ok', text: T('dirPathPointAdded') });
+                      },
+                    }, '＋ ' + T('dirPathAddPoint')),
+                    h('button', {
+                      type: 'button', className: 'dshic-dir-mini', 'data-action': 'dir-path-draw',
+                      onClick: () => { S.directorPathPick = !S.directorPathPick; setMsg({ kind: 'ok', text: T('dirPathDrawHint') }); bumpView(); },
+                    }, S.directorPathPick ? '● ' + T('dirPathDrawing') : '✎ ' + T('dirPathDraw')),
+                    h('button', {
+                      type: 'button', className: 'dshic-dir-mini is-danger', 'data-action': 'dir-path-clear',
+                      onClick: () => { patch((n2) => { const o2 = n2.objects.find((x) => x.id === sel.id); if (!o2) return; if (o2.pathOrigin) o2.pos = { x: o2.pathOrigin.x, y: o2.pathOrigin.y, z: o2.pathOrigin.z }; o2.path = []; o2.pathMode = 'none'; }); setMsg({ kind: 'ok', text: T('dirPathCleared') }); },
+                    }, '✖ ' + T('dirPathClear')),
+                    h('button', {
+                      type: 'button', className: 'dshic-dir-mini is-danger', 'data-action': 'dir-path-del-point',
+                      onClick: () => {
+                        const ps = S.directorPathSel;
+                        if (!ps) { setMsg({ kind: 'err', text: T('dirPathPointNone') }); return; }
+                        patch((n2) => {
+                          const o2 = n2.objects.find((x2) => x2.id === ps.objId);
+                          if (o2 && Array.isArray(o2.path)) o2.path.splice(ps.index, 1);
+                        });
+                        S.directorPathSel = null;
+                        setMsg({ kind: 'ok', text: T('dirPathPointDeleted') });
+                      },
+                    }, '－ ' + T('dirPathPointDel'))),
+                  h('div', { className: 'dshic-dir-time' }, T('dirPathCount') + ' ' + ((sel.path || []).length) + ' · ' + T('dirPathHint')),
+                  // ── 移动驱动：让动作跟着路径速度走（避免滑步）。
+                  //     动作只在一处选：跟随上方「动作」下拉；这里只调步频参数或改用自建动作。──
+                  sel.path && sel.path.length >= 2 ? (() => {
+                    const lo = sel.locomotion || {};
+                    const src = String(lo.source || 'clip');   // 默认：自动驱动当前动作片段
+                    const actions = E.loadUserActions(S.activeId);
+                    const durAll = Number(E.sequenceDuration ? E.sequenceDuration(scene) : (scene.shot || {}).duration) || 6;
+                    const speed = E.pathArcLength ? (E.pathArcLength(sel) / Math.max(0.1, durAll)) : 0;
+                    const stride = Number(lo.stride) || 0.75;
+                    return h('div', null,
+                      h('div', { className: 'dshic-dir-subhead' }, T('dirLocomotion')),
+                      envRow(T('dirLocoSource'), h('select', {
+                        className: 'dshic-dir-input', 'data-action': 'dir-loco-source', value: src,
+                        onChange: (e2) => patch((n2) => {
+                          const o2 = n2.objects.find((x2) => x2.id === sel.id);
+                          if (!o2) return;
+                          const v = e2.target.value;
+                          o2.locomotion = Object.assign({ stride: 0.75, cycle: 1, refSpeed: 1.4 }, o2.locomotion || {}, { source: v });
+                          delete o2.locomotion.clip;   // 片段跟随上方「动作」，不在此重复保存
+                          if (v === 'action' && !o2.locomotion.actionId && actions[0]) o2.locomotion.actionId = actions[0].id;
+                        }),
+                      }, [
+                        h('option', { key: 'clip', value: 'clip' }, T('dirLocoClip')),
+                        h('option', { key: 'action', value: 'action' }, T('dirLocoAction')),
+                        h('option', { key: 'none', value: 'none' }, T('dirLocoNone')),
+                      ])),
+                      src === 'clip' ? h('div', { className: 'dshic-dir-time' }, T('dirLocoFollow') + ' ' + clipLabel(String(sel.clip || '')) + ' · ' + T('dirLocoReadout') + ' ' + speed.toFixed(2) + ' m/s · ' + (stride > 0 ? (speed / stride).toFixed(2) : '0') + ' ' + T('dirLocoStepsPerSec')) : null,
+                      src === 'action' ? envRow(T('dirLocoAction'), h('select', {
+                        className: 'dshic-dir-input', 'data-action': 'dir-loco-action', value: String(lo.actionId || ''),
+                        onChange: (e2) => patch((n2) => {
+                          const o2 = n2.objects.find((x2) => x2.id === sel.id);
+                          if (!o2) return;
+                          const ua = actions.find((a) => a.id === e2.target.value);
+                          o2.locomotion = Object.assign({ stride: 0.75, cycle: 1, refSpeed: 1.4 }, o2.locomotion || {}, { source: 'action', actionId: e2.target.value });
+                          if (ua) { E.applyUserAction(o2, ua); o2.locomotion.actionId = ua.id; }
+                        }),
+                      }, [h('option', { key: '', value: '' }, T('dirLocoActionPick'))].concat(actions.map((a) => h('option', { key: a.id, value: a.id }, '★ ' + a.name))))) : null,
+                      src !== 'none' ? h('div', null,
+                        envRow(T('dirLocoStride'), h('input', {
+                          className: 'dshic-dir-input', type: 'number', step: 0.05, min: 0.2, max: 2,
+                          value: String(stride),
+                          onChange: (e2) => patch((n2) => { const o2 = n2.objects.find((x2) => x2.id === sel.id); if (o2) { o2.locomotion = Object.assign({ stride: 0.75, cycle: 1, refSpeed: 1.4 }, o2.locomotion || {}, { stride: Math.max(0.2, Number(e2.target.value) || 0.75) }); } }),
+                        })),
+                        envRow(T('dirLocoCycle'), h('input', {
+                          className: 'dshic-dir-input', type: 'number', step: 0.05, min: 0.2, max: 4,
+                          value: String(Number(lo.cycle) || 1),
+                          onChange: (e2) => patch((n2) => { const o2 = n2.objects.find((x2) => x2.id === sel.id); if (o2) { o2.locomotion = Object.assign({ stride: 0.75, cycle: 1, refSpeed: 1.4 }, o2.locomotion || {}, { cycle: Math.max(0.2, Number(e2.target.value) || 1) }); } }),
+                        }))) : null);
+                  })() : null,
+                  // ── 材质：简单基础色（区分不同人物/道具，白模渲染按此着色）──
+                  h('div', { className: 'dshic-dir-row' }, h('span', null, T('dirRoughness')), h('input', {
+                    className: 'dshic-dir-input', type: 'range', min: 0, max: 1, step: 0.05, 'data-action': 'dir-roughness',
+                    value: String((sel.material && sel.material.roughness !== undefined) ? sel.material.roughness : 1),
+                    onChange: (e2) => patch((n2) => { const o2 = n2.objects.find((x) => x.id === sel.id); if (o2) { o2.material = Object.assign({ roughness: 1, metallic: 0, specular: 0.5 }, o2.material || {}, { roughness: Number(e2.target.value) }); } }),
+                  })),
+                  h('div', { className: 'dshic-dir-row' }, h('span', null, T('dirMetallic')), h('input', {
+                    className: 'dshic-dir-input', type: 'range', min: 0, max: 1, step: 0.05, 'data-action': 'dir-metallic',
+                    value: String((sel.material && sel.material.metallic !== undefined) ? sel.material.metallic : 0),
+                    onChange: (e2) => patch((n2) => { const o2 = n2.objects.find((x) => x.id === sel.id); if (o2) { o2.material = Object.assign({ roughness: 1, metallic: 0, specular: 0.5 }, o2.material || {}, { metallic: Number(e2.target.value) }); } }),
+                  })),
+                  h('div', { className: 'dshic-dir-row' }, h('span', null, T('dirSpecular')), h('input', {
+                    className: 'dshic-dir-input', type: 'range', min: 0, max: 1, step: 0.05, 'data-action': 'dir-specular',
+                    value: String((sel.material && sel.material.specular !== undefined) ? sel.material.specular : 0.5),
+                    onChange: (e2) => patch((n2) => { const o2 = n2.objects.find((x) => x.id === sel.id); if (o2) { o2.material = Object.assign({ roughness: 1, metallic: 0, specular: 0.5 }, o2.material || {}, { specular: Number(e2.target.value) }); } }),
+                  })),
+                  h('div', { className: 'dshic-dir-row' },
+                    h('span', null, T('dirBaseColor')),
+                    h('input', {
+                      type: 'color', className: 'dshic-dir-color', 'data-action': 'dir-obj-color',
+                      value: String(sel.color || '#e2e4e6'),
+                      onChange: (e2) => patch((n2) => { const o2 = n2.objects.find((x) => x.id === sel.id); if (o2) o2.color = e2.target.value; }),
+                    })),
+                  h('div', { className: 'dshic-dir-row' },
+                    h('span', null, T('dirColorPresets')),
+                    h('div', { className: 'dshic-dir-swatches' },
+                      ['#fbfcfd', '#7ba7d7', '#d78fb0', '#6fb3a0', '#e0b062', '#d98a6a', '#9aa6c4', '#8a8f98'].map((hex) =>
+                        h('button', {
+                          key: hex, type: 'button', title: hex,
+                          className: cls('dshic-dir-swatch', String(sel.color || '').toLowerCase() === hex && 'is-on'),
+                          style: { background: hex },
+                          onClick: () => patch((n2) => { const o2 = n2.objects.find((x) => x.id === sel.id); if (o2) o2.color = hex; }),
+                        })))),
+                  h('div', { className: 'dshic-dir-row' },
+                    h('span', null, T('dirResetColor')),
+                    h('button', {
+                      type: 'button', className: 'dshic-dir-mini', 'data-action': 'dir-obj-color-reset',
+                      onClick: () => patch((n2) => { const o2 = n2.objects.find((x) => x.id === sel.id); if (o2) o2.color = ''; }),
+                    }, T('dirReset'))),
+                  sel.kind === 'model' ? h('div', { className: 'dshic-dir-row' }, h('span', null, T('dirAction')), h('select', {
+                    className: 'dshic-dir-input', value: sel.userActionId ? ('ua:' + sel.userActionId) : ('clip:' + String(sel.clip || (E.gltfAssetOf(sel.assetId) || {}).animations && ((E.gltfAssetOf(sel.assetId) || {}).animations[0] || {}).name || '')),
+                    onChange: (e2) => patch((n) => { const v = String(e2.target.value || ''); const t2 = n.objects.find((x) => x.id === sel.id); if (t2) { if (v.indexOf('ua:') === 0) { const ua = E.loadUserActions(S.activeId).find((a) => a.id === v.slice(3)); if (ua) { E.applyUserAction(t2, ua); t2.userActionId = ua.id; } } else { t2.clip = v.replace(/^clip:/, ''); t2.userActionId = null; } }; }),
+                  }, [].concat(((E.gltfAssetOf(sel.assetId) || {}).animations || []).map((a2) => h('option', { key: 'clip:' + a2.name, value: 'clip:' + a2.name }, clipLabel(a2.name))), E.loadUserActions(S.activeId).map((ua) => h('option', { key: 'ua:' + ua.id, value: 'ua:' + ua.id }, '★ ' + ua.name))))) : null,
+                  h('div', { className: 'dshic-dir-btnrow' },
+                    h('button', { type: 'button', className: 'dshic-dir-mini', onClick: dupSel }, T('dirDup')),
+                    h('button', { type: 'button', className: 'dshic-dir-mini is-danger', onClick: delSel }, T('dirDel')))) : null,
+                sel && sel.kind === 'model' ? (() => {
+                  const asset = E.gltfAssetOf(sel.assetId);
+                  const bones = asset ? E.boneListOf(asset) : [];
+                  if (!bones.length) return null;
+                  const poseMap = sel.bonePose || {};
+                  const activeBone = Number(sel.boneIndex) >= 0 ? Number(sel.boneIndex) : -1;
+                  return h('div', null,
+                    h('div', { className: 'dshic-dir-subhead' }, T('dirSkeleton') + ' (' + bones.length + ')'),
+                    h('div', { className: 'dshic-dir-row' },
+                      h('span', null, T('dirBone')),
+                      h('select', {
+                        className: 'dshic-dir-input',
+                        value: String(activeBone),
+                        onChange: (e2) => patch((n) => { const o2 = n.objects.find((x) => x.id === sel.id); if (o2) o2.boneIndex = Number(e2.target.value); }),
+                      }, [h('option', { key: -1, value: '-1' }, '—')].concat(bones.map((b) => h('option', { key: b.index, value: String(b.index) }, b.name))))),
+                    h('div', { className: 'dshic-dir-row' },
+                      h('span', null, T('dirBoneRot')),
+                      h('div', { className: 'dshic-dir-xyz' },
+                        [0, 1, 2].map((ai) => h('input', {
+                          key: ai, className: 'dshic-dir-input', type: 'number', step: 10,
+                          value: String(Math.round(((poseMap[activeBone] || [0, 0, 0])[ai] || 0) * 180 / Math.PI)),
+                          disabled: activeBone < 0,
+                          onChange: (e2) => patch((n) => {
+                            const o2 = n.objects.find((x) => x.id === sel.id);
+                            if (!o2 || activeBone < 0) return;
+                            o2.bonePose = Object.assign({}, o2.bonePose || {});
+                            const cur = (o2.bonePose[activeBone] || [0, 0, 0]).slice();
+                            cur[ai] = (Number(e2.target.value) || 0) * Math.PI / 180;
+                            o2.bonePose[activeBone] = cur;
+                          }),
+                        })))),
+                    // ── 基础姿态（骨架级，方向式）──
+                    h('div', { className: 'dshic-dir-subhead' }, T('dirPoseLib')),
+                    h('div', { className: 'dshic-dir-posegrid' },
+                      E.BONE_POSES.filter((p) => p.id !== 'none').map((p) => h('button', {
+                        key: p.id, type: 'button',
+                        className: cls('dshic-dir-posebtn', sel.poseId === p.id && 'is-on'),
+                        'data-pose': p.id,
+                        onClick: () => {
+                          patch((n) => {
+                            const o2 = n.objects.find((x) => x.id === sel.id);
+                            if (!o2) return;
+                            o2.bonePose = {};   // 姿态由 poseId 在蒙皮时按当前动画姿势求解
+                            o2.poseId = p.id;
+                          });
+                          setMsg({ kind: 'ok', text: T('dirPoseApplied') + ' · ' + (effLang() === 'en' ? p.en : p.zh) });
+                        },
+                      }, effLang() === 'en' ? p.en : p.zh))),
+                    // ── 用户自建动作：骨骼 + 姿态调好后保存，保存后出现在上方「动作」下拉 ──
+                    h('div', { className: 'dshic-dir-row' },
+                      h('input', {
+                        className: 'dshic-dir-input', 'data-action': 'dir-action-name',
+                        placeholder: T('dirActionNamePh'), value: actionName,
+                        onChange: (e2) => setActionName(e2.target.value),
+                      }),
+                      h('button', {
+                        type: 'button', className: 'dshic-dir-mini', 'data-action': 'dir-action-save',
+                        onClick: () => {
+                          const nm = String(actionName || '').trim();
+                          if (!nm) { setMsg({ kind: 'err', text: T('dirActionNeedName') }); return; }
+                          const rec = E.saveUserAction(S.activeId, {
+                            name: nm, poseId: sel.poseId, bonePose: sel.bonePose,
+                            poseAnim: sel.poseAnim, duration: Number((scene.shot || {}).duration) || 0,
+                          });
+                          if (rec) {
+                            markDirty();
+                            setActionName('');
+                            setMsg({ kind: 'ok', text: T('dirActionSaved') + ' · ' + nm });
+                            bumpView();
+                          } else setMsg({ kind: 'err', text: T('dirActionSaveFail') });
+                        },
+                      }, '⇪ ' + T('dirActionSave'))),
+                    h('div', { className: 'dshic-dir-btnrow' },
+                      ((sel.poseKeys || []).length ? [h('span', { className: 'dshic-dir-time' }, T('dirPoseKeyCount') + ' ' + sel.poseKeys.length)] : []),
+                      ((sel.poseKeys || []).length ? [h('button', {
+                        type: 'button', className: 'dshic-dir-mini is-danger', 'data-action': 'dir-pose-keys-clear', onClick: clearPoseKeys,
+                      }, '✖ ' + T('dirPoseKeyClear2'))] : []),
+                      h('button', {
+                        type: 'button', className: 'dshic-dir-mini', 'data-action': 'dir-pose-clear',
+                        onClick: () => patch((n) => {
+                          const o2 = n.objects.find((x) => x.id === sel.id);
+                          if (o2) { o2.bonePose = {}; o2.poseId = null; o2.poseAnim = []; o2.poseKeys = []; o2.userActionId = null; }
+                        }),
+                      }, T('dirPoseClear'))));
+                })() : null,
+                ...(!sel && previzMode !== 'render' ? [
+                h('div', { className: 'dshic-dir-subhead' }, T('dirShot')),
+                envRow(T('dirPathMode'), h('select', {
+                  className: 'dshic-dir-input',
+                  value: String(cam ? (cam.pathMode || 'line') : 'line'),
+                  onChange: (e2) => patch((n) => { const c2 = n.cameras.find((x) => x.id === n.activeCameraId); if (c2) c2.pathMode = e2.target.value; }),
+                }, [
+                  h('option', { key: 'line', value: 'line' }, T('dirPathLine')),
+                  h('option', { key: 'curve', value: 'curve' }, T('dirPathCurve')),
+                ])),
+                cam && (cam.pathMode === 'curve') ? envRow(T('dirLookAhead'), h('input', {
+                  className: 'dshic-dir-input', type: 'number', step: 0.2, min: 0.1, max: 10,
+                  value: String(Number(cam.lookAhead) || 1.2),
+                  onChange: (e2) => patch((n) => { const c2 = n.cameras.find((x) => x.id === n.activeCameraId); if (c2) c2.lookAhead = Math.max(0.1, Math.min(10, Number(e2.target.value) || 1.2)); }),
+                })) : null,
+// 当前主体（选中或第一个对象）
+                (() => {
+                  const subj = sel || (scene.objects || [])[0];
+                  if (!subj || !cam) return null;
+                  const dist = Math.hypot(cam.pos.x - subj.pos.x, cam.pos.y - subj.pos.y, cam.pos.z - subj.pos.z);
+                  const fill = E.subjectFillRatio(cam.fov, Number(subj.h) || 1.75, dist);
+                  return envRow(T('dirCurFill'), h('span', { style: { fontSize: '11px', color: 'var(--dsw-alias-label-secondary)' } }, (fill * 100).toFixed(0) + '%'));
+                })(),
+                                envRow(T('dirShotSize'), h('select', {
+                  className: 'dshic-dir-input',
+                  value: String(scene.shot.shotSize || 'medium'),
+                  onChange: (e2) => {
+                    const id = e2.target.value;
+                    patch((n) => {
+                      n.shot.shotSize = id;
+                      // 按「主体身高 + 景别占画面比例」精确计算机位距离（Blender: radius/tan(fov/2)）
+                      const c2 = n.cameras.find((x) => x.id === n.activeCameraId);
+                      if (!c2) return;
+                      const sf = E.shotFillOf(id);
+                      // 主体：选中对象，否则取场景里第一个对象
+                      const subj = (n.objects || []).find((o) => o.id === S.directorSel) || (n.objects || [])[0];
+                      const subjH = subj ? (Number(subj.h) || 1.75) : 1.75;
+                      const baseY = subj ? subj.pos.y : 0;
+                      const subjX = subj ? subj.pos.x : 0;
+                      const subjZ = subj ? subj.pos.z : 0;
+                      const dist = E.shotDistance(c2.fov || 42, subjH, sf.fill);
+                      // 注视点定在主体胸口高度；机位沿「当前方向」后退 dist
+                      const tgtY = baseY + subjH * 0.55;
+                      c2.target = E.v3(subjX, tgtY, subjZ);
+                      // 保留当前俯仰角（避免每次都变成平视）
+                      const oldDir = E.vNorm(E.vSub(c2.pos, c2.target));
+                      const pitch = Math.asin(Math.max(-0.9, Math.min(0.9, oldDir.y)));
+                      const yaw = Math.atan2(oldDir.x, oldDir.z);
+                      const hCos = Math.cos(pitch);
+                      c2.pos = E.v3(
+                        subjX + Math.sin(yaw) * hCos * dist,
+                        tgtY + Math.sin(pitch) * dist,
+                        subjZ + Math.cos(yaw) * hCos * dist,
+                      );
+                    });
+                    setMsg({ kind: 'ok', text: T('dirShotApplied') });
+                  },
+                }, DIRECTOR_SHOT_SIZES().map((x) => h('option', { key: x.id, value: x.id }, x.label)))),
+                envRow(T('dirMove'), h('select', { className: 'dshic-dir-input', value: String(scene.shot.cameraMove || 'static'), onChange: (e2) => patch((n) => { n.shot.cameraMove = e2.target.value; }) }, DIRECTOR_MOVES().map((x) => h('option', { key: x.id, value: x.id }, x.label)))),
+                // ── 机位管理：新建自由机位（复制当前视角）/ 删除 ──
+                envRow(T('dirCameraMgr'), h('div', { style: { display: 'flex', gap: '4px' } },
+                  h('button', { type: 'button', className: 'dshic-dir-mini', 'data-action': 'dir-cam-add', onClick: () => {
+                    patch((n) => {
+                      const cur = n.cameras.find((c) => c.id === n.activeCameraId) || n.cameras[0];
+                      const id = 'cam_' + Date.now().toString(36);
+                      const copy = JSON.parse(JSON.stringify(cur || { pos: { x: 0, y: 2, z: 6 }, target: { x: 0, y: 1, z: 0 }, fov: 42, roll: 0 }));
+                      copy.id = id; copy.name = '机位' + (n.cameras.length + 1); copy.keys = [];
+                      n.cameras.push(copy); n.activeCameraId = id;
+                    });
+                    setMsg({ kind: 'ok', text: T('dirCamAdded') });
+                  } }, '＋ ' + T('dirCamAdd')),
+                  h('button', { type: 'button', className: 'dshic-dir-mini is-danger', 'data-action': 'dir-cam-del', onClick: () => {
+                    if ((scene.cameras || []).length <= 1) { setMsg({ kind: 'err', text: T('dirLastCamera') }); return; }
+                    const gone = scene.activeCameraId;
+                    patch((n) => {
+                      n.cameras = n.cameras.filter((c) => c.id !== gone);
+                      n.activeCameraId = n.cameras[0].id;
+                      n.shots = (n.shots || []).filter((sh) => sh.cameraId !== gone);
+                    });
+                    setMsg({ kind: 'ok', text: T('dirCamDeleted') });
+                  } }, '－ ' + T('dirCamDel')))),
+                envRow('FOV', h('input', {
+                  className: 'dshic-dir-input', type: 'number', step: 1, min: 8, max: 120,
+                  value: String(cam ? Math.round(cam.fov) : 42),
+                  onChange: (e2) => patch((n) => {
+                    const c2 = n.cameras.find((x) => x.id === n.activeCameraId);
+                    if (c2) {
+                      c2.fov = Math.max(8, Math.min(120, Number(e2.target.value) || 42));
+                      // FOV 改了就反解焦段（与 Blender 的 lens/FOV 联动一致）
+                      c2.lens = Math.round(E.fovToLens(c2.fov, c2.sensorX || 36, 16 / 9) * 10) / 10;
+                    }
+                  }),
+                })),
+                envRow(T('dirLens'), h('input', {
+                  className: 'dshic-dir-input', type: 'number', step: 1, min: 8, max: 300,
+                  value: String(cam ? Math.round(Number(cam.lens) || E.fovToLens(cam.fov || 42, 36, 16 / 9)) : 50),
+                  onChange: (e2) => patch((n) => {
+                    const c2 = n.cameras.find((x) => x.id === n.activeCameraId);
+                    if (c2) {
+                      c2.lens = Math.max(8, Math.min(300, Number(e2.target.value) || 50));
+                      // 焦段改了同步 FOV（镜头越长 FOV 越小）
+                      c2.fov = E.lensToFov(c2.lens, c2.sensorX || 36, 16 / 9);
+                    }
+                  }),
+                })),
+                envRow(T('dirSensor'), h('select', {
+                  className: 'dshic-dir-input',
+                  value: String(cam && cam.sensorFit ? cam.sensorFit : 'AUTO'),
+                  onChange: (e2) => patch((n) => {
+                    const c2 = n.cameras.find((x) => x.id === n.activeCameraId);
+                    if (c2) {
+                      c2.sensorFit = e2.target.value;
+                      // 适配方向变了 → 重算 FOV
+                      if (c2.lens) c2.fov = E.lensToFov(c2.lens, c2.sensorX || 36, 16 / 9, c2.sensorFit);
+                    }
+                  }),
+                }, ['AUTO', 'HOR', 'VERT'].map((v) => h('option', { key: v, value: v }, v)))),
+                envRow(T('dirRoll'), h('input', {
+                  className: 'dshic-dir-input', type: 'number', step: 1, min: -45, max: 45, 'data-action': 'dir-cam-roll',
+                  value: String(Math.round(((cam && cam.roll) || 0) * 180 / Math.PI)),
+                  onChange: (e2) => patch((n) => { const c2 = n.cameras.find((x) => x.id === n.activeCameraId); if (c2) c2.roll = Math.max(-45, Math.min(45, Number(e2.target.value) || 0)) * Math.PI / 180; }),
+                })),
+                envRow(T('dirCamFrame'), h('input', {
+                  type: 'checkbox',
+                  checked: ((scene.env || {}).guides || {}).cameraFrame !== false,
+                  onChange: (e2) => patch((n) => { n.env.guides = Object.assign({}, n.env.guides || {}, { cameraFrame: e2.target.checked }); }),
+                })),
+                ] : []),
+                h('div', { className: 'dshic-dir-subhead' }, T('dirSpecTitle')),
+                h('div', { className: 'dshic-dir-keyrow' },
+                  h('button', { type: 'button', className: 'dshic-dir-mini', 'data-action': 'dir-spec-toggle', onClick: () => setSpecOpen((v) => !v) }, (specOpen ? '▾ ' : '▸ ') + T('dirSpecShow')),
+                  h('button', { type: 'button', className: 'dshic-dir-mini', 'data-action': 'dir-spec-copy', onClick: () => { try { const txt = JSON.stringify(ENG.compileStageSpec(scene), null, 2); setSpecText(txt); if (navigator.clipboard) navigator.clipboard.writeText(txt).catch(() => {}); setMsg({ kind: 'ok', text: T('dirSpecCopied') }); } catch (e2) { setMsg({ kind: 'err', text: String(e2 && e2.message || e2) }); } } }, '⧉ ' + T('dirSpecCopy')),
+                  h('button', { type: 'button', className: 'dshic-dir-mini', 'data-action': 'dir-spec-save', onClick: async () => { try { const spec = ENG.compileStageSpec(scene); const r = await hostRpc('directorStageSave', { projectId: S.activeId, spec }); if (r && r.ok) setMsg({ kind: 'ok', text: T('dirSpecSaved') }); else setMsg({ kind: 'err', text: String((r && r.error) || '保存失败') }); } catch (e2) { setMsg({ kind: 'err', text: String(e2 && e2.message || e2) }); } } }, '⇪ ' + T('dirSpecSaveHost'))),
+                specOpen ? h('textarea', {
+                  className: 'dshic-dir-prompt', style: { minHeight: '120px' }, 'data-action': 'dir-spec-text',
+                  placeholder: T('dirSpecPlaceholder'),
+                  value: specText || JSON.stringify(ENG.compileStageSpec(scene), null, 2),
+                  onChange: (e2) => setSpecText(e2.target.value),
+                }) : null,
+                specOpen ? h('div', { className: 'dshic-dir-keyrow' },
+                  h('button', {
+                    type: 'button', className: 'dshic-dir-mini', 'data-action': 'dir-spec-apply',
+                    onClick: () => {
+                      try {
+                        const src = specText || JSON.stringify(ENG.compileStageSpec(scene), null, 2);
+                        const spec = JSON.parse(src);
+                        const built = ENG.buildStageFromSpec(spec);
+                        commit(built);
+                        setSpecOpen(false);
+                        setMsg({ kind: 'ok', text: T('dirSpecApplied') });
+                      } catch (e2) { setMsg({ kind: 'err', text: T('dirSpecBad') + ' ' + String(e2 && e2.message || e2) }); }
+                    },
+                  }, '✓ ' + T('dirSpecApply'))) : null,
+                h('button', { type: 'button', className: 'dshic-dir-cta', style: { width: '100%' }, 'data-action': 'director-export', disabled: busy, onClick: exportShot }, T('directorExport'))))),
+          // ── 时间轴（只有「动态预演」才出现；相当于一条简易剪辑时间线）──
+          timelineDock));
+    }
+    // ============================================================
     // 左侧图标列（单列）：加节点 / 资产 / 设定集 / 运行工作流
     // 固定列，不随画布平移缩放；与弹窗当前页对应的图标高亮。
     // ============================================================
@@ -11509,6 +15544,13 @@ window.__ModuleLoader__.load({
           onClick: () => openStudioModal('bible'),
         }, Ic('script', 16)),
         h('div', { key: 'sep-actions', className: 'dshic-rail-sep' }),
+        // 3D 导演台：摆位 + 取景 + 导出镜头首帧（参考项目 BeefTV 的导演台能力，只借鉴设计、独立实现）
+        h('button', {
+          key: 'director', type: 'button',
+          className: cls('dshic-rail-btn', S.directorOpen && 'is-active'),
+          'data-action': 'open-director', title: T('directorTitle'),
+          onClick: () => update((s) => { s.directorOpen = true; }),
+        }, Ic('camera', 16)),
         S.running
           ? h('button', {
               key: 'stop', type: 'button', className: 'dshic-rail-btn is-danger',
@@ -12174,7 +16216,7 @@ window.__ModuleLoader__.load({
           await idbPut(rec);
         }
         update((s) => { s.assetsTick++; });
-        setTick((x) => x + 1);
+        bumpView();
         toast(T('moved'));
       };
       const addNodeFor = (a) => {
@@ -12211,7 +16253,7 @@ window.__ModuleLoader__.load({
           } catch { failed++; } // 单个失败不影响其余文件
         }
         if (failed) toast(T('uploadFailed') + '（' + failed + '/' + files.length + '）');
-        if (files.length) setTick((x) => x + 1);
+        if (files.length) bumpView();
       };
       const del = async (a) => {
         // 服务端删除（SQL：行 + FTS + CAS 引用计数；JSON：文件 + assets.json），随后清本地缓存
@@ -12231,7 +16273,7 @@ window.__ModuleLoader__.load({
           }
           s.assetsTick++;
         });
-        setTick((x) => x + 1);
+        bumpView();
       };
       // 资产重命名：服务端写回（SQL/JSON 各自落库）+ 刷新名称缓存（@引用与连线名称都吃这份缓存）
       const rename = async (a, name) => {
@@ -12248,7 +16290,7 @@ window.__ModuleLoader__.load({
         }
         assetNameCache.set(a.id, name);
         update((s) => { s.assetsTick++; });
-        setTick((x) => x + 1);
+        bumpView();
         toast(T('renamed'));
       };
       const q = search.trim().toLowerCase();
@@ -13688,6 +17730,12 @@ window.__ModuleLoader__.load({
         return () => el.removeEventListener('wheel', fn);
       }, []);
       const nodes = Object.values(S.graph.nodes);
+      // 媒体节点 memo 比较用连线签名：一次遍历算好，避免每个节点各自 O(E) 扫描
+      const edgeSigById = new Map();
+      for (const e of S.graph.edges) {
+        if (e.toNode) edgeSigById.set(e.toNode, (edgeSigById.get(e.toNode) || '') + e.id + '>' + (e.toPort || '') + '|');
+        if (e.fromNode) edgeSigById.set(e.fromNode, (edgeSigById.get(e.fromNode) || '') + '<' + e.id + '>' + (e.fromPort || '') + '|');
+      }
       const upd = S.updateInfo;
       const updAvail = upd && upd.behind > 0; // 仅真正落后（npm latest 更新）才提示；本地版本相同/更新则不提示
       return h('div', { className: 'dshic-page' },
@@ -13768,8 +17816,8 @@ window.__ModuleLoader__.load({
               ref: (el) => { worldEl = el; if (el) applyViewToDom(); },
             },
               h(EdgeLayer),
-              nodes.filter((nd) => nd.type === 'group').map((n) => h(NodeShell, { key: n.id, n })),
-              nodes.filter((nd) => nd.type !== 'group').map((n) => h(NodeShell, { key: n.id, n })),
+              nodes.filter((nd) => nd.type === 'group').map((n) => h(NodeShell, { key: n.id, n, edgeSig: '' })),
+              nodes.filter((nd) => nd.type !== 'group').map((n) => h(NodeShell, { key: n.id, n, edgeSig: edgeSigById.get(n.id) || '' })),
               h('div', {
                 className: 'dshic-marquee', style: { display: 'none', zIndex: 9999 },
                 ref: (el) => { marqueeEl = el; },
@@ -13797,6 +17845,7 @@ window.__ModuleLoader__.load({
           S.rightOpen ? h(Rightbar) : null,
         ),
         h(StudioModal),          // 资产 + 设定集统一弹窗（单例；S.panelModal 控制）
+        h(DirectorStage),        // 3D 导演台（全屏浮层；左侧图标列入口，S.directorOpen 控制）
         h(ProjectNameDialog),    // 新建 / 重命名项目（空名校验）
         S.menu ? h(ContextMenu, { menu: S.menu }) : null,
         S.lightbox ? h(Lightbox) : null,
@@ -14227,6 +18276,24 @@ window.__ModuleLoader__.load({
           // 并供 smoke-render 直接渲染新组件（MediaNodeBody / GenComposer）抓渲染期崩溃；
           // NodeShell 用于断言「点击区域规则」：标题栏/底部操作栏不弹面板，只有内容区弹。
           window.__DSH_IC_NODES__ = { ScriptNodeBody, StoryboardNodeBody, MediaNodeBody, GenComposer, FinalCutNodeBody, TextNodeBody, ShotNodeBody, NodeShell, ComposerAdvanced, VideoControls };
+          // 画布性能（P0-P2）测试缝隙：poster 链路 / idbGet 顺序 / 拖动 rAF / memo 比较器 / notify 计数
+          window.__DSH_IC_PERF__ = {
+            MediaNodeBody, MediaNodeBodyInner, mediaNodePropsEqual, mediaNodeRenderSig, bumpNodeRev, NodeShell,
+            videoPosterUrl, useVideoPoster, posterCache, posterInflight, posterStats, POSTER_MAX_CONCURRENT,
+            probePosterUrl, generatePosterFor, extractVideoPosterDataUrl, resetPosterCaches: () => { posterCache.clear(); posterInflight.clear(); posterQueue.length = 0; posterActive = 0; posterStats.active = 0; posterStats.max = 0; posterStats.generated = 0; },
+            idbGet, idbGetRaw, idbMiss, getStore: () => S.store,
+            idbRawCalls: () => idbRawCalls, resetIdbRawCalls: () => { idbRawCalls = 0; },
+            setIdbGetRawForTest: (fn) => { idbGetRawImpl = fn || null; }, clearAssetMem: () => assetMem.clear(),
+            setStoreForTest: (v) => { S.store = v; },
+            setGraphForTest: (nodes, edges) => { S.graph = Object.assign({}, S.graph, { nodes: nodes || {}, edges: edges || [] }); },
+            setViewForTest: (x, y, scale) => { V.x = x; V.y = y; V.scale = scale; },
+            clearAssetMemAndCaches: () => { assetMem.clear(); for (const v of assetUrlCache.values()) revokeBlobUrl(v && v.url); assetUrlCache.clear(); idbMiss.clear(); },
+            assetUrlCache, ASSET_URL_LARGE_BYTES, ASSET_URL_MAX_ENTRIES, ASSET_URL_MAX_BYTES,
+            onCanvasPointerMove, onCanvasPointerUp, onNodePointerDown, drag, nodeEls, edgePathEls, flushEdgePaths,
+            notifyCount: () => notifyCount, resetNotifyCount: () => { notifyCount = 0; },
+            setCanvasElForTest: (el) => { canvasEl = el; },
+            edgePath,
+          };
           // 排版纯函数/常量出口：预览区比例、节点外框公式、等比缩放、面板宽度（供 scripts/test-node-layout.mjs 断言）
           window.__DSH_IC_LAYOUT__ = {
             NODE_W, NODE_H, NODE_HDR_H, NODE_FOOT_H, MEDIA_PREVIEW_SHORT, MEDIA_MAX_LONG,
@@ -14274,6 +18341,17 @@ window.__ModuleLoader__.load({
           window.__DSH_IC_IMGREF__ = { rawImageDims, sniffImageEncoding, registerReferenceAsset };
           // IC-03：视频厂商识别/前缀归一化的纯函数出口（供 scripts/test-vendor-detect.mjs 直接断言）
           window.__DSH_IC_VENDOR__ = { detectVideoVendor, gatewayPrefixFor, wanEndpoints, vendorBase, VIDEO_REF_CAPS };
+          // 按镜头切段（分段生成本身就是最容易出错的地方）：规划器 + 强弱模型分流 + 节点段区间解析
+          // 供 scripts/test-segment-plan.mjs 直接断言
+          window.__DSH_IC_SEGMENT__ = { planShotSegments, isCutPoint, segmentNeedsHardFrame, videoSegmentOf, shotContinuityPlan };
+          window.__DSH_IC_STORYBOARD_PROMPT__ = { buildStoryboardVideoPrompt };
+          // 3D 导演台：引擎在 assets/director/engine.js（代码分割），这里只导出面板与
+          // 引擎加载器；引擎内部的纯函数由测试直接 ESM import engine.js 断言——
+          // 两端同一份代码，不存在"测试测的是拷贝"的问题。
+          window.__DSH_IC_DIRECTOR__ = {
+            DirectorStage, loadDirectorEngine, directorEngine,
+            DIRECTOR_ENGINE_REL,
+          };
           // 面板结构（左侧图标列 / 统一弹窗 / 工具栏项目切换 / 就地改名 / 右栏当前项目面板）：
           // 供 scripts/test-panel-layout.mjs 驱动
           window.__DSH_IC_PANEL__ = {

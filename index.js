@@ -966,6 +966,9 @@ const MIME_BY_EXT = {
   webm: 'video/webm', mp4: 'video/mp4', mov: 'video/quicktime', mkv: 'video/x-matroska',
   wav: 'audio/wav', mp3: 'audio/mpeg', m4a: 'audio/mp4', ogg: 'audio/ogg',
   json: 'application/json', srt: 'text/plain; charset=utf-8', txt: 'text/plain; charset=utf-8',
+  // js/mjs：浏览器动态 import() 只认 text/javascript —— 导演台引擎模块（assets/director/engine.js）
+  // 走 plugin-asset 路由加载，没有这个 MIME 会被浏览器拒载（"Failed to fetch dynamically imported module"）
+  js: 'text/javascript; charset=utf-8', mjs: 'text/javascript; charset=utf-8',
 };
 function mimeOf(p) {
   const m = /\.([a-z0-9]+)$/i.exec(p);
@@ -2922,6 +2925,17 @@ export function apply(ctx) {
       );
     }
 
+    /** 懒加载导演台引擎（纯 ESM 函数/常量，无 DOM 依赖），供导演台工具读取姿态/动作清单。 */
+    let _directorEngine = null;
+    const loadDirectorEngine = async () => {
+      if (_directorEngine) return _directorEngine;
+      try {
+        const url = new URL('./assets/director/engine.js', import.meta.url).href;
+        _directorEngine = await import(url);
+      } catch { _directorEngine = null; }
+      return _directorEngine;
+    };
+
     const methods = {
       async ping() { return { ok: true, version: VERSION }; },
       async llmOptions() { return listLlmOptions(); },
@@ -2958,6 +2972,30 @@ export function apply(ctx) {
        *  客户端知道自己要删哪个项目，Host 按项目物理文件夹定位（与 projectDirGet 同一基准），
        *  只删 projects/<folder>/craft 这一个子目录——绝不碰项目镜像、其他项目、数据根其他内容。
        *  幂等：目录不存在也是成功；失败可见（removed=false + reason），不静默吞。 */
+      /** 导演台场景规格：AI / 脚本写入，客户端打开导演台时自动套用（存 <projectDir>/craft/director-stage.json）。 */
+      async directorStageSave(args) {
+        const dir = await methods.projectDirGet({ projectId: args && args.projectId });
+        if (!dir || !dir.ok) return { ok: false, error: (dir && dir.error) || '项目目录不可用' };
+        const craftDir = path.join(dir.abs, 'craft');
+        try { mkdirSync(craftDir, { recursive: true }); } catch { /* 交给写入报错 */ }
+        const file = path.join(craftDir, 'director-stage.json');
+        const spec = (args && args.spec) || null;
+        if (!spec || typeof spec !== 'object') return { ok: false, error: '缺少 spec 对象' };
+        const payload = { ok: true, savedAt: Date.now(), spec };
+        try { writeFileSync(file, JSON.stringify(payload, null, 2), 'utf8'); }
+        catch (e) { return { ok: false, error: '写入失败: ' + String((e && e.message) || e) }; }
+        return { ok: true, projectId: String(args.projectId), file, bytes: Buffer.byteLength(JSON.stringify(payload)) };
+      },
+      async directorStageLoad(args) {
+        const dir = await methods.projectDirGet({ projectId: args && args.projectId });
+        if (!dir || !dir.ok) return { ok: false, error: (dir && dir.error) || '项目目录不可用' };
+        const file = path.join(dir.abs, 'craft', 'director-stage.json');
+        if (!existsSync(file)) return { ok: true, found: false, file };
+        try {
+          const doc = JSON.parse(readFileSync(file, 'utf8'));
+          return { ok: true, found: true, file, savedAt: doc.savedAt || null, spec: doc.spec || null };
+        } catch (e) { return { ok: false, found: false, file, error: '读取失败: ' + String((e && e.message) || e) }; }
+      },
       async projectCraftRemove(args) {
         const root = dataRoot();
         const pid = String((args && args.projectId) || '');
@@ -3501,6 +3539,76 @@ export function apply(ctx) {
           },
         });
         reg({
+          name: 'canvas_director_stage',
+          description: '3D 导演台（预演场景）的总控工具：用一段 JSON 规格直接生成/更新整场预演，无需手动搭场景。\n' +
+            'action=apply：把 spec 写入项目并落盘（客户端打开导演台时自动套用；再点「导出视频」即得白模预演片）。\n' +
+            'action=get：读回当前项目的规格。\n' +
+            'action=help：返回规格 schema 与可用姿态/预设清单。\n' +
+            'spec 结构：{ title, duration, env{preset,bg,ground,grid,exposure,tonemap}, ' +
+            'characters[{name,pos:[x,y,z],rotY,h,pose,color,material{roughness,metallic,specular},path:[[x,z]...],pathFace,poseAnim[{t,pose}],loop,loopPeriod,keys[{t,pos,rotY}]}], ' +
+            'props[{preset,pos,scale,color}], cameras[{name,pos,target,fov,keys[{t,pos,target}]}], shots[{camera,start,end}] }。\n' +
+            'pose 取值见 action=help 的 poses；道具 preset 见 presets。坐标两维数组 [x,z] 自动补 y=0。',
+          parameters: {
+            type: 'object',
+            properties: {
+              action: { type: 'string', enum: ['apply', 'get', 'help', 'brief'], description: '操作类型' },
+              brief: { type: 'string', description: '一句话描述（action=brief 时用，如「两人在巷子里打斗，8秒」）；会套用打斗/追逐/对话模板生成规格并落盘' },
+              template: { type: 'string', enum: ['fight', 'chase', 'dialogue'], description: '强制指定模板（不传则按 brief 关键词自动判断）' },
+              duration: { type: 'number', description: '时长秒数（不传则从 brief 里抓「N秒」，否则用模板默认值）' },
+              projectId: { type: 'string', description: '项目 id' },
+              spec: { type: 'object', description: '场景规格（action=apply 时必填）' },
+            },
+            required: ['action'],
+            additionalProperties: false,
+          },
+          output: textOutput,
+          timeoutMs: 30000,
+          async execute(args) {
+            const action = String((args && args.action) || 'get');
+            if (action === 'help') {
+              const eng = await loadDirectorEngine();
+              return {
+                ok: true,
+                text: '✅ 导演台规格说明\n' +
+                  '· 姿态 id：none, arms_up, punch, kick, flip, fly(轻功), crouch(下蹲), fight, walk, run, jump, hit, fall, walk_a, walk_b, run_a, run_b\n' +
+                  '· 道具 preset：box, sphere, cylinder, cone, plane, capsule, torus, pyramid, disc, arc\n' +
+                  '· 循环动作：poseAnim 首尾 pose 相同即可循环（如 walk_a→walk_b→walk_a）\n' +
+                  '· 路径：path 为二维地面点数组，物体沿路径运动并按切线自动转向（pathFace:false 关闭）\n' +
+                  '· 角色一律使用资产库的真实关节人偶（assetId=xbot）：characters[].preset 可填 actors 列表里的体型，未填默认 m_standard',
+                poses: (eng && eng.BONE_POSES ? eng.BONE_POSES.map((p) => ({ id: p.id, zh: p.zh, en: p.en })) : []),
+                presets: ['box', 'sphere', 'cylinder', 'cone', 'plane', 'capsule', 'torus', 'pyramid', 'disc', 'arc'],
+                actors: (eng && eng.ACTOR_PRESETS ? eng.ACTOR_PRESETS.map((p) => ({ preset: p.id, zh: p.zh, en: p.en, h: p.h })) : []),
+                sequences: (eng && eng.ACTION_SEQUENCES ? eng.ACTION_SEQUENCES.map((s2) => ({ id: s2.id, zh: s2.zh, loop: !!s2.loop })) : []),
+              };
+            }
+            if (action === 'brief') {
+              const brief = String((args && args.brief) || '').trim();
+              if (!brief) throw new Error('action=brief 需要 brief 一句话描述');
+              const eng2 = await loadDirectorEngine();
+              if (!eng2 || typeof eng2.specFromBrief !== 'function') throw new Error('引擎未就绪');
+              const spec2 = eng2.specFromBrief(brief, { template: args.template, duration: args.duration });
+              const r4 = await methods.directorStageSave({ projectId: args.projectId, spec: spec2 });
+              if (!r4.ok) throw new Error(r4.error || '保存失败');
+              return {
+                ok: true, projectId: String(args.projectId || ''), spec: spec2,
+                text: '✅ 已按「' + (spec2.title || brief) + '」生成预演规格并写入项目（' + (spec2.characters || []).length + ' 角色 / ' + (spec2.cameras || []).length + ' 机位 / ' + (spec2.shots || []).length + ' 分镜 / ' + spec2.duration + 's）。打开或刷新 3D 导演台即可看到；点「导出视频」出片。',
+              };
+            }
+            if (action === 'get') {
+              const r2 = await methods.directorStageLoad({ projectId: args.projectId });
+              return { ok: !!r2.ok, projectId: String(args.projectId || ''), spec: r2.spec || undefined, text: r2.found ? '✅ 已读取导演台规格（savedAt=' + new Date(r2.savedAt || Date.now()).toISOString() + '）' : '（该项目还没有导演台规格）' };
+            }
+            if (!args || !args.spec || typeof args.spec !== 'object') throw new Error('action=apply 需要 spec 对象');
+            const r3 = await methods.directorStageSave({ projectId: args.projectId, spec: args.spec });
+            if (!r3.ok) throw new Error(r3.error || '保存失败');
+            return {
+              ok: true, projectId: String(args.projectId || ''), file: r3.file,
+              text: '✅ 导演台规格已写入（' + r3.bytes + ' 字节）。打开/刷新画布的 3D 导演台会自动套用该场景；点「导出视频」即可产出白模预演片。',
+            };
+          },
+        });
+
+        reg({
           name: 'canvas_delete_project',
           description: '删除无限画布上的一个项目（含其全部节点）。用户明确要求删除项目、或清理误创建的空项目时使用；删除前请先用 canvas_list_projects 确认 id。',
           parameters: { type: 'object', properties: { projectId: { type: 'string', description: '项目 id' } }, required: ['projectId'], additionalProperties: false },
@@ -3806,7 +3914,7 @@ export function apply(ctx) {
         path: `/${NAME}/api/file`,
         async handler(req, res) {
           try {
-            if (req.method !== 'GET') { res.statusCode = 405; res.end('仅接受 GET'); return; }
+            if (req.method !== 'GET' && req.method !== 'HEAD') { res.statusCode = 405; res.end('仅接受 GET/HEAD'); return; }
             const root = dataRoot();
             if (!root) { res.statusCode = 404; res.end('未设置数据根目录'); return; }
             const u = new URL(req.url, 'http://localhost');
@@ -3819,6 +3927,13 @@ export function apply(ctx) {
             res.setHeader('content-type', mimeOf(abs));
             res.setHeader('accept-ranges', 'bytes');
             res.setHeader('cache-control', 'no-cache');
+            // HEAD：只回应元信息（node fetch HEAD 探针用），不读文件、不占解码/内存
+            if (req.method === 'HEAD') {
+              res.statusCode = 200;
+              res.setHeader('content-length', String(st.size));
+              res.end();
+              return;
+            }
             const m = /^bytes=(\d*)-(\d*)$/.exec(String(req.headers.range || ''));
             if (m && (m[1] !== '' || m[2] !== '')) {
               let start;
@@ -3842,6 +3957,45 @@ export function apply(ctx) {
           } catch (e) {
             res.statusCode = 400;
             res.end(String((e && e.message) || e));
+          }
+        },
+      }),
+      // 视频静态封面（poster）落盘：body 为 jpeg/png 字节，写入 `<rel>.poster.jpg`。
+      // 有 poster 后画布视频节点默认只画一张 img（浏览器磁盘缓存、零视频解码），播放时才挂 <video>。
+      ctx.webServer.register({
+        kind: 'exact',
+        path: `/${NAME}/api/poster`,
+        async handler(req, res) {
+          res.setHeader('content-type', 'application/json; charset=utf-8');
+          try {
+            if (req.method !== 'POST' && req.method !== 'PUT') {
+              res.statusCode = 405;
+              res.end(JSON.stringify({ error: '仅接受 POST/PUT' }));
+              return;
+            }
+            const root = dataRoot();
+            if (!root) throw new Error('未设置数据根目录');
+            const u = new URL(req.url, 'http://localhost');
+            const rawRel = String(u.searchParams.get('rel') || '').trim();
+            if (!rawRel) throw new Error('缺少 rel');
+            if (/\.poster\.jpg$/i.test(rawRel)) throw new Error('rel 不应包含 poster 后缀');
+            const rel = physicalRel(rawRel) || rawRel; // 逻辑路径（pid）→ 物理路径（项目名文件夹）
+            const { abs, clean } = safeJoin(root, rel + '.poster.jpg'); // safeJoin 会拒绝 ../ 与绝对路径
+            mkdirSync(path.dirname(abs), { recursive: true });
+            const chunks = [];
+            let size = 0;
+            const MAX_POSTER = 8 * 1024 * 1024; // 封面只应是缩略 JPEG，8MB 足够且防无界写盘
+            for await (const c of req) {
+              size += c.length;
+              if (size > MAX_POSTER) { res.statusCode = 413; res.end(JSON.stringify({ error: 'poster 过大（上限 8MB）' })); return; }
+              chunks.push(c);
+            }
+            if (!size) throw new Error('poster 内容为空');
+            await fs.writeFile(abs, Buffer.concat(chunks));
+            res.end(JSON.stringify({ ok: true, rel: clean, size }));
+          } catch (e) {
+            res.statusCode = 400;
+            res.end(JSON.stringify({ error: String((e && e.message) || e) }));
           }
         },
       }),

@@ -47,6 +47,19 @@ if (mUnrel) {
   section = next < 0 ? rest : rest.slice(0, next);
 }
 
+// 发版后 Unreleased 会被清空、内容迁到最新已发布段：覆盖校验必须能回落到该段，
+// 否则"发版提交"本身会把门禁打红（0.19.0 发版时坐实）。
+function coverageTextOf(unrel, released) {
+  return /^\s*-\s+\S/m.test(unrel) ? unrel : released;
+}
+let releaseSection = '';
+if (firstReleased) {
+  const rest = raw.slice(firstReleased.index);
+  const next2 = rest.slice(firstReleased[0].length).search(/^## /m);
+  releaseSection = next2 < 0 ? rest : rest.slice(0, firstReleased[0].length + next2);
+}
+const coverageText = coverageTextOf(section, releaseSection);
+
 // ---------- 2) 不写具体版本号 ----------
 ok(!/^## \[?\d+\.\d+\.\d+/m.test(section), 'Unreleased 段里出现了具体版本号标题（版本号必须由维护者拍板）');
 ok(!/^## \[Unreleased\].*?\d+\.\d+\.\d+/m.test(section), 'Unreleased 段里写死了版本号');
@@ -101,10 +114,21 @@ if (unrelHasEntries) {
 // OBS-1 硬要求（QA 判据）：清单**手工维护**，绝不从 `git log` 动态生成——动态清单会自证
 // （脚本生成的清单当然自己全中，"缺一必红"退化成摆设）。数量相等 + 逐 sha 关键词命中，两条都拦。
 const COVERAGE = [
-  // 0.18.7 已发布，清单清零——下一轮新提交从这里开始记账。
+  // 0.18.7→0.19.0：这批提交随 0.19.0 发布；发版后 Unreleased 清空，覆盖校验回落到最新已发布段。
+  // 合并进 main 后 main..dev 归零、本清单应同步清空，下一轮新提交从这里重新记账。
+  { sha: '42bc814', keys: [/poster|IndexedDB read path|imperative|懒挂载|卡顿/i] },
+  { sha: 'f126362', keys: [/screenshot|README|guide|截图/i] },
+  { sha: 'a23ea41', keys: [/BLK-01|BLK-02|docs\/evidence|evidence/i] },
+  { sha: '0a5b96d', keys: [/shot boundaries|切段|planShotSegments|timeBeats|three action beats/i] },
+  { sha: '18876bc', keys: [/director stage|导演台|compileDirectorPrompt|mannequin/i] },
+  // f403e33 只改 docs/director-3d.md 的自查行数，描述对象与 18876bc 同一件事（导演台），复用同一组关键字。
+  { sha: 'f403e33', keys: [/director stage|导演台|compileDirectorPrompt|mannequin/i] },
+  // 3989e9f 只改 docs/UI-RULES.md（图标列顺序补上导演台入口），属同一功能的文档同步；
+  // docs/ 不在"纯收尾"剔除范围内，所以照样要在这里记账。
+  { sha: '3989e9f', keys: [/director stage|导演台|compileDirectorPrompt|mannequin/i] },
 ];
 for (const c of COVERAGE) {
-  ok(c.keys.some((re) => re.test(section)), '未发版提交 ' + c.sha + ' 在 Unreleased 段里找不到对应记录（补记不全）');
+  ok(c.keys.some((re) => re.test(coverageText)), '未发版提交 ' + c.sha + ' 在 CHANGELOG（Unreleased 或最新已发布段）里找不到对应记录（补记不全）');
 }
 
 // ---------- 附加：数量相等 + 清单 sha 真实性（OBS-1 的"缺一必红"数量侧） ----------

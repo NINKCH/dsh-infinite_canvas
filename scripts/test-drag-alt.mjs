@@ -99,10 +99,10 @@ ok(!/altKey/i.test(pushBody), 'resolvePushNow 内部被塞进了 altKey 判断�
 ok(/const PUSH_GAP = 8;/.test(pushBody), 'resolvePushNow 的推挤逻辑被改动（PUSH_GAP 丢失）');
 ok(/for \(let pass = 0; pass < 4/.test(pushBody), 'resolvePushNow 的级联轮次被改动');
 
-// onCanvasPointerMove 里必须按 altKey 条件调用
-const moveBody = fnBody('onCanvasPointerMove');
+// 拖动帧逻辑（P1 后拆到 applyNodeDragFrame，由 onCanvasPointerMove 的 rAF 调用）必须按 altKey 条件执行
+const moveBody = fnBody('onCanvasPointerMove') + '\n' + fnBody('applyNodeDragFrame');
 ok(/const noPush = !!e\.altKey;/.test(moveBody), 'pointermove 未实时读取 e.altKey');
-ok(/if \(!noPush\) resolvePushNow\(movedIds\);/.test(moveBody), '推挤调用未被 Alt 条件包裹');
+ok(/if \(!noPush\) resolvePushNow\(movedIds, drag\.snapCandidates\);/.test(moveBody), '推挤调用未被 Alt 条件包裹');
 ok(/!e\.shiftKey && !noPush/.test(moveBody), '对齐吸附未排除 Alt');
 ok(/} else if \(noPush\) \{\s*hideGuides/.test(moveBody), 'Alt 拖动时未隐藏吸附参考线');
 // 视觉反馈：Alt 拖动时节点加虚线轮廓，松手清除

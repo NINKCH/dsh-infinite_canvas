@@ -22,7 +22,9 @@
 
 10. 图标列**不得有任何外框**：无 `border`、无 `background`、无 `box-shadow`、无 `border-radius`（不要卡片、不要描边、不要底色）。
 11. 图标列**垂直居中悬浮在左栏中间**，**不撑满上下边**。正确实现是**两层结构**：外层 `.dshic-rail` 只负责占位（宽 46px、透明、`position:relative`），内层 `.dshic-rail-inner` 用 `position:absolute; top:50%; transform:translateY(-50%)` 居中。**不要用 `align-self:center` + `margin:auto 0`**——它会被父级 `align-items:stretch` 拉成整列高，看起来像"满高白色卡片"，这是历史上反复复发的问题（第三次返工才根治）。
-12. 图标顺序：文本 / 剧本 / 分镜表 / 图片 / 视频 / 成片 / 资产 / 设定集 / 运行工作流；hover 才有轻量反馈。
+12. 图标顺序：文本 / 剧本 / 分镜表 / 图片 / 视频 / 成片 / 资产 / 设定集 / **导演台** / 运行工作流；hover 才有轻量反馈。
+    - 导演台（摄像机图标，`data-action: 'open-director'`）排在「设定集」与「运行工作流」之间：前六个是**节点类型**，资产/设定集/导演台是**工具入口**，运行工作流是**动作**——三组分隔符 `dshic-rail-sep` 把它们分开。
+    - `scripts/test-panel-layout.mjs` 对整列 `data-action` 序列做严格断言（顺序错一个就红），改顺序必须同时改该测试与本条。
 
 ## 四、项目下拉（左上角）
 
@@ -64,6 +66,7 @@
 39. 多画布：子画布独立文档；**资产与设定集按项目共享**；旧项目零迁移（默认画布 `canvasId=null` 时 key 仍等于 projectId）。
 40. 每轮改动必须跑全量门禁（`scripts/regress.mjs` 等 37+ 脚本全 PASS）后才允许提交。
 41. **设置页技能增强 = 单一「专家」下拉**：专家 = 一套技能组（`persona` + `skills`）；选项**只列本插件专家**（当前仅「通用专家 / General expert」，默认值 `general`），**禁止列举 Harness 全部技能**（artcraft-* / noteboard-* / office-* / diagnose-* 等一律不得出现）；旧设置 `skillScript` / `skillStoryboard` 迁移到 `general`，缺字段/非法值回退 `general` 且不报错。
+42. **画布性能**：视频节点空闲时只渲染静态 poster（不挂 `<video>`，播放时才挂、暂停/播完卸载），有 poster 即视为 ready，骨架只允许在首次取 poster 时出现一次；拖动/平移的每一帧**不得** `notify()` 全树、不得遍历全部节点，松手只通知一次；`idbGet` 在 SQLite 模式必须先走服务端，**不得**每次前置查 IndexedDB。
 
 ---
 

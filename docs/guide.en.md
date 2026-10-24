@@ -24,7 +24,7 @@ Two ways to drive it, best combined:
 1. Install the plugin (bundle folder) and **restart Harness once**. Open a workspace session — the **Infinite Canvas** entry appears; open the canvas panel.
 2. The right panel has four tabs: **Projects / Assets / Bible / Settings**.
 
-![Projects tab](./images/panel-projects-en.png)
+![Projects tab (ZH UI)](./images/panel-projects-zh.png)
 
 3. First time: finish the basics in the **Settings** tab (see section 5), then start from the chat.
 
@@ -52,7 +52,7 @@ You don't have to flip between the **Chat** and **Canvas** views: the canvas als
 
 **The agent**: creates the project → writes the world view, style baseline, characters (Chen Shi / Granny Lin), scenes (Night Post Office / Wrinkled Alley / City Street), props (Fire-Seal Letter / Brass Pocket Watch / Canvas Mailbag…) into the **bible**.
 
-![Bible tab](./images/panel-bible-en.png)
+![Bible modal (ZH UI)](./images/panel-bible-zh.png)
 
 **Why the bible matters**: it is the single source of truth for cross-shot, cross-episode consistency — every script, storyboard and video call automatically carries it; an `@Chen Shi` mention in a prompt automatically attaches that entity's description and reference assets, so **you never re-describe a character's looks**.
 
@@ -80,7 +80,7 @@ Each storyboard is broken into a shot list by AI: per shot — visual, motion & 
 
 The canvas after the episode is expanded (left: script → per-scene texts → per-scene storyboards):
 
-![Canvas overview — episode expanded](./images/overview-en.png)
+![Canvas overview (EN UI)](./images/overview-en.png)
 
 ### 3.4 Generate reference images (characters / scenes / props)
 
@@ -92,7 +92,7 @@ The canvas after the episode is expanded (left: script → per-scene texts → p
 
 Generated assets land in the **Assets** tab, organized by category (Character / Scene / Prop / Script / Storyboard / Voice / Final cut):
 
-![Assets tab](./images/panel-assets-en.png)
+![Assets modal (EN UI)](./images/panel-assets-en.png)
 
 > 💡 Batch tip: ten reference images and six storyboards are exactly the kind of repetitive work the chat side is fastest at — one sentence does it all; you just review the images.
 
@@ -111,7 +111,7 @@ Generated assets land in the **Assets** tab, organized by category (Character / 
 
 Scene 1's result: the video node with preview, bound references, and the tail-frame asset (the Assets panel gains "Ep1-Scene1 video" and "tail frame" cards):
 
-![Scene 1: storyboard + references → video](./images/video-node-refs.png)
+![Scene 1: storyboard + references → video](./images/scene1-zh.png)
 
 ### 3.6 Post-production with the Craft family
 
@@ -143,6 +143,10 @@ After the chat batch is done, the canvas is where you polish:
 
 **Recommended rhythm**: let chat finish the 80% batch → polish the 20% you care about on the canvas → have chat re-run the changed parts.
 
+Shortcuts and gestures:
+
+![Shortcuts and gestures (EN UI)](./images/shortcuts-en.png)
+
 ---
 
 ## 5. Model configuration: providers + models
@@ -152,11 +156,11 @@ Settings tab → Image models / Video models / TTS voices, organized in **two le
 1. **Provider** (collapsed row): configure the endpoint + API key **once** (+ optional extra params);
 2. **Models**: list several model IDs under it (same vendor, different tiers); **star ★ one as the default** — nodes without an explicit pick route there automatically.
 
-![Settings tab (data root / Craft / skills / text model / image models / video models / TTS)](./images/panel-settings-en.png)
+![Settings tab (data root / Craft / skill boost / text model / image models / video models / TTS) (EN UI)](./images/panel-settings-en.png)
 
 Expand a provider to edit its details (endpoint, key, output format, extra params, model list):
 
-![Provider detail](./images/provider-detail.png)
+
 
 Key points:
 
@@ -225,7 +229,75 @@ Media lives on disk, organized by project — **copying the folder IS the full m
 
 ---
 
-## 8. Troubleshooting
+## 8. 3D Director Stage
+
+A blocking & previz workspace inside the same project. Place real glTF characters and set dressing, frame them with real cameras, and send the result back to the canvas as an image or video node.
+
+Open it from the left icon rail → **3D Director Stage**.
+
+### 8.1 Workspace map
+
+| Area | What it does |
+|---|---|
+| **Left tool rail** | Select (0) / Move (1) / Rotate (2) / Scale (3) / Drop to ground (G) / Focus / Upload |
+| **Asset library** | Tabbed and searchable: characters · trees · furniture · buildings · primitives |
+| **Viewport** | Studio or final look, object labels, move/rotate/scale gizmo, shortcut overlay |
+| **Camera PiP** (top right) | Live view of the active camera; switch cameras from here |
+| **Right panel** | Context-sensitive: object properties when something is selected, lens/shot settings when nothing is selected, render settings in Live render |
+| **Timeline** (Dynamic previz / Live render) | Scrub, shot rail, per-shot start/end, keyframe tools, zoom |
+
+![Static previz — studio viewport, object properties and shortcut list](./images/director-static-en.png)
+
+### 8.2 Three viewing modes
+
+| Mode | Look | Playback |
+|---|---|---|
+| **Static previz** | Studio: dark backdrop, grid, neutral two-light rig | Paused — for blocking |
+| **Dynamic previz** | Same fixed studio look | Timeline playback |
+| **Live render** | Final look: daylight, shadows, materials, no guides | Plays the shot sequence |
+
+Static and Dynamic deliberately keep a **fixed studio look**, so placement does not drift when you tune the sun, ground or exposure. Those render settings apply only to **Live render** and the exported clip.
+
+![Dynamic previz — timeline, shot rail and camera keyframes](./images/director-dynamic-en.png)
+
+![Live render — daylight environment, real shadows and sun controls](./images/director-daylight-en.png)
+
+### 8.3 Asset library
+
+Five tabs share one search box. Click an asset to drop it into the scene; characters are real skinned glTF assets with animation clips (idle / walk / run / sneak).
+
+![Characters](./images/director-assets-characters-en.png)
+
+![Trees](./images/director-assets-trees-en.png)
+
+![Furniture](./images/director-assets-furniture-en.png)
+
+![Buildings](./images/director-assets-buildings-en.png)
+
+![Primitives, plus ancient-street set pieces](./images/director-assets-primitives-en.png)
+
+### 8.4 Moving things
+
+- **Gizmo**: axis shafts move, axis-end cubes scale, rings rotate. It follows the object's local axes.
+- **Alt + drag a scale handle** = uniform scale — x/y/z keep their relative proportions.
+- **Shift** while dragging = fine adjust; **Ctrl/⌘** = snap (0.5 m / 5°).
+- **Ctrl/⌘/Shift + left-drag** = box select; a plain click toggles a single object.
+- **W/A/S/D + Q/E** = fly the camera (forward/back, strafe, down/up). Hold **Shift** for 4x speed; the mouse still looks around.
+
+### 8.5 Shots, timeline and cameras
+
+- **Shot rail**: every shot has a start and end; edit them under the timeline.
+- **Camera keyframes**: select a camera, move it, then press **Add key**. Ease can be Smooth / Linear / Constant.
+- **Shot size and move**: presets that also drive the camera distance; **Framing %** shows how much of the subject fills the frame.
+- **Lens**: FOV, focal length and sensor size stay consistent; roll is in degrees.
+
+### 8.6 Export
+
+**Export video** renders the current range at 1280×720 with the same renderer as Live render, then drops the clip back on the canvas as a **video node**. The camera button exports a single **PNG** as an image node. Encoding follows the browser: MP4 (H.264) when available, WebM otherwise.
+
+---
+
+## 9. Troubleshooting
 
 | Symptom | Cause & fix |
 |---|---|
@@ -235,3 +307,7 @@ Media lives on disk, organized by project — **copying the folder IS the full m
 | Deleted nodes come back | Old sync race — upgrade to 0.17.11+ |
 | Storyboards always have exactly 6 shots | Old anchoring issue — since 0.17.11 shot counts follow the content beats |
 | Demo-mode images | No model configured, or the node has no pick and no starred default — see section 5 |
+
+Stuck? Open **Help & feedback** from the right panel to join the group or file an issue:
+
+![Help & feedback (EN UI)](./images/help-en.png)

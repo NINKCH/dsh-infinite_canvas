@@ -197,8 +197,15 @@ if (SKILL) {
   })();
   ok(!!contractBlock, '未能定位 contFields（分镜 JSON 契约）');
   const fields = [...new Set([...contractBlock.matchAll(/"([a-zA-Z]+)":/g)].map((m) => m[1]))].sort();
-  const EXPECT = ['cam', 'characters', 'dialogue', 'duration', 'line', 'motion', 'props', 'role', 'scene', 'seg', 'sfx', 'start', 'tail', 'title', 'visual'].sort();
+  // 追加四个"动作是否演得出来"的字段（用户实测：动作极简/只会平移/没有特效）：
+  //   timeBeats 三节拍 / camera 机位三件套 / vfx 物理特效 / negative 负向要求
+  const EXPECT = ['cam', 'camera', 'characters', 'dialogue', 'duration', 'line', 'motion', 'negative', 'props', 'role', 'scene', 'seg', 'sfx', 'start', 'tail', 'timeBeats', 'title', 'vfx', 'visual'].sort();
   ok(fields.join(',') === EXPECT.join(','), `分镜 JSON 字段被改动（实际：${fields.join(',')}）`);
+  // 四个新字段必须是"硬性"要求，不能只出现在 JSON 示例里
+  for (const k of ['【动作层次·硬性】timeBeats', 'camera 是本镜的机位/焦段/运镜三件套', 'vfx 是本镜必须可见的物理特效', 'negative 是本镜要排除的失败项', '【切段友好·硬性】']) {
+    ok(src.includes(k), `分镜契约缺少硬性要求「${k}」`);
+  }
+  ok(src.includes('**禁止只写"推近/拉远/平移"这类空模板**') || src.includes('禁止只写"推近/拉远/平移"'), '分镜契约未禁止空模板运镜（"只会平移"的直接来源）');
   ok(src.includes('只输出一个 JSON 对象：{"shots":['), '分镜契约不再要求只输出 {"shots":[...]}');
   ok(src.includes('"dialogue":[{"role"'), '分镜契约的 dialogue 结构 {role,line} 被改动');
   ok(src.includes('数量由内容自然决定（3-10 镜都正常）'), '分镜契约的镜头数量口径被改动（应保持按内容自然决定）');

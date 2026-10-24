@@ -1,0 +1,285 @@
+{
+  "version": 2,
+  "models": [
+    {
+      "id": "xbot",
+      "label": "关节人偶 · X",
+      "category": "human",
+      "height": 1.7,
+      "kb": 2922
+    },
+    {
+      "id": "soldier",
+      "label": "关节人偶 · 士兵",
+      "category": "human",
+      "height": 1.8,
+      "kb": 968
+    },
+    {
+      "id": "cesiumman",
+      "label": "白模 · 简人",
+      "category": "human",
+      "height": 1.7,
+      "kb": 331
+    },
+    {
+      "id": "tree_blocks",
+      "label": "树 · blocks",
+      "category": "tree",
+      "height": 6,
+      "kb": 14
+    },
+    {
+      "id": "tree_cone",
+      "label": "树 · cone",
+      "category": "tree",
+      "height": 8,
+      "kb": 16
+    },
+    {
+      "id": "tree_default",
+      "label": "树 · default",
+      "category": "tree",
+      "height": 7.5,
+      "kb": 13
+    },
+    {
+      "id": "tree_detailed",
+      "label": "树 · detailed",
+      "category": "tree",
+      "height": 8,
+      "kb": 74
+    },
+    {
+      "id": "tree_fat",
+      "label": "树 · fat",
+      "category": "tree",
+      "height": 6.5,
+      "kb": 7
+    },
+    {
+      "id": "tree_oak",
+      "label": "树 · oak",
+      "category": "tree",
+      "height": 7,
+      "kb": 22
+    },
+    {
+      "id": "tree_palm",
+      "label": "树 · palm",
+      "category": "tree",
+      "height": 9,
+      "kb": 20
+    },
+    {
+      "id": "tree_palmDetailedTall",
+      "label": "树 · palmDetailedTall",
+      "category": "tree",
+      "height": 11.5,
+      "kb": 23
+    },
+    {
+      "id": "tree_palmTall",
+      "label": "树 · palmTall",
+      "category": "tree",
+      "height": 11,
+      "kb": 24
+    },
+    {
+      "id": "tree_pineDefaultA",
+      "label": "树 · pineDefaultA",
+      "category": "tree",
+      "height": 9,
+      "kb": 27
+    },
+    {
+      "id": "tree_pineRoundA",
+      "label": "树 · pineRoundA",
+      "category": "tree",
+      "height": 8.5,
+      "kb": 22
+    },
+    {
+      "id": "tree_thin",
+      "label": "树 · thin",
+      "category": "tree",
+      "height": 6.5,
+      "kb": 27
+    },
+    {
+      "id": "furn_tableCross",
+      "label": "家具 · 桌子",
+      "category": "furniture",
+      "height": 0.75,
+      "kb": 10
+    },
+    {
+      "id": "furn_chair",
+      "label": "家具 · 椅子",
+      "category": "furniture",
+      "height": 0.95,
+      "kb": 9
+    },
+    {
+      "id": "furn_bench",
+      "label": "家具 · 长椅",
+      "category": "furniture",
+      "height": 0.85,
+      "kb": 9
+    },
+    {
+      "id": "furn_bedDouble",
+      "label": "家具 · 双人床",
+      "category": "furniture",
+      "height": 0.6,
+      "kb": 29
+    },
+    {
+      "id": "furn_bookcaseClosed",
+      "label": "家具 · 书柜",
+      "category": "furniture",
+      "height": 1.9,
+      "kb": 20
+    },
+    {
+      "id": "furn_lampRoundFloor",
+      "label": "家具 · 落地灯",
+      "category": "furniture",
+      "height": 1.7,
+      "kb": 8
+    },
+    {
+      "id": "furn_televisionModern",
+      "label": "家具 · 电视",
+      "category": "furniture",
+      "height": 0.75,
+      "kb": 8
+    },
+    {
+      "id": "furn_kitchenBar",
+      "label": "家具 · 吧台",
+      "category": "furniture",
+      "height": 1.05,
+      "kb": 9
+    },
+    {
+      "id": "furn_cabinetTelevision",
+      "label": "家具 · 电视柜",
+      "category": "furniture",
+      "height": 0.55,
+      "kb": 9
+    },
+    {
+      "id": "furn_rugRectangle",
+      "label": "家具 · 地毯",
+      "category": "furniture",
+      "height": 0.02,
+      "kb": 2
+    },
+    {
+      "id": "furn_stoolBar",
+      "label": "家具 · 吧凳",
+      "category": "furniture",
+      "height": 1.05,
+      "kb": 17
+    },
+    {
+      "id": "bld_a",
+      "label": "建筑 · a",
+      "category": "building",
+      "height": 12,
+      "kb": 75
+    },
+    {
+      "id": "bld_b",
+      "label": "建筑 · b",
+      "category": "building",
+      "height": 15,
+      "kb": 73
+    },
+    {
+      "id": "bld_c",
+      "label": "建筑 · c",
+      "category": "building",
+      "height": 18,
+      "kb": 71
+    },
+    {
+      "id": "bld_d",
+      "label": "建筑 · d",
+      "category": "building",
+      "height": 10,
+      "kb": 65
+    },
+    {
+      "id": "bld_e",
+      "label": "建筑 · e",
+      "category": "building",
+      "height": 22,
+      "kb": 88
+    },
+    {
+      "id": "bld_f",
+      "label": "建筑 · f",
+      "category": "building",
+      "height": 14,
+      "kb": 103
+    },
+    {
+      "id": "bld_g",
+      "label": "建筑 · g",
+      "category": "building",
+      "height": 26,
+      "kb": 115
+    },
+    {
+      "id": "bld_h",
+      "label": "建筑 · h",
+      "category": "building",
+      "height": 16,
+      "kb": 88
+    },
+    {
+      "id": "bld_i",
+      "label": "建筑 · i",
+      "category": "building",
+      "height": 30,
+      "kb": 145
+    },
+    {
+      "id": "bld_j",
+      "label": "建筑 · j",
+      "category": "building",
+      "height": 20,
+      "kb": 306
+    },
+    {
+      "id": "bld_skyscraper_a",
+      "label": "建筑 · skyscraper-a",
+      "category": "building",
+      "height": 55,
+      "kb": 77
+    },
+    {
+      "id": "bld_skyscraper_b",
+      "label": "建筑 · skyscraper-b",
+      "category": "building",
+      "height": 70,
+      "kb": 95
+    },
+    {
+      "id": "bld_skyscraper_c",
+      "label": "建筑 · skyscraper-c",
+      "category": "building",
+      "height": 46,
+      "kb": 103
+    },
+    {
+      "id": "bld_skyscraper_d",
+      "label": "建筑 · skyscraper-d",
+      "category": "building",
+      "height": 62,
+      "kb": 115
+    }
+  ]
+}

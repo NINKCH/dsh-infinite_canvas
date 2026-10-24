@@ -357,3 +357,14 @@ description: 用无限画布（Infinite Canvas）做短剧/视频创作时使用
   重生成分镜不花钱，视频按秒计费
 - ❌ 把景别写成"镜头""画面"、把「大特写」写成"大豆/大特"、把「调度」写成"调职" → 按 `canvas-craft`
   「术语勘误」统一，术语错 = 分镜粗，粗分镜 = 成片糊
+
+## 3D 导演台（AI 直接驱动出预演）
+
+用 `canvas_director_stage` 工具，一段 JSON 规格即可生成整场 3D 预演，不用手动搭场景：
+
+- `action=help` → 列出可用姿态 id / 道具 preset / 动作片段
+- `action=apply` + `spec` → 写入项目并落盘；客户端打开 3D 导演台会自动套用
+- `action=get` → 读回当前规格
+
+规格结构：`title`、`duration`、`env`、`characters[{name,pos,rotY,h,pose,color,material,path,pathFace,poseAnim,loop,keys}]`、`props[{preset,pos,scale,color}]`、`cameras[{name,pos,target,fov,keys}]`、`shots[{camera,start,end}]`。
+路径为二维地面点数组，物体沿路径运动并按切线自动转向；`poseAnim` 首尾姿态相同即可无缝循环。

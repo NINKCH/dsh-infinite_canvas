@@ -25,27 +25,43 @@ The canvas and the agent share one brain. Every node is an AI workbench, and the
 
 The heavy lifting — bibles, episode scripts, storyboard breakdowns, batches of reference images — is exactly what the agent is fast at. You then fine-tune the 20% you care about directly on the nodes: tweak a prompt, reorder references, re-roll one shot, pull an older result from history.
 
-## Case study: Time-Postman (时空邮递员)
+## Case study: 门缝里的字条
 
-A full episode produced end to end with the flow above. The canvas at 32% — the script node, the expanded per-scene text + storyboard groups, the scene-1 video node with its bound references and preview, and the Assets panel:
+A full episode produced end to end with the flow above. The canvas with the whole episode laid out — the icon rail on the left adds nodes, the **Projects** panel on the right manages the canvases of the current project (第1集 / 第2集), while assets and the bible stay shared across the project:
 
-![Canvas overview — episode 1 pipeline (EN UI)](./docs/images/overview-en.png)
+![Canvas overview (EN UI)](./docs/images/overview-en.png)
 
-Scene 1 up close — text → storyboard → video wiring, with the storyboard's shot list and the video node's bound references:
+Shot 1 up close — storyboard → character/scene turnaround images → video, with the reference relationships drawn as edges:
 
-![Scene 1 pipeline (ZH UI)](./docs/images/scene1-zh.png)
+![Scene 1 storyboard and references (ZH UI)](./docs/images/scene1-zh.png)
 
-A scene video node: model picked from the provider's model list, duration/ratio/resolution on the node, four reference images bound in order:
+A node with its generation panel: click the content area to open it — references live in a draggable strip at the top, and model / ratio / quality / count sit on one row:
 
-![Video node with references](./docs/images/video-node-refs.png)
+![Node with generation panel](./docs/images/video-node-refs.png)
 
-Providers are configured once (URL + key + vendor-specific extra params) and can hold many models — one is starred as the default route:
+The bible modal — world view, style, character/scene/prop entries, each able to bind reference assets:
 
-![Provider detail](./docs/images/provider-detail.png)
+![Bible modal (ZH UI)](./docs/images/panel-bible-zh.png)
 
-The Settings panel — data root, Craft status (12/12 ready), skills, text model, and the image/video/TTS provider lists (EN / 中文 versions of the same UI):
+The assets modal — a card grid with search, category and project filters; videos use their first frame as the thumbnail (EN UI):
+
+![Assets modal (EN UI)](./docs/images/panel-assets-en.png)
+
+The project dropdown on the top-left project name: every row shows `project · canvas`, renames happen in place, and more than five projects paginate with a page-jump box (ZH UI):
+
+![Project dropdown (ZH UI)](./docs/images/panel-projects-zh.png)
+
+The Settings panel — data root, Craft status, Skill boost (General expert), text model and the image/video/TTS providers (EN UI):
 
 ![Settings (EN UI)](./docs/images/panel-settings-en.png)
+
+Shortcuts and gestures:
+
+![Shortcuts and gestures (EN UI)](./docs/images/shortcuts-en.png)
+
+Help & feedback:
+
+![Help & feedback (EN UI)](./docs/images/help-en.png)
 
 ## Work beside the chat
 
@@ -58,6 +74,27 @@ The canvas is not a separate window you have to switch to. It opens as a **tab i
 ![Infinite Canvas as a right-pane tab](./docs/images/harness-right-pane.png)
 
 > One live canvas at a time (shared node graph and generation state): opening it in the pane while the full-page panel is also open **moves** the canvas rather than duplicating it — the other side shows a "move the canvas here" button.
+
+## 3D Director Stage (previz)
+
+A blocking & previz workspace that lives inside the same project: place real glTF characters and set dressing, frame them with real cameras, and send the result back to the canvas as an image or video node.
+
+- **Three modes** — **Static previz** (studio look, paused), **Dynamic previz** (studio look + timeline playback), **Live render** (final look: daylight, shadows, materials, no guides).
+- **Asset library** — characters, trees, furniture, buildings, primitives, and ancient-street set pieces (pitched roofs, stalls, stone steps) in one searchable rail.
+- **Direct manipulation** — local-axis move/rotate/scale gizmo, box select, **Alt-drag a scale handle = uniform scale**, **W/A/S/D + Q/E fly navigation** (hold Shift for 4x speed).
+- **Shots & timeline** — shot rail with per-shot start/end, camera keyframes, ease curves, markers and loop playback.
+- **Camera & optics** — FOV, focal length, sensor size and roll stay consistent; shot-size presets show the live framing percentage.
+- **Export** — PNG still or MP4/WebM clip, dropped straight back onto the canvas as an image or video node.
+
+![Static previz — studio viewport, object properties and the shortcut list](./docs/images/director-static-en.png)
+
+![Dynamic previz — timeline, shot rail and camera keyframes](./docs/images/director-dynamic-en.png)
+
+![Live render — daylight, real shadows and sun controls](./docs/images/director-daylight-en.png)
+
+Assets are shared with the canvas: the characters, trees, furniture and buildings you already generated are directly usable as previz set dressing.
+
+Full walkthrough — asset tabs, gizmo, keyboard map, shots and export: **[User guide → 3D Director Stage](./docs/guide.en.md#8-3d-director-stage)**.
 
 ## How it works
 
