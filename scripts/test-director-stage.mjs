@@ -1,330 +1,394 @@
-// 3D 导演台回归测试。
+// 3D 导演台回归测试（引擎拆分版）。
 //
-// 用户需求：给无限画布加 3D 导演台，入口放左侧图标列。参考项目 BeefTV 的导演台是
-// three.js + @react-three/fiber 的 React 组件树（GLB 角色 + 骨骼 + IK），我们**不能复制它的代码**
-// （其 LICENSE Part A 禁止与我们 Apache-2.0 的包混合分发），也不能引 three.js——
-// 本插件是单文件、无构建步骤、无 node_modules 的浏览器插件。
+// 用户需求与边界：
+//   · 导演台能力参考了 BeefTV 与即梦，但**只借鉴设计、不复制代码**（BeefTV LICENSE Part A
+//     禁止与其混合分发；我们也不引 three.js——单文件插件没有 node_modules）；
+//   · 引擎拆分到 assets/director/engine.js（用户要求"代码分割要改"），client.js 只留
+//     React 面板，懒加载引擎；
+//   · 拖拽必须用坐标轴 gizmo（用户实测：直接拖模型会反向走——根因是叉乘顺序）；
+//   · 资产要丰富：12 角色体型 + 13 几何体 + 12 建筑/古风模板，全部白膜、低面数；
+//   · 支持上传 Blender 导出的 OBJ。
 //
-// 所以 v1 用 Canvas2D + 画家算法做软件渲染：零依赖、零体积、接口稳定（将来换 WebGL 只换
-// directorRenderScene 的实现，其余不动）。本测试锁死这些判据：
-//   ① 场景数据可序列化（纯 JSON，不能夹带 DOM/函数/循环引用）→ 否则存不进 localStorage
-//   ② 相机数学正确：正前方投影到画面中心、背后点返回 null、FOV 变宽则同一点更靠中间
-//   ③ 几何构建：每种 primitive 都有面片；隐藏对象不产生面片
-//   ④ 渲染：真的画出像素（不是空画布）、面片确实被绘制、开启网格时有网格线
-//   ⑤ 拾取：点画面的对象中心能选中它、点空白命中 null
-//   ⑥ 提示词编译：必须写明"人偶要画成真人"（否则视频模型会把蓝色人偶画成蓝色人），
-//      且带景别/机位高度/运镜/站位映射
-//   ⑦ 持久化：save→load 往返一致；损坏数据回落到默认场景不抛错
-//   ⑧ 源码级：图标列有导演台入口；导演台挂进了画布主区域
+// 本测试两段：A 段直接 ESM import engine.js（引擎是自包含模块，Node 可加载）——
+// 测的就是浏览器里跑的同一份文件；B 段源码级锁 client.js 的结构与约束。
 //
 // 运行：node scripts/test-director-stage.mjs（退出码 0=通过）
 
 import { readFileSync } from 'node:fs';
-import vm from 'node:vm';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const src = readFileSync(path.join(ROOT, 'client.js'), 'utf8');
 const errs = [];
 const ok = (c, m) => { if (!c) errs.push(m); };
 
-// ---------------- 假 React / DOM / localStorage ----------------
-function mkEl(type, props, ...kids) { return { __el: true, type, props: Object.assign({}, props || {}, { children: kids.length <= 1 ? kids[0] : kids }) }; }
-const fakeReact = {
-  createElement: mkEl,
-  useState: (init) => [typeof init === 'function' ? init() : init, () => {}],
-  useEffect: () => {}, useLayoutEffect: () => {}, useRef: (v) => ({ current: v }),
-  useCallback: (f) => f, useMemo: (f) => f(),
-};
-const noop = () => {};
-// 2D canvas 桩：记录调用，能回答「填了几次」「画了几条线」
-function mkCtx2d() {
-  const calls = { fillRect: 0, fill: 0, stroke: 0, beginPath: 0, moveTo: 0, lineTo: 0, arc: 0 };
-  const ctx = {
-    calls,
-    fillStyle: '', strokeStyle: '', lineWidth: 1,
-    fillRect: () => { calls.fillRect++; },
-    beginPath: () => { calls.beginPath++; },
-    moveTo: () => { calls.moveTo++; },
-    lineTo: () => { calls.lineTo++; },
-    closePath: () => {},
-    fill: () => { calls.fill++; },
-    stroke: () => { calls.stroke++; },
-    arc: () => { calls.arc++; },
-    setLineDash: () => {},
-    setTransform: () => {},
-    createLinearGradient: () => ({ addColorStop: () => {} }),
+// ============================================================
+// A 段：引擎模块（同一份 engine.js，Node 直接加载）
+// ============================================================
+const E = await import(pathToFileURL(path.join(ROOT, 'assets/director/engine.js')).href);
+const v3 = E.v3;
+
+// ---------- A1 场景可序列化 ----------
+{
+  const s = E.directorDefaultScene('测试布景');
+  let err = null;
+  try { JSON.stringify(s); } catch (e) { err = e; }
+  ok(!err, '默认场景无法 JSON 序列化（' + (err && err.message) + '）');
+  ok(s.objects.length >= 2 && s.cameras.length >= 1 && s.lights.length >= 2, '默认场景缺少基本要素');
+  ok(s.env && typeof s.env.bg === 'string', '默认场景缺少环境（env）');
+  // 往返
+  E.saveStageDoc('proj_test', s);
+  const back = E.loadStageDoc('proj_test', '测试布景');
+  ok(back.objects.length === s.objects.length, 'save→load 往返丢对象');
+  ok(Array.isArray(back.env) === false && back.env.preset === s.env.preset && typeof back.env.bg === 'string', '往返后环境丢失');
+  // 损坏兜底
+  for (const bad of ['{', 'null', '123', '{"objects":"x"}', '{"cameras":[]}']) {
+    try { globalThis.localStorage.setItem(E.directorDocKey('proj_bad'), bad); } catch { /* Node 无 localStorage */ }
+    const d = E.loadStageDoc('proj_bad', 'x');
+    ok(d && Array.isArray(d.objects) && d.cameras.length > 0, '损坏数据（' + bad.slice(0, 12) + '）未回落默认场景');
+  }
+  const fresh = E.loadStageDoc('never-existed', 'x');
+  ok(fresh && Array.isArray(fresh.objects) && fresh.cameras.length > 0, '新项目读不到默认场景');
+}
+
+// ---------- A2 相机数学 ----------
+{
+  const proj = E.directorMat4Perspective(45, 16 / 9, 0.1, 100);
+  const apply = (m, p) => {
+    const x = m[0] * p.x + m[4] * p.y + m[8] * p.z + m[12];
+    const y = m[1] * p.x + m[5] * p.y + m[9] * p.z + m[13];
+    const z = m[2] * p.x + m[6] * p.y + m[10] * p.z + m[14];
+    const w = m[3] * p.x + m[7] * p.y + m[11] * p.z + m[15];
+    return { x: x / w, y: y / w, z: z / w };
   };
-  return ctx;
+  const mid = apply(proj, { x: 0, y: 0, z: -10 });
+  ok(Math.abs(mid.x) < 1e-5 && Math.abs(mid.y) < 1e-5, '透视矩阵把画面中心投偏了');
+  const near = apply(proj, { x: 0, y: 0, z: -2 });
+  const far = apply(proj, { x: 0, y: 0, z: -50 });
+  ok(near.z < far.z, '深度方向反了（近处应更小）');
+  const view = E.directorMat4View({ x: 0, y: 2, z: 8 }, { x: 0, y: 1, z: 0 }, { x: 0, y: 1, z: 0 });
+  const camPt = apply(view, { x: 0, y: 1, z: 0 });
+  ok(Math.abs(camPt.x) < 1e-5 && camPt.z < 0, '视图矩阵没把注视点放到 -z 轴');
+  // directorProject：正前方中心 → (0,0)；背后 → null
+  const cam = { fov: 42, pos: v3(0, 1.5, 5), target: v3(0, 1, 0) };
+  const view2 = E.directorViewOf(cam);
+  const nd = E.directorProject(view2.toCam(v3(0, 1, 0)), cam.fov, 16 / 9);
+  ok(nd && Math.abs(nd.x) < 1e-5, '正前方点没投影到画面中心');
+  const ndBehind = E.directorProject(view2.toCam(v3(0, 1, 9)), cam.fov, 16 / 9);
+  ok(ndBehind === null, '相机身后的点应返回 null');
+  // 模型矩阵：列主序平移 + 绕 Y 旋转
+  const m1 = E.directorMat4Model({ x: 3, y: 4, z: 5 }, 0, { x: 1, y: 1, z: 1 });
+  ok(m1[12] === 3 && m1[13] === 4 && m1[14] === 5, '模型矩阵平移不在 [12..14]');
+  const rx = apply(E.directorMat4Model({ x: 0, y: 0, z: 0 }, Math.PI / 2, { x: 1, y: 1, z: 1 }), { x: 1, y: 0, z: 0 });
+  ok(Math.abs(rx.x) < 1e-5 && Math.abs(rx.z + 1) < 1e-5, '绕 Y 转 90° 后 (1,0,0) 应变 (0,0,-1)');
+  const prod = E.directorMat4Multiply(E.directorMat4Identity(), proj);
+  ok(Array.from(prod).every((v2, i) => Math.abs(v2 - proj[i]) < 1e-9), '单位矩阵乘法不恒等');
 }
-let lastCtx = null;
-const elStub = () => ({
-  style: {}, dataset: {}, children: [], textContent: '', id: '',
-  appendChild: noop, removeChild: noop, remove: noop, setAttribute: noop, getAttribute: () => null, removeAttribute: noop,
-  addEventListener: noop, removeEventListener: noop,
-  querySelector: () => null, querySelectorAll: () => [],
-  getBoundingClientRect: () => ({ left: 0, top: 0, right: 900, bottom: 600, width: 900, height: 600 }),
-  getContext: (kind) => { if (kind === '2d') { lastCtx = mkCtx2d(); return lastCtx; } return new Proxy({}, { get: () => noop, set: () => true }); },
-  toDataURL: () => 'data:,', toBlob: (cb) => cb({ type: 'image/png', size: 1234 }),
-  classList: { add: noop, remove: noop, toggle: noop, contains: () => false },
-});
-const documentStub = {
-  createElement: (tag) => { const el = elStub(); if (tag === 'canvas') el.captureStream = () => ({ addTrack: noop, getAudioTracks: () => [], getVideoTracks: () => [{}] }); return el; },
-  createTextNode: (t) => ({ nodeValue: String(t) }),
-  head: elStub(), body: elStub(), documentElement: elStub(),
-  getElementById: () => null, querySelector: () => null, querySelectorAll: () => [],
-  elementFromPoint: () => null, activeElement: null,
-  addEventListener: noop, removeEventListener: noop,
-};
-const lsStore = new Map();
-const lsStub = { getItem: (k) => (lsStore.has(k) ? lsStore.get(k) : null), setItem: (k, v) => lsStore.set(k, String(v)), removeItem: (k) => lsStore.delete(k), clear: () => lsStore.clear() };
 
-const PID = 'p_director';
-lsStub.setItem('dsh-ic:projects', JSON.stringify([{ id: PID, name: '导演台测试', createdAt: 1, updatedAt: 1 }]));
-lsStub.setItem('dsh-ic:active', JSON.stringify(PID));
-lsStub.setItem('dsh-ic:graph:' + PID, JSON.stringify({ nodes: {}, edges: [], view: { x: 0, y: 0, scale: 1 } }));
-
-const sandbox = {
-  window: { devicePixelRatio: 1, innerWidth: 1600, innerHeight: 900, addEventListener: noop, removeEventListener: noop, AudioContext: undefined, webkitAudioContext: undefined, __DSH_IC_SMOKE__: true, localStorage: lsStub },
-  document: documentStub,
-  localStorage: lsStub,
-  navigator: { userAgent: 'test-director-stage', clipboard: { writeText: async () => {} } },
-  location: { href: 'http://127.0.0.1:1/', reload: noop },
-  fetch: async () => ({ ok: true, status: 200, text: async () => '{}', json: async () => ({}) }),
-  requestAnimationFrame: noop, cancelAnimationFrame: noop,
-  setTimeout, clearTimeout, setInterval, clearInterval, queueMicrotask,
-  console, performance, Blob, URL, AbortController, AbortSignal, structuredClone, crypto,
-  Image: class { constructor() { this.src = ''; } },
-  Audio: class { constructor() { this.src = ''; } },
-  FileReader: class { readAsDataURL() {} readAsArrayBuffer() {} readAsText() {} },
-  CustomEvent: class { constructor(t, i) { this.type = t; this.detail = i && i.detail; } },
-  Event: class { constructor(t) { this.type = t; } },
-  ResizeObserver: class { observe() {} unobserve() {} disconnect() {} },
-  getComputedStyle: () => ({ getPropertyValue: () => '' }),
-  matchMedia: () => ({ matches: false, addEventListener: noop, removeEventListener: noop }),
-  indexedDB: { open: () => { const req = {}; setTimeout(() => { try { req.onerror && req.onerror(); } catch { /* 忽略 */ } }, 0); return req; } },
-  alert: noop, confirm: () => false, prompt: () => null,
-};
-sandbox.globalThis = sandbox;
-vm.createContext(sandbox);
-let mod = null;
-sandbox.window.__ModuleLoader__ = { load(def) { mod = def; } };
-vm.runInContext(src, sandbox, { filename: 'client.js' });
-if (!mod) { console.error('✗ client.js 顶层执行失败'); process.exit(1); }
-const plugin = mod.factory((name) => { if (name === 'react') return fakeReact; throw new Error('意外 require: ' + name); });
-plugin.apply({ effect(fn) { fn(); }, locale: { register: noop, subscribe: () => () => {} }, slots: { inject(n, cb) { cb(); }, register: () => () => {} }, sidebarRightTabs: { register: () => () => {} } });
-
-const D = sandbox.window.__DSH_IC_DIRECTOR__;
-if (!D) { console.error('✗ 未暴露 window.__DSH_IC_DIRECTOR__（导演台测试缝隙缺失）'); process.exit(1); }
-
-// ============================================================
-// ① 场景数据可序列化（存进 localStorage 的前提）
-// ============================================================
+// ---------- A3 轴拖拽（拖拽反向 bug 的根治判据） ----------
 {
-  const scene = D.directorDefaultScene();
-  let json = null, threw = null;
-  try { json = JSON.stringify(scene); } catch (e) { threw = e; }
-  ok(!threw, '默认场景无法序列化成 JSON（' + (threw && threw.message) + '）——存不进 localStorage');
-  ok(typeof json === 'string' && json.length > 100, '默认场景序列化结果为空');
-  const back = JSON.parse(json);
-  ok(back.version === 1, '场景缺少 version:1（后续结构升级要靠它判断迁移）');
-  ok(Array.isArray(back.objects) && back.objects.length >= 2, '默认场景应有至少 2 个演员，实际 ' + (back.objects || []).length);
-  ok(Array.isArray(back.cameras) && back.cameras.length >= 1, '默认场景应有至少 1 个机位');
-  ok(Array.isArray(back.lights) && back.lights.length >= 2, '默认场景应有主光 + 环境光两盏灯');
-  ok(!!back.activeCameraId, '默认场景缺少 activeCameraId（渲染找不到机位就会白屏）');
-  ok(back.shot && Number(back.shot.duration) > 0, '默认场景缺少镜头时长');
-  // 每个对象都必须有 pos/scale/rotY 这些渲染必需的字段
-  for (const o of back.objects) {
-    ok(o.id && o.pos && Number.isFinite(o.pos.x) && Number.isFinite(o.pos.y) && Number.isFinite(o.pos.z), '对象 ' + o.id + ' 缺少有效 pos');
-    ok(o.scale && Number.isFinite(o.scale.y), '对象 ' + o.id + ' 缺少有效 scale');
-    ok(Number.isFinite(Number(o.rotY)), '对象 ' + o.id + ' 的 rotY 不是数字');
+  // 相机在 +Z 看向原点：世界 +X 在屏幕上是向右的。
+  // 鼠标向右拖（屏幕坐标 x 增大）→ 轴参数 s 必须增大 → 模型跟手向右。旧实现 right=up×fwd 叉乘
+  // 顺序反了，模型往左跑。
+  const cam = { fov: 42, pos: v3(0, 2, 6), target: v3(0, 1, 0) };
+  const W = 800, H = 500;
+  const rayAt = (sx, sy) => E.screenRayDir(cam, W, H, sx, sy);
+  const origin = v3(0, 1, 0);
+  const sLeft = E.axisDragDelta(origin, v3(1, 0, 0), cam.pos, rayAt(300, 250));
+  const sRight = E.axisDragDelta(origin, v3(1, 0, 0), cam.pos, rayAt(500, 250));
+  ok(sRight > sLeft, '鼠标向右拖，X 轴参数反而变小（拖拽反向 bug 复发）');
+  // Y 轴：鼠标向上拖 → 参数增大
+  const sDown = E.axisDragDelta(origin, v3(0, 1, 0), cam.pos, rayAt(400, 350));
+  const sUp = E.axisDragDelta(origin, v3(0, 1, 0), cam.pos, rayAt(400, 150));
+  ok(sUp > sDown, '鼠标向上拖，Y 轴参数反而变小');
+  // Z 轴：Z 指向相机方向；物体「朝相机走」在屏幕上是**向下**变大（透视近大），
+  // 所以向下拖 → 参数增大才是跟手。向上拖时物体往远处走、参数变小是对的。
+  const sZnear = E.axisDragDelta(origin, v3(0, 0, 1), cam.pos, rayAt(400, 320));
+  const sZfar = E.axisDragDelta(origin, v3(0, 0, 1), cam.pos, rayAt(400, 230));
+  ok(sZnear > sZfar, '鼠标向下拖（朝相机），Z 轴参数应增大（跟手）');
+  // 跟手终判：纯正面机位，鼠标向右拖 120px，X 位移必须是正的（这是「拖反方向」bug 的原始现场）
+  const camFront = { fov: 42, pos: v3(0, 1.5, 5), target: v3(0, 1, 0) };
+  const sF0 = E.axisDragDelta(origin, v3(1, 0, 0), camFront.pos, E.screenRayDir(camFront, 800, 500, 400, 250));
+  const sF1 = E.axisDragDelta(origin, v3(1, 0, 0), camFront.pos, E.screenRayDir(camFront, 800, 500, 520, 250));
+  ok(sF1 - sF0 > 0.3, '正面机位鼠标向右拖，X 位移应为正（拖拽反向 bug 现场复现判据）');
+}
+
+// ---------- A4 几何：资产库覆盖与低面数 ----------
+{
+  const kinds = ['box', 'sphere', 'cylinder', 'cone', 'pyramid', 'torus', 'capsule', 'disk', 'half_arc', 'half_cylinder', 'plane', 'body'];
+  for (const k of kinds) {
+    const o = { id: 't_' + k, kind: k, name: k, pos: v3(0, 0, 0), scale: { x: 1, y: 1, z: 1 }, visible: true };
+    const f = E.directorObjectFaces(o);
+    ok(f.length > 0, '几何体 ' + k + ' 没有面片');
+    ok(f.every((x) => x.v && x.v.length >= 3 && x.v.every((p) => Number.isFinite(p.x + p.y + p.z))), '几何体 ' + k + ' 有非法顶点');
   }
-}
-
-// ============================================================
-// ② 相机数学
-// ============================================================
-{
-  const cam = D.directorLookAt({ x: 0, y: 0, z: 5 }, { x: 0, y: 0, z: 0 }, { x: 0, y: 1, z: 0 });
-  // 正前方的点 → 相机空间 z 为负
-  const front = cam.toCam({ x: 0, y: 0, z: 0 });
-  ok(front.z < 0, '注视点在相机空间应为负 z（相机看 -z），实际 ' + front.z);
-  ok(Math.abs(front.x) < 1e-6 && Math.abs(front.y) < 1e-6, '注视点应投到画面正中，实际 x=' + front.x + ' y=' + front.y);
-  // 投影：中心点 → (0,0)
-  const p0 = D.directorProject(front, 45, 16 / 9);
-  ok(p0 && Math.abs(p0.x) < 1e-6 && Math.abs(p0.y) < 1e-6, '注视点应投到 (0,0)');
-  // 相机身后的点 → null（不能画到画面上）
-  ok(D.directorProject(cam.toCam({ x: 0, y: 0, z: 20 }), 45, 16 / 9) === null, '相机身后的点应返回 null（否则会画出鬼影）');
-  // 偏移点 → 有 x 偏移；FOV 变宽 → 归一化坐标变小（同样物理位置更靠画面中间）
-  const off = cam.toCam({ x: 1, y: 0, z: 0 });
-  const narrow = D.directorProject(off, 30, 16 / 9);
-  const wide = D.directorProject(off, 90, 16 / 9);
-  ok(narrow && wide, '偏移点投影失败');
-  ok(Math.abs(wide.x) < Math.abs(narrow.x), 'FOV 变大时同一点应更靠画面中心（narrow=' + narrow.x + ' wide=' + wide.x + '）');
-  ok(narrow.y === 0 && wide.y === 0, '水平偏移点的 y 应为 0');
-}
-
-// ============================================================
-// ③ 几何构建
-// ============================================================
-{
-  const scene = D.directorDefaultScene();
-  const actor = scene.objects.find((o) => o.kind === 'actor');
-  const af = D.directorActorFaces(actor);
-  ok(af.length >= 20, '人形占位体面片太少（' + af.length + '），轮廓会看不出人形');
-  ok(af.every((f) => Array.isArray(f.v) && f.v.length >= 3), '人形面片存在非法顶点数组');
-  ok(af.every((f) => f.v.every((p) => Number.isFinite(p.x) && Number.isFinite(p.y) && Number.isFinite(p.z))), '人形面片存在 NaN 顶点（会导致整帧消失）');
-  for (const kind of ['box', 'sphere', 'cylinder', 'plane']) {
-    const ob = { id: 't_' + kind, kind, name: kind, color: '#888888', pos: { x: 0, y: 0, z: 0 }, rotY: 0, scale: { x: 1, y: 1, z: 1 }, visible: true };
-    const fs = D.directorObjectFaces(ob);
-    ok(fs.length > 0, 'primitive「' + kind + '」没有产生任何面片（渲染会缺件）');
-    ok(fs.every((f) => f.v.every((p) => Number.isFinite(p.x) && Number.isFinite(p.y) && Number.isFinite(p.z))), 'primitive「' + kind + '」存在 NaN 顶点');
+  // 12 角色体型全部出模、面数一致、白膜
+  ok(E.ACTOR_PRESETS.length === 12, '角色预设应为 12 个体型，实际 ' + E.ACTOR_PRESETS.length);
+  let faceCount = -1;
+  for (const p of E.ACTOR_PRESETS) {
+    const f = E.directorObjectFaces({ id: 'a_' + p.id, kind: 'actor', preset: p.id, name: p.zh, pos: v3(0, 0, 0), h: 1, visible: true });
+    if (faceCount < 0) faceCount = f.length;
+    ok(f.length > 0, '体型 ' + p.id + ' 没有面片');
+    // 骨骼人偶：所有体型共用同一骨架 + 胶囊肢体，面数必须完全一致
+    ok(f.length === faceCount, '体型 ' + p.id + ' 面数与基准不一致（' + f.length + '）——体型必须由同一构建器参数化');
+    // 脚底必须落地（y 最小值 ≈ 0）
+    const minY = Math.min(...f.flatMap((x) => x.v.map((v2) => v2.y)));
+    ok(Math.abs(minY) < 0.02, '体型 ' + p.id + ' 没有落地（minY=' + minY.toFixed(3) + '）');
+    // 人偶高度在合理范围
+    const maxY = Math.max(...f.flatMap((x) => x.v.map((v2) => v2.y)));
+    ok(maxY > p.h * 0.7 && maxY < p.h * 1.3, '体型 ' + p.id + ' 高度异常（' + maxY.toFixed(2) + ' vs 预设 ' + p.h + '）');
   }
+  // 人偶面数上限（低面数要求；含肚子盒的体型也不得超）
+  const maxFaces = Math.max(...E.ACTOR_PRESETS.map((p) => E.directorObjectFaces({ id: 'm', kind: 'actor', preset: p.id, name: 'm', pos: v3(0, 0, 0), h: 1, visible: true }).length));
+  ok(maxFaces <= 700, '人偶面数过多（' + maxFaces + '）——要求圆滑精简');
+  // 建筑 12 模板
+  ok(E.BUILDING_PRESETS.length >= 12, '建筑模板应 ≥12 个，实际 ' + E.BUILDING_PRESETS.length);
+  for (const b of E.BUILDING_PRESETS) {
+    const f = b.build(v3(0, 0, 0), 1);
+    ok(f.length > 0, '建筑模板 ' + b.id + ' 没有面片');
+    const maxY = Math.max(...f.flatMap((x) => x.v.map((v2) => v2.y)));
+    ok(maxY > 1, '建筑模板 ' + b.id + ' 高度可疑（' + maxY.toFixed(2) + '）');
+    const minY = Math.min(...f.flatMap((x) => x.v.map((v2) => v2.y)));
+    ok(minY >= -0.02, '建筑模板 ' + b.id + ' 沉到地下（minY=' + minY.toFixed(3) + '）');
+  }
+  // 白膜默认色
+  ok(E.CLAY === '#e2e4e6', '白膜默认色不是 CLAY #e2e4e6');
+  const d = E.directorDefaultScene('x');
+  ok(d.objects.every((o) => !o.color || o.color === E.CLAY), '默认场景带颜色（用户要求全部白膜）');
   // 隐藏对象不产生面片
-  const hidden = { id: 't_h', kind: 'box', name: 'h', color: '#888888', pos: { x: 0, y: 0, z: 0 }, rotY: 0, scale: { x: 1, y: 1, z: 1 }, visible: false };
-  ok(D.directorObjectFaces(hidden).length === 0, '隐藏对象不应产生面片');
-  // 旋转 90° 的方块：包围盒交换 X/Z 宽深
-  const flat = { id: 'r', kind: 'box', name: 'r', color: '#888888', pos: { x: 0, y: 0, z: 0 }, rotY: Math.PI / 2, scale: { x: 2, y: 1, z: 0.5 }, visible: true };
-  const rf = D.directorObjectFaces(flat);
-  ok(rf.length === 6, '方块应有 6 个面，实际 ' + rf.length);
+  ok(E.directorObjectFaces({ id: 'h', kind: 'box', pos: v3(0, 0, 0), visible: false }).length === 0, '隐藏对象仍产生面片');
 }
 
-// ============================================================
-// ④ 渲染：真的画出东西
-// ============================================================
+// ---------- A5 OBJ 上传 ----------
 {
-  const scene = D.directorDefaultScene();
-  const ctx = mkCtx2d();
-  const stats = D.directorRenderScene(ctx, 900, 600, scene, { selectedId: null });
-  ok(stats.faces > 0, '渲染没有收集到任何面片（场景是空的？）');
-  ok(stats.drawn > 0, '没有任何面片被绘制（画家算法把全部面片都判为背面/出界了）');
-  ok(ctx.calls.fill > 0, '没有发生任何 fill（画布会是空的）');
-  ok(ctx.calls.fillRect > 0, '没有画背景（会露出上一帧残影）');
-  ok(ctx.calls.lineTo > 0, '没有画任何线段（地面网格/机位指示缺失）');
-  ok(ctx.calls.stroke > 0, '没有 stroke（网格或选中高亮没画）');
-  // 关掉网格后 lineTo 应显著减少（网格是最大的线段来源）
-  const ctx2 = mkCtx2d();
-  D.directorRenderScene(ctx2, 900, 600, scene, { grid: false });
-  ok(ctx2.calls.lineTo < ctx.calls.lineTo, 'grid:false 时线段数应减少（网格开关无效）');
-  // 空场景不抛错
-  const empty = { version: 1, objects: [], cameras: scene.cameras, lights: scene.lights, activeCameraId: scene.activeCameraId, shot: scene.shot };
-  let threw = null;
-  const ctx3 = mkCtx2d();
-  try { D.directorRenderScene(ctx3, 900, 600, empty, {}); } catch (e) { threw = e; }
-  ok(!threw, '空场景渲染抛错（' + (threw && threw.message) + '）——用户删光对象后画布会崩');
-  // 缺机位不抛错（损坏数据兜底）
-  let threw2 = null;
-  try { D.directorRenderScene(mkCtx2d(), 900, 600, { objects: [], cameras: [], lights: [] }, {}); } catch (e) { threw2 = e; }
-  ok(!threw2, '没有机位时渲染抛错（应静默返回）');
-}
-
-// ============================================================
-// ⑤ 拾取
-// ============================================================
-{
-  // 用一个「正对镜头、目标就在画面中心」的场景，让中心点必然命中
-  const scene = {
-    version: 1,
-    objects: [
-      { id: 'center_box', kind: 'box', name: '居中方块', color: '#ff0000', pos: { x: 0, y: 0, z: 0 }, rotY: 0, scale: { x: 1.2, y: 1.2, z: 1.2 }, visible: true },
-      { id: 'far_right', kind: 'box', name: '右侧方块', color: '#00ff00', pos: { x: 6, y: 0, z: 0 }, rotY: 0, scale: { x: 1, y: 1, z: 1 }, visible: true },
-    ],
-    cameras: [{ id: 'c', name: 'cam', pos: { x: 0, y: 0.6, z: 5 }, target: { x: 0, y: 0.6, z: 0 }, fov: 45 }],
-    lights: [{ id: 'l', dir: { x: 0.4, y: -0.8, z: 0.3 }, intensity: 1 }],
-    activeCameraId: 'c',
-    shot: { duration: 5 },
-  };
-  const hitCenter = D.directorPickObject(scene, 900, 600, 450, 300);
-  ok(hitCenter && hitCenter.id === 'center_box', '点画面中心应命中居中方块，实际 ' + (hitCenter && hitCenter.id));
-  const hitBlank = D.directorPickObject(scene, 900, 600, 20, 20);
-  ok(hitBlank === null, '点左上角空白应命中 null，实际 ' + (hitBlank && hitBlank.id));
-  // 隐藏对象不可拾取
-  const hiddenScene = JSON.parse(JSON.stringify(scene));
-  hiddenScene.objects[0].visible = false;
-  ok(D.directorPickObject(hiddenScene, 900, 600, 450, 300) === null, '隐藏对象不应被拾取');
-}
-
-// ============================================================
-// ⑥ 提示词编译：必须把"人偶→真人"写进去
-// ============================================================
-{
-  const scene = D.directorDefaultScene();
-  const zh = D.compileDirectorPrompt(scene, { zh: true });
-  ok(typeof zh === 'string' && zh.length > 80, '中文提示词过短（编译失败？）');
-  // 最关键的一条：不写这句，视频模型会把蓝/黄人偶原样画成彩色人偶
-  ok(/必须画成真实人物|不要保留人偶的颜色/.test(zh), '中文提示词缺少「人偶必须画成真人」的硬要求——视频会生成彩色人偶');
-  ok(/机位[：:]/.test(zh), '中文提示词缺少机位描述');
-  ok(/人物站位与身份映射/.test(zh), '中文提示词缺少人物站位/身份映射');
-  ok(/镜头时长/.test(zh), '中文提示词缺少镜头时长');
-  // 景别/运镜用的是中文字面量，不能漏成 id
-  ok(!/shotSize|cameraMove|extreme_wide|push_in/.test(zh), '中文提示词里漏出了字段名/枚举 id（' + zh.slice(0, 200) + '）');
-  const en = D.compileDirectorPrompt(scene, { zh: false });
-  ok(/render real people|never keep the mannequin/i.test(en), '英文提示词缺少「mannequin → real people」硬要求');
-  // 空布景也要能编译（不能抛错）
-  let threw = null;
-  const emptyScene = { shot: { duration: 3 }, cameras: [{ id: 'c', pos: { x: 0, y: 1.5, z: 3 }, target: { x: 0, y: 1, z: 0 }, fov: 40 }], objects: [], activeCameraId: 'c', lights: [] };
-  let text = '';
-  try { text = D.compileDirectorPrompt(emptyScene, { zh: true }); } catch (e) { threw = e; }
-  ok(!threw, '空布景编译提示词抛错（' + (threw && threw.message) + '）');
-  ok(text.length > 20, '空布景编译出的提示词为空');
-  // 机位高度推断：高机位应写"俯拍"，低机位写"仰拍"
-  const high = JSON.parse(JSON.stringify(emptyScene));
-  high.cameras[0].pos = { x: 0, y: 6, z: 3 };
-  ok(/俯拍/.test(D.compileDirectorPrompt(high, { zh: true })), '高机位未识别为俯拍');
-  const low = JSON.parse(JSON.stringify(emptyScene));
-  low.cameras[0].pos = { x: 0, y: 0.3, z: 3 };
-  low.cameras[0].target = { x: 0, y: 1.6, z: 0 };
-  ok(/仰拍/.test(D.compileDirectorPrompt(low, { zh: true })), '低机位未识别为仰拍');
-}
-
-// ============================================================
-// ⑦ 持久化：save→load 往返 + 损坏数据兜底
-// ============================================================
-{
-  const scene = D.directorDefaultScene();
-  scene.title = '测试布景';
-  scene.objects.push({ id: 'obj_extra', kind: 'sphere', name: '球', color: '#123456', pos: { x: 2, y: 0, z: -1 }, rotY: 0, scale: { x: 1, y: 1, z: 1 }, visible: true });
-  ok(D.saveStageDoc(PID, scene) === true, '保存导演台场景失败');
-  const back = D.loadStageDoc(PID);
-  ok(back.title === '测试布景', '往返后标题丢失（' + back.title + '）');
-  ok(back.objects.some((o) => o.id === 'obj_extra'), '往返后新增对象丢失');
-  ok(back.objects.find((o) => o.id === 'obj_extra').color === '#123456', '往返后对象颜色丢失');
-  // 损坏数据：不能抛错，必须回落到默认场景
-  for (const bad of ['{not json', 'null', '[]', JSON.stringify({ version: 99, objects: [] }), JSON.stringify({ version: 1, objects: 'nope' })]) {
-    lsStub.setItem(D.directorDocKey(PID), bad);
-    let threw = null, got = null;
-    try { got = D.loadStageDoc(PID); } catch (e) { threw = e; }
-    ok(!threw, '损坏数据「' + String(bad).slice(0, 24) + '」让 loadStageDoc 抛错（导演台会打不开）');
-    ok(got && Array.isArray(got.objects) && got.cameras.length > 0, '损坏数据「' + String(bad).slice(0, 24) + '」未回落到可用默认场景');
+  const obj = [
+    '# comment',
+    'v 0 0 0', 'v 1 0 0', 'v 1 1 0', 'v 0 1 0', 'v 0.5 0.5 1',
+    'f 1 2 3', 'f 1 3 4', 'f 1 3 5',
+  ].join('\n');
+  const r = E.parseObjText(obj, 1.7);
+  ok(r.faces.length === 3, 'OBJ 三角形数不对（' + r.faces.length + ' ≠ 3）');
+  ok(r.triCount === 3, 'triCount 统计错误');
+  // 底部落地
+  const minY = Math.min(...r.faces.flatMap((f) => f.v.map((p) => p.y)));
+  ok(Math.abs(minY) < 1e-6, 'OBJ 归一化后没有落地（minY=' + minY + '）');
+  // 高度归一
+  const maxY = Math.max(...r.faces.flatMap((f) => f.v.map((p) => p.y)));
+  ok(Math.abs(maxY - 1.7) < 1e-6, 'OBJ 高度没有归一到 1.7（maxY=' + maxY + '）');
+  // v/vt/vn 与负索引
+  const obj2 = ['v 0 0 0', 'v 1 0 0', 'v 0 1 0', 'vt 0 0', 'vn 0 0 1', 'f 1/1/1 2/1/1 3/1/1', 'f -3//-1 -2//-1 -1//-1'].join('\n');
+  const r2 = E.parseObjText(obj2, 1.0);
+  ok(r2.faces.length === 2, '带 vt/vn/负索引的 OBJ 解析失败（' + r2.faces.length + '）');
+  // 错误路径
+  for (const bad of ['', 'v 1 2 3', 'f 1 2 3', 'x'.repeat(901_000)]) {
+    let threw = false;
+    try { E.parseObjText(bad, 1.7); } catch { threw = true; }
+    ok(threw, 'OBJ 输入（' + bad.slice(0, 12) + '…）应抛错而不是静默返回');
   }
-  // 未知 projectId 也要能开
-  const fresh = D.loadStageDoc('never-existed');
-  ok(fresh && Array.isArray(fresh.objects) && fresh.cameras.length > 0, '新项目的导演台读不到默认场景');
+  // 超面数（>60000 三角形应抛错提示减面）
+  const many = (() => {
+    const vs = []; const fs = [];
+    for (let i = 0; i < 62_000; i++) { vs.push('v ' + i + ' 0 0'); fs.push('f ' + (i + 1) + ' ' + ((i % 62000) + 1) + ' 1'); }
+    return vs.join('\n') + '\n' + fs.join('\n');
+  })();
+  let threw2 = false;
+  try { E.parseObjText(many, 1.7); } catch { threw2 = true; }
+  ok(threw2, '面数超限的 OBJ 应抛错提示减面');
+}
+
+// ---------- A6 机位预设 ----------
+{
+  ok(E.CAMERA_PRESETS.length >= 14, '机位预设应 ≥14 个（即梦口径），实际 ' + E.CAMERA_PRESETS.length);
+  for (const pid of E.CAMERA_PRESETS.map((x) => x.id)) {
+    if (pid === 'current') continue;
+    const s = E.directorDefaultScene('x');
+    const before = JSON.stringify(s.cameras[0].pos);
+    const changed = E.applyCameraPreset(s, pid, 'obj_actor_1');
+    ok(changed === true, '机位预设 ' + pid + ' 未生效');
+    ok(JSON.stringify(s.cameras[0].pos) !== before, '机位预设 ' + pid + ' 没有移动机位');
+    ok(Number.isFinite(s.cameras[0].fov) && s.cameras[0].fov > 10 && s.cameras[0].fov < 130, '机位预设 ' + pid + ' FOV 异常');
+    const cam = s.cameras[0];
+    ok(Number.isFinite(cam.pos.x + cam.pos.y + cam.pos.z) && Number.isFinite(cam.target.x + cam.target.y + cam.target.z), '机位预设 ' + pid + ' 位置非法');
+    // 俯拍类机位要真的在头顶上方
+    if (pid === 'bird' || pid === 'top_full') ok(cam.pos.y > 5, pid + ' 应是高空机位（y=' + cam.pos.y.toFixed(1) + '）');
+    if (pid === 'low_angle' || pid === 'low_wide') ok(cam.pos.y < 0.8, pid + ' 应是低机位（y=' + cam.pos.y.toFixed(1) + '）');
+  }
+  // 荷兰角要有 roll
+  const s2 = E.directorDefaultScene('x');
+  E.applyCameraPreset(s2, 'dutch', null);
+  ok((s2.cameras[0].roll || 0) > 5, '荷兰角预设没有设置 roll');
+}
+
+// ---------- A7 渲染（Canvas2D 真画 + 环境生效） ----------
+{
+  function mkCtx2d() {
+    const calls = { fillRect: 0, fill: 0, stroke: 0, beginPath: 0, moveTo: 0, lineTo: 0 };
+    const seen = { bgFills: new Set() };
+    const ctx2 = {
+      calls, seen, fillStyle: '', strokeStyle: '', lineWidth: 1,
+      fillRect: () => { calls.fillRect++; seen.bgFills.add(ctx2.fillStyle); }, beginPath: () => { calls.beginPath++; },
+      moveTo: () => { calls.moveTo++; }, lineTo: () => { calls.lineTo++; },
+      closePath: () => {}, fill: () => { calls.fill++; }, stroke: () => { calls.stroke++; },
+      setLineDash: () => {}, setTransform: () => {}, createLinearGradient: () => ({ addColorStop: () => {} }),
+    };
+    return ctx2;
+  }
+  const scene = E.directorDefaultScene('x');
+  const ctx = mkCtx2d();
+  const st = E.directorRenderScene(ctx, 640, 400, scene, {});
+  ok(st.faces > 0 && st.drawn > 0, 'Canvas2D 没画任何面片');
+  ok(ctx.calls.fillRect >= 1, 'Canvas2D 没有铺背景');
+  // 环境背景色生效（捕获 fillRect 时刻的 fillStyle，而不是渲染结束后的残留值）
+  const scene2 = JSON.parse(JSON.stringify(scene));
+  scene2.env.bg = '#102030';
+  const ctx2 = mkCtx2d();
+  E.directorRenderScene(ctx2, 100, 80, scene2, {});
+  ok(ctx2.seen.bgFills.has('#102030'), '环境背景色没有应用到 Canvas2D 渲染（' + [...ctx2.seen.bgFills].join(',') + '）');
+  // 关网格：少一批线段
+  const scene3 = JSON.parse(JSON.stringify(scene));
+  scene3.env.grid = false;
+  const ctx3 = mkCtx2d();
+  E.directorRenderScene(ctx3, 640, 400, scene3, {});
+  ok(ctx3.calls.lineTo < ctx.calls.lineTo, '关闭网格后线段没有减少');
+  // 隐藏对象不画
+  const scene4 = JSON.parse(JSON.stringify(scene));
+  scene4.objects.forEach((o) => { o.visible = false; });
+  const ctx4 = mkCtx2d();
+  const st4 = E.directorRenderScene(ctx4, 640, 400, scene4, {});
+  ok(st4.drawn === 0, '全部隐藏后仍画了面片');
+}
+
+// ---------- A8 WebGL 管线判据 ----------
+{
+  for (const n of ['directorMat4Perspective', 'directorMat4View', 'directorMat4Multiply', 'directorMat4Model', 'directorMat4Identity', 'directorTriangulateFaces', 'createDirectorGlRenderer', 'axisDragDelta', 'screenRayDir']) {
+    ok(typeof E[n] === 'function', '引擎缺少 ' + n);
+  }
+  const quad = [{ v: [{ x: 0, y: 0, z: 0 }, { x: 1, y: 0, z: 0 }, { x: 1, y: 1, z: 0 }, { x: 0, y: 1, z: 0 }] }];
+  ok(E.directorTriangulateFaces(quad).length === 2, '四边形应三角化成 2 个三角形');
+  let got = 'unset', threw = null;
+  try { got = E.createDirectorGlRenderer({ getContext: () => null }); } catch (e) { threw = e; }
+  ok(!threw && got === null, '无 WebGL 时应返回 null 而不是抛错');
+  // gizmo 命中（gizmo 原点 = 对象 pos，即 (0,0,0)；**场景相机必须与探针一致**——
+  // pickGizmo 内部用的是 scene.cameras，不是外面传的相机）
+  const cam = { fov: 42, pos: v3(0, 2, 6), target: v3(0, 1, 0) };
+  const scene = E.directorDefaultScene('x');
+  scene.objects[0].pos = v3(0, 0, 0);
+  scene.cameras[0] = { id: 'cam_main', name: 'cam', pos: { x: 0, y: 2, z: 6 }, target: { x: 0, y: 1, z: 0 }, fov: 42, roll: 0 };
+  const view = E.directorViewOf(cam);
+  const W = 800, H = 500;
+  const projPt = (p) => {
+    const nd = E.directorProject(view.toCam(p), cam.fov, W / H);
+    return nd ? { x: W / 2 + nd.x * (Math.min(W, H) / 2), y: H / 2 - nd.y * (Math.min(W, H) / 2) } : null;
+  };
+  {
+    const a = projPt(v3(0, 0, 0)), b2 = projPt(v3(0.9, 0, 0));
+    ok(a && b2, 'X 轴端点投影失败');
+    if (a && b2) {
+      const sx = b2.x, sy = b2.y;
+      const g = E.directorPickGizmo(scene, 'obj_actor_1', W, H, sx, sy);
+      ok(g && g.axis === 'x', 'gizmo 没有命中 X 轴（' + JSON.stringify(g) + '）');
+      // 轴中点也应命中
+      const gMid = E.directorPickGizmo(scene, 'obj_actor_1', W, H, (a.x + b2.x) / 2, (a.y + b2.y) / 2);
+      ok(gMid && gMid.axis === 'x', 'gizmo 轴中点没有命中 X（' + JSON.stringify(gMid) + '）');
+    }
+  }
+  // 远离轴的点应落空（或命中旋转环），但不能报错误的轴
+  const gFar = E.directorPickGizmo(scene, 'obj_actor_1', W, H, 20, 20);
+  ok(!gFar || gFar.axis === 'rot', '画面角落不应命中坐标轴（' + JSON.stringify(gFar) + '）');
+  // 提示词：白膜口径
+  const prompt = E.compileDirectorPrompt(scene, { zh: true });
+  ok(/白膜|素模|白色/.test(prompt) && /真实人物|真人/.test(prompt), '提示词没有写明白膜→真人的转换要求');
+  ok(!/彩色人偶/.test(prompt), '提示词还在说"彩色人偶"（已是白膜口径）');
+  const promptEn = E.compileDirectorPrompt(scene, { zh: false });
+  ok(/WHITE CLAY|clay/i.test(promptEn) && /real people/i.test(promptEn), '英文提示词没有 clay→real people 要求');
 }
 
 // ============================================================
-// ⑧ 源码级：入口与挂载
+// B 段：client.js 源码级（懒加载、入口、约束）
 // ============================================================
 {
-  ok(/data-action': 'open-director'/.test(src) || /'open-director'/.test(src), '左侧图标列缺少导演台入口（data-action=open-director）');
+  ok(/DIRECTOR_ENGINE_REL = 'assets\/director\/engine\.js'/.test(src), 'client.js 没有声明引擎路径（代码分割断裂）');
+  ok(/function loadDirectorEngine\(\)/.test(src) && /import\(/.test(src), 'client.js 没有动态 import 引擎（懒加载缺失）');
+  // **import 在 dsh-app:// 协议下永远解析不到 HTTP**（用户两次实测截图：相对路径和
+  // 根相对路径都被解析成 dsh-app://app/...）。所以加载器必须是两级方案：
+  // ① 带 location.origin 的 http 绝对 URL import；② 失败则 fetch 源码 + Blob + blob: URL import
+  // （blob: 是绝对 URL，不经过任何协议解析；fetch 走 document base 必然是 http）。
+  ok(/import\(origin \+ rel\)/.test(src), '加载器第一级没有用 http 绝对 URL import');
+  ok(/createObjectURL\(new Blob\(\[src\], \{ type: 'text\/javascript' \}\)\)/.test(src),
+    '加载器没有 fetch+Blob 兜底（dsh-app:// 拦截 import 时引擎永远加载失败——用户实测崩过两次）');
+  ok(!/import\('\.\/' \+ DIRECTOR_ENGINE_REL\)/.test(src) && !/import\('\/' \+ NS \+ '\//.test(src.replace(/origin \+ rel/g, '')),
+    '仍残留相对/根相对 import（dsh-app:// 协议下必然失败）');
+  // **hooks 顺序**：DirectorStage 里所有 use*() 必须在第一个提前 return 之前——
+  // 放后面 = 两次渲染 hooks 数量不同 = React #310 整个面板白屏（用户实测）。
+  {
+    const dsStart = src.indexOf('function DirectorStage()');
+    const dsEnd = src.indexOf('左侧图标列（单列）');
+    ok(dsStart > 0 && dsEnd > dsStart, 'DirectorStage 函数边界找不到');
+    if (dsEnd > dsStart) {
+      const body2 = src.slice(dsStart, dsEnd).replace(/\r/g, '');
+      const ls = body2.split('\n');
+      let ret2 = -1, bad2 = 0;
+      ls.forEach((l, i) => { if (ret2 < 0 && /if \(!open\) return null/.test(l)) ret2 = i + 1; });
+      ls.forEach((l, i) => { if (ret2 > 0 && i + 1 > ret2 && /use(State|Effect|Ref)\(/.test(l)) bad2++; });
+      ok(ret2 > 0, 'DirectorStage 找不到提前 return（加载态分支丢了？）');
+      ok(bad2 === 0, 'DirectorStage 有 ' + bad2 + ' 个 hooks 声明在提前 return 之后（React #310 白屏）');
+    }
+  }
   ok(/h\(DirectorStage\)/.test(src), 'DirectorStage 未挂进画布主区域');
-  ok(/function DirectorStage\(/.test(src), 'DirectorStage 组件不存在');
-  ok(/function directorRenderScene\(/.test(src), 'directorRenderScene 不存在（渲染器被删）');
-  ok(/function directorPickObject\(/.test(src), 'directorPickObject 不存在（拾取被删）');
-  ok(/function compileDirectorPrompt\(/.test(src), 'compileDirectorPrompt 不存在（提示词编译被删）');
-  // 入口必须在图标列内部（不是别处凑的）
   const railIdx = src.indexOf('function IconRail()');
   const gateIdx = src.indexOf("'open-director'");
-  ok(railIdx > 0 && gateIdx > railIdx, '导演台入口不在 IconRail 里（挂错位置）');
-  // 反向断言：不得 require three.js（单文件插件没有 node_modules）
-  ok(!/require\('three'\)|from ['"]three['"]/.test(src), 'client.js 引入了 three.js——本插件是单文件无构建步骤，装不了 npm 依赖');
-  // 反向断言：不得出现 BeefTV 的标识符（我们只借鉴设计，不复制代码）
-  for (const banned of ['DirectorScene', 'DirectorCamera', 'directorPoseBoneDeltas', 'applyDirectorRigPose', 'quaternius']) {
-    ok(!src.includes(banned), 'client.js 里出现了参考项目的标识符「' + banned + '」——借鉴设计可以，复制代码不行（许可不允许）');
+  ok(railIdx > 0 && gateIdx > railIdx, '导演台入口不在 IconRail 里');
+  // gizmo 交互契约：点对象只选中，轴拖拽才移动
+  ok(/directorPickGizmo/.test(src), '面板没有接 gizmo 拾取');
+  ok(/mode: isRot \? 'rotate' :/.test(src) && /mode: 'select'/.test(src), '面板没有区分「选中」与「轴/环拖拽」三种模式');
+  ok(/rotx|roty|rotz/.test(src), '面板没有接三轴旋转（翻滚需要 rotx/rotz）');
+  ok(/ev\.button === 2/.test(src), '右键没有绑定环绕（左键应为平移）');
+  ok(/axisDragDelta/.test(src), '轴拖拽没有用射线∩轴求参数（会漂移/反向）');
+  // 引擎拆分后 client.js 里不得再内联几何构建（防止两份实现漂移）
+  ok(!/function directorActorFaces\(/.test(src), 'client.js 仍内联 directorActorFaces（应只在 engine.js）');
+  ok(!/function directorBoxFaces\(/.test(src), 'client.js 仍内联 directorBoxFaces（应只在 engine.js）');
+  ok(!/const DIRECTOR_GL_VS/.test(src), 'client.js 仍内联 GL 着色器（应只在 engine.js）');
+  // 资产四页签 + 上传
+  for (const k of ['dirTabActors', 'dirTabGeom', 'dirTabBuild', 'dirTabCams', 'dirUpload', 'dirTimeline', 'dirStaticPreviz', 'dirDynamicPreviz', 'dirObjects', 'dirProps', 'dirCameras']) {
+    ok(src.includes("T('" + k + "')"), '面板缺少文案键 ' + k);
   }
-  // 导演台产物必须走既有资产链路（不新建第二套存储）
-  ok(/saveAssetRecord\(S\.activeId, 'image', blob, \{[\s\S]{0,400}source: 'director'/.test(src), '导演台截图没有走 saveAssetRecord 既有资产链路');
+  ok(src.includes('onUpload'), '上传入口缺失');
+  ok(/if \(!\/\\\.obj\$\/i\.test\(f\.name\)\)/.test(src), '上传未按扩展名分流（OBJ 走解析，其它类型提示）');
+  // MIME：Host 必须把 js 当 text/javascript（否则动态 import 被拒）
+  const idxSrc = readFileSync(path.join(ROOT, 'index.js'), 'utf8');
+  ok(/js: 'text\/javascript/.test(idxSrc), 'Host MIME_BY_EXT 缺少 js —— 动态 import 会被浏览器拒载');
+  // 打包：engine.js 必须进包
+  const pkg = JSON.parse(readFileSync(path.join(ROOT, 'package.json'), 'utf8'));
+  ok((pkg.files || []).includes('assets/director/*.js'), 'package.json files 没有包含 assets/director/*.js');
+  const cpk = readFileSync(path.join(ROOT, 'scripts/check-pack.mjs'), 'utf8');
+  ok(/assets\\\/director\\\/\[a-zA-Z0-9\._-\]\+\\\.js/.test(cpk), 'check-pack ALLOWED 没有放行 assets/director/*.js');
+  // 反向断言：不引 three.js、不带参考项目标识符
+  ok(!/require\(['"]three['"]\)|from ['"]three['"]/.test(src), 'client.js 引入了 three.js');
+  const engineSrc = readFileSync(path.join(ROOT, 'assets/director/engine.js'), 'utf8');
+  ok(!/require\(|from ['"]/.test(engineSrc.replace(/^[\s\S]*?export const v3/)), 'engine.js 有外部依赖（必须是自包含模块）');
+  // **拆分后 client.js 里不得残留引擎函数的裸调用**——拆分漏改一处就是一个
+  // "v3 is not defined" 运行时崩（用户实测：点两下面板就白屏）。
+  {
+    const dsStart = src.indexOf('function DirectorStage()');
+    const dsEnd = src.indexOf('左侧图标列（单列）');
+    const ds = src.slice(dsStart, dsEnd).replace(/\r/g, '');
+    const others = src.slice(0, dsStart) + src.slice(dsEnd);
+    const engineNames = ['v3', 'vSub', 'vAdd', 'vMul', 'vDot', 'vCross', 'vLen', 'vNorm', 'vLerp',
+      'directorLookAt', 'directorProject', 'directorObjectFaces', 'directorBoxFaces', 'directorSphereFaces',
+      'directorCylinderFaces', 'directorActorFaces', 'directorFaceNormal', 'directorShadeColor', 'directorDocKey'];
+    for (const n of engineNames) {
+      const re = new RegExp('(?<![A-Za-z0-9_.])' + n + '\\s*\\(');
+      ok(!re.test(ds), 'DirectorStage 里残留引擎裸调用 ' + n + '( —— 必须经引擎对象（E.' + n + '）访问');
+      ok(!re.test(others), 'client.js 非面板区残留引擎裸调用 ' + n + '(');
+    }
+    ok(!/LS_DIRECTOR|(?<![A-Za-z0-9_])DIRECTOR_VERSION/.test(ds), 'DirectorStage 里残留引擎常量引用');
+  }
+  for (const banned of ['PerspectiveCamera', 'WebGLRenderer', 'MeshStandardMaterial', 'OrbitControls', 'TransformControls', 'DirectorScene', 'DirectorCamera', 'quaternius']) {
+    ok(!src.includes(banned), '源码出现违禁标识符「' + banned + '」');
+  }
+  // 导出与面板同渲染器
+  ok(/exportShot[\s\S]{0,900}E\.createDirectorGlRenderer\(cv\)/.test(src) || /const glOut = E\.createDirectorGlRenderer\(cv\)/.test(src), '导出没有用 WebGL 渲染器（所见非所得）');
 }
 
 if (errs.length) {
@@ -332,5 +396,5 @@ if (errs.length) {
   for (const e of errs) console.error('  - ' + e);
   process.exit(1);
 }
-console.log('✓ 3D 导演台测试通过（场景可序列化 / 相机投影 / 几何构建 / 真的画出像素 / 拾取 / 人偶→真人提示词 / 持久化兜底 / 入口挂载与许可反向断言）');
+console.log('✓ 3D 导演台测试通过（引擎模块 A1-A8：场景/相机/轴拖拽/资产库/OBJ/机位预设/渲染/GL 判据 + B：懒加载/gizmo 契约/打包/许可反向断言）');
 process.exit(0);

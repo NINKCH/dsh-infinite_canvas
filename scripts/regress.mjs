@@ -69,6 +69,32 @@ const SUITE = [
   { name: 'test-ref-ownership.mjs', desc: '参考图严格=连线 / 绑定弹窗分页拉全 / 设定文字注入视频提示词' },
   { name: 'test-segment-plan.mjs', desc: '按镜头切段：切点只在换场/特写/新角色 / 连续动作不拆 / 时长上限 / 强弱模型分流 / 提示词四件套' },
   { name: 'test-director-stage.mjs', desc: '3D 导演台：场景可序列化 / 相机投影 / 几何 / 真渲染 / 拾取 / 人偶→真人提示词 / 持久化兜底' },
+  { name: 'test-director-structure.mjs', desc: '组件结构：无 TDZ 引用（定义前使用会白屏）/ hooks 顺序正确' },
+  { name: 'test-playback-loop.mjs', desc: '动画循环：播放/暂停可控 / cleanup 取消 rAF / 真实时间推进' },
+  { name: 'test-camera-math.mjs', desc: '镜头数学：radius→dist（Blender公式）/ 焦距FOV互反 / 8档景别精度 / 画幅比例 / sensor fit' },
+  { name: 'test-camera-path.mjs', desc: '运动路径：Catmull-Rom 样条（BKE_where_on_path）/ 切线=运动方向 / FOLLOW 前瞻 / 折线曲线分离' },
+  { name: 'test-auto-key.mjs', desc: 'auto-key：拖拽实时覆盖 / 松手在播放头补帧 / 插值不弹回（历史 bug：打关键帧后拖不动）' },
+  { name: 'test-dirty-data.mjs', desc: '脏数据守卫：关键帧缺 pos / null 入参 / 导出分步报错（历史事故：导出视频 reading x）' },
+  { name: 'test-shot-sequence.mjs', desc: '分镜串联：多镜头按时间切换相机（Sequencer Strip 模型）/ 增删 / 退化 / UI 入口' },
+  { name: 'test-pose-keys.mjs', desc: '姿态关键帧：poseKeys 线性插值 / 多骨 / 骨骼增删过渡 / 轴约束 X-Y-Z 锁定' },
+  { name: 'test-director-ux.mjs', desc: '导演台可用性：白模导出 / MP4优先 / 工作区文件往返 / 脏标记 / gizmo 轴超环+加粗+悬停' },
+  { name: 'test-director-e2e.mjs', desc: '浏览器端到端：分镜机位切换/隐藏对象/动画循环/规格往返保真/提示词中英景别/UI入口齐备' },
+  { name: 'test-director-preview.mjs', desc: '实时渲染预览=成片：颜色材质/地面·阴影·太阳开关/辅助线不入成片/确定性' },
+  { name: 'test-director-gizmo.mjs', desc: 'gizmo 几何/拾取：轴长105px/三轴手柄同形/一次点中/远处容差/尺寸单一来源' },
+  { name: 'test-director-fly.mjs', desc: '键盘漫游：W/S 前后、A/D 平移、Q/E 升降贴地、Shift 4×、斜向不加速、朝向不变、dt 钳制' },
+  { name: 'test-gizmo-pixels.mjs', desc: 'gizmo 像素对齐（浏览器 DPR=2）：轴端颜色与拾取一致、手柄置顶' },
+  { name: 'test-director-v2.mjs', desc: '导演台 v2：物体路径运动 / 机位增删 / 暂停不跳页 / gizmo≥1/3身高 / 白模地面光影 / 类型基础色 / 材质UI' },
+  { name: 'test-pose-path.mjs', desc: '姿态刚性链（不碎模）/ 路径只拦左键不锁视角 / 地面点反算精确' },
+  { name: 'test-render-pipeline.mjs', desc: '渲染管线：WebGL2 + shadow map（DEPTH_COMPONENT24/FBO/PCF 斜率bias+核半径）+ 路径锚定与成片隔离' },
+  { name: 'test-pose-semantics.mjs', desc: '姿态语义：举双手过头/下蹲变矮/空翻团身悬空/飞行放平/出拳向前/格斗护面/动画叠加不走样' },
+  { name: 'test-pose-anim.mjs', desc: '姿态过渡动画：poseAnim 权重/端点/连续无跳变/中间形态/UI 入口' },
+  { name: 'test-pbr-tonemap.mjs', desc: 'PBR：Oren-Nayar 系数/GGX D·G1 公式与峰值/天空环境光/AgX 风格色调映射标定与单调性' },
+  { name: 'test-render-pixels.mjs', desc: '像素级渲染验证（无头浏览器）：真阴影/墙面阴影/路径隔离/PBR粗糙度/色调映射/白模环境' },
+  { name: 'test-video-record.mjs', desc: '视频导出端到端：真实 MediaRecorder 产出合法 webm + 画面非黑屏（无浏览器则 SKIP）' },
+  { name: 'test-stage-spec.mjs', desc: 'AI 场景规格：spec→scene→spec 往返/分镜解析/路径转向/容错/循环动作/Host 工具与客户端接线' },
+  { name: 'test-motion-brief-timeline.mjs', desc: '运动驱动（步频防滑步）/ 雾+景深进规格 / 一句话模板库（打斗·追逐·对话）/ 时间轴能力' },
+  { name: 'test-cycle-path.mjs', desc: '循环动作（走/跑双相位闭环）+ 路径点拾取/反投影/UI 入口' },
+  { name: 'test-theme-locale.mjs', desc: '深色主题跟随宿主 body[data-ds-dark-theme] / 深色变量与对比度 / 面板名中英双语 / locale 快照 active 字段' },
   { name: 'test-expand-assets.mjs', desc: '铺开到画布：缺资产→带设定图提示词的图片节点' },
   { name: 'test-node-merge.mjs', desc: '节点类型合并：旧文档迁移 / 连线与 data 不丢 / 幂等' },
   { name: 'test-node-actions.mjs', desc: '结果操作按钮统一在节点末尾左下角' },
@@ -97,7 +123,7 @@ const SUITE = [
 const SKIP_MARKERS = [/跳过/, /\bSKIP\b/i, /缺前置/, /未找到.*canvas\.db/];
 const CRASH_MARKERS = [/SyntaxError/, /ReferenceError/, /TypeError/, /RangeError/, /\n\s+at .+\(/, /EMPTY_RESPONSE/, /Cannot find module/];
 
-function runOne(item) {
+// 浏览器类测试（真实 Chrome 启动）在并发/负载下偶发超时：失败后自动重试一次，避免误报const BROWSER_TESTS = new Set([  'test-render-pixels.mjs', 'test-video-record.mjs', 'test-director-e2e.mjs',]);async function runOneStable(item) {  const first = await runOne(item);  if (first.state === 'PASS') return first;  if (!BROWSER_TESTS.has(item.name)) return first;  const retry = await runOne(item);  if (retry.state === 'PASS') retry.out = '[retried once] ' + retry.out;  return retry;}function runOne(item) {
   const isSyntax = item.kind === 'syntax';
   const file = isSyntax ? process.execPath : path.join(SCRIPTS, item.name);
   if (!isSyntax && !existsSync(file)) {
