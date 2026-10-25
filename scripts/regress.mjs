@@ -80,6 +80,7 @@ const SUITE = [
   { name: 'test-director-ux.mjs', desc: '导演台可用性：白模导出 / MP4优先 / 工作区文件往返 / 脏标记 / gizmo 轴超环+加粗+悬停' },
   { name: 'test-asset-migration.mjs', desc: '旧 IDB 资产一次性迁移：保留 id 落盘入库 / 清 IDB / 缺失分类 / 无数据根跳过 / 幂等并发 / 无 rel 显示兜底' },
   { name: 'test-director-panels.mjs', desc: '导演台 IK·约束·动作层面板：按钮入口 / 字段写回 / 引擎接线 / 中英 i18n / spec 往返' },
+  { name: 'test-body-variants.mjs', desc: '体型变体：男性挂 Explorer 资产 + 形变幅度(storyai 量级) + 姿势库 41 条(awplanet 复刻 19) + 姿势选择器/引擎过期横幅' },
   { name: 'test-action-library.mjs', desc: '内置动作库：成熟动作 clip 可加载、真实播放、连续无跳变、覆盖内置片段' },
   { name: 'test-skill-panel.mjs', desc: '技能页：四层数据(24/21/10/8/9) + 切片反向断言 + 项目隔离 + 三页签零下拉 + 72 图标闭环 + 注入矩阵' },
   { name: 'test-skill-pack.mjs', desc: '技能包 Host 侧：readSkillPack 边界 / 4 份技能注册 / canvas_list_skills / canvas_skill_pack 四档切片' },

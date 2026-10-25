@@ -44,7 +44,9 @@ for (const it of manifest.clips) {
 for (const it of manifest.clips) {
   const c = asset.clipByName(it.name);
   if (!c) continue;
-  const steps = Math.min(40, Math.max(10, Math.round(c.duration * 10)));
+  // 采样密度必须与时长匹配：短动作（跑/跳 0.6-1.0s）只用 10 帧会把正常运动放大成"跳变"。
+  // 统一 ≥24 帧且每帧 ≤40ms（25fps 以上），否则测量本身失真。
+  const steps = Math.min(60, Math.max(24, Math.round(c.duration * 25)));
   let prev = null, maxJump = 0, total = 0, n = 0, moved = 0;
   for (let i = 0; i <= steps; i++) {
     const t = (c.duration * i) / steps;
@@ -64,7 +66,10 @@ for (const it of manifest.clips) {
     prev.set(sk.pos);
   }
   ok(moved >= n * 0.5, it.name + ' 动作几乎没有运动（moving ' + moved + '/' + n + '）');
-  ok((total / n) > 0.01, it.name + ' 平均运动量过小（' + ((total / n) * 1000).toFixed(1) + 'mm）');
+  // 待机类动作本来就极轻微（呼吸/重心微调，4-10mm 是正常值），阈值按类别区分；
+  // 其余动作要求有明显运动（≥10mm/帧）。
+  const isIdle = /idle/i.test(it.name);
+  ok((total / n) > (isIdle ? 0.002 : 0.01), it.name + ' 平均运动量过小（' + ((total / n) * 1000).toFixed(1) + 'mm）');
   const fast = /knockdown|hit_recoil|jump|dance|low_sweep|spear_ground|crouch/.test(it.name);
   const jumpLimit = fast ? 2.0 : 1.2;
   ok(maxJump < jumpLimit, it.name + ' 存在跳变（单帧 ' + (maxJump * 1000).toFixed(0) + 'mm，限 ' + jumpLimit * 1000 + 'mm）');

@@ -168,12 +168,24 @@ for (const cam of [
   ok(Math.abs(turned.x.x) < 1e-6 && Math.abs(Math.abs(turned.x.z) - 1) < 1e-6,
     '绕 Y 旋转 90° 后物体 x 轴应转到世界 ±Z（轴跟随物体，不是世界坐标），实际 ' + JSON.stringify(turned.x));
 
-  // 5) 源码级：默认 origin 不得再叠加 poseCenterY（只能出现在 followBody 分支里）
+  // 5) 源码级：origin 一律 = 物体原点，gizmo 绘制/拾取路径不得再读 poseCenterY（回归红线）
   const engSrc = await import('node:fs').then((m) => m.readFileSync(path.join(ROOT, 'assets/director/engine.js'), 'utf8'));
   ok(/const origin = originOverride \|\| v3\(sel\.pos\.x, sel\.pos\.y, sel\.pos\.z\);/.test(engSrc),
     'gizmoMetrics 默认 origin 必须是 (pos.x, pos.y, pos.z)，不得叠加 poseCenterY');
-  const poseHits = (engSrc.match(/sel\.pos\.y \+ \(Number\(sel\.poseCenterY\) \|\| 0\)/g) || []).length;
-  ok(poseHits >= 1 && poseHits <= 3, 'poseCenterY 只能出现在 followBody 分支与拾取同源分支里，实际 ' + poseHits + ' 处');
+  const gizmoSeg = (() => {
+    const a = engSrc.indexOf('if (o.gizmo && o.selectedId)');
+    const b = engSrc.indexOf('export function directorPickGizmo');
+    // 拾取函数开头 900 字符必含轴心规则行
+    return (a >= 0 && b > a) ? engSrc.slice(a, b + 900) : engSrc;
+  })();
+  ok(!/poseCenterY|gizmoFollowBody|pickFollow|followBody/.test(gizmoSeg),
+    'gizmo 绘制/拾取路径不得再出现 poseCenterY 或任何「跟随身体」开关（轴心恒为物体原点）');
+  ok((gizmoSeg.match(/v3\(sel\.pos\.x, sel\.pos\.y, sel\.pos\.z\)/g) || []).length >= 2,
+    '绘制与拾取都必须显式以物体原点为轴心');
+  // 姿态根位移不得写进 pos.y（applyPlayhead）：rootY 只作用于骨骼层
+  const playSeg = engSrc.slice(engSrc.indexOf('export function applyPlayhead'), engSrc.indexOf('姿态关键帧'));
+  ok(!/next\.pos = v3\(next\.pos\.x, next\.pos\.y \+ ry/.test(playSeg),
+    'applyPlayhead 不得把姿态 rootY 加进 pos.y（那是重复应用且污染物体原点）');
 }
 
 // ── ⑥ 框选灵敏：包围盒相交即选中（宽物体框住一半也算），隐藏/框外不选 ──

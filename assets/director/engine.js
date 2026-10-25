@@ -1,4 +1,4 @@
-export const ENGINE_VERSION = 'ground-off-1';
+export const ENGINE_VERSION = 'explorer-2';  // 改引擎必递增：client 靠它提示用户刷新页面  // 改引擎必递增：client 靠它提示用户刷新页面
 /**
  * 3D 导演台引擎（独立 ES 模块，零依赖）。
  *
@@ -786,6 +786,195 @@ export const BONE_POSES = [
       { bone: 'LeftArm', to: [0.78, 0.22, 0.58] }, { bone: 'RightArm', to: [-0.80, 0.18, 0.56] },
       { bone: 'LeftForeArm', to: [0.62, 0.06, 0.78] }, { bone: 'RightForeArm', to: [-0.64, 0.02, 0.76] },
     ] },
+  // ── 导演姿势库（复刻 awplanet DIRECTOR_POSE_RECIPES，19 套）──
+  { id: 'ap_stand_relaxed', zh: '站姿 · 放松', en: 'Stand relaxed', rootY: 0,
+    // 来源：awplanet DIRECTOR_POSE_RECIPES（加法欧拉）→ 本表 base 四元数（同语义）
+    base: {
+      Spine: [-0.08, 0.02, -0.05],
+      LeftArm: [0.16, 0.02, 0.18],
+      RightArm: [0.12, -0.02, -0.16],
+      LeftUpLeg: [0.03, 0.04, 0.08],
+      RightUpLeg: [-0.02, -0.02, -0.05]
+    } },
+  { id: 'ap_stand_contrapposto', zh: '站姿 · 重心对立', en: 'Stand contrapposto', rootY: 0,
+    // 来源：awplanet DIRECTOR_POSE_RECIPES（加法欧拉）→ 本表 base 四元数（同语义）
+    base: {
+      Spine: [-0.05, 0.05, -0.16],
+      Spine1: [0.03, -0.04, 0.12],
+      Spine2: [0.03, -0.04, 0.12],
+      LeftUpLeg: [0.02, 0.1, 0.16],
+      RightUpLeg: [-0.04, -0.04, -0.11],
+      LeftArm: [0.08, -0.06, 0.34],
+      RightArm: [0.04, 0.04, -0.22]
+    } },
+  { id: 'ap_stand_alert', zh: '站姿 · 警戒', en: 'Stand alert', rootY: 0,
+    // 来源：awplanet DIRECTOR_POSE_RECIPES（加法欧拉）→ 本表 base 四元数（同语义）
+    base: {
+      Spine: [0.08, 0, 0],
+      Spine1: [0.08, 0, 0],
+      Neck: [0.06, 0, 0],
+      LeftArm: [-0.08, 0.02, 0.08],
+      RightArm: [-0.08, -0.02, -0.08],
+      LeftUpLeg: [-0.03, 0, 0.04],
+      RightUpLeg: [-0.03, 0, -0.04]
+    } },
+  { id: 'ap_stand_lean', zh: '站姿 · 倚靠', en: 'Stand lean', rootY: 0,
+    // 来源：awplanet DIRECTOR_POSE_RECIPES（加法欧拉）→ 本表 base 四元数（同语义）
+    base: {
+      Spine: [-0.16, 0.08, -0.2],
+      Spine1: [0.05, -0.04, 0.13],
+      Spine2: [0.05, -0.04, 0.13],
+      LeftUpLeg: [0.1, 0.05, 0.1],
+      LeftArm: [0.22, -0.1, 0.38],
+      RightArm: [0.05, 0.08, -0.18]
+    } },
+  { id: 'ap_crossed_arms', zh: '站姿 · 抱臂', en: 'Crossed arms', rootY: 0,
+    // 来源：awplanet DIRECTOR_POSE_RECIPES（加法欧拉）→ 本表 base 四元数（同语义）
+    base: {
+      Spine: [-0.04, 0, 0.02],
+      LeftArm: [0.72, 0.18, 0.78],
+      RightArm: [0.72, -0.18, -0.78],
+      LeftForeArm: [0.34, -0.1, -1.18],
+      RightForeArm: [0.34, 0.1, 1.18]
+    } },
+  { id: 'ap_hands_hips', zh: '站姿 · 叉腰', en: 'Hands on hips', rootY: 0,
+    // 来源：awplanet DIRECTOR_POSE_RECIPES（加法欧拉）→ 本表 base 四元数（同语义）
+    base: {
+      Spine: [0.02, 0, -0.04],
+      LeftArm: [0.48, -0.1, 0.68],
+      RightArm: [0.48, 0.1, -0.68],
+      LeftForeArm: [0.16, -0.2, -0.92],
+      RightForeArm: [0.16, 0.2, 0.92]
+    } },
+  { id: 'ap_sit_low', zh: '坐 · 低坐', en: 'Sit low', rootY: -0.52,
+    // 来源：awplanet DIRECTOR_POSE_RECIPES（加法欧拉）→ 本表 base 四元数（同语义）
+    base: {
+      Spine: [-0.12, 0, 0],
+      LeftUpLeg: [-1.18, 0.06, 0.12],
+      RightUpLeg: [-1.18, -0.06, -0.12],
+      LeftLeg: [1.18, 0, 0],
+      RightLeg: [1.18, 0, 0],
+      LeftArm: [0.32, 0.04, 0.18],
+      RightArm: [0.32, -0.04, -0.18]
+    } },
+  { id: 'ap_sit_side', zh: '坐 · 侧坐', en: 'Sit side', rootY: -0.52,
+    // 来源：awplanet DIRECTOR_POSE_RECIPES（加法欧拉）→ 本表 base 四元数（同语义）
+    base: {
+      Spine: [-0.08, 0.14, -0.1],
+      LeftUpLeg: [-1, 0.2, 0.46],
+      RightUpLeg: [-1.18, -0.26, 0.18],
+      LeftLeg: [1.02, 0, -0.12],
+      RightLeg: [1.08, 0, 0.18]
+    } },
+  { id: 'ap_crouch', zh: '蹲 · 预备', en: 'Crouch ready', rootY: -0.28,
+    // 来源：awplanet DIRECTOR_POSE_RECIPES（加法欧拉）→ 本表 base 四元数（同语义）
+    base: {
+      Spine: [-0.32, 0, 0],
+      LeftUpLeg: [-0.92, 0.04, 0.12],
+      RightUpLeg: [-0.92, -0.04, -0.12],
+      LeftLeg: [1.32, 0, 0],
+      RightLeg: [1.32, 0, 0],
+      LeftArm: [0.55, -0.08, 0.25],
+      RightArm: [0.55, 0.08, -0.25]
+    } },
+  { id: 'ap_kneel', zh: '跪 · 单膝', en: 'Kneel one knee', rootY: -0.42,
+    // 来源：awplanet DIRECTOR_POSE_RECIPES（加法欧拉）→ 本表 base 四元数（同语义）
+    base: {
+      Spine: [-0.18, 0, 0],
+      LeftUpLeg: [-1.22, 0.06, 0.12],
+      LeftLeg: [1.52, 0, 0],
+      RightUpLeg: [-0.35, -0.08, -0.12],
+      RightLeg: [0.72, 0, 0],
+      LeftArm: [0.35, -0.05, 0.18],
+      RightArm: [0.35, 0.05, -0.18]
+    } },
+  { id: 'ap_kneel_both', zh: '跪 · 双膝', en: 'Kneel both knees', rootY: -0.55,
+    // 来源：awplanet DIRECTOR_POSE_RECIPES（加法欧拉）→ 本表 base 四元数（同语义）
+    base: {
+      Spine: [-0.1, 0, 0],
+      LeftUpLeg: [-1.28, 0.08, 0.12],
+      RightUpLeg: [-1.28, -0.08, -0.12],
+      LeftLeg: [1.48, 0, 0],
+      RightLeg: [1.48, 0, 0],
+      LeftArm: [0.22, -0.04, 0.14],
+      RightArm: [0.22, 0.04, -0.14]
+    } },
+  { id: 'ap_lie_prone', zh: '卧 · 俯卧', en: 'Lie prone', rootY: -0.82,
+    // 来源：awplanet DIRECTOR_POSE_RECIPES（加法欧拉）→ 本表 base 四元数（同语义）
+    base: {
+      Spine: [-1.32, 0, 0],
+      Spine1: [0.1, 0, 0],
+      Spine2: [0.1, 0, 0],
+      LeftUpLeg: [0.12, 0.04, 0.1],
+      RightUpLeg: [0.12, -0.04, -0.1],
+      LeftArm: [0.92, -0.1, 0.38],
+      RightArm: [0.92, 0.1, -0.38]
+    } },
+  { id: 'ap_lie_back', zh: '卧 · 仰卧', en: 'Lie back', rootY: -0.82,
+    // 来源：awplanet DIRECTOR_POSE_RECIPES（加法欧拉）→ 本表 base 四元数（同语义）
+    base: {
+      Spine: [1.28, 0, 0],
+      LeftUpLeg: [-0.16, 0.08, 0.12],
+      RightUpLeg: [-0.16, -0.08, -0.12],
+      LeftLeg: [0.42, 0, 0],
+      RightLeg: [0.42, 0, 0],
+      LeftArm: [0.7, -0.2, 0.62],
+      RightArm: [0.7, 0.2, -0.62]
+    } },
+  { id: 'ap_point_forward', zh: '指向前方', en: 'Point forward', rootY: 0,
+    // 来源：awplanet DIRECTOR_POSE_RECIPES（加法欧拉）→ 本表 base 四元数（同语义）
+    base: {
+      Spine: [0.03, -0.1, 0],
+      RightArm: [-0.12, -0.52, -1.18],
+      RightForeArm: [-0.08, -0.12, -0.28],
+      LeftArm: [0.18, 0.06, 0.18]
+    } },
+  { id: 'ap_reach_up', zh: '举手够物', en: 'Reach up', rootY: 0,
+    // 来源：awplanet DIRECTOR_POSE_RECIPES（加法欧拉）→ 本表 base 四元数（同语义）
+    base: {
+      Spine: [0.08, 0, 0.06],
+      RightArm: [-1.42, -0.14, -0.36],
+      RightForeArm: [-0.18, 0.06, -0.08],
+      LeftArm: [0.2, 0.02, 0.22]
+    } },
+  { id: 'ap_guard_ready', zh: '戒备势', en: 'Guard ready', rootY: 0,
+    // 来源：awplanet DIRECTOR_POSE_RECIPES（加法欧拉）→ 本表 base 四元数（同语义）
+    base: {
+      Spine: [-0.16, 0, 0],
+      LeftArm: [0.76, -0.08, 0.42],
+      RightArm: [0.76, 0.08, -0.42],
+      LeftForeArm: [0.42, -0.18, -0.76],
+      RightForeArm: [0.42, 0.18, 0.76],
+      LeftUpLeg: [-0.12, 0.06, 0.1],
+      RightUpLeg: [-0.12, -0.06, -0.1]
+    } },
+  { id: 'ap_surrender', zh: '投降势', en: 'Surrender', rootY: 0,
+    // 来源：awplanet DIRECTOR_POSE_RECIPES（加法欧拉）→ 本表 base 四元数（同语义）
+    base: {
+      Spine: [0.04, 0, 0],
+      LeftArm: [-1.28, 0.1, 0.46],
+      RightArm: [-1.28, -0.1, -0.46],
+      LeftForeArm: [-0.24, 0.05, -0.22],
+      RightForeArm: [-0.24, -0.05, 0.22]
+    } },
+  { id: 'ap_hands_head', zh: '双手抱头', en: 'Hands on head', rootY: 0,
+    // 来源：awplanet DIRECTOR_POSE_RECIPES（加法欧拉）→ 本表 base 四元数（同语义）
+    base: {
+      Spine: [-0.08, 0, 0],
+      LeftArm: [-0.84, 0.18, 0.82],
+      RightArm: [-0.84, -0.18, -0.82],
+      LeftForeArm: [-0.54, 0, -1.12],
+      RightForeArm: [-0.54, 0, 1.12]
+    } },
+  { id: 'ap_talk_open', zh: '说话 · 张开', en: 'Talk open', rootY: 0,
+    // 来源：awplanet DIRECTOR_POSE_RECIPES（加法欧拉）→ 本表 base 四元数（同语义）
+    base: {
+      Spine: [0.02, 0.06, -0.04],
+      LeftArm: [0.1, -0.16, 0.58],
+      RightArm: [0.1, 0.16, -0.58],
+      LeftForeArm: [0.34, -0.12, -0.34],
+      RightForeArm: [0.34, 0.12, 0.34]
+    } },
 ];
 
 
@@ -1434,18 +1623,18 @@ export function decodeActionClips(list) {
  */
 // waist：腰部横向系数（男性 >1 直腰方厚，女性 <1 收腰）；chestFlat：男性压扁胸部正面
 const BODY_SHAPE_OF = {
-  m_standard: { bust: 0, belly: 0.00, muscle: 0.15, shoulder: 1.08, hip: 1.02, waist: 1.08, chestFlat: 0.10 },
-  f_standard: { bust: 1.00, belly: 0.04, muscle: 0.00, shoulder: 0.94, hip: 1.10, waist: 0.88, chestFlat: 0 },
-  m_teen: { bust: 0, belly: 0.02, muscle: 0.06, shoulder: 0.98, hip: 0.98, waist: 1.04, chestFlat: 0.08 },
-  f_teen: { bust: 0.62, belly: 0.03, muscle: 0.00, shoulder: 0.90, hip: 1.02, waist: 0.90, chestFlat: 0 },
-  m_child: { bust: 0, belly: 0.06, muscle: 0.00, shoulder: 0.84, hip: 0.88, waist: 1.02, chestFlat: 0.04 },
-  f_child: { bust: 0.18, belly: 0.06, muscle: 0.00, shoulder: 0.82, hip: 0.90, waist: 0.94, chestFlat: 0 },
-  m_slim: { bust: 0, belly: -0.02, muscle: 0.05, shoulder: 1.02, hip: 0.96, waist: 1.04, chestFlat: 0.10 },
-  f_slim: { bust: 0.78, belly: -0.03, muscle: 0.00, shoulder: 0.88, hip: 0.98, waist: 0.84, chestFlat: 0 },
-  m_muscular: { bust: 0, belly: -0.02, muscle: 0.55, shoulder: 1.22, hip: 1.06, waist: 1.10, chestFlat: 0.12 },
-  f_muscular: { bust: 0.90, belly: -0.02, muscle: 0.38, shoulder: 1.06, hip: 1.10, waist: 0.92, chestFlat: 0 },
-  m_plump: { bust: 0, belly: 0.30, muscle: 0.06, shoulder: 1.12, hip: 1.20, waist: 1.16, chestFlat: 0.02 },
-  f_plump: { bust: 1.15, belly: 0.32, muscle: 0.02, shoulder: 1.02, hip: 1.24, waist: 1.00, chestFlat: 0 },
+  m_standard: { bust: 0, belly: 0.00, muscle: 0.50, shoulder: 1.14, hip: 0.96, waist: 1.24, chestFlat: 0.10, head: 1.00 },
+  f_standard: { bust: 1.00, belly: 0.04, muscle: 0.00, shoulder: 0.94, hip: 1.10, waist: 0.88, chestFlat: 0, head: 1.00 },
+  m_teen: { bust: 0, belly: 0.02, muscle: 0.30, shoulder: 1.00, hip: 0.98, waist: 1.12, chestFlat: 0.08, head: 1.08 },
+  f_teen: { bust: 0.62, belly: 0.03, muscle: 0.00, shoulder: 0.90, hip: 1.02, waist: 0.90, chestFlat: 0, head: 1.00 },
+  m_child: { bust: 0, belly: 0.06, muscle: 0.10, shoulder: 0.86, hip: 0.88, waist: 1.06, chestFlat: 0.04, head: 1.18 },
+  f_child: { bust: 0.18, belly: 0.06, muscle: 0.00, shoulder: 0.82, hip: 0.90, waist: 0.94, chestFlat: 0, head: 1.00 },
+  m_slim: { bust: 0, belly: -0.02, muscle: 0.25, shoulder: 1.04, hip: 0.96, waist: 1.10, chestFlat: 0.10, head: 1.00 },
+  f_slim: { bust: 0.78, belly: -0.03, muscle: 0.00, shoulder: 0.88, hip: 0.98, waist: 0.84, chestFlat: 0, head: 1.00 },
+  m_muscular: { bust: 0, belly: -0.02, muscle: 0.85, shoulder: 1.30, hip: 1.08, waist: 1.20, chestFlat: 0.12, head: 0.98 },
+  f_muscular: { bust: 0.90, belly: -0.02, muscle: 0.38, shoulder: 1.06, hip: 1.10, waist: 0.92, chestFlat: 0, head: 1.00 },
+  m_plump: { bust: 0, belly: 0.55, muscle: 0.18, shoulder: 1.16, hip: 1.24, waist: 1.30, chestFlat: 0.02, head: 1.00 },
+  f_plump: { bust: 1.15, belly: 0.32, muscle: 0.02, shoulder: 1.02, hip: 1.24, waist: 1.00, chestFlat: 0, head: 1.00 },
 };
 export function bodyShapeOf(typeId) { return BODY_SHAPE_OF[typeId] || BODY_SHAPE_OF.m_standard; }
 
@@ -1455,7 +1644,18 @@ function applyBodyShape(asset, pos, shape) {
   const bones = asset.bones;
   const J = asset.joints, W = asset.weights;
   const nv = pos.length / 3;
-  const { bust = 0, belly = 0, muscle = 0, shoulder = 1, hip = 1, waist = 1, chestFlat = 0 } = shape;
+  const { bust = 0, belly = 0, muscle = 0, shoulder = 1, hip = 1, waist = 1, chestFlat = 0, head = 1 } = shape;
+  // 形变带按「相对身高」计算，不再用绝对米：xbot 是米制（rawHeight≈1.8），
+  // soldier≈44、explorer≈194 都是厘米制——绝对带在它们身上会错位到脚踝（形变静默失效）。
+  // k = 该资产身高 / 基准身高 1.809（这些带最初按 xbot 调的）。
+  let Hm = asset._shapeH;
+  if (!Hm) {
+    let mn = Infinity, mx = -Infinity;
+    for (let i = 1; i < pos.length; i += 3) { const y = pos[i]; if (y < mn) mn = y; if (y > mx) mx = y; }
+    Hm = (Number.isFinite(mn) && mx > mn) ? (mx - mn) : 1.8;
+    asset._shapeH = Hm;
+  }
+  const k = Hm / 1.809;              // 长度缩放（y 带中心/宽度、横向高斯宽度都用它）
   for (let v = 0; v < nv; v++) {
     // 主导骨骼
     let bi = -1, bw = 0;
@@ -1468,35 +1668,37 @@ function applyBodyShape(asset, pos, shape) {
     const isArm = /arm|hand|forearm|shoulder|clav/.test(nm);
     const isLeg = /thigh|leg|shin|foot/.test(nm);
     // 腰部横向：男性直腰（>1），女性收腰（<1）——这是男女轮廓最关键的区别
-    if (isTorso && /spine1|spine|hips/.test(nm) && y > 0.85 && y < 1.22) {
-      const gw = Math.exp(-Math.pow((y - 1.03) / 0.14, 2));
+    if (isTorso && /spine1|spine|hips/.test(nm) && y > 0.47 * Hm && y < 0.675 * Hm) {
+      const gw = Math.exp(-Math.pow((y - 0.5694 * Hm) / (0.0774 * Hm), 2));
       nx *= 1 + (waist - 1) * gw;
     }
     // 男性胸部正面压扁（女性不压）
-    if (chestFlat > 0 && isTorso && /chest|spine2/.test(nm) && y > 1.20 && z > 0) {
+    if (chestFlat > 0 && isTorso && /chest|spine2/.test(nm) && y > 0.663 * Hm && z > 0) {
       nz *= 1 - chestFlat;
     }
     // 肩胯宽度
     if (isTorso && /chest|spine2|spine1|spine|clav/.test(nm)) nx *= shoulder;
     if (isTorso && /hips/.test(nm)) { nx *= hip; nz *= hip * 0.98; }
     // 腹部体积：腹部（y 在中段）向前鼓
-    if (belly > 0 && isTorso && y > 0.75 && y < 1.45) {
-      const g = Math.exp(-Math.pow((y - 1.08) / 0.22, 2));
-      nz += belly * 0.085 * g * Math.exp(-Math.pow(x / 0.19, 2));
+    if (belly > 0 && isTorso && y > 0.4146 * Hm && y < 0.8016 * Hm) {
+      const g = Math.exp(-Math.pow((y - 0.597 * Hm) / (0.1216 * Hm), 2));
+      nz += belly * 0.085 * k * g * Math.exp(-Math.pow(x / (0.19 * k), 2));
       nx *= 1 + belly * 0.10 * g;
     }
     if (belly < 0 && isTorso) { nx *= 1 + belly * 0.25; nz *= 1 + belly * 0.25; }
     // 胸部体积（女性）：胸前两侧隆起
-    if (bust > 0 && isTorso && y > 1.14 && y < 1.52 && z > 0) {
-      const gg = Math.exp(-Math.pow((y - 1.33) / 0.10, 2));
-      const lobe = Math.exp(-Math.pow((Math.abs(x) - 0.075) / 0.055, 2));
-      nz += bust * 0.075 * gg * lobe;
+    if (bust > 0 && isTorso && y > 0.630 * Hm && y < 0.840 * Hm && z > 0) {
+      const gg = Math.exp(-Math.pow((y - 0.735 * Hm) / (0.0553 * Hm), 2));
+      const lobe = Math.exp(-Math.pow((Math.abs(x) - 0.075 * k) / (0.055 * k), 2));
+      nz += bust * 0.075 * k * gg * lobe;
     }
-    // 肌肉围度：四肢加粗
+    // 肌肉围度：四肢加粗（乘数 0.55 对齐 storyai 的 15-27% 单部位幅度）
     if (muscle > 0 && (isArm || isLeg)) {
-      const k = 1 + muscle * (/forearm|hand|shin|foot/.test(nm) ? 0.10 : 0.22);
+      const k = 1 + muscle * (/forearm|hand|shin|foot/.test(nm) ? 0.16 : 0.55);
       nx *= k; nz *= k;
     }
+    // 头部缩放不在这里做：顶点级缩放会把头拉长（骨骼没跟上去 → 视觉「飞头」）。
+    // 改由 skinModel 在蒙皮前对 Head/Neck 骨骼矩阵缩放（applyHeadBoneScale）。
     if (nx !== x || ny !== y || nz !== z) { pos[v * 3] = nx; pos[v * 3 + 1] = ny; pos[v * 3 + 2] = nz; }
   }
 }
@@ -2364,13 +2566,35 @@ export function skinModel(asset, clipName, time, outPos, outNrm, shape) {
     nrm[v * 3] = nx / l; nrm[v * 3 + 1] = ny / l; nrm[v * 3 + 2] = nz / l;
   }
   if (shape) applyBodyShape(asset, pos, shape);
+  // 头部放大：顶点级按高度 smoothstep 渐变（颈根 1× → 头顶 k×）。
+  // 骨骼级缩放会把颈部顶点推离、在 0.84–0.86H 留空档 → 头身分离（用户实测）。
+  if (shape && Number(shape.head) && Number(shape.head) !== 1) headVertexScale(pos, Number(shape.head));
   return { pos, nrm };
 }
 
+/** 头部顶点级缩放：以身高 78%（颈根）为枢轴，向头顶 smoothstep 渐变放大。
+ *  保证颈→头网格连续：颈根不动、越靠头顶放大越多，不产生顶点空档（骨骼级缩放会断开）。 */
+function headVertexScale(pos, k) {
+  if (!Number.isFinite(k) || k === 1 || !pos || !pos.length) return;
+  const nv = pos.length / 3;
+  let maxY = -Infinity;
+  for (let v = 0; v < nv; v++) { const y = pos[v * 3 + 1]; if (y > maxY) maxY = y; }
+  if (!Number.isFinite(maxY) || maxY <= 0) return;
+  const pivot = maxY * 0.78;
+  const span = Math.max(1e-6, maxY - pivot);
+  for (let v = 0; v < nv; v++) {
+    const y = pos[v * 3 + 1];
+    if (y <= pivot) continue;
+    const t2 = Math.min(1, (y - pivot) / span);
+    const w = t2 * t2 * (3 - 2 * t2);
+    const kk = 1 + (k - 1) * w;
+    pos[v * 3] *= kk;
+    pos[v * 3 + 1] = pivot + (y - pivot) * kk;
+    pos[v * 3 + 2] *= kk;
+  }
+}
+
 /**
- * 播放头 → 场景副本：模型对象的动作时间跟随播放头，带关键帧的相机做位置/注视点插值。
- * 预演与导出视频都走这一个函数，保证"看到的"和"导出的"一致。
- */
 /* ============================================================
  * 运动路径（对照 Blender BKE_where_on_path + Follow Path 约束）
  *   关键帧串成 Catmull-Rom 样条 → 按时间参数在曲线上取「位置 + 切线」
@@ -3226,15 +3450,17 @@ export function applyPlayhead(scene, t) {
       const bl = poseBlendAt(BONE_POSES, o.poseAnim, poseSampleTime);
       if (bl) { next.poseBlend = bl; next.poseId = null; }
     }
-    // 姿态根位移（下蹲/轻功/倒地需要整体升降）：直接作用在位置上，最可靠
+    // 姿态根位移（下蹲/轻功/倒地需要整体升降）：**只在骨骼层生效**（见 applyBonePoseToLocal
+    // 的 ①b2 段：把 Hips 整体上下平移）。这里绝不能再往 pos.y 里加一次——
+    // 那是重复应用，而且会把物体的逻辑原点（人物脚底）污染成"髋部高度"，
+    // 导致 gizmo 轴心悬空、路径/关键帧的 y 基准也跟着漂。
+    // （历史 bug：这一行曾把 rootY 加到 next.pos.y 上，站立时 pos.y≈1.04，轴心飘到腰腹。）
+    // 姿态中心偏移（**仅供需要「跟随身体」的场合**，例如要让 gizmo 贴住倒地的人）：
+    // 单独存成 poseCenterY，绝不并进 pos.y —— pos.y 永远是物体原点。
     {
-      let ry = 0;
-      if (o.poseId) { const sp = BONE_POSES.find((p) => p.id === o.poseId); if (sp && sp.rootY) ry = Number(sp.rootY) || 0; }
-      if (Array.isArray(o.poseAnim) && o.poseAnim.length) {
-        const bl = poseBlendAt(BONE_POSES, o.poseAnim, poseSampleTime);
-        if (bl) { let acc = 0, w = 0; for (const e of bl) { acc += (Number(e.rootY) || 0) * e.w; w += e.w; } ry = w > 0 ? acc / w : 0; }
-      }
-      if (ry) next.pos = v3(next.pos.x, next.pos.y + ry, next.pos.z);
+      // 姿态根位移只用于**渲染骨骼**（applyBonePoseToLocal 负责），此处不再写 pos.y。
+      // 保留一个显式的空块形式以免误读：确需场景级整体升降时，请改 sh 的 ground 或加关键帧，
+      // 不要把姿态位移混进物体原点。
     }
     // 姿态中心偏移（供 gizmo / 拾取跟随身体，而非留在地面原点）
     if (next.kind === 'model' && gltfAssetOf(next.assetId)) {
@@ -3368,19 +3594,26 @@ export function resetView(scene) {
  * 不必真的重建 12 套网格（那样包体积会爆炸）。
  */
 export const MANNEQUIN_TYPES = [
-  { id: 'm_standard', zh: '男性 · 标准', en: 'Male standard', h: 1.78, w: 1.00, d: 1.00 , color: '#7ba7d7' },
-  { id: 'f_standard', zh: '女性 · 标准', en: 'Female standard', h: 1.66, w: 0.92, d: 0.94 , color: '#d78fb0' },
-  { id: 'm_teen', zh: '男性 · 少年', en: 'Male teen', h: 1.60, w: 0.90, d: 0.92 , color: '#6fb3a0' },
-  { id: 'f_teen', zh: '女性 · 少年', en: 'Female teen', h: 1.54, w: 0.86, d: 0.90 , color: '#c99bd6' },
-  { id: 'm_child', zh: '男性 · 儿童', en: 'Male child', h: 1.18, w: 0.80, d: 0.86 , color: '#8fc46a' },
-  { id: 'f_child', zh: '女性 · 儿童', en: 'Female child', h: 1.15, w: 0.78, d: 0.85 , color: '#e0b062' },
-  { id: 'm_slim', zh: '男性 · 纤细', en: 'Male slim', h: 1.80, w: 0.88, d: 0.90 , color: '#7f9fd0' },
-  { id: 'f_slim', zh: '女性 · 纤细', en: 'Female slim', h: 1.68, w: 0.84, d: 0.88 , color: '#cf9fc0' },
-  { id: 'm_muscular', zh: '男性 · 健壮', en: 'Male muscular', h: 1.82, w: 1.12, d: 1.08 , color: '#d98a6a' },
-  { id: 'f_muscular', zh: '女性 · 健壮', en: 'Female muscular', h: 1.70, w: 1.02, d: 1.02 , color: '#c07f9c' },
-  { id: 'm_plump', zh: '男性 · 丰腴', en: 'Male plump', h: 1.74, w: 1.18, d: 1.14 , color: '#9aa6c4' },
-  { id: 'f_plump', zh: '女性 · 丰腴', en: 'Female plump', h: 1.62, w: 1.14, d: 1.12 , color: '#c49ab0' },
+  { id: 'm_standard', zh: '男性 · 标准', en: 'Male standard', h: 1.78, w: 1.00, d: 1.00 , color: '#2f7fe8' },
+  { id: 'f_standard', zh: '女性 · 标准', en: 'Female standard', h: 1.66, w: 0.92, d: 0.94 , color: '#e857a8' },
+  { id: 'm_teen', zh: '男性 · 少年', en: 'Male teen', h: 1.15, w: 0.90, d: 0.92 , color: '#17b877' },
+  { id: 'f_teen', zh: '女性 · 少年', en: 'Female teen', h: 1.12, w: 0.86, d: 0.90 , color: '#8b5cf6' },
+  { id: 'm_child', zh: '男性 · 儿童', en: 'Male child', h: 0.80, w: 0.90, d: 0.96 , color: '#7cc93f' },
+  { id: 'f_child', zh: '女性 · 儿童', en: 'Female child', h: 0.80, w: 0.88, d: 0.95 , color: '#f0a832' },
+  { id: 'm_slim', zh: '男性 · 纤细', en: 'Male slim', h: 1.80, w: 0.88, d: 0.90 , color: '#38a8e8' },
+  { id: 'f_slim', zh: '女性 · 纤细', en: 'Female slim', h: 1.68, w: 0.84, d: 0.88 , color: '#e85d6f' },
+  { id: 'm_muscular', zh: '男性 · 健壮', en: 'Male muscular', h: 1.82, w: 1.12, d: 1.08 , color: '#f07818' },
+  { id: 'f_muscular', zh: '女性 · 健壮', en: 'Female muscular', h: 1.70, w: 1.02, d: 1.02 , color: '#d83050' },
+  { id: 'm_plump', zh: '男性 · 丰腴', en: 'Male plump', h: 1.74, w: 1.18, d: 1.14 , color: '#5865d8' },
+  { id: 'f_plump', zh: '女性 · 丰腴', en: 'Female plump', h: 1.62, w: 1.14, d: 1.12 , color: '#a05fd8' },
 ];
+
+/** 体型的标志色（MANNEQUIN_TYPES.color）：ob.color 为空时的默认着色，
+ *  让 12 体型在视口/缩略图里像 storyai 资产页那样一眼可辨。 */
+export function mannequinColorOf(typeId) {
+  const t2 = (MANNEQUIN_TYPES || []).find((x) => x.id === typeId);
+  return (t2 && t2.color) || '';
+}
 export function mannequinTypeOf(id) { return MANNEQUIN_TYPES.find((t) => t.id === id) || MANNEQUIN_TYPES[0]; }
 
 /** 资产包围盒（用于自动归一化到人高 / 落地）。 */
@@ -5403,7 +5636,7 @@ export function createDirectorGlRenderer(canvas) {
             if (locSkin && locSkin.uRoughness) gl.uniform1f(locSkin.uRoughness, mat && mat.roughness !== undefined ? Number(mat.roughness) : 1);
             if (locSkin && locSkin.uMetallic) gl.uniform1f(locSkin.uMetallic, mat && mat.metallic !== undefined ? Number(mat.metallic) : 0);
             if (locSkin && locSkin.uSpecular) gl.uniform1f(locSkin.uSpecular, mat && mat.specular !== undefined ? Number(mat.specular) : 0.5);
-            const cc3 = directorHexToRgb(ob.color || CLAY);
+            const cc3 = directorHexToRgb(ob.color || mannequinColorOf(ob.typeId) || CLAY);
             if (drawDynamic(sk.pos, sk.nrm, asset.indices, model, cc3, !!(o.selectedId && ob.id === o.selectedId), viewProj, lightPack, Number(env.exposure) || 1)) {
               stats.faces += asset.tris;
               stats.tris += asset.tris;
@@ -5419,7 +5652,7 @@ export function createDirectorGlRenderer(canvas) {
             const rec = uploadSkin(ob.assetId, asset);
             const t = Number(ob.animTime) || 0;
             const bones = asset.bones ? boneMatrices(asset, t) : null;
-            const cc2 = directorHexToRgb(ob.color || CLAY);
+            const cc2 = directorHexToRgb(ob.color || mannequinColorOf(ob.typeId) || CLAY);
             const model = directorMat4Model(ob.pos, Number(ob.rotY) || 0, v3(Number(ob.s) || 1, Number(ob.s) || 1, Number(ob.s) || 1));
             if (drawSkin(asset, rec, model, cc2, viewProj, lightPack, Number(env.exposure) || 1, !!(o.selectedId && ob.id === o.selectedId), bones)) {
               stats.faces += asset.tris;
@@ -5442,7 +5675,7 @@ export function createDirectorGlRenderer(canvas) {
         gl.vertexAttribPointer(loc.aNormal, 3, gl.FLOAT, false, 0, 0);
         gl.uniformMatrix4fv(loc.uModel, false, directorMat4Identity());
         gl.uniformMatrix3fv(loc.uNormalMat, false, directorMat3NormalFrom(v3(0, 0, 0), 0, v3(1, 1, 1)));
-        const cc = directorHexToRgb(ob.color || CLAY);
+        const cc = directorHexToRgb(ob.color || mannequinColorOf(ob.typeId) || CLAY);
         gl.uniform3f(loc.uColor, cc[0], cc[1], cc[2]);
         gl.uniform1f(loc.uSelected, (o.selectedId && ob.id === o.selectedId) ? 1 : 0);
         gl.drawArrays(gl.TRIANGLES, 0, rec.count);
@@ -5554,13 +5787,10 @@ export function createDirectorGlRenderer(canvas) {
       if (o.gizmo && o.selectedId) {
         const sel = (scene.objects || []).find((x) => x.id === o.selectedId);
         if (sel) {
-          // 轴心默认在物体原点（人物 = 脚底中心），轴朝向由 objectAxes(sel) 给出
+          // 轴心恒 = 物体自身坐标系原点（人物 = 脚底中心），轴朝向由 objectAxes(sel) 给出
           // → 物体旋转时轴跟着转（人物倒地后 z 轴仍指向头），不是固定世界坐标。
-          // 「跟随身体」是显式开关：仅当选中项或场景打开 gizmoFollowBody 时才抬到髋高。
-          const followBody = !!(sel.gizmoFollowBody || o.gizmoFollowBody);
-          const origin = followBody
-            ? v3(sel.pos.x, sel.pos.y + (Number(sel.poseCenterY) || 0), sel.pos.z)
-            : v3(sel.pos.x, sel.pos.y, sel.pos.z);
+          // 绝不随姿态/髋高上浮：任何"智能抬升"都会让轴悬空（0.19.3/0.19.4 的教训）。
+          const origin = v3(sel.pos.x, sel.pos.y, sel.pos.z);
           // 屏幕恒定大小（Blender: wm_gizmo_calculate_scale）：轴长 105 CSS px，环 0.62×轴长。
           // 尺寸唯一来源 gizmoMetrics，拾取用同一个函数 → 不可能再出现「画的位置和点不中」。
           const gm = gizmoMetrics(cam, sel, hCss, origin);
@@ -5703,7 +5933,7 @@ export function directorRenderScene(ctx, w, h, scene, opts) {
   (scene.objects || []).forEach((ob) => {
     const fs = directorObjectFaces(ob);
     stats.faces += fs.length;
-    fs.forEach((f) => items.push({ f, color: ob.color || CLAY, base: ob }));
+    fs.forEach((f) => items.push({ f, color: ob.color || mannequinColorOf(ob.typeId) || CLAY, base: ob }));
   });
   if (false && env.groundVisible !== false) {
     const s = 400, op = 0;   // 不画地面填充，只画网格
@@ -5947,12 +6177,8 @@ export function directorPickGizmo(scene, selectedId, w, h, sx, sy) {
   if (!cam) return null;
   // 与绘制完全同源：精确屏幕投影 + 同一个 gizmoMetrics（w/h 都是 CSS 尺寸）
   const project = (p) => directorScreenOf(cam, w, h, p);
-  // 轴心规则必须与绘制一致：默认物体原点，只有显式打开「跟随身体」才抬到髋高
-  const pickFollow = !!(sel.gizmoFollowBody || scene.gizmoFollowBody);
-  const pickOrigin = pickFollow
-    ? v3(sel.pos.x, sel.pos.y + (Number(sel.poseCenterY) || 0), sel.pos.z)
-    : v3(sel.pos.x, sel.pos.y, sel.pos.z);
-  const gm = gizmoMetrics(cam, sel, h, pickOrigin);
+  // 与绘制完全同源：轴心恒 = 物体原点（规则必须与绘制一字不差，否则点不中画出来的轴）
+  const gm = gizmoMetrics(cam, sel, h, v3(sel.pos.x, sel.pos.y, sel.pos.z));
   const origin = gm.origin, L = gm.L, R = gm.R;
   const ax = objectAxes(sel);
   const AXES = [['x', ax.x], ['y', ax.y], ['z', ax.z]];
