@@ -45,6 +45,7 @@
         "assets/support/*",
         "assets/director/*.js",
         "assets/director/models/*.json",
+        "assets/director/clips/*.json",
         "README.md",
         "README.zh-CN.md",
         "docs/*.md",
@@ -62,5 +63,8 @@
             "platform": "web",
             "immediately": true
         }
+    },
+    "devDependencies": {
+        "fbx2gltf": "^0.9.7-p1"
     }
 }

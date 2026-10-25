@@ -1697,12 +1697,20 @@ function applyBodyShape(asset, pos, shape) {
       const k = 1 + muscle * (/forearm|hand|shin|foot/.test(nm) ? 0.16 : 0.55);
       nx *= k; nz *= k;
     }
-    // 头部缩放（儿童/少年大头比例）：以颈部为枢轴，对主导骨为 Head 系的顶点做等比缩放
-    if (head !== 1 && /head/.test(nm) && !/hand/.test(nm)) {
-      const pivot = 0.80 * Hm;
-      nx = pivot + (nx - pivot) * head;
-      ny = pivot + (ny - pivot) * head;
-      nz = pivot + (nz - pivot) * head;
+    // 头部缩放（儿童/少年大头比例）：枢轴取颈部高度，颈→头做垂直渐变；
+    // 只缩头不缩颈会让「头飞出去、脖子断开」（用户实测截图）。
+    if (head !== 1 && !/hand/.test(nm)) {
+      const isHeadBone = /head/.test(nm) && !/headtop/i.test(nm);
+      const isNeckBone = /neck/i.test(nm);
+      if (isHeadBone || isNeckBone) {
+        const pivot = 0.78 * Hm;                                   // 颈根
+        const span = Math.max(1e-6, 0.16 * Hm);                    // 颈→头过渡带
+        const w = isNeckBone ? Math.max(0, Math.min(1, (y - pivot) / span)) : 1;
+        const kk = 1 + (head - 1) * w;
+        nx = pivot + (nx - pivot) * kk;
+        ny = pivot + (ny - pivot) * kk;
+        nz = pivot + (nz - pivot) * kk;
+      }
     }
     if (nx !== x || ny !== y || nz !== z) { pos[v * 3] = nx; pos[v * 3 + 1] = ny; pos[v * 3 + 2] = nz; }
   }

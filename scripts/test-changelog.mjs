@@ -123,6 +123,8 @@ const COVERAGE = [
   { sha: '3950d65', keys: [/explorer/i, /body mesh/i, /saturat/i, /body-shape/i, /mannequin/i, /height-relative/i] },
   // 0.19.5 待发：体型标志色成为渲染默认（旧对象也着色）
   { sha: '00e65b7', keys: [/signature colour/i, /mannequin/i, /render fallback/i, /saturat/i, /color/i] },
+  // 0.19.5 待发：UI 修复（下拉/放大/全屏/时间轴）+ 男性模型还原
+  { sha: 'e29bad2', keys: [/muniSelect/i, /zoom/i, /fullscreen/i, /timeline/i, /restore/i, /spacesuit/i, /宇航/i] },
 ];
 for (const c of COVERAGE) {
   ok(c.keys.some((re) => re.test(coverageText)), '未发版提交 ' + c.sha + ' 在 CHANGELOG（Unreleased 或最新已发布段）里找不到对应记录（补记不全）');
