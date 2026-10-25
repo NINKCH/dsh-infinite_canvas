@@ -3394,6 +3394,13 @@ export const MANNEQUIN_TYPES = [
   { id: 'm_plump', zh: '男性 · 丰腴', en: 'Male plump', h: 1.74, w: 1.18, d: 1.14 , color: '#5865d8' },
   { id: 'f_plump', zh: '女性 · 丰腴', en: 'Female plump', h: 1.62, w: 1.14, d: 1.12 , color: '#a05fd8' },
 ];
+
+/** 体型的标志色（MANNEQUIN_TYPES.color）：ob.color 为空时的默认着色，
+ *  让 12 体型在视口/缩略图里像 storyai 资产页那样一眼可辨。 */
+export function mannequinColorOf(typeId) {
+  const t2 = (MANNEQUIN_TYPES || []).find((x) => x.id === typeId);
+  return (t2 && t2.color) || '';
+}
 export function mannequinTypeOf(id) { return MANNEQUIN_TYPES.find((t) => t.id === id) || MANNEQUIN_TYPES[0]; }
 
 /** 资产包围盒（用于自动归一化到人高 / 落地）。 */
@@ -5416,7 +5423,7 @@ export function createDirectorGlRenderer(canvas) {
             if (locSkin && locSkin.uRoughness) gl.uniform1f(locSkin.uRoughness, mat && mat.roughness !== undefined ? Number(mat.roughness) : 1);
             if (locSkin && locSkin.uMetallic) gl.uniform1f(locSkin.uMetallic, mat && mat.metallic !== undefined ? Number(mat.metallic) : 0);
             if (locSkin && locSkin.uSpecular) gl.uniform1f(locSkin.uSpecular, mat && mat.specular !== undefined ? Number(mat.specular) : 0.5);
-            const cc3 = directorHexToRgb(ob.color || CLAY);
+            const cc3 = directorHexToRgb(ob.color || mannequinColorOf(ob.typeId) || CLAY);
             if (drawDynamic(sk.pos, sk.nrm, asset.indices, model, cc3, !!(o.selectedId && ob.id === o.selectedId), viewProj, lightPack, Number(env.exposure) || 1)) {
               stats.faces += asset.tris;
               stats.tris += asset.tris;
@@ -5432,7 +5439,7 @@ export function createDirectorGlRenderer(canvas) {
             const rec = uploadSkin(ob.assetId, asset);
             const t = Number(ob.animTime) || 0;
             const bones = asset.bones ? boneMatrices(asset, t) : null;
-            const cc2 = directorHexToRgb(ob.color || CLAY);
+            const cc2 = directorHexToRgb(ob.color || mannequinColorOf(ob.typeId) || CLAY);
             const model = directorMat4Model(ob.pos, Number(ob.rotY) || 0, v3(Number(ob.s) || 1, Number(ob.s) || 1, Number(ob.s) || 1));
             if (drawSkin(asset, rec, model, cc2, viewProj, lightPack, Number(env.exposure) || 1, !!(o.selectedId && ob.id === o.selectedId), bones)) {
               stats.faces += asset.tris;
@@ -5455,7 +5462,7 @@ export function createDirectorGlRenderer(canvas) {
         gl.vertexAttribPointer(loc.aNormal, 3, gl.FLOAT, false, 0, 0);
         gl.uniformMatrix4fv(loc.uModel, false, directorMat4Identity());
         gl.uniformMatrix3fv(loc.uNormalMat, false, directorMat3NormalFrom(v3(0, 0, 0), 0, v3(1, 1, 1)));
-        const cc = directorHexToRgb(ob.color || CLAY);
+        const cc = directorHexToRgb(ob.color || mannequinColorOf(ob.typeId) || CLAY);
         gl.uniform3f(loc.uColor, cc[0], cc[1], cc[2]);
         gl.uniform1f(loc.uSelected, (o.selectedId && ob.id === o.selectedId) ? 1 : 0);
         gl.drawArrays(gl.TRIANGLES, 0, rec.count);
@@ -5713,7 +5720,7 @@ export function directorRenderScene(ctx, w, h, scene, opts) {
   (scene.objects || []).forEach((ob) => {
     const fs = directorObjectFaces(ob);
     stats.faces += fs.length;
-    fs.forEach((f) => items.push({ f, color: ob.color || CLAY, base: ob }));
+    fs.forEach((f) => items.push({ f, color: ob.color || mannequinColorOf(ob.typeId) || CLAY, base: ob }));
   });
   if (false && env.groundVisible !== false) {
     const s = 400, op = 0;   // 不画地面填充，只画网格
