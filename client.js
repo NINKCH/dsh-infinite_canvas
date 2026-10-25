@@ -13893,7 +13893,22 @@ function queueThumb(assetId) {
       const E2 = directorEngine();
       if (!E2) return null;
       const cached = E2.gltfAssetOf(id);
-      if (cached) return cached;
+      // 缓存命中也必须补动作：资产在动作库加载完成前就被注册过时，
+      // 直接返回会永远缺 clips（用户实测：新加的动作在下拉里根本不出现）。
+      if (cached) {
+        const clips = await loadActionClips().catch(() => []);
+        const missing = clips.filter((c) => c && c.name && !(cached.animations || []).some((a) => a.name === c.name));
+        if (!missing.length) return cached;
+        // 重新 decode 一次（pack 已在内存，无网络开销），把缺的动作并进去后覆盖注册
+        try {
+          const r2 = await fetch(pluginAssetUrl(MODEL_DIR + id + '.json'));
+          if (r2.ok) {
+            const merged = E2.decodeModelPack(await r2.json(), clips);
+            return E2.registerGltfAsset(id, merged);
+          }
+        } catch { /* 合并失败就用原资产，不阻断放置 */ }
+        return cached;
+      }
       const r = await fetch(pluginAssetUrl(MODEL_DIR + id + '.json'));
       if (!r.ok) throw new Error('模型加载失败 ' + id);
       const clips = await loadActionClips().catch(() => []);

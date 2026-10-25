@@ -125,6 +125,8 @@ const COVERAGE = [
   { sha: '00e65b7', keys: [/signature colour/i, /mannequin/i, /render fallback/i, /saturat/i, /color/i] },
   // 0.19.5 待发：UI 修复（下拉/放大/全屏/时间轴）+ 男性模型还原
   { sha: 'e29bad2', keys: [/muniSelect/i, /zoom/i, /fullscreen/i, /timeline/i, /restore/i, /spacesuit/i, /宇航/i] },
+  // 0.19.5 待发：19 个 Mixamo 动作 + 颈部感知的头部骨骼缩放
+  { sha: '16c9b7b', keys: [/Mixamo action/i, /action clips/i, /head scaling/i, /neck/i, /awplanet/i] },
 ];
 for (const c of COVERAGE) {
   ok(c.keys.some((re) => re.test(coverageText)), '未发版提交 ' + c.sha + ' 在 CHANGELOG（Unreleased 或最新已发布段）里找不到对应记录（补记不全）');

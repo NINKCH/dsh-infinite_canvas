@@ -1697,21 +1697,8 @@ function applyBodyShape(asset, pos, shape) {
       const k = 1 + muscle * (/forearm|hand|shin|foot/.test(nm) ? 0.16 : 0.55);
       nx *= k; nz *= k;
     }
-    // 头部缩放（儿童/少年大头比例）：枢轴取颈部高度，颈→头做垂直渐变；
-    // 只缩头不缩颈会让「头飞出去、脖子断开」（用户实测截图）。
-    if (head !== 1 && !/hand/.test(nm)) {
-      const isHeadBone = /head/.test(nm) && !/headtop/i.test(nm);
-      const isNeckBone = /neck/i.test(nm);
-      if (isHeadBone || isNeckBone) {
-        const pivot = 0.78 * Hm;                                   // 颈根
-        const span = Math.max(1e-6, 0.16 * Hm);                    // 颈→头过渡带
-        const w = isNeckBone ? Math.max(0, Math.min(1, (y - pivot) / span)) : 1;
-        const kk = 1 + (head - 1) * w;
-        nx = pivot + (nx - pivot) * kk;
-        ny = pivot + (ny - pivot) * kk;
-        nz = pivot + (nz - pivot) * kk;
-      }
-    }
+    // 头部缩放不在这里做：顶点级缩放会把头拉长（骨骼没跟上去 → 视觉「飞头」）。
+    // 改由 skinModel 在蒙皮前对 Head/Neck 骨骼矩阵缩放（applyHeadBoneScale）。
     if (nx !== x || ny !== y || nz !== z) { pos[v * 3] = nx; pos[v * 3 + 1] = ny; pos[v * 3 + 2] = nz; }
   }
 }
@@ -2505,6 +2492,8 @@ export function skinModel(asset, clipName, time, outPos, outNrm, shape) {
           : boneMatrices(asset, time || 0)))
     : null;
   const P = asset.positions, N = asset.normals, J = asset.joints, W = asset.weights, nb = asset.bones ? asset.bones.length : 0;
+  // 头部/颈部骨骼缩放必须在蒙皮之前作用到骨骼矩阵上（顶点级缩放只会把头拉长 → 「飞头」）
+  if (bm && shape && Number(shape.head) && Number(shape.head) !== 1) applyHeadBoneScale(asset, bm, Number(shape.head));
   const pos = outPos && outPos.length === P.length ? outPos : new Float32Array(P.length);
   const nrm = outNrm && outNrm.length === P.length ? outNrm : new Float32Array(P.length);
   const nv = P.length / 3;
@@ -2582,10 +2571,27 @@ export function skinModel(asset, clipName, time, outPos, outNrm, shape) {
   return { pos, nrm };
 }
 
+/** 头部骨骼缩放：把 Head(含 Neck 渐变) 的蒙皮矩阵左乘一个以头骨原点为中心的缩放矩阵。
+ *  必须在骨骼层做——只在顶点上加缩放会把头拉长而不缩放骨骼，视觉上就是「头飞/脖子断」。 */
+function applyHeadBoneScale(asset, bm, k) {
+  if (!bm || !bm.mats || !asset || !asset.bones) return;
+  const nb = asset.bones.length;
+  for (let bi = 0; bi < nb; bi++) {
+    const nm = String((asset.bones[bi] && asset.bones[bi].name) || '').replace(/^mixamorig:?/i, '');
+    if (!/^(Head|Neck)$/i.test(nm)) continue;
+    // Neck 只放大一半（平滑过渡），Head 全量
+    const kk = 1 + (k - 1) * (/^Neck$/i.test(nm) ? 0.5 : 1);
+    const off = bi * 16;
+    // 绕该骨骼自身原点缩放：等价于把矩阵的线性部分乘以 kk（平移列不变）
+    for (let c = 0; c < 3; c++) {
+      bm.mats[off + c] *= kk;
+      bm.mats[off + 4 + c] *= kk;
+      bm.mats[off + 8 + c] *= kk;
+    }
+  }
+}
+
 /**
- * 播放头 → 场景副本：模型对象的动作时间跟随播放头，带关键帧的相机做位置/注视点插值。
- * 预演与导出视频都走这一个函数，保证"看到的"和"导出的"一致。
- */
 /* ============================================================
  * 运动路径（对照 Blender BKE_where_on_path + Follow Path 约束）
  *   关键帧串成 Catmull-Rom 样条 → 按时间参数在曲线上取「位置 + 切线」
