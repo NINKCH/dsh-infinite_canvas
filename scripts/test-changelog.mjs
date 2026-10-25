@@ -127,6 +127,10 @@ const COVERAGE = [
   { sha: 'e29bad2', keys: [/muniSelect/i, /zoom/i, /fullscreen/i, /timeline/i, /restore/i, /spacesuit/i, /宇航/i] },
   // 0.19.5 待发：19 个 Mixamo 动作 + 颈部感知的头部骨骼缩放
   { sha: '16c9b7b', keys: [/Mixamo action/i, /action clips/i, /head scaling/i, /neck/i, /awplanet/i] },
+  // 0.19.5 待发：缓存资产补动作 + 头部缩放移到骨骼层
+  { sha: 'f18a986', keys: [/cached asset/i, /action library/i, /Head bone/i, /head scaling/i, /bones/i] },
+  // 0.19.5 待发：媒体节点放大/全屏键挪到分辨率条旁
+  { sha: '4aea600', keys: [/resolution chip/i, /zoom/i, /fullscreen/i, /bottom-right/i] },
 ];
 for (const c of COVERAGE) {
   ok(c.keys.some((re) => re.test(coverageText)), '未发版提交 ' + c.sha + ' 在 CHANGELOG（Unreleased 或最新已发布段）里找不到对应记录（补记不全）');
