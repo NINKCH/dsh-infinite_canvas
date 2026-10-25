@@ -3528,7 +3528,10 @@ export function cameraFlyStep(cam, input, dt, opts) {
  * 单位一律是 CSS 像素 → 同一相机/同一 CSS 尺寸下两者必然一致（历史 bug：绘制用设备像素、拾取用 CSS，命中区偏移）。
  */
 export function gizmoMetrics(cam, sel, hCss, originOverride) {
-  const origin = originOverride || v3(sel.pos.x, sel.pos.y + (Number(sel.poseCenterY) || 0), sel.pos.z);
+  // 轴心 = 物体自身坐标系原点（人物是脚底中心），**不随姿态上浮**。
+  // 轴朝向由 objectAxes(sel) 给出 → 物体旋转时轴跟着转（人物倒地后 z 轴仍指向头）。
+  // 需要「轴心跟随身体」的场合显式传 originOverride（见 render 里的 gizmoFollowBody 开关）。
+  const origin = originOverride || v3(sel.pos.x, sel.pos.y, sel.pos.z);
   const depth = depthOf(cam, origin);
   const pxWorld = pixelSizeAt(cam, hCss, depth);
   const minWorld = Math.max(0.25, (Number(sel.h) || 1.7) / 3);
@@ -5551,8 +5554,13 @@ export function createDirectorGlRenderer(canvas) {
       if (o.gizmo && o.selectedId) {
         const sel = (scene.objects || []).find((x) => x.id === o.selectedId);
         if (sel) {
-          // gizmo 跟随姿态中心（倒地/下蹲时身体不在原点：让轴心贴住身体，而非留在地面）
-          const origin = v3(sel.pos.x, sel.pos.y + (Number(sel.poseCenterY) || 0), sel.pos.z);
+          // 轴心默认在物体原点（人物 = 脚底中心），轴朝向由 objectAxes(sel) 给出
+          // → 物体旋转时轴跟着转（人物倒地后 z 轴仍指向头），不是固定世界坐标。
+          // 「跟随身体」是显式开关：仅当选中项或场景打开 gizmoFollowBody 时才抬到髋高。
+          const followBody = !!(sel.gizmoFollowBody || o.gizmoFollowBody);
+          const origin = followBody
+            ? v3(sel.pos.x, sel.pos.y + (Number(sel.poseCenterY) || 0), sel.pos.z)
+            : v3(sel.pos.x, sel.pos.y, sel.pos.z);
           // 屏幕恒定大小（Blender: wm_gizmo_calculate_scale）：轴长 105 CSS px，环 0.62×轴长。
           // 尺寸唯一来源 gizmoMetrics，拾取用同一个函数 → 不可能再出现「画的位置和点不中」。
           const gm = gizmoMetrics(cam, sel, hCss, origin);
@@ -5939,7 +5947,12 @@ export function directorPickGizmo(scene, selectedId, w, h, sx, sy) {
   if (!cam) return null;
   // 与绘制完全同源：精确屏幕投影 + 同一个 gizmoMetrics（w/h 都是 CSS 尺寸）
   const project = (p) => directorScreenOf(cam, w, h, p);
-  const gm = gizmoMetrics(cam, sel, h);
+  // 轴心规则必须与绘制一致：默认物体原点，只有显式打开「跟随身体」才抬到髋高
+  const pickFollow = !!(sel.gizmoFollowBody || scene.gizmoFollowBody);
+  const pickOrigin = pickFollow
+    ? v3(sel.pos.x, sel.pos.y + (Number(sel.poseCenterY) || 0), sel.pos.z)
+    : v3(sel.pos.x, sel.pos.y, sel.pos.z);
+  const gm = gizmoMetrics(cam, sel, h, pickOrigin);
   const origin = gm.origin, L = gm.L, R = gm.R;
   const ax = objectAxes(sel);
   const AXES = [['x', ax.x], ['y', ax.y], ['z', ax.z]];
