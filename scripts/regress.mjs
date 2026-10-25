@@ -81,6 +81,8 @@ const SUITE = [
   { name: 'test-asset-migration.mjs', desc: '旧 IDB 资产一次性迁移：保留 id 落盘入库 / 清 IDB / 缺失分类 / 无数据根跳过 / 幂等并发 / 无 rel 显示兜底' },
   { name: 'test-director-panels.mjs', desc: '导演台 IK·约束·动作层面板：按钮入口 / 字段写回 / 引擎接线 / 中英 i18n / spec 往返' },
   { name: 'test-action-library.mjs', desc: '内置动作库：成熟动作 clip 可加载、真实播放、连续无跳变、覆盖内置片段' },
+  { name: 'test-skill-panel.mjs', desc: '技能页：四层数据(24/21/10/8/9) + 切片反向断言 + 项目隔离 + 三页签零下拉 + 72 图标闭环 + 注入矩阵' },
+  { name: 'test-skill-pack.mjs', desc: '技能包 Host 侧：readSkillPack 边界 / 4 份技能注册 / canvas_list_skills / canvas_skill_pack 四档切片' },
   { name: 'test-rig-map.mjs', desc: '通用人形骨架映射：xbot 100% / Mixamo·VRM·Blender·Daz ≥85% / 左右不串 / 非人形低覆盖' },
   { name: 'test-bvh.mjs', desc: 'Phase D 动捕接入：BVH 解析 / rest-delta 重定向 / 动作层 replace·add·loop·influence / 规格透传' },
   { name: 'test-ik.mjs', desc: 'Phase C 两骨解析 IK：命中/轴心/极向量/不可达 + damped_track + limit/copy rotation + 规格透传' },

@@ -300,7 +300,7 @@ function cssRulesMatchingClass(name) {
   // 右侧面板不再有资产/设定集页签
   const rb = all(TABS.Rightbar());
   const rbTabs = rb.filter((e) => e.props && e.props['data-tab']).map((e) => e.props['data-tab']);
-  eq(rbTabs.join(','), 'projects,settings', '右侧面板页签应只剩 项目 / 设置');
+  eq(rbTabs.join(','), 'projects,craft,settings', '右侧面板页签应为 项目 / 技能 / 设置');
   ok(!rbTabs.includes('assets') && !rbTabs.includes('bible'), '右侧面板仍保留资产/设定集页签');
   ok(!/S\.rightTab === 'assets'|S\.rightTab === 'bible'/.test(fnBody('Rightbar')), 'Rightbar 仍渲染资产/设定集页');
 }

@@ -153,40 +153,64 @@ ok(!!TABS, '未暴露 window.__DSH_IC_TABS__');
 ok(!!SYNC, '未暴露 window.__DSH_IC_SYNC__');
 ok(!!SETTINGS, '未暴露 window.__DSH_IC_SETTINGS__（专家团/设置迁移缝隙缺失）');
 
-// ---------- A) 人设文本：硬规则关键词 ----------
+// ---------- A) 硬规则来源（方案 A）：人设已删除，规则唯一来源 = canvas-craft 技能正文 ----------
 if (SKILL) {
-  const sbZh = SKILL.EXPERT_STORYBOARD(true);
-  const sbEn = SKILL.EXPERT_STORYBOARD(false);
-  const scZh = SKILL.EXPERT_SCRIPT(true);
-  const scEn = SKILL.EXPERT_SCRIPT(false);
+  // 人设常量与注册表必须已移除（方案 A 的核心：同一套规则只留一份）
+  ok(typeof SKILL.EXPERT_SCRIPT === 'undefined', 'EXPERT_SCRIPT 仍被导出（人设应已删除）');
+  ok(typeof SKILL.EXPERT_STORYBOARD === 'undefined', 'EXPERT_STORYBOARD 仍被导出（人设应已删除）');
+  ok(!/const EXPERT_SCRIPT\s*=/.test(src), '源码仍定义 EXPERT_SCRIPT');
+  ok(!/const EXPERT_STORYBOARD\s*=/.test(src), '源码仍定义 EXPERT_STORYBOARD');
+  ok(!/const EXPERTS = \[/.test(src), '源码仍定义 EXPERTS 注册表');
+  ok(!/expertIdOrDefault|expertFor|expertPersona|loadExpertRules/.test(src), '源码仍引用已删除的专家函数');
 
-  // 分镜人设：六要素
-  for (const k of ['景别', '机位', '主体位置与朝向', '前景/背景层次', '光线方向与质感', '关键道具位置', '六要素']) {
-    ok(sbZh.includes(k), `分镜人设（zh）缺少六要素关键字「${k}」`);
+  // 硬规则从技能正文取（Host 的 readSkill 返回 canvas-craft 全文）
+  const craft = await (async () => {
+    try {
+      const sk = await SKILL.buildExpertContext
+        ? await (await import('node:fs')).promises.readFile(
+          (await import('node:path')).join(ROOT, 'assets', 'canvas-craft', 'SKILL.md'), 'utf8')
+        : '';
+      return sk;
+    } catch { return ''; }
+  })();
+  ok(!!craft && craft.length > 5000, '读不到 canvas-craft 技能正文');
+
+  // 分镜六要素
+  for (const k of ['六要素', '景别', '机位', '前景', '光线方向', '道具']) {
+    ok(craft.includes(k), `canvas-craft 技能缺少六要素关键字「${k}」`);
   }
-  for (const k of ['SIX elements', 'shot size', 'camera position/angle', 'subject position and facing', 'foreground/background', 'light direction and quality', 'key prop position']) {
-    ok(sbEn.includes(k), `分镜人设（en）缺少六要素关键字「${k}」`);
-  }
-  // 每场至少 1 个大特写
-  ok(/每场至少\s*1\s*个大特写/.test(sbZh), '分镜人设（zh）未写「每场至少 1 个大特写」');
-  ok(/At least ONE extreme close-up per scene/.test(sbEn), '分镜人设（en）未写 per-scene extreme close-up');
-  ok(sbZh.includes('大特写') && sbZh.includes('0.8–2s'), '分镜人设（zh）大特写缺时长口径（0.8–2s）');
-  // motion 起点→方式→终点 + 禁止空模板平移 + 同场连续三镜不同运动
-  ok(sbZh.includes('起点 → 运动方式 → 终点'), '分镜人设（zh）motion 未写「起点 → 运动方式 → 终点」');
-  ok(sbZh.includes('空模板'), '分镜人设（zh）未禁止空模板运镜');
-  ok(/连续三镜不得使用同一种运动方式/.test(sbZh), '分镜人设（zh）未写「同场连续三镜不得同种运动」');
-  ok(sbEn.includes('start -> movement -> end') && /three consecutive shots/.test(sbEn), '分镜人设（en）缺少 motion 公式/三镜不同运动');
-  // 每场至少一个冲撞点 + 至少两种手段
-  ok(/每场至少一个冲撞点/.test(sbZh), '分镜人设（zh）未写「每场至少一个冲撞点」');
-  for (const k of ['短镜头堆叠', '反向构图', '跳切', '声音突入']) ok(sbZh.includes(k), `分镜人设（zh）冲撞手段缺「${k}」`);
-  ok(/COLLISION POINT/.test(sbEn) && /stacked short shots/.test(sbEn) && /sound intrusion/.test(sbEn), '分镜人设（en）缺少冲撞点/手段');
+  // 每场大特写 + 时长
+  ok(/大特写/.test(craft), 'canvas-craft 技能未写「大特写」');
+  ok(/0\.8/.test(craft), 'canvas-craft 技能缺大特写时长口径（0.8–2s）');
+  // motion 起点→方式→终点 + 禁止空模板
+  ok(/起点/.test(craft) && /终点/.test(craft), 'canvas-craft 技能缺 motion 公式（起点→终点）');
+  ok(/空模板|推近|平移/.test(craft), 'canvas-craft 技能缺空模板运镜禁令');
+  // 冲撞点与手段
+  ok(/冲撞点/.test(craft), 'canvas-craft 技能未写「冲撞点」');
   // 因果钩子 + 术语
-  ok(sbZh.includes('因果钩子') && sbZh.includes('调度'), '分镜人设（zh）缺「因果钩子」或「调度」术语');
-  ok(/术语必须正确/.test(sbZh), '分镜人设（zh）未写术语正确约束');
+  ok(/因果钩子/.test(craft), 'canvas-craft 技能缺「因果钩子」');
+  ok(/调度/.test(craft), 'canvas-craft 技能缺「调度」术语');
 
-  // 剧本人设：四要素 + 因果钩子（zh/en）
-  for (const k of ['目标', '阻碍', '转折', '代价', '因果钩子']) ok(scZh.includes(k), `剧本人设（zh）缺少「${k}」`);
-  for (const k of ['goal', 'obstacle', 'turn', 'cost', 'CAUSAL HOOK']) ok(scEn.includes(k), `剧本人设（en）缺少「${k}」`);
+  // 剧本四要素
+  for (const k of ['目标', '阻碍', '转折', '代价']) {
+    ok(craft.includes(k), `canvas-craft 技能缺剧本四要素「${k}」`);
+  }
+
+  // buildExpertContext 必须把 canvas-craft 规则与技能包切片都产出
+  // 注：沙箱里 readSkill RPC 是桩，rules 正文取不到 → 这里断言「结构」，正文由 A) 段读磁盘技能文件覆盖
+  const ctx = await SKILL.buildExpertContext('storyboard', {}, true);
+  ok(!!ctx, 'buildExpertContext 未返回上下文');
+  ok(Object.prototype.hasOwnProperty.call(ctx, 'rules'), 'buildExpertContext 未产出 rules 字段');
+  ok(typeof ctx.packText === 'string', 'buildExpertContext 未产出 packText（技能包切片）');
+  ok(ctx.persona === '', 'buildExpertContext 仍产出人设（方案 A 应为人设留空）');
+  ok(Array.isArray(ctx.skills) && ctx.skills.includes('canvas-craft'), 'buildExpertContext 的技能组不含 canvas-craft');
+  const becSrc = (() => {
+    const i = src.indexOf('async function buildExpertContext(');
+    const j = i >= 0 ? src.indexOf('\n    async function aiScriptNodes(', i) : -1;
+    return i >= 0 ? src.slice(i, j > 0 ? j : i + 3000) : '';
+  })();
+  ok(/loadSkillRules\(CRAFT_SKILL/.test(becSrc), 'buildExpertContext 未从 canvas-craft 取硬规则（源码级）');
+  ok(/buildSkillPackText\(k\)/.test(becSrc), 'buildExpertContext 未调用 buildSkillPackText（源码级）');
 
   // 输出结构约束不变：jsonContract 里的字段名必须原样保留（只提升内容质量，不改解析依赖）
   const contractBlock = (() => {
@@ -210,6 +234,7 @@ if (SKILL) {
   ok(src.includes('"dialogue":[{"role"'), '分镜契约的 dialogue 结构 {role,line} 被改动');
   ok(src.includes('数量由内容自然决定（3-10 镜都正常）'), '分镜契约的镜头数量口径被改动（应保持按内容自然决定）');
   ok(src.includes('**仅作参考**——必须按实际动作节拍切分'), '镜头数参数应仍为「仅参考」，不得变成硬性数量');
+  ok(ctx.persona === '', 'buildExpertContext 仍产出人设（方案 A 应为人设留空）');
 }
 
 // ---------- B) 快捷键：注册、目录可见、面板可见、动作把技能文本送进剪贴板 ----------
@@ -295,31 +320,19 @@ if (SKILL && TABS && SYNC) {
   ok(clipboardText === SKILL_BODY, '快捷键技能动作未把技能全文送进剪贴板');
 }
 
-// ---------- C) 专家：单一「专家」下拉（只列本插件）+ 迁移 + 剧本/分镜统一调度 ----------
+// ---------- C) 方案 A：专家层已移除，设置里不再有专家字段/下拉 ----------
 if (SETTINGS && TABS) {
   const ST_KEY = 'dsh-ic:settings';
   const readWith = (obj) => { lsStore.set(ST_KEY, JSON.stringify(obj)); return SETTINGS.loadSettings(); };
-  // 1) 迁移：旧 skillScript/skillStoryboard（无 expert）→ general；非法/缺失也回退 general
-  let st = readWith({ skillScript: 'canvas-craft', skillStoryboard: 'canvas-craft' });
-  eq(st.expert, 'general', '旧 settings（skillScript/skillStoryboard）迁移后 expert 不是 general');
-  ok(!Object.prototype.hasOwnProperty.call(st, 'skillScript') && !Object.prototype.hasOwnProperty.call(st, 'skillStoryboard'),
-    'loadSettings 仍输出旧 skillScript/skillStoryboard 字段（应只读 expert）');
-  eq(readWith({ expert: 'not-a-real-expert' }).expert, 'general', '非法 expert 未回退 general');
-  eq(readWith({}).expert, 'general', '缺 expert 字段未回退 general');
-  eq(readWith({ expert: 'general' }).expert, 'general', '合法 expert 未保留');
+  // 1) 旧字段（skillScript/skillStoryboard/expert）一律不再输出，也不报错
+  const st = readWith({ skillScript: 'canvas-craft', skillStoryboard: 'canvas-craft', expert: 'general' });
+  ok(!Object.prototype.hasOwnProperty.call(st, 'expert'), 'loadSettings 仍输出 expert 字段（方案 A 应已移除）');
+  ok(!Object.prototype.hasOwnProperty.call(st, 'skillScript'), 'loadSettings 仍输出旧 skillScript 字段');
+  ok(!Object.prototype.hasOwnProperty.call(st, 'skillStoryboard'), 'loadSettings 仍输出旧 skillStoryboard 字段');
   lsStore.delete(ST_KEY);
-  eq(SETTINGS.loadSettings().expert, 'general', '无 settings 时默认不是 general');
-  // 2) 数据源：EXPERTS 只有 general；结构支持多专家（persona 按能力 + skills 数组）
-  const ids = SETTINGS.EXPERTS.map((e) => e.id);
-  ok(ids.length === 1 && ids[0] === 'general', 'EXPERTS 应只有 general，实际：' + ids.join(','));
-  for (const e of SETTINGS.EXPERTS) {
-    ok(Array.isArray(e.skills) && e.skills.length > 0, e.id + ': skills 不是非空数组');
-    ok(e.persona && typeof e.persona.script === 'function' && typeof e.persona.storyboard === 'function',
-      e.id + ': persona 必须按 script/storyboard 提供人设');
-    for (const s of e.skills) ok(!/^(artcraft|noteboard|office|diagnose)-/.test(s), e.id + ': skills 混入非本插件技能 ' + s);
-  }
-  // 3) 设置页 UI：标题无括号说明；只有一个专家下拉；选项只含「通用专家」
-  readWith({ expert: 'general' });
+  ok(!Object.prototype.hasOwnProperty.call(SETTINGS.loadSettings(), 'expert'), '无 settings 时 loadSettings 仍带 expert');
+
+  // 2) 设置页：没有专家下拉、没有「技能增强」卡
   const els = [];
   const texts = [];
   (function walk(el) {
@@ -328,70 +341,27 @@ if (SETTINGS && TABS) {
     if (Array.isArray(el)) { el.forEach(walk); return; }
     if (el.__el) { els.push(el); walk(el.props.children); }
   })(TABS.SettingsTab());
-  ok(texts.includes('技能增强'), '设置页缺少「技能增强」标题');
-  ok(!texts.some((t) => t.includes('（用已安装') || t.includes('技能增强（')), '设置页标题仍带括号说明');
-  ok(!texts.includes('剧本技能') && !texts.includes('分镜技能'), '设置页仍出现「剧本技能」「分镜技能」标签');
-  const expertEls = els.filter((e) => e.type === TABS.ExpertSelect);
-  eq(expertEls.length, 1, '设置页应恰好挂载 1 个 ExpertSelect（剧本/分镜两个下拉应已合并）');
-  const exTree = TABS.ExpertSelect({ value: 'general', onChange: noop });
-  const exEls = [];
-  (function walkEx(el) {
-    if (el == null || typeof el === 'boolean') return;
-    if (typeof el === 'string' || typeof el === 'number') return;
-    if (Array.isArray(el)) { el.forEach(walkEx); return; }
-    if (el.__el) { exEls.push(el); walkEx(el.props.children); }
-  })(exTree);
-  const selects = exEls.filter((e) => e.type === 'select');
-  eq(selects.length, 1, '专家下拉组件应只有一个 select');
-  const expertSel = selects[0];
-  ok(expertSel && expertSel.props['data-role'] === 'expert-select', '专家下拉缺少 data-role="expert-select"');
-  // 卡片大标题已说明用途：不得再多一行「专家 ⓘ」小标签（历史返工点）
-  ok(!exEls.some((e) => String((e.props && e.props.className) || '') === 'dshic-field-label'),
-    '专家下拉上方仍有多余的字段标签行（应只保留下拉框）');
-  const optTexts = [];
-  (function walkOpt(el) {
-    if (el == null || typeof el === 'boolean') return;
-    if (Array.isArray(el)) { el.forEach(walkOpt); return; }
-    if (el.__el) {
-      if (el.type === 'option') { optTexts.push(String(el.props.children)); return; }
-      walkOpt(el.props.children);
-    }
-  })(expertSel);
-  eq(optTexts.length, 1, '专家下拉选项应只有 1 个（通用专家），实际：' + optTexts.join(','));
-  eq(optTexts[0], '通用专家', '专家下拉默认选项不是「通用专家」');
-  ok(!optTexts.some((t) => /artcraft-|noteboard-|office-|diagnose-/.test(t)), '专家下拉渲染了 Harness 其它技能名');
-  eq(String(expertSel.props['data-expert-options'] || ''), 'general', '专家下拉的数据源（data-expert-options）不是只有 general');
-  ok(!/artcraft-|noteboard-|office-|diagnose-/.test(String(expertSel.props['data-expert-options'] || '')), '专家下拉数据源混入 Harness 技能名');
-  // 数据源级：ExpertSelect 不得再调用 useSkills（否则只是"过滤显示"）
-  const exStart = src.indexOf('function ExpertSelect(');
-  const exSrc = exStart >= 0 ? src.slice(exStart, src.indexOf('\n    function', exStart + 10)) : '';
-  ok(!!exSrc, '未能定位 ExpertSelect 源码');
-  ok(!/useSkills\s*\(/.test(exSrc), 'ExpertSelect 仍从 Harness 全量技能（useSkills）取数据');
-  ok(!/'skillScript'|'skillStoryboard'/.test(src), '源码仍保留旧技能标签 i18n key');
-  ok(src.includes("'skillEnhance': 'Skill boost',"), '英文标题仍不是纯「Skill boost」');
-  // 4) 调度：general 的剧本/分镜上下文都包含 persona + 技能规则；假专家验证结构支持多专家
-  const sc = await SETTINGS.buildExpertContext('script', { expert: 'general' }, true);
-  ok(sc.persona.includes('目标') && sc.persona.includes('阻碍') && sc.persona.includes('因果钩子'), '剧本上下文缺少通用专家 persona（四要素/因果钩子）');
-  ok(String(sc.rules || '').includes('严格遵循') && String(sc.rules || '').includes('六要素'), '剧本上下文缺少 canvas-craft 技能规则正文');
-  const sb = await SETTINGS.buildExpertContext('storyboard', { expert: 'general' }, true);
-  ok(sb.persona.includes('六要素') && sb.persona.includes('大特写'), '分镜上下文缺少通用专家 persona（六要素/大特写）');
-  ok(String(sb.rules || '').includes('六要素'), '分镜上下文缺少 canvas-craft 技能规则正文');
-  const general = SETTINGS.EXPERTS[0];
-  const fake = {
-    id: 'ancient-costume', nameKey: 'expertGeneral',
-    persona: { script: () => 'FAKE-SCRIPT-PERSONA', storyboard: () => 'FAKE-STORYBOARD-PERSONA' },
-    skills: ['canvas-craft'],
-  };
-  const reg = [general, fake];
-  ok(SETTINGS.expertFor('ancient-costume', reg) === fake, 'expertFor 未按 id 从注入注册表取到第二专家');
-  ok(SETTINGS.expertFor('missing', reg) === general, 'expertFor 对未知 id 未回退 general');
-  eq(SETTINGS.expertIdOrDefault('ancient-costume'), 'general', 'expertIdOrDefault 未把非内置 id 回退 general');
-  const cf = await SETTINGS.buildExpertContext('script', { expert: 'ancient-costume' }, true, reg);
-  eq(cf.persona, 'FAKE-SCRIPT-PERSONA', '假专家的人设没有生效（调度仍写死 general）');
-  eq(cf.skills.join(','), 'canvas-craft', '假专家的 skills 未被调度使用');
-  const cfb = await SETTINGS.buildExpertContext('storyboard', { expert: 'ancient-costume' }, true, reg);
-  eq(cfb.persona, 'FAKE-STORYBOARD-PERSONA', '假专家分镜人设没有生效');
-  // 真实生成入口：剧本/分镜都必须走 buildExpertContext，且把 persona + rules 拼进 system（不再读旧字段）
+  ok(!texts.includes('技能增强'), '设置页仍有「技能增强」标题（应已迁到技能页）');
+  ok(!texts.includes('通用专家'), '设置页仍出现「通用专家」（方案 A 应已移除）');
+  ok(!els.some((e) => e.type === TABS.ExpertSelect), '设置页仍挂载 ExpertSelect');
+  ok(!/data-role': 'expert-select'/.test(src), '源码仍渲染 expert-select 下拉');
+
+  // 3) 人设与注册表源码级已删除
+  ok(typeof SETTINGS.EXPERTS === 'undefined', 'SETTINGS 仍导出 EXPERTS');
+  ok(!/const EXPERT_SCRIPT\s*=/.test(src), '源码仍定义 EXPERT_SCRIPT');
+  ok(!/const EXPERT_STORYBOARD\s*=/.test(src), '源码仍定义 EXPERT_STORYBOARD');
+  ok(!/expertIdOrDefault|expertFor|expertPersona|loadExpertRules/.test(src), '源码仍引用专家函数');
+
+  // 4) 剧本/分镜都走 buildExpertContext，且把「canvas-craft 规则 + 技能包切片」拼进 system
+  const sc = await SETTINGS.buildExpertContext('script', {}, true);
+  ok(sc.persona === '', '剧本上下文 persona 应为空（方案 A）');
+  ok(String(sc.rules || '').includes('严格遵循') && String(sc.rules || '').includes('六要素'), '剧本上下文缺 canvas-craft 规则正文');
+  ok(typeof sc.packText === 'string', '剧本上下文缺技能包切片 packText');
+  const sb = await SETTINGS.buildExpertContext('storyboard', {}, true);
+  ok(String(sb.rules || '').includes('六要素'), '分镜上下文缺 canvas-craft 规则正文');
+  ok(typeof sb.packText === 'string', '分镜上下文缺技能包切片 packText');
+
+  // 5) 三个生成入口都必须同时拼 rules 与 packText
   const fnSlice = (name) => {
     const i = src.indexOf('async function ' + name + '(');
     const j = i >= 0 ? src.indexOf('\n    async function ', i + 10) : -1;
@@ -400,9 +370,11 @@ if (SETTINGS && TABS) {
   const scriptFn = fnSlice('aiScriptNodes');
   const sbFn = fnSlice('aiStoryboardShots');
   ok(/buildExpertContext\('script'/.test(scriptFn), '剧本生成没有走 buildExpertContext(script)');
-  ok(/ctx\.persona/.test(scriptFn) && /ctx\.rules/.test(scriptFn), '剧本生成没有把专家 persona/rules 拼进 system');
+  ok(/ctx\.rules/.test(scriptFn), '剧本生成没有把 canvas-craft 规则拼进 system');
+  ok(/ctx\.packText/.test(scriptFn), '剧本生成没有把技能包切片拼进 system');
   ok(/buildExpertContext\('storyboard'/.test(sbFn), '分镜生成没有走 buildExpertContext(storyboard)');
-  ok(/ctxSb\.persona/.test(sbFn) && /ctxSb\.rules/.test(sbFn), '分镜生成没有把专家 persona/rules 拼进 system');
+  ok(/ctxSb\.rules/.test(sbFn), '分镜生成没有把 canvas-craft 规则拼进 system');
+  ok(/ctxSb\.packText/.test(sbFn), '分镜生成没有把技能包切片拼进 system');
   ok(!/loadSkillRules\(settings\.skill(Script|Storyboard)/.test(src), '生成代码仍读取旧 skillScript/skillStoryboard 字段');
 }
 
@@ -430,7 +402,7 @@ try {
   ok(p.name === 'dsh-infinite-canvas', '技能提供方 name 应为 dsh-infinite-canvas');
   const list = await p.list();
   const names = (list || []).map((c) => c.name).sort();
-  ok(names.join(',') === 'canvas-craft,canvas-layout,canvas-studio', `技能目录应可枚举出三份内置技能，实际 ${names.join(',')}`);
+  ok(names.join(',') === 'canvas-craft,canvas-director,canvas-layout,canvas-studio', `技能目录应可枚举出四份内置技能，实际 ${names.join(',')}`);
   const need = {
     'canvas-craft': ['六要素', '大特写', '冲撞点', '起点', '调度'],
     'canvas-studio': ['大特写', '调度', '六要素', 'canvas_update_bible'],
@@ -458,9 +430,9 @@ if (errs.length) {
   process.exit(1);
 }
 console.log('✓ 技能注入 + 快捷键契约通过：');
-console.log('  · 分镜人设：六要素 / 每场大特写 / motion 起点→方式→终点 / 连续三镜不同运动 / 每场冲撞点 / 因果钩子 / 术语');
-console.log('  · 剧本人设：四要素 + 因果钩子；分镜 JSON 输出字段未改动');
-console.log('  · Host 技能目录可枚举 3 份内置技能（modelInvocable，正文含新规则）');
+console.log('  · 硬规则来源：canvas-craft 技能正文（六要素 / 大特写 / motion 公式 / 冲撞点 / 因果钩子 / 术语 / 四要素）');
+console.log('  · 分镜 JSON 输出字段未改动（timeBeats / camera / vfx / negative 齐备）');
+console.log('  · Host 技能目录可枚举 4 份内置技能（modelInvocable，正文含新规则）');
 console.log('  · 快捷键 ' + (process.env.IC_SKILL_ID || 'infinite-canvas.skill') + '：Ctrl/⌘+Shift+K，目录可见、浮层可见、动作把技能全文送进剪贴板');
-console.log('  · 专家：单一「专家」下拉（仅通用专家）；旧字段迁移 general；剧本/分镜统一调度 persona+skills；多专家结构可扩展');
+console.log('  · 方案 A：专家层已移除（人设 / 注册表 / 下拉全部不存在）；剧本与分镜统一走 canvas-craft + 技能包切片');
 process.exit(0);

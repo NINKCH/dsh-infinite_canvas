@@ -13,9 +13,13 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
+import { normalizeSkillProfile, DEFAULT_SKILL_PROFILE } from './index-core-skill-profile.js';
+import { initPackBase, packInventory, allowedIds } from './skill-pack-loader.js';
+import { buildSkillPack, SKILL_CATALOG, renderInventory, renderProfile } from './skill-pack.js';
 
 const NAME = 'infinite-canvas';
 const HERE = path.dirname(fileURLToPath(import.meta.url));
+initPackBase(HERE); // 技能包加载器需要知道插件根目录
 
 // 版本单一来源 = 当前副本的 package.json（硬编码常量曾与包版本漂移）
 let VERSION = '0.0.0';
@@ -930,6 +934,10 @@ function normalizeBible(raw) {
   };
 }
 /**
+ * 技能配置（四层：导演透镜 / 题材 / 类型规格 / 影调）字段规范化。
+ * 实现搬进 index-core-skill-profile.js（skill-pack.js 也要引用，避免循环依赖）。
+ */
+/**
  * 把文件流安全地写进响应。
  * createReadStream 的 open/read 错误是**异步事件**，回到不了路由的 try/catch ——
  * 不接管就会变成宿主进程级 uncaughtException（DSH 会按 fatal 退出），
@@ -1291,6 +1299,19 @@ async function projectsPut(args) {
     out.bible = prev.bible;
     out.bibleUpdatedAt = prev.bibleUpdatedAt || 0;
   }
+  // 技能配置（四层：导演/题材/类型规格/影调）同样是项目级，与设定集同一套同步语义
+  let canvasSkillProfile = null;
+  if (canvasId) {
+    const projectDoc = readDocOrNull(id) || {};
+    if (doc.skillProfile !== undefined) canvasSkillProfile = { profile: normalizeSkillProfile(doc.skillProfile), skillUpdatedAt: Date.now() };
+    else if (projectDoc.skillProfile !== undefined) canvasSkillProfile = { profile: projectDoc.skillProfile, skillUpdatedAt: projectDoc.skillUpdatedAt || 0 };
+  } else if (doc.skillProfile !== undefined) {
+    out.skillProfile = normalizeSkillProfile(doc.skillProfile);
+    out.skillUpdatedAt = Date.now();
+  } else if (prev.skillProfile !== undefined) {
+    out.skillProfile = prev.skillProfile;
+    out.skillUpdatedAt = prev.skillUpdatedAt || 0;
+  }
   // 设定集有更新时重算全部分镜表的一致性告警（客户端侧设定集编辑也走这条路径）
   const bibleForWarn = canvasId ? (canvasBible && canvasBible.bible) : out.bible;
   if (bibleForWarn !== undefined) {
@@ -1307,7 +1328,7 @@ async function projectsPut(args) {
   mkdirSync(PROJECTS_DIR, { recursive: true });
   writeIcDoc(targetId, out); // 统一走原子写 + 数据目录镜像（此前直写绕过了镜像与原子性）
   if (canvasId) {
-    // 项目级字段（名称/设定集/画布清单）始终只写项目文档：项目文档缺失时补一份最小项目
+    // 项目级字段（名称/设定集/技能配置/画布清单）始终只写项目文档：项目文档缺失时补一份最小项目
     const projectDoc = readDocOrNull(id);
     if (!projectDoc) {
       const canvases = sanitizeCanvases((args && args.canvases) || []);
@@ -1317,10 +1338,12 @@ async function projectsPut(args) {
         nodes: {}, edges: [], view: { x: 60, y: 40, scale: 1 }, tombstones: [], canvases,
         defaultCanvasName: defaultCanvasNameOf({ defaultCanvasName: args && args.defaultCanvasName }),
         ...(canvasBible ? { bible: canvasBible.bible, bibleUpdatedAt: canvasBible.bibleUpdatedAt } : {}),
+        ...(canvasSkillProfile ? { skillProfile: canvasSkillProfile.profile, skillUpdatedAt: canvasSkillProfile.skillUpdatedAt } : {}),
       });
     } else {
       const patch = {};
       if (canvasBible) { patch.bible = canvasBible.bible; patch.bibleUpdatedAt = canvasBible.bibleUpdatedAt; }
+      if (canvasSkillProfile) { patch.skillProfile = canvasSkillProfile.profile; patch.skillUpdatedAt = canvasSkillProfile.skillUpdatedAt; }
       if (args && args.canvases !== undefined) patch.canvases = sanitizeCanvases(args.canvases);
       if (Object.keys(patch).length) patchProjectDoc(id, patch);
     }
@@ -1594,8 +1617,9 @@ function nextNodePos(doc, type, connectFromId, size) {
   return { x, y };
 }
 // ---------- 内置技能（操作规程 + 创作方法论，约束并提升对话的画布创作）----------
-// canvas-studio＝操作硬约束；canvas-craft＝剧本/分镜/提示词创作方法论；canvas-layout＝节点布局纪律
-const SKILL_NAMES = ['canvas-studio', 'canvas-craft', 'canvas-layout'];
+// canvas-studio＝操作硬约束；canvas-craft＝剧本/分镜/提示词创作方法论；canvas-layout＝节点布局纪律；
+// canvas-director＝导演透镜/题材/类型规格/影调/运镜（创作控制层，按生成能力切片注入）
+const SKILL_NAMES = ['canvas-studio', 'canvas-craft', 'canvas-layout', 'canvas-director'];
 // = @deepseek-ai/dsh-skill 的 BUNDLED_SKILL_RANK（避免 import DSH 包；registry 要求 rank 必须是有限数字）
 const SKILL_RANK = 600;
 /** 解析 SKILL.md 的 YAML frontmatter（仅需 description 与正文）。 */
@@ -3240,6 +3264,25 @@ export function apply(ctx) {
           text: String(text ?? ((def && typeof def === 'object') ? JSON.stringify(def) : '')).slice(0, 80000),
         };
       },
+      /** 读 canvas-director 技能包里的任意卡文件（Client 侧切片用）。
+       *  安全：白名单前缀 + 禁 `..` + 禁绝对路径/盘符 + 只许 .md/.js/.json + 落在包目录内 + ≤256KB。 */
+      async readSkillPack(args) {
+        const rel = String((args && args.rel) || '').replace(/\\/g, '/').replace(/^\/+/, '').trim();
+        if (!rel) throw new Error('缺少 rel');
+        if (rel.includes('..')) throw new Error('非法路径: ' + rel);
+        if (/^[a-z]:/i.test(rel) || rel.startsWith('/')) throw new Error('非法路径: ' + rel);
+        if (!/^canvas-director\/(?:[A-Za-z0-9_.\-\u4e00-\u9fa5]+\/)*[A-Za-z0-9_.\-\u4e00-\u9fa5]+\.(?:md|js|json)$/.test(rel)) {
+          throw new Error('非法路径: ' + rel + '（只允许 canvas-director 下的 .md/.js/.json）');
+        }
+        const baseDir = path.join(HERE, 'assets', 'canvas-director');
+        const abs = path.resolve(path.join(HERE, 'assets', rel));
+        if (abs !== baseDir && !abs.startsWith(baseDir + path.sep)) throw new Error('路径越界: ' + rel);
+        let st;
+        try { st = statSync(abs); } catch { throw new Error('文件不存在: ' + rel); }
+        if (!st.isFile()) throw new Error('不是文件: ' + rel);
+        if (st.size > 256 * 1024) throw new Error('文件过大: ' + rel + '（>' + (256 * 1024) + 'B）');
+        return { rel, text: readFileSync(abs, 'utf8'), bytes: st.size };
+      },
     };
 
     const toolDisposers = [];
@@ -3770,6 +3813,87 @@ export function apply(ctx) {
           async execute(args) {
             const r = await canvasOpen(args);
             return { ok: true, projectId: r.projectId || undefined, text: r.projectId ? ('✅ 画布即将打开并跳到项目 ' + r.projectId + '。') : '✅ 画布即将打开。' };
+          },
+        });
+        // ── 技能包：把「本插件有哪些技能、各管什么」和「当前该按什么口径写提示词」交给对话侧 ──
+        reg({
+          name: 'canvas_list_skills',
+          description: '列出本插件（无限画布）提供的全部技能，以及技能包（导演透镜 / 题材 / 类型规格 / 影调 / 运镜）的完整清单和当前项目的已选配置。【开始任何画布创作前先调它】：它会告诉你写剧本、分镜、图片提示词、视频提示词各自该加载哪份技能、可用哪些透镜与题材，随后用 canvas_skill_pack 取切片。',
+          parameters: {
+            type: 'object',
+            properties: { projectId: { type: 'string', description: '可选：项目 id（给出时一并返回该项目的已选配置）' } },
+            additionalProperties: false,
+          },
+          output: textOutput,
+          timeoutMs: 30000,
+          async execute(args) {
+            const inv = packInventory(HERE);
+            const pid = String((args && args.projectId) || '');
+            const doc = pid ? readDoc(pid) : { skillProfile: DEFAULT_SKILL_PROFILE };
+            const allow = allowedIds(inv);
+            const profile = normalizeSkillProfile(doc.skillProfile, allow);
+            const lines = [];
+            lines.push('本插件共 ' + SKILL_CATALOG.length + ' 份技能：');
+            for (const s of SKILL_CATALOG) lines.push('  · ' + s.name + ' —— ' + s.when);
+            lines.push('');
+            lines.push('技能包清单（用 canvas_skill_pack 按能力取切片，不要整份读）：');
+            lines.push(renderInventory(inv, profile, true));
+            lines.push('');
+            lines.push(pid ? ('项目 ' + pid + ' 当前配置：' + renderProfile(profile, inv, true)) : '（未指定项目，不返回配置）');
+            lines.push('');
+            lines.push('下一步：canvas_skill_pack({ projectId, kind }) —— kind 取 script / storyboard / prompt / assets。');
+            return { ok: true, projectId: pid || undefined, text: lines.join('\n') };
+          },
+        });
+        reg({
+          name: 'canvas_skill_pack',
+          description: '按生成能力取「导演透镜 + 题材 + 类型规格 + 影调 + 运镜」的已拼装切片，用于写剧本（script）/ 分镜（storyboard）/ 图片与视频提示词（prompt）/ 角色场景道具设定图（assets）。返回切片全文、字节数与生效配置，可直接拼进你的系统提示或提示词。【这是让对话写出的内容与画布自生成保持同一口径的唯一入口】；也可以用 lens/genres/form/look 临时覆盖，或传 set:true 把配置写进项目（与画布 UI 选择同源）。',
+          parameters: {
+            type: 'object',
+            properties: {
+              projectId: { type: 'string', description: '项目 id' },
+              kind: { type: 'string', enum: ['script', 'storyboard', 'prompt', 'assets'], description: '生成能力：script=剧本，storyboard=分镜，prompt=图片/视频提示词，assets=资产设定图。缺省 script' },
+              lens: { type: 'string', description: '可选：临时覆盖导演透镜 id（见 canvas_list_skills）' },
+              genres: { type: 'array', items: { type: 'string' }, description: '可选：临时覆盖题材 id 数组（叙事题材与行业题材都可）' },
+              form: { type: 'string', description: '可选：临时覆盖类型规格 id' },
+              look: { type: 'string', description: '可选：临时覆盖影调 id；传空串表示跟随导演' },
+              set: { type: 'boolean', description: '可选：true = 把本次生效的配置写进项目（之后画布自生成也用同一套）' },
+            },
+            required: ['projectId'],
+            additionalProperties: false,
+          },
+          output: textOutput,
+          timeoutMs: 60000,
+          async execute(args) {
+            const pid = String((args && args.projectId) || '');
+            if (!pid) throw new Error('需要 projectId');
+            const doc = readDoc(pid);
+            const inv = packInventory(HERE);
+            const allow = allowedIds(inv);
+            const base = normalizeSkillProfile(doc.skillProfile, allow);
+            const override = {};
+            if (args.lens !== undefined) override.lens = args.lens;
+            if (args.genres !== undefined) override.genres = args.genres;
+            if (args.form !== undefined) override.form = args.form;
+            if (args.look !== undefined) override.look = args.look;
+            const merged = normalizeSkillProfile({ ...base, ...override }, allow);
+            const kind = String((args && args.kind) || 'script');
+            const built = await buildSkillPack({ kind, profile: merged, hereDir: HERE, zh: true });
+            if (args.set) {
+              doc.skillProfile = merged;
+              doc.skillUpdatedAt = Date.now();
+              doc.updatedAt = Date.now();
+              writeIcDoc(pid, doc);
+              markDocChanged(pid);
+            }
+            const head = '【' + (args.set ? '已写入项目配置。' : '') + '生效配置：' + renderProfile(merged, inv, true) + '】\n切片 ' + built.bytes + ' 字节；';
+            return {
+              ok: true,
+              projectId: pid,
+              bytes: built.bytes,
+              profile: merged,
+              text: head + '\n\n' + built.text,
+            };
           },
         });
       }
