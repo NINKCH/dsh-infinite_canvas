@@ -13928,6 +13928,24 @@ function queueThumb(assetId) {
       jump: { zh: '跳跃', en: 'Jump' }, dance: { zh: '舞蹈', en: 'Dance' },
       wave: { zh: '挥手', en: 'Wave' },
       death: { zh: '倒地', en: 'Death' }, hit: { zh: '受击', en: 'Hit' },
+      // 动作库（awplanet Mixamo 动作转换而来）：全部给中文名，中文界面不出现英文键名
+      motion: { zh: '动作 · 长', en: 'Motion' },
+      idle_02: { zh: '待机 · 呼吸', en: 'Idle · breathing' },
+      idle_03: { zh: '待机 · 变体', en: 'Idle · variant' },
+      walk_forward: { zh: '行走 · 前', en: 'Walk forward' },
+      walk_back: { zh: '行走 · 后', en: 'Walk back' },
+      walk_left: { zh: '行走 · 左', en: 'Walk left' },
+      walk_right: { zh: '行走 · 右', en: 'Walk right' },
+      run_forward: { zh: '奔跑 · 前', en: 'Run forward' },
+      run_back: { zh: '奔跑 · 后', en: 'Run back' },
+      run_left: { zh: '奔跑 · 左', en: 'Run left' },
+      run_right: { zh: '奔跑 · 右', en: 'Run right' },
+      run_stop: { zh: '奔跑 · 急停', en: 'Run stop' },
+      turn_left: { zh: '转身 90° · 左', en: 'Turn left' },
+      turn_right: { zh: '转身 90° · 右', en: 'Turn right' },
+      running_jump: { zh: '助跑跳', en: 'Running jump' },
+      sit_laugh: { zh: '坐 · 大笑', en: 'Sit · laugh' },
+      dodge_back: { zh: '后闪', en: 'Dodge back' },
     };
     const clipLabel = (name) => {
       const key = String(name || '').toLowerCase().replace(/\s+/g, '_');

@@ -119,6 +119,12 @@ function readGlbAnimations(buf) {
     return Float32Array.from(arr);
   };
   const nodes = (json.nodes || []).map((n) => String(n.name || ''));
+  // 节点静止姿态（局部 TRS）：目标骨架重定向需要它来算绑定姿态差量
+  const restNodes = (json.nodes || []).map((n) => ({
+    t: n.translation || [0, 0, 0],
+    r: n.rotation || [0, 0, 0, 1],
+    s: n.scale || [1, 1, 1],
+  }));
   const out = [];
   for (const an of (json.animations || [])) {
     const tracks = [];
@@ -131,9 +137,9 @@ function readGlbAnimations(buf) {
       const times = readAcc(smp.input);
       const vals = readAcc(smp.output);
       dur = Math.max(dur, times.length ? times[times.length - 1] : 0);
-      tracks.push({ node: (ch.target && ch.target.node) || 0, path, times, vals });
+      tracks.push({ node: (ch.target && ch.target.node) || 0, path, times, vals, bone: nodes[(ch.target && ch.target.node) || 0] || '' });
     }
-    if (tracks.length) out.push({ name: String(an.name || ('take' + out.length)), duration: dur || 1, tracks, nodes });
+    if (tracks.length) out.push({ name: String(an.name || ('take' + out.length)), duration: dur || 1, tracks, nodes, restNodes });
   }
   return out;
 }
@@ -207,6 +213,7 @@ for (const [fileKey, name, label, loop] of SEMANTIC) {
     .slice().sort((a, b) => b.duration - a.duration);
   if (!anims.length) { console.error('转换失败', name, '（GLB 无动画轨道）'); continue; }
   const anim = anims[0];
+  const srcNodes = anim.restNodes || [];
   // 根位移裁剪：Mixamo 走跑 FBX 的根节点带大幅水平位移（跑 1 秒能位移 1 米），
   // 直接搬进来角色会瞬移/抖动。**按根节点索引裁掉水平分量**（保留纵向起伏），
   // 水平位移交给路径与关键帧系统 —— 与本插件"动作只演姿态、位移单独编排"的约定一致。
@@ -214,21 +221,35 @@ for (const [fileKey, name, label, loop] of SEMANTIC) {
   const tracks = (anim.tracks || []).map((t2) => {
     // 先重采样（30fps），再按根节点裁水平
     const rs = resampleTrack(t2.times, t2.vals, t2.path, 30);
-    const raw = { node: t2.node, path: t2.path, times: b64(Float32Array.from(rs.times)), vals: b64(Float32Array.from(rs.vals)) };
+    // **必须带骨骼名**：node 索引只在源 GLB 内有效，目标模型（xbot/explorer）节点顺序完全不同，
+    // 直接用索引会把旋转施加到错误骨骼上 → 畸形扭曲（用户实测）。
+    const bone = String(t2.bone || '').replace(/^mixamorig:?/i, '');
+    const nodeIdx = (t2.node !== undefined) ? t2.node : 0;
+    const restNode = (srcNodes && srcNodes[nodeIdx]) || null;
+    const raw = {
+      node: nodeIdx, bone, path: t2.path,
+      times: b64(Float32Array.from(rs.times)), vals: b64(Float32Array.from(rs.vals)),
+      // 源绑定姿态（局部旋转）：目标端据此做重定向，避免不同骨架绑定姿态导致的翻转/畸形
+      rest: t2.path === 'rotation' && restNode && restNode.r ? Array.from(restNode.r) : null,
+    };
     if (t2.path !== 'translation' || !rootNodes.has(t2.node)) return raw;
     const vals = Float32Array.from(rs.vals);
     for (let i = 0; i < vals.length; i += 3) { vals[i] = 0; vals[i + 2] = 0; }
-    return { node: t2.node, path: t2.path, times: raw.times, vals: b64(vals) };
+    return { node: nodeIdx, bone, path: t2.path, times: raw.times, vals: b64(vals), rest: raw.rest };
   });
   const clip = {
     name,
     label,
     loop: !!loop,
     duration: +(+anim.duration).toFixed(3),
+    // 来源骨架标记：这些动作是对着 awplanet 的 explorer 骨架手工录的（Mixamo 命名但局部坐标朝向
+    // 与 xbot 那套资产不同）。只在同源骨架（explorer 系）上播放才正确，
+    // 引擎按此字段过滤，避免套到 xbot 上出现「腿翻转 170°」的畸形。
+    sourceRig: 'awplanet-explorer',
     tracks,
   };
   fs.writeFileSync(path.join(OUT, name + '.json'), JSON.stringify(clip));
-  manifest.push({ file: name + '.json', name, label, duration: clip.duration, loop });
+  manifest.push({ file: name + '.json', name, label, duration: clip.duration, loop, sourceRig: clip.sourceRig });
   console.log('OK', name.padEnd(14), clip.duration.toFixed(1) + 's', '|', label);
 }
 fs.rmSync(tmpDir, { recursive: true, force: true });

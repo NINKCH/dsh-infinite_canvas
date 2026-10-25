@@ -2492,8 +2492,6 @@ export function skinModel(asset, clipName, time, outPos, outNrm, shape) {
           : boneMatrices(asset, time || 0)))
     : null;
   const P = asset.positions, N = asset.normals, J = asset.joints, W = asset.weights, nb = asset.bones ? asset.bones.length : 0;
-  // 头部/颈部骨骼缩放必须在蒙皮之前作用到骨骼矩阵上（顶点级缩放只会把头拉长 → 「飞头」）
-  if (bm && shape && Number(shape.head) && Number(shape.head) !== 1) applyHeadBoneScale(asset, bm, Number(shape.head));
   const pos = outPos && outPos.length === P.length ? outPos : new Float32Array(P.length);
   const nrm = outNrm && outNrm.length === P.length ? outNrm : new Float32Array(P.length);
   const nv = P.length / 3;
@@ -2568,26 +2566,31 @@ export function skinModel(asset, clipName, time, outPos, outNrm, shape) {
     nrm[v * 3] = nx / l; nrm[v * 3 + 1] = ny / l; nrm[v * 3 + 2] = nz / l;
   }
   if (shape) applyBodyShape(asset, pos, shape);
+  // 头部放大：顶点级按高度 smoothstep 渐变（颈根 1× → 头顶 k×）。
+  // 骨骼级缩放会把颈部顶点推离、在 0.84–0.86H 留空档 → 头身分离（用户实测）。
+  if (shape && Number(shape.head) && Number(shape.head) !== 1) headVertexScale(pos, Number(shape.head));
   return { pos, nrm };
 }
 
-/** 头部骨骼缩放：把 Head(含 Neck 渐变) 的蒙皮矩阵左乘一个以头骨原点为中心的缩放矩阵。
- *  必须在骨骼层做——只在顶点上加缩放会把头拉长而不缩放骨骼，视觉上就是「头飞/脖子断」。 */
-function applyHeadBoneScale(asset, bm, k) {
-  if (!bm || !bm.mats || !asset || !asset.bones) return;
-  const nb = asset.bones.length;
-  for (let bi = 0; bi < nb; bi++) {
-    const nm = String((asset.bones[bi] && asset.bones[bi].name) || '').replace(/^mixamorig:?/i, '');
-    if (!/^(Head|Neck)$/i.test(nm)) continue;
-    // Neck 只放大一半（平滑过渡），Head 全量
-    const kk = 1 + (k - 1) * (/^Neck$/i.test(nm) ? 0.5 : 1);
-    const off = bi * 16;
-    // 绕该骨骼自身原点缩放：等价于把矩阵的线性部分乘以 kk（平移列不变）
-    for (let c = 0; c < 3; c++) {
-      bm.mats[off + c] *= kk;
-      bm.mats[off + 4 + c] *= kk;
-      bm.mats[off + 8 + c] *= kk;
-    }
+/** 头部顶点级缩放：以身高 78%（颈根）为枢轴，向头顶 smoothstep 渐变放大。
+ *  保证颈→头网格连续：颈根不动、越靠头顶放大越多，不产生顶点空档（骨骼级缩放会断开）。 */
+function headVertexScale(pos, k) {
+  if (!Number.isFinite(k) || k === 1 || !pos || !pos.length) return;
+  const nv = pos.length / 3;
+  let maxY = -Infinity;
+  for (let v = 0; v < nv; v++) { const y = pos[v * 3 + 1]; if (y > maxY) maxY = y; }
+  if (!Number.isFinite(maxY) || maxY <= 0) return;
+  const pivot = maxY * 0.78;
+  const span = Math.max(1e-6, maxY - pivot);
+  for (let v = 0; v < nv; v++) {
+    const y = pos[v * 3 + 1];
+    if (y <= pivot) continue;
+    const t2 = Math.min(1, (y - pivot) / span);
+    const w = t2 * t2 * (3 - 2 * t2);
+    const kk = 1 + (k - 1) * w;
+    pos[v * 3] *= kk;
+    pos[v * 3 + 1] = pivot + (y - pivot) * kk;
+    pos[v * 3 + 2] *= kk;
   }
 }
 

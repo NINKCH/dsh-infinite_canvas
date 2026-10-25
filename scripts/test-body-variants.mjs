@@ -67,13 +67,31 @@ const E = await import(pathToFileURL(path.join(ROOT, 'assets/director/engine.js'
   const thigh = band(std, 0.30, 0.42);
   ok(waist >= 2, 'm_standard 腰部位移应 ≥2cm（storyai 量级），实际 ' + waist.toFixed(2));
   ok(thigh >= 2, 'm_standard 大腿位移应 ≥2cm，实际 ' + thigh.toFixed(2));
-  let headD = 0, headN = 0;
+  // 儿童头部：用「头宽放大比」衡量（比位移更贴近视觉），且颈部不得出现顶点空档
+  let bw = 0, cw = 0, hn = 0;
   for (let v = 0; v < base.pos.length / 3; v++) {
-    const y = base.pos[v * 3 + 1];
-    if (y > 0.82 * H) { headN++; headD += Math.hypot(child.pos[v * 3] - base.pos[v * 3], child.pos[v * 3 + 1] - base.pos[v * 3 + 1], child.pos[v * 3 + 2] - base.pos[v * 3 + 2]); }
+    const y = base.pos[v * 3 + 1] / H;
+    if (y > 0.90 && y < 0.97) { bw += Math.abs(base.pos[v * 3]); cw += Math.abs(child.pos[v * 3]); hn++; }
   }
-  const headPct = (headD / Math.max(1, headN)) / H * 100;
-  ok(headPct >= 10, 'm_child 头部位移应 ≥10% 身高，实际 ' + headPct.toFixed(1) + '%');
+  const headGrow = hn ? (cw / bw) : 1;
+  ok(headGrow >= 1.10, 'm_child 头部应明显放大（≥1.10×），实际 ' + headGrow.toFixed(3) + '×');
+  // 头身断裂回归：颈部高度带（0.72–1.02H）不得出现空档
+  const bins = {};
+  for (let v = 0; v < child.pos.length / 3; v++) {
+    const y = child.pos[v * 3 + 1] / H;
+    if (y < 0.72 || y > 1.05) continue;
+    const b = (Math.floor(y * 50) / 50).toFixed(2);
+    bins[b] = (bins[b] || 0) + 1;
+  }
+  const emptyBins = Object.keys(bins).filter((k) => bins[k] === 0);
+  ok(emptyBins.length === 0, 'm_child 颈部出现顶点空档（头身分离）：' + emptyBins.join(','));
+  // 连续性：颈→肩区域（0.72–0.96H）不应有顶点过稀的区间（头顶本身顶点少，不在此列）
+  let gap = '';
+  for (let y = 0.72; y <= 0.96; y += 0.02) {
+    const k = (Math.floor(y * 50) / 50).toFixed(2);
+    if (!bins[k] || bins[k] < 3) { gap = k; break; }
+  }
+  ok(!gap, 'm_child 在 y=' + gap + 'H 处顶点过稀（≤3 个），头颈连接不连续');
   // 脚不漂：纵向（y）位移 ≈ 0
   let footY = 0;
   for (let v = 0; v < base.pos.length / 3; v++) { const y = base.pos[v * 3 + 1]; if (y < 0.04 * H) footY = Math.max(footY, Math.abs(std.pos[v * 3 + 1] - base.pos[v * 3 + 1])); }

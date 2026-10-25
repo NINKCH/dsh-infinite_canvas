@@ -5,133 +5,152 @@
       "name": "idle_02",
       "label": "待机 · 呼吸",
       "duration": 6,
-      "loop": true
+      "loop": true,
+      "sourceRig": "awplanet-explorer"
     },
     {
       "file": "idle_03.json",
       "name": "idle_03",
       "label": "待机 · 变体",
       "duration": 5.083,
-      "loop": true
+      "loop": true,
+      "sourceRig": "awplanet-explorer"
     },
     {
       "file": "walk.json",
       "name": "walk",
       "label": "行走",
       "duration": 1.167,
-      "loop": true
+      "loop": true,
+      "sourceRig": "awplanet-explorer"
     },
     {
       "file": "walk_forward.json",
       "name": "walk_forward",
       "label": "行走 · 前",
       "duration": 1.167,
-      "loop": true
+      "loop": true,
+      "sourceRig": "awplanet-explorer"
     },
     {
       "file": "walk_back.json",
       "name": "walk_back",
       "label": "行走 · 后",
       "duration": 1.458,
-      "loop": true
+      "loop": true,
+      "sourceRig": "awplanet-explorer"
     },
     {
       "file": "walk_left.json",
       "name": "walk_left",
       "label": "行走 · 左",
       "duration": 1.167,
-      "loop": true
+      "loop": true,
+      "sourceRig": "awplanet-explorer"
     },
     {
       "file": "walk_right.json",
       "name": "walk_right",
       "label": "行走 · 右",
       "duration": 1.167,
-      "loop": true
+      "loop": true,
+      "sourceRig": "awplanet-explorer"
     },
     {
       "file": "run.json",
       "name": "run",
       "label": "奔跑",
       "duration": 0.625,
-      "loop": true
+      "loop": true,
+      "sourceRig": "awplanet-explorer"
     },
     {
       "file": "run_forward.json",
       "name": "run_forward",
       "label": "奔跑 · 前",
       "duration": 0.833,
-      "loop": true
+      "loop": true,
+      "sourceRig": "awplanet-explorer"
     },
     {
       "file": "run_back.json",
       "name": "run_back",
       "label": "奔跑 · 后",
       "duration": 0.667,
-      "loop": true
+      "loop": true,
+      "sourceRig": "awplanet-explorer"
     },
     {
       "file": "run_left.json",
       "name": "run_left",
       "label": "奔跑 · 左",
       "duration": 0.667,
-      "loop": true
+      "loop": true,
+      "sourceRig": "awplanet-explorer"
     },
     {
       "file": "run_right.json",
       "name": "run_right",
       "label": "奔跑 · 右",
       "duration": 0.75,
-      "loop": true
+      "loop": true,
+      "sourceRig": "awplanet-explorer"
     },
     {
       "file": "run_stop.json",
       "name": "run_stop",
       "label": "奔跑 · 急停",
       "duration": 0.833,
-      "loop": false
+      "loop": false,
+      "sourceRig": "awplanet-explorer"
     },
     {
       "file": "turn_left.json",
       "name": "turn_left",
       "label": "转身 90° · 左",
       "duration": 1.25,
-      "loop": false
+      "loop": false,
+      "sourceRig": "awplanet-explorer"
     },
     {
       "file": "turn_right.json",
       "name": "turn_right",
       "label": "转身 90° · 右",
       "duration": 1.083,
-      "loop": false
+      "loop": false,
+      "sourceRig": "awplanet-explorer"
     },
     {
       "file": "jump.json",
       "name": "jump",
       "label": "跳跃",
       "duration": 1.875,
-      "loop": false
+      "loop": false,
+      "sourceRig": "awplanet-explorer"
     },
     {
       "file": "running_jump.json",
       "name": "running_jump",
       "label": "助跑跳",
       "duration": 1,
-      "loop": false
+      "loop": false,
+      "sourceRig": "awplanet-explorer"
     },
     {
       "file": "sit_laugh.json",
       "name": "sit_laugh",
       "label": "坐 · 大笑",
       "duration": 8.292,
-      "loop": true
+      "loop": true,
+      "sourceRig": "awplanet-explorer"
     },
     {
       "file": "dodge_back.json",
       "name": "dodge_back",
       "label": "站姿 · 后闪",
       "duration": 1.583,
-      "loop": false
+      "loop": false,
+      "sourceRig": "awplanet-explorer"
     }
   ]
 }
