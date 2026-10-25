@@ -131,6 +131,10 @@ const COVERAGE = [
   { sha: 'f18a986', keys: [/cached asset/i, /action library/i, /Head bone/i, /head scaling/i, /bones/i] },
   // 0.19.5 待发：媒体节点放大/全屏键挪到分辨率条旁
   { sha: '4aea600', keys: [/resolution chip/i, /zoom/i, /fullscreen/i, /bottom-right/i] },
+  // 0.19.5 待发：头部顶点级缩放（消除头身分离）
+  { sha: 'f5b5a5b', keys: [/head scaling/i, /smoothstep/i, /neck gap/i, /vertices/i] },
+  // 0.19.5 待发：属性面板身高输入 + 引擎版本递增
+  { sha: '4573e7a', keys: [/height input/i, /property panel/i, /ENGINE_VERSION/i, /stale/i] },
 ];
 for (const c of COVERAGE) {
   ok(c.keys.some((re) => re.test(coverageText)), '未发版提交 ' + c.sha + ' 在 CHANGELOG（Unreleased 或最新已发布段）里找不到对应记录（补记不全）');
