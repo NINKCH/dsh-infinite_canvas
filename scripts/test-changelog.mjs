@@ -116,6 +116,8 @@ if (unrelHasEntries) {
 const COVERAGE = [
   // 0.19.0 已发布：上一批 7 个未发版提交随该版本进入 main，清单在此清零。
   // 下一轮从 dev 新建功能提交起，再按提交逐条补记（数量必须与 main..dev 的功能提交数相等）。
+  // 0.19.4：gizmo 轴心回到物体原点（不再悬空到髋高）
+  { sha: '1d800ad', keys: [/gizmo/i, /axis origin/i, /mid-air/i, /floated/i, /poseCenterY/i, /hip height/i] },
 ];
 for (const c of COVERAGE) {
   ok(c.keys.some((re) => re.test(coverageText)), '未发版提交 ' + c.sha + ' 在 CHANGELOG（Unreleased 或最新已发布段）里找不到对应记录（补记不全）');
