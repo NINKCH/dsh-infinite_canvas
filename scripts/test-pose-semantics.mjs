@@ -107,10 +107,36 @@ for (const id of ['arms_up', 'crouch', 'flip', 'fly']) {
   ok(Math.abs(withAnim.h - noAnim.h) < 0.25, '姿态 ' + id + ' 在动画叠加下走样（h ' + withAnim.h.toFixed(2) + ' vs ' + noAnim.h.toFixed(2) + '）');
 }
 
+// ⑧ 打斗动作库（参考片段动作语义）：每个动作可解、脚落地、姿态有区分度
+{
+  const FIGHT_IDS = ['spear_ready', 'spear_thrust', 'palm_block', 'dodge_lean', 'dash_forward', 'grit_advance',
+    'low_sweep', 'spear_ground', 'crouch_low', 'ult_charge', 'hit_recoil', 'knockdown'];
+  const all = new Set(E.BONE_POSES.map((p) => p.id));
+  for (const id of FIGHT_IDS) ok(all.has(id), '缺少打斗动作：' + id);
+  const sigs = new Set();
+  for (const id of FIGHT_IDS) {
+    const sk = skin(id);
+    const b = bounds(sk);
+    ok(Number.isFinite(b.h) && b.h > 0.2, '动作 ' + id + ' 姿态无效（h=' + b.h + '）');
+    // 脚落地：站立/蹲/落地类动作 minY 应贴近 0（倒地也贴地）
+    ok(b.minY < 0.12, '动作 ' + id + ' 悬空（minY=' + b.minY.toFixed(3) + '）');
+    // 姿态区分度：包围盒签名不应重复
+    sigs.add([b.h.toFixed(2), b.maxZ.toFixed(2), (b.maxX - b.minX).toFixed(2)].join('/'));
+  }
+  ok(sigs.size >= FIGHT_IDS.length - 2, '打斗动作姿态区分度不足（' + sigs.size + '/' + FIGHT_IDS.length + '）');
+  // 关键语义：突刺手在身前（Z 大）、格挡手高于肩、倒地极矮
+  const thrust = bounds(skin('spear_thrust'));
+  ok(thrust.maxZ > 0.5, '横枪突刺应有前伸的手（zmax=' + thrust.maxZ.toFixed(2) + '）');
+  const block = bounds(skin('palm_block'));
+  ok(block.maxY > rest.maxY * 0.98, '单掌格挡的手应抬到肩/头高度（maxY=' + block.maxY.toFixed(2) + '）');
+  const down = bounds(skin('knockdown'));
+  ok(down.h < rest.h * 0.65, '倒地应明显放低（h=' + down.h.toFixed(2) + '）');
+}
+
 if (errs.length) {
   console.error('✗ 姿态语义测试未通过（' + errs.length + ' 项）：');
   for (const e of errs) console.error('  - ' + e);
   process.exit(1);
 }
-console.log('✓ 姿态语义测试通过（举双手过头 / 下蹲变矮 / 空翻团身悬空 / 飞行放平 / 出拳向前 / 格斗护面 / 动画叠加不走样）');
+console.log('✓ 姿态语义测试通过（基础姿态 + 打斗动作库 12 个：落地/前伸/格挡/倒地 + 动画叠加不走样）');
 process.exit(0);

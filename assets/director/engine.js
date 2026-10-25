@@ -659,6 +659,133 @@ export const BONE_POSES = [
       { bone: 'LeftUpLeg', to: [0.26, 0.10, 0.96] }, { bone: 'LeftLeg', to: [0.10, -0.86, 0.50] },
       { bone: 'LeftFoot', to: [0.06, -0.62, 0.78] },
     ] },
+
+  // ============================================================
+  // 打斗动作库（依据参考片段 6:20–6:30 的动作语义编写，方向式）
+  //   命名：spear_* / block_* / dodge_* / hit_* / ult_*
+  //   配合 poseAnim 串成打斗序列；每个动作都可单帧关键帧使用
+  // ============================================================
+  // ① 侧身持枪起势：侧身对敌、双手前后持杆、重心下沉
+  { id: 'spear_ready', zh: '持枪起势', en: 'Spear ready',
+    base: { Spine: [0.10, 0.42, 0], Spine1: [0.06, 0.20, 0], Hips: [0.02, 0.16, 0], Neck: [0.06, -0.30, 0] },
+    dirs: [
+      { bone: 'RightArm', to: [-0.10, -0.30, 0.95] }, { bone: 'RightForeArm', to: [-0.04, -0.10, 1.0] },
+      { bone: 'LeftArm', to: [0.16, -0.42, 0.90] }, { bone: 'LeftForeArm', to: [0.06, -0.24, 0.97] },
+      { bone: 'LeftUpLeg', to: [0.16, -0.92, 0.36] }, { bone: 'RightUpLeg', to: [-0.16, -0.94, -0.30] },
+      { bone: 'LeftLeg', to: [0.06, -0.97, 0.22] }, { bone: 'RightLeg', to: [-0.06, -0.97, 0.20] },
+    ] },
+  // ② 横枪突刺：腰部拧转、双手前推、前腿弓步
+  { id: 'spear_thrust', zh: '横枪突刺', en: 'Spear thrust',
+    base: { Spine: [0.16, -0.46, 0], Spine1: [0.10, -0.24, 0], Hips: [0.04, -0.30, 0], Neck: [0.08, 0.34, 0] },
+    dirs: [
+      { bone: 'RightArm', to: [-0.06, 0.02, 1.0] }, { bone: 'RightForeArm', to: [-0.04, 0.02, 1.0] },
+      { bone: 'LeftArm', to: [0.12, -0.10, 0.98] }, { bone: 'LeftForeArm', to: [0.06, -0.04, 1.0] },
+      { bone: 'LeftUpLeg', to: [0.10, -0.88, 0.46] }, { bone: 'LeftLeg', to: [0.04, -0.97, 0.22] },
+      { bone: 'RightUpLeg', to: [-0.12, -0.98, -0.16] }, { bone: 'RightLeg', to: [-0.04, -1.0, 0.06] },
+      { bone: 'RightFoot', to: [-0.04, -0.40, 0.70] },
+    ] },
+  // ③ 单掌格挡：单臂上架、掌面外翻、躯干侧倾卸力
+  { id: 'palm_block', zh: '单掌格挡', en: 'Palm block',
+    base: { Spine: [-0.14, 0.34, 0], Spine1: [-0.08, 0.18, 0], Hips: [-0.04, 0.12, 0], Neck: [0.10, -0.26, 0] },
+    dirs: [
+      { bone: 'RightArm', to: [-0.52, 0.66, 0.54] }, { bone: 'RightForeArm', to: [-0.46, 0.86, 0.22] },
+      { bone: 'LeftArm', to: [0.24, -0.62, 0.74] }, { bone: 'LeftForeArm', to: [0.12, 0.10, 0.98] },
+      { bone: 'LeftUpLeg', to: [0.14, -0.94, 0.30] }, { bone: 'RightUpLeg', to: [-0.14, -0.92, -0.34] },
+      { bone: 'LeftLeg', to: [0.04, -0.98, 0.18] }, { bone: 'RightLeg', to: [-0.04, -0.98, 0.16] },
+    ] },
+  // ④ 后仰闪避：上身大幅后仰、髋部后坐、双手回收护身
+  { id: 'dodge_lean', zh: '后仰闪避', en: 'Lean back dodge',
+    base: { Spine: [-0.62, 0.20, 0], Spine1: [-0.40, 0.12, 0], Hips: [0.18, 0.08, 0], Neck: [0.30, -0.16, 0] },
+    dirs: [
+      { bone: 'RightArm', to: [-0.30, -0.30, 0.90] }, { bone: 'RightForeArm', to: [-0.18, 0.34, 0.92] },
+      { bone: 'LeftArm', to: [0.30, -0.34, 0.88] }, { bone: 'LeftForeArm', to: [0.18, 0.30, 0.94] },
+      { bone: 'LeftUpLeg', to: [0.18, -0.86, 0.48] }, { bone: 'LeftLeg', to: [0.06, -0.96, 0.26] },
+      { bone: 'RightUpLeg', to: [-0.18, -0.90, -0.38] }, { bone: 'RightLeg', to: [-0.06, -0.98, 0.16] },
+    ] },
+  // ⑤ 蹬地冲刺：前腿蹬直、后腿抬起、上身前压、双臂前后摆
+  { id: 'dash_forward', zh: '蹬地冲刺', en: 'Dash',
+    base: { Spine: [0.46, 0.10, 0], Spine1: [0.28, 0.06, 0], Hips: [0.16, 0.04, 0], Neck: [-0.34, -0.08, 0] },
+    dirs: [
+      { bone: 'RightArm', to: [-0.20, -0.72, 0.66] }, { bone: 'RightForeArm', to: [-0.10, 0.20, 0.97] },
+      { bone: 'LeftArm', to: [0.24, 0.30, -0.92] }, { bone: 'LeftForeArm', to: [0.12, 0.10, -0.98] },
+      { bone: 'LeftUpLeg', to: [0.10, -0.96, 0.26] }, { bone: 'LeftLeg', to: [0.04, -1.0, 0.02] },
+      { bone: 'RightUpLeg', to: [-0.10, 0.52, -0.84] }, { bone: 'RightLeg', to: [-0.06, -0.30, -0.95] },
+      { bone: 'RightFoot', to: [-0.04, -0.20, -0.98] },
+    ] },
+  // ⑥ 压上发狠：上身前探、双臂收紧、下颌压低（近身压制的瞬间）
+  { id: 'grit_advance', zh: '压上发狠', en: 'Grit advance',
+    base: { Spine: [0.34, -0.18, 0], Spine1: [0.22, -0.10, 0], Hips: [0.10, -0.12, 0], Neck: [0.16, 0.14, 0] },
+    dirs: [
+      { bone: 'RightArm', to: [-0.14, -0.44, 0.88] }, { bone: 'RightForeArm', to: [-0.06, 0.26, 0.96] },
+      { bone: 'LeftArm', to: [0.16, -0.50, 0.84] }, { bone: 'LeftForeArm', to: [0.06, 0.20, 0.97] },
+      { bone: 'LeftUpLeg', to: [0.12, -0.92, 0.38] }, { bone: 'LeftLeg', to: [0.04, -0.98, 0.18] },
+      { bone: 'RightUpLeg', to: [-0.12, -0.94, -0.32] }, { bone: 'RightLeg', to: [-0.04, -0.98, 0.20] },
+    ] },
+  // ⑦ 低身横扫：深蹲转体、持杆手贴地扫出、另一手撑地
+  { id: 'low_sweep', zh: '低身横扫', en: 'Low sweep',
+    base: { Spine: [0.72, -0.52, 0], Spine1: [0.42, -0.28, 0], Hips: [0.30, -0.24, 0.08], Neck: [-0.30, 0.20, 0] },
+    rootY: -0.29,
+    dirs: [
+      { bone: 'RightArm', to: [-0.34, -0.86, 0.36] }, { bone: 'RightForeArm', to: [-0.16, -0.96, 0.22] },
+      { bone: 'LeftArm', to: [0.40, -0.80, 0.44] }, { bone: 'LeftForeArm', to: [0.18, -0.94, 0.28] },
+      // 蹲姿腿（脚落地）：大腿前伸下压、小腿竖直、脚掌踩平
+      { bone: 'LeftUpLeg', to: [0.26, -0.34, 0.90] }, { bone: 'RightUpLeg', to: [-0.26, -0.34, 0.90] },
+      { bone: 'LeftLeg', to: [0.05, -1.0, 0.04] }, { bone: 'RightLeg', to: [-0.05, -1.0, 0.04] },
+      { bone: 'LeftFoot', to: [0.04, -0.06, 1.0] }, { bone: 'RightFoot', to: [-0.04, -0.06, 1.0] },
+    ] },
+  // ⑧ 枪尖戳地：单膝下沉、持杆手直下压、上身俯冲
+  { id: 'spear_ground', zh: '枪尖戳地', en: 'Spear to ground',
+    base: { Spine: [0.86, -0.20, 0], Spine1: [0.48, -0.12, 0], Hips: [0.34, -0.10, 0.06], Neck: [-0.48, 0.10, 0] },
+    rootY: -0.29,
+    dirs: [
+      { bone: 'RightArm', to: [-0.16, -0.96, 0.20] }, { bone: 'RightForeArm', to: [-0.08, -0.99, 0.10] },
+      { bone: 'LeftArm', to: [0.30, -0.72, 0.62] }, { bone: 'LeftForeArm', to: [0.14, -0.30, 0.94] },
+      // 蹲姿腿（脚落地）：大腿前伸下压、小腿竖直、脚掌踩平
+      { bone: 'LeftUpLeg', to: [0.26, -0.34, 0.90] }, { bone: 'RightUpLeg', to: [-0.26, -0.34, 0.90] },
+      { bone: 'LeftLeg', to: [0.05, -1.0, 0.04] }, { bone: 'RightLeg', to: [-0.05, -1.0, 0.04] },
+      { bone: 'LeftFoot', to: [0.04, -0.06, 1.0] }, { bone: 'RightFoot', to: [-0.04, -0.06, 1.0] },
+    ] },
+  // ⑨ 俯身贴地收势：单膝跪地、上身压到近地、持杆手垂落
+  { id: 'crouch_low', zh: '俯身贴地', en: 'Crouch low',
+    base: { Spine: [0.94, 0.18, 0], Spine1: [0.52, 0.10, 0], Hips: [0.38, 0.08, 0], Neck: [-0.54, -0.12, 0] },
+    rootY: -0.29,
+    dirs: [
+      { bone: 'RightArm', to: [-0.24, -0.92, 0.30] }, { bone: 'RightForeArm', to: [-0.10, -0.98, 0.14] },
+      { bone: 'LeftArm', to: [0.34, -0.86, 0.38] }, { bone: 'LeftForeArm', to: [0.16, -0.96, 0.22] },
+      // 蹲姿腿（脚落地）：大腿前伸下压、小腿竖直、脚掌踩平
+      { bone: 'LeftUpLeg', to: [0.26, -0.34, 0.90] }, { bone: 'RightUpLeg', to: [-0.26, -0.34, 0.90] },
+      { bone: 'LeftLeg', to: [0.05, -1.0, 0.04] }, { bone: 'RightLeg', to: [-0.05, -1.0, 0.04] },
+      { bone: 'LeftFoot', to: [0.04, -0.06, 1.0] }, { bone: 'RightFoot', to: [-0.04, -0.06, 1.0] },
+    ] },
+  // ⑩ 大招起势：抬头挺胸、双臂外展上举、重心拔起
+  { id: 'ult_charge', zh: '大招起势', en: 'Ultimate charge',
+    base: { Spine: [-0.28, 0, 0], Spine1: [-0.18, 0, 0], Hips: [-0.10, 0, 0], Neck: [-0.26, 0, 0] },
+    rootY: 0.10,
+    dirs: [
+      { bone: 'RightArm', to: [-0.62, 0.62, 0.48] }, { bone: 'RightForeArm', to: [-0.48, 0.84, 0.26] },
+      { bone: 'LeftArm', to: [0.62, 0.62, 0.48] }, { bone: 'LeftForeArm', to: [0.48, 0.84, 0.26] },
+      { bone: 'LeftUpLeg', to: [0.14, -0.94, 0.30] }, { bone: 'RightUpLeg', to: [-0.14, -0.94, -0.30] },
+      { bone: 'LeftLeg', to: [0.04, -0.99, 0.14] }, { bone: 'RightLeg', to: [-0.04, -0.99, 0.14] },
+    ] },
+  // ⑪ 受击后仰：躯干后折、双臂散开、后腿撤步卸力
+  { id: 'hit_recoil', zh: '受击后仰', en: 'Hit recoil',
+    base: { Spine: [-0.78, 0.24, 0.10], Spine1: [-0.48, 0.14, 0.06], Hips: [0.24, 0.10, -0.06], Neck: [0.40, -0.20, 0] },
+    dirs: [
+      { bone: 'RightArm', to: [-0.66, 0.30, 0.68] }, { bone: 'RightForeArm', to: [-0.52, -0.10, 0.84] },
+      { bone: 'LeftArm', to: [0.70, 0.24, 0.66] }, { bone: 'LeftForeArm', to: [0.56, -0.16, 0.80] },
+      { bone: 'LeftUpLeg', to: [0.20, -0.80, 0.56] }, { bone: 'LeftLeg', to: [0.08, -0.96, 0.26] },
+      { bone: 'RightUpLeg', to: [-0.24, -0.86, -0.44] }, { bone: 'RightLeg', to: [-0.08, -0.98, 0.14] },
+    ] },
+  // ⑫ 倒地：全身放倒、四肢摊开
+  { id: 'knockdown', zh: '倒地', en: 'Knockdown',
+    base: { Hips: [-1.52, 0.20, 0.10], Spine: [0.40, 0.10, 0.04], Spine1: [0.26, 0.06, 0], Neck: [0.22, -0.14, 0] },
+    rootY: -0.70,
+    dirs: [
+      { bone: 'LeftUpLeg', to: [0.34, -0.10, 0.94] }, { bone: 'LeftLeg', to: [0.16, -0.44, 0.88] },
+      { bone: 'RightUpLeg', to: [-0.30, -0.06, 0.95] }, { bone: 'RightLeg', to: [-0.14, -0.38, 0.92] },
+      { bone: 'LeftArm', to: [0.78, 0.22, 0.58] }, { bone: 'RightArm', to: [-0.80, 0.18, 0.56] },
+      { bone: 'LeftForeArm', to: [0.62, 0.06, 0.78] }, { bone: 'RightForeArm', to: [-0.64, 0.02, 0.76] },
+    ] },
 ];
 
 
@@ -1154,13 +1281,10 @@ function sampleTrack(track, time) {
   const t0 = track.times[i], t1 = track.times[i + 1];
   const k = t1 > t0 ? (time - t0) / (t1 - t0) : 0;
   if (track.path === 'rotation') {
-    let a = [track.vals[i * 4], track.vals[i * 4 + 1], track.vals[i * 4 + 2], track.vals[i * 4 + 3]];
-    let b = [track.vals[i * 4 + 4], track.vals[i * 4 + 5], track.vals[i * 4 + 6], track.vals[i * 4 + 7]];
-    let d = a[0] * b[0] + a[1] * b[1] + a[2] * b[2] + a[3] * b[3];
-    if (d < 0) { b = b.map((x) => -x); d = -d; }
-    const out = a.map((av, j) => av + (b[j] - av) * k);
-    const len = Math.hypot(out[0], out[1], out[2], out[3]) || 1;
-    return out.map((x) => x / len);
+    const a = [track.vals[i * 4], track.vals[i * 4 + 1], track.vals[i * 4 + 2], track.vals[i * 4 + 3]];
+    const b = [track.vals[i * 4 + 4], track.vals[i * 4 + 5], track.vals[i * 4 + 6], track.vals[i * 4 + 7]];
+    // 球面插值：角速度恒定（原实现为 nlerp，长弧段会变速）
+    return quatSlerp(a, b, k);
   }
   return [0, 1, 2].map((j) => track.vals[i * 3 + j] + (track.vals[(i + 1) * 3 + j] - track.vals[i * 3 + j]) * k);
 }
@@ -1253,7 +1377,7 @@ function b64ToU16(b64) { const u8 = b64ToU8(b64); return new Uint16Array(u8.buff
 function b64ToU32(b64) { const u8 = b64ToU8(b64); return new Uint32Array(u8.buffer, u8.byteOffset, u8.byteLength / 4); }
 
 /** 模型包 JSON → 与 parseGlb 同形的 asset（可直接喂 boneMatrices / 渲染）。 */
-export function decodeModelPack(pack) {
+export function decodeModelPack(pack, actionClips) {
   const asset = {
     id: pack.id,
     label: pack.label,
@@ -1272,8 +1396,31 @@ export function decodeModelPack(pack) {
     rawHeight: pack.rawHeight,
     verts: pack.verts, tris: pack.tris,
   };
+  // 动作库（内置成熟动作：three.js AnimationClip 转 tracks，base64 Float32）
+  if (Array.isArray(actionClips)) {
+    for (const c of actionClips) {
+      if (!c || !c.name || !Array.isArray(c.tracks)) continue;
+      // 只追加同名不存在的动作：内置片段（待机/行走/奔跑/潜行）保持原样，绝不被覆盖
+      if (asset.animations.some((a) => a.name === c.name)) continue;
+      asset.animations.push({
+        name: c.name, duration: Number(c.duration) || 0, label: c.label || c.name, loop: !!c.loop,
+        tracks: c.tracks.map((t) => ({ node: t.node, path: t.path, times: b64ToF32(t.times), vals: b64ToF32(t.vals) })),
+      });
+    }
+  }
   asset.clipByName = (name) => asset.animations.find((a) => a.name === name) || null;
   return asset;
+}
+/** 解析动作库文件（clips/*.json，base64 tracks）→ decodeModelPack 第二参可直接用的数组。 */
+export function decodeActionClips(list) {
+  if (!Array.isArray(list)) return [];
+  return list.map((c) => ({
+    name: String(c.name || ''),
+    label: c.label || c.name || '',
+    duration: Number(c.duration) || 0,
+    loop: !!c.loop,
+    tracks: (c.tracks || []).map((t) => ({ node: t.node, path: t.path, times: t.times, vals: t.vals })),
+  }));
 }
 
 /**
@@ -1445,7 +1592,212 @@ function solveDirsIntoLocal(asset, local, dirs) {
   }
 }
 
-export function boneMatricesWithPose(asset, time, poseMap, dirs, baseEuler, rootY) {
+/* ============================================================
+ * 约束与 IK（Phase C）
+ *   约束：damped_track（骨骼 Y 轴指向目标）/ copy_rotation / limit_rotation
+ *   IK：两骨解析解（余弦定理 + 极向量），链 = [根骨, 中间骨, 末端骨]
+ * 求值顺序对齐 Blender：FK 姿态 → 约束 → IK（constraint.cc / ikplugin 语义；算法自行实现）
+ * ============================================================ */
+/** 四元数 → 欧拉（ZYX 顺序，与 eulerToQuat 的 qz*qy*qx 对应）。 */
+export function quatToEuler(q) {
+  const x = Number(q && q[0]) || 0, y = Number(q && q[1]) || 0, z = Number(q && q[2]) || 0, w = Number(q && q[3]) || 1;
+  const m00 = 1 - 2 * (y * y + z * z), m10 = 2 * (x * y + z * w), m20 = 2 * (x * z - y * w);
+  const m21 = 2 * (y * z + x * w), m22 = 1 - 2 * (x * x + y * y);
+  const beta = Math.asin(Math.max(-1, Math.min(1, -m20)));
+  if (Math.abs(m20) < 0.9999999) {
+    return [Math.atan2(m21, m22), beta, Math.atan2(m10, m00)];
+  }
+  // 万向锁兜底
+  const m01 = 2 * (x * y - z * w), m11 = 1 - 2 * (x * x + z * z);
+  return [Math.atan2(-m01, m11), beta, 0];
+}
+/** 罗德里格斯：绕单位轴 axis 旋转 v 角 ang。 */
+function rotateVecAxis(v, axis, ang) {
+  const c = Math.cos(ang), s2 = Math.sin(ang);
+  const d = v.x * axis.x + v.y * axis.y + v.z * axis.z;
+  const cr = vCross(axis, v);
+  return v3(
+    v.x * c + cr.x * s2 + axis.x * d * (1 - c),
+    v.y * c + cr.y * s2 + axis.y * d * (1 - c),
+    v.z * c + cr.z * s2 + axis.z * d * (1 - c),
+  );
+}
+/** 由 local 变换算世界矩阵表（与 boneMatricesWithPose 的 ② 同构）。 */
+function localWorldMatrices(asset, local) {
+  const n = local.length;
+  const worldM = new Array(n);
+  const parentOf = (i) => (asset.parentOfAll ? asset.parentOfAll[i] : -1);
+  const resolve = (i, guard) => {
+    if (worldM[i]) return worldM[i];
+    if (guard > 128) return directorMat4Identity();
+    const Lp = local[i];
+    const m = trsToMat4(Lp.t, Lp.r, Lp.s);
+    const p = parentOf(i);
+    worldM[i] = (p >= 0 && p !== i) ? directorMat4Multiply(resolve(p, guard + 1), m) : m;
+    return worldM[i];
+  };
+  for (let i = 0; i < n; i++) resolve(i, 0);
+  return worldM;
+}
+const m4pos = (m) => v3(m[12], m[13], m[14]);
+/** IK 目标点：target 支持 [x,y,z] / {x,y,z} / {keys:[{t,pos:[x,y,z]}]}。 */
+export function ikTargetPoint(spec, time) {
+  const t = spec && spec.target;
+  if (!t) return null;
+  if (Array.isArray(t)) return v3(Number(t[0]) || 0, Number(t[1]) || 0, Number(t[2]) || 0);
+  if (typeof t === 'object') {
+    if (Array.isArray(t.keys) && t.keys.length) {
+      const gx = evalKeyChannel(t.keys, (k) => (k.pos ? k.pos[0] : undefined), time);
+      const gy = evalKeyChannel(t.keys, (k) => (k.pos ? k.pos[1] : undefined), time);
+      const gz = evalKeyChannel(t.keys, (k) => (k.pos ? k.pos[2] : undefined), time);
+      return v3(gx === null ? 0 : gx, gy === null ? 0 : gy, gz === null ? 0 : gz);
+    }
+    return v3(Number(t.x) || 0, Number(t.y) || 0, Number(t.z) || 0);
+  }
+  return null;
+}
+/**
+ * 两骨解析 IK 的方向解：给定三关节世界位置与目标，返回 [根骨方向, 中间骨方向]（世界单位向量）。
+ * 复用引擎的方向求解器落地到 local 旋转（见 resolveIkAndConstraints）。
+ */
+export function solveTwoBoneDirs(j0, j1, j2, target, pole) {
+  const L1 = vLen(vSub(j1, j0)), L2 = vLen(vSub(j2, j1));
+  const v = vSub(target, j0);
+  const dRaw = vLen(v) || 1e-6;
+  const d = Math.max(Math.abs(L1 - L2) + 1e-4, Math.min(L1 + L2 - 1e-4, dRaw));
+  const dir = vMul(v, 1 / dRaw);
+  let bend = pole ? vSub(pole, j0) : vSub(j1, j0);
+  let axis = vCross(dir, bend);
+  if (vLen(axis) < 1e-6) {
+    axis = vCross(dir, v3(0, 1, 0));
+    if (vLen(axis) < 1e-6) axis = vCross(dir, v3(1, 0, 0));
+  }
+  axis = vNorm(axis);
+  const cos1 = Math.max(-1, Math.min(1, (L1 * L1 + d * d - L2 * L2) / (2 * L1 * d)));
+  const a1 = Math.acos(cos1);
+  // 绕 axis 旋转 dir 得到根骨方向；若与极向量方向相反则取负角（弯向极向量）
+  let upperDir = rotateVecAxis(dir, axis, a1);
+  const mid0 = vAdd(j0, vMul(upperDir, L1));
+  if (pole && vDot(vSub(mid0, j0), vSub(pole, j0)) < 0) upperDir = rotateVecAxis(dir, axis, -a1);
+  const mid = vAdd(j0, vMul(upperDir, L1));
+  const endTarget = vAdd(j0, vMul(dir, d));
+  const lowerDir = vLen(vSub(endTarget, mid)) < 1e-6 ? upperDir : vNorm(vSub(endTarget, mid));
+  return [upperDir, lowerDir];
+}
+/** 应用约束 + IK 到 local（就地修改 local 旋转）。 */
+export function resolveIkAndConstraints(asset, local, opts, time) {
+  if (!asset || !local || !opts) return;
+  const bones = asset.bones || [];
+  const t = Math.max(0, Number(time) || 0);
+  const shortOf = (kw) => String(kw || '').replace(/^mixamorig:?/i, '');
+  const parentOfNode = (i) => (asset.parentOfAll ? asset.parentOfAll[i] : -1);
+  const childNodeOf = (bi) => {
+    const cn = BONE_CHILD[shortOf(bones[bi].name)];
+    if (!cn) return -1;
+    const ci = bones.findIndex((x) => shortOf(x.name) === cn);
+    return ci >= 0 ? bones[ci].nodeIdx : -1;
+  };
+  /**
+   * 把某根骨骼转到「世界方向 targetDir」：qLocal = P⁻¹ · qWorld · P（P=父节点世界旋转），
+   * 这样旋转轴心恒为该骨骼关节（不会像旧 dirs 路径那样绕原点转整条骨架）。
+   */
+  const aimBone = (worldMIn, bi, targetDir) => {
+    const ni = bones[bi].nodeIdx;
+    if (!(ni >= 0) || !local[ni]) return worldMIn;
+    const want = vNorm(v3(Number(targetDir.x) || 0, Number(targetDir.y) || 0, Number(targetDir.z) || 0));
+    if (vLen(want) < 1e-9) return worldMIn;
+    const childNi = childNodeOf(bi);
+    let wm = worldMIn;
+    // 迭代修正：父级含缩放/非正交时，一次共轭会有几度系统残差；迭代 3 次收敛到 1e-6
+    for (let iter = 0; iter < 3; iter++) {
+      const bw = wm[ni];
+      const head = v3(bw[12], bw[13], bw[14]);
+      let cur;
+      if (childNi >= 0 && wm[childNi]) {
+        const cw = wm[childNi];
+        cur = vNorm(v3(cw[12] - head.x, cw[13] - head.y, cw[14] - head.z));
+      } else {
+        cur = vNorm(v3(bw[4], bw[5], bw[6]));
+      }
+      if (vLen(cur) < 1e-9 || vDot(cur, want) > 0.9999999) break;
+      const qW = quatFromTo([cur.x, cur.y, cur.z], [want.x, want.y, want.z]);
+      const pn = parentOfNode(ni);
+      const P = pn >= 0 && wm[pn] ? mat4RotationQuat(wm[pn]) : [0, 0, 0, 1];
+      const qLocal = quatMul(quatConj(P), quatMul(qW, P));
+      local[ni].r = quatMul(qLocal, local[ni].r);
+      wm = localWorldMatrices(asset, local);
+    }
+    return wm;
+  };
+
+  // ── ① 约束（copy / limit 先做，不需要世界矩阵；damped_track 需要世界矩阵）──
+  let worldM = null;
+  for (const c of Array.isArray(opts.constraints) ? opts.constraints : []) {
+    if (!c || !c.bone) continue;
+    const bi = matchBone(bones, c.bone);
+    if (bi < 0) continue;
+    const ni = bones[bi].nodeIdx;
+    if (!(ni >= 0) || !local[ni]) continue;
+    const type = String(c.type || '').toLowerCase();
+    if (type === 'copy_rotation' || type === 'copyrotation') {
+      const fromBi = matchBone(bones, c.from || c.source || '');
+      if (fromBi < 0) continue;
+      const fni = bones[fromBi].nodeIdx;
+      if (!(fni >= 0) || !local[fni]) continue;
+      const mix = Math.max(0, Math.min(1, Number(c.mix === undefined ? 1 : c.mix)));
+      local[ni].r = mix >= 1 ? local[fni].r.slice() : quatSlerp(local[ni].r, local[fni].r, mix);
+    } else if (type === 'limit_rotation' || type === 'limitrotation') {
+      const e = quatToEuler(local[ni].r);
+      const mn = Array.isArray(c.min) ? c.min : [-Math.PI, -Math.PI, -Math.PI];
+      const mx = Array.isArray(c.max) ? c.max : [Math.PI, Math.PI, Math.PI];
+      for (let k = 0; k < 3; k++) {
+        const lo = Number(mn[k]); const hi = Number(mx[k]);
+        if (Number.isFinite(lo)) e[k] = Math.max(lo, e[k]);
+        if (Number.isFinite(hi)) e[k] = Math.min(hi, e[k]);
+      }
+      local[ni].r = eulerToQuat(e[0], e[1], e[2]);
+    } else if (type === 'damped_track' || type === 'dampedtrack' || type === 'track') {
+      const tp = ikTargetPoint(c, t);
+      if (!tp) continue;
+      worldM = worldM || localWorldMatrices(asset, local);
+      const head = v3(worldM[ni][12], worldM[ni][13], worldM[ni][14]);
+      const dir = vSub(tp, head);
+      if (vLen(dir) < 1e-6) continue;
+      worldM = aimBone(worldM, bi, vNorm(dir));
+    }
+  }
+
+  // ── ② IK：两骨解析（链 = [根骨, 中间骨, 末端骨]）──
+  const chains = Array.isArray(opts.ik) ? opts.ik : [];
+  for (const spec of chains) {
+    const names = (spec && Array.isArray(spec.chain) ? spec.chain : []).map(String);
+    if (names.length < 3) continue;
+    const bis = names.map((n) => matchBone(bones, n));
+    if (bis.some((x) => x < 0)) continue;
+    const nodes = bis.map((bi) => bones[bi].nodeIdx);
+    if (nodes.some((n2) => !(n2 >= 0))) continue;
+    const target = ikTargetPoint(spec, t);
+    if (!target) continue;
+    worldM = worldM || localWorldMatrices(asset, local);
+    const j0 = v3(worldM[nodes[0]][12], worldM[nodes[0]][13], worldM[nodes[0]][14]);
+    const j1 = v3(worldM[nodes[1]][12], worldM[nodes[1]][13], worldM[nodes[1]][14]);
+    const j2 = v3(worldM[nodes[2]][12], worldM[nodes[2]][13], worldM[nodes[2]][14]);
+    const pole = spec.pole
+      ? (Array.isArray(spec.pole) ? v3(Number(spec.pole[0]) || 0, Number(spec.pole[1]) || 0, Number(spec.pole[2]) || 0) : ikTargetPoint({ target: spec.pole }, t))
+      : null;
+    const solved = solveTwoBoneDirs(j0, j1, j2, target, pole || null);
+    worldM = aimBone(worldM, bis[0], solved[0]);
+    worldM = aimBone(worldM, bis[1], solved[1]);
+  }
+}
+
+/**
+ * 仅应用姿态/约束/IK 到 local（不计算世界矩阵/蒙皮矩阵）。
+ * 测试与工具用它拿「节点空间」结果；预览/导出走的 boneMatricesWithPose 内部同样调用它。
+ */
+export function applyBonePoseToLocal(asset, time, poseMap, dirs, baseEuler, rootY, opts) {
+  if (!asset || !asset.bones || !asset.nodes) return null;
+
   if (!asset || !asset.bones || !asset.nodes) return null;
   const anim = asset._anim;
   const t = animLoopTime(asset, time);
@@ -1488,11 +1840,193 @@ export function boneMatricesWithPose(asset, time, poseMap, dirs, baseEuler, root
     const hi = (asset.bones || []).findIndex((x) => String(x.name || "").replace(/^mixamorig:?/i, "") === "Hips");
     if (hi >= 0) {
       const ni3 = asset.bones[hi].nodeIdx;
-      if (ni3 !== undefined && local[ni3] && local[ni3].t) local[ni3].t[1] += rootY;
+      if (ni3 !== undefined && local[ni3] && local[ni3].t) {
+        // rootY 以「米」为单位，而骨骼节点位移是模型本地位（xbot 为厘米级 ~100×）
+        const kRoot = 100;
+        local[ni3].t[1] += rootY * kRoot;
+      }
+    }
+  }
+  // ①b2 动作层（BVH 重定向后的 poseKeys / NLA-lite）：以姿态增量叠加到当前姿势
+  if (opts && Array.isArray(opts.clips) && opts.clips.length) {
+    const cpm = sampleClips(asset, opts.clips, time || 0);
+    for (const [kk, rot] of Object.entries(cpm || {})) {
+      const bi2 = Number(kk);
+      const bone2 = asset.bones[bi2];
+      if (!bone2) continue;
+      const ni2 = bone2.nodeIdx;
+      if (!(ni2 >= 0) || !local[ni2]) continue;
+      const q2 = rot.length === 4 ? rot : eulerToQuat(Number(rot[0]) || 0, Number(rot[1]) || 0, Number(rot[2]) || 0);
+      local[ni2].r = quatMul(local[ni2].r, q2);
     }
   }
   // ①c 方向约束（基于「动画 + 基底」后的当前姿势求解，因此永远不会被动画带偏）
   if (dirs && dirs.length) solveDirsIntoLocal(asset, local, dirs);
+  // ①d 约束 + IK（FK 之后；对齐 Blender 求值顺序：姿势 → 约束 → IK）
+  if (opts && (Array.isArray(opts.ik) || Array.isArray(opts.constraints))) resolveIkAndConstraints(asset, local, opts, time || 0);
+
+  return local;
+}
+
+/** 节点空间世界矩阵（与 boneMatrices 同一套 TRS 组合；供 IK/测试/工具使用）。 */
+export { localWorldMatrices };
+
+/* ============================================================
+ * 动捕数据接入（Phase D）：BVH 解析 → rest-delta 重定向 → 动作层混合
+ *   参考 Blender 的骨骼 rest/pose 矩阵语义（arm_mat / pose_mat）与 NLA strip
+ *   混合（replace/add/multiply + influence）；算法自行实现（GPL 兼容性）。
+ * ============================================================ */
+const normBone = (n) => String(n || '').toLowerCase().replace(/^mixamorig:?/i, '').replace(/[^a-z0-9]/g, '');
+/** 解析 BVH 文本 → { joints:[{name,parent,offset,channels,end}], frames:number[][], frameTime }。 */
+export function parseBVH(text) {
+  const src = String(text || '');
+  const lines = src.split(/\r?\n/);
+  const joints = [];
+  const stack = [];
+  let frameTime = 1 / 30;
+  const frames = [];
+  let mode = 'hierarchy';
+  let pendingFrames = 0;
+  for (let li = 0; li < lines.length; li++) {
+    const line = lines[li].trim();
+    if (!line) continue;
+    if (/^MOTION$/i.test(line)) { mode = 'motion'; continue; }
+    if (mode === 'motion') {
+      const fm = /^Frames:\s*(\d+)/i.exec(line);
+      if (fm) { pendingFrames = Number(fm[1]); continue; }
+      const tm = /^Frame Time:\s*([\d.eE+-]+)/i.exec(line);
+      if (tm) { frameTime = Number(tm[1]) || frameTime; continue; }
+      const vals = line.split(/[\s,]+/).filter((x) => x !== '').map(Number).filter((x) => Number.isFinite(x));
+      if (vals.length) frames.push(vals);
+      continue;
+    }
+    const head = /^(ROOT|JOINT)\s+(\S+)/i.exec(line);
+    if (head) {
+      const parent = stack.length ? stack[stack.length - 1] : -1;
+      const idx = joints.length;
+      joints.push({ name: head[2], parent, offset: [0, 0, 0], channels: [], end: false });
+      stack.push(idx);
+      continue;
+    }
+    if (/^End Site/i.test(line)) {
+      const parent = stack.length ? stack[stack.length - 1] : -1;
+      joints.push({ name: 'End_' + joints.length, parent, offset: [0, 0, 0], channels: [], end: true });
+      stack.push(joints.length - 1);
+      continue;
+    }
+    if (/^OFFSET/i.test(line)) {
+      const p = line.split(/\s+/);
+      const cur = joints[stack[stack.length - 1]];
+      if (cur) cur.offset = [Number(p[1]) || 0, Number(p[2]) || 0, Number(p[3]) || 0];
+      continue;
+    }
+    if (/^CHANNELS/i.test(line)) {
+      const p = line.split(/\s+/);
+      const cur = joints[stack[stack.length - 1]];
+      if (cur) cur.channels = p.slice(2);
+      continue;
+    }
+    if (line === '}') { stack.pop(); continue; }
+  }
+  const totalFrames = pendingFrames || frames.length;
+  return { joints, frames: frames.slice(0, totalFrames || frames.length), frameTime };
+}
+/** BVH 关节名 → 资产骨骼索引（按规范化名精确匹配；找不到跳过）。 */
+export function mapBVHToBones(asset, bvh) {
+  const bones = (asset && asset.bones) || [];
+  const byName = new Map();
+  bones.forEach((b, bi) => byName.set(normBone(b.name), bi));
+  const map = [];
+  for (const j of (bvh && bvh.joints) || []) map.push(byName.has(normBone(j.name)) ? byName.get(normBone(j.name)) : -1);
+  return map;
+}
+/** 单帧关节局部旋转（按通道顺序，第一通道最外层）。 */
+export function bvhJointLocalQuat(joint, values, offset) {
+  let q = [0, 0, 0, 1];
+  let k = offset;
+  for (const ch of (joint && joint.channels) || []) {
+    const rad = (Number(values[k]) || 0) * Math.PI / 180;
+    let qi;
+    if (/^Xrotation$/i.test(ch)) qi = [Math.sin(rad / 2), 0, 0, Math.cos(rad / 2)];
+    else if (/^Yrotation$/i.test(ch)) qi = [0, Math.sin(rad / 2), 0, Math.cos(rad / 2)];
+    else if (/^Zrotation$/i.test(ch)) qi = [0, 0, Math.sin(rad / 2), Math.cos(rad / 2)];
+    else { k++; continue; }
+    q = quatMul(q, qi);
+    k++;
+  }
+  return q;
+}
+/**
+ * BVH → 目标骨架的 poseKeys（rest-delta 重定向）：
+ *   q_target = q_rest_local · q_src_local（xbot 的 rest 局部旋转基本为单位四元数，故近似为局部旋转叠加）
+ * 返回 { poseKeys:[{t,bonePose, ease}], duration, frameTime }。
+ */
+export function retargetBVH(asset, bvh, opts) {
+  const o = opts || {};
+  if (!asset || !bvh || !Array.isArray(bvh.frames) || !bvh.frames.length) return { poseKeys: [], duration: 0, frameTime: bvh ? bvh.frameTime : 0 };
+  const map = mapBVHToBones(asset, bvh);
+  const channelsBefore = [];
+  {
+    let acc = 0;
+    for (const j of bvh.joints) { channelsBefore.push(acc); acc += (j.channels || []).length; }
+  }
+  const poseKeys = [];
+  const frameStep = o.sampleStep ? Math.max(1, Math.round(o.sampleStep)) : 1;
+  for (let f = 0; f < bvh.frames.length; f += frameStep) {
+    const values = bvh.frames[f];
+    const bonePose = {};
+    let any = false;
+    for (let ji = 0; ji < bvh.joints.length; ji++) {
+      const bi = map[ji];
+      if (bi < 0) continue;
+      const qSrc = bvhJointLocalQuat(bvh.joints[ji], values, channelsBefore[ji]);
+      const bone = asset.bones[bi];
+      const qRest = bone && bone.r && bone.r.length === 4 ? bone.r : [0, 0, 0, 1];
+      bonePose[bi] = quatMul([Number(qRest[0]) || 0, Number(qRest[1]) || 0, Number(qRest[2]) || 0, Number(qRest[3]) || 1], qSrc);
+      any = true;
+    }
+    if (any) poseKeys.push({ t: f * (Number(bvh.frameTime) || 1 / 30), bonePose });
+  }
+  return {
+    poseKeys,
+    duration: bvh.frames.length * (Number(bvh.frameTime) || 1 / 30),
+    frameTime: Number(bvh.frameTime) || 1 / 30,
+  };
+}
+/**
+ * 动作层混合（NLA-lite）：clip = { keys:[{t,bonePose}], t0, t1, loop, blend:'replace'|'add'|'multiply', influence }
+ * 返回 poseMap（boneIndex → 四元数），供 skinModel 以「姿态增量」叠加。
+ */
+export function sampleClips(asset, clips, time) {
+  const out = {};
+  const t = Math.max(0, Number(time) || 0);
+  for (const clip of Array.isArray(clips) ? clips : []) {
+    const keys = Array.isArray(clip && clip.keys) ? clip.keys : [];
+    if (!keys.length) continue;
+    const t0 = Number(clip.t0) || 0;
+    const lastT = Number(keys[keys.length - 1].t) || 0;
+    const t1 = Number(clip.t1) || lastT;
+    const dur = Math.max(1e-6, t1 - t0);
+    let tl = t - t0;
+    if (clip.loop) tl = ((tl % dur) + dur) % dur;
+    tl = Math.max(0, Math.min(dur, tl));
+    const pm = interpolatePoseKeys(keys, tl);
+    if (!pm) continue;
+    const influence = Math.max(0, Math.min(1, Number(clip.influence === undefined ? 1 : clip.influence)));
+    const mode = String(clip.blend || 'replace').toLowerCase();
+    for (const [k, rot] of Object.entries(pm)) {
+      const q = rot.length === 4 ? rot.slice() : eulerToQuat(Number(rot[0]) || 0, Number(rot[1]) || 0, Number(rot[2]) || 0);
+      const base = out[k] || [0, 0, 0, 1];
+      if (mode === 'replace') out[k] = quatSlerp(base, q, influence);
+      else out[k] = quatMul(base, quatSlerp([0, 0, 0, 1], q, influence));
+    }
+  }
+  return out;
+}
+
+export function boneMatricesWithPose(asset, time, poseMap, dirs, baseEuler, rootY, opts) {
+  const local = applyBonePoseToLocal(asset, time, poseMap, dirs, baseEuler, rootY, opts);
+  if (!local) return null;
   // ② 自顶向下世界矩阵
   const n = local.length;
   const worldM = new Array(n);
@@ -1546,8 +2080,8 @@ export function poseBlendAt(posedefs, poseAnim, time) {
   for (let i = 0; i < ks.length - 1; i++) if (t >= ks[i].t && t <= ks[i + 1].t) { a = ks[i]; b = ks[i + 1]; break; }
   const span = b.t - a.t;
   const k = span > 1e-6 ? (t - a.t) / span : 0;
-  // smoothstep 缓动：起止更自然
-  const e = k * k * (3 - 2 * k);
+  // 缓动：默认 smoothstep（起止更自然）；可按帧用 ease 覆盖
+  const e = easeFactor(b.ease || a.ease || 'auto', k);
   const sa = find(a.poseId), sb = find(b.poseId);
   const out = [];
   if (sa && e < 0.999) out.push({ base: sa.base || null, dirs: sa.dirs || [], rootY: Number(sa.rootY) || 0, w: 1 - e });
@@ -1555,8 +2089,8 @@ export function poseBlendAt(posedefs, poseAnim, time) {
   return out.length ? out : null;
 }
 
-/** 四元数球面插值（a→b，t∈[0,1]） */
-function quatSlerp(a, b, t) {
+/** 四元数球面插值（a→b，t∈[0,1]，最短弧） */
+export function quatSlerp(a, b, t) {
   let ax = a[0], ay = a[1], az = a[2], aw = a[3];
   let bx = b[0], by = b[1], bz = b[2], bw = b[3];
   let d = ax * bx + ay * by + az * bz + aw * bw;
@@ -1659,6 +2193,86 @@ export function boneMatricesWithPoseMix(asset, time, list) {
   return { mats: out };
 }
 
+/* ============================================================
+ * 双四元数蒙皮（DQS）：解决线性混合蒙皮（LBS）在大角度关节处的塌陷/糖纸
+ * 算法对照 Blender 源码（只借鉴算法，不复制 GPL 代码；本插件 Apache-2.0）：
+ *   armature_update.cc#mat4_to_dquat / armature_deform.cc 的 deform_dual_quat 混合
+ * ============================================================ */
+function quatConj(q) { return [-q[0], -q[1], -q[2], q[3]]; }
+function quatRotateVec(q, v) {
+  const t = quatMul(quatMul(q, [v[0], v[1], v[2], 0]), quatConj(q));
+  return [t[0], t[1], t[2]];
+}
+/** 列主序 3x3（取自 mat4 的旋转列）→ 单位四元数 [x,y,z,w]。 */
+export function mat4RotationQuat(m) {
+  const m00 = m[0], m01 = m[4], m02 = m[8];
+  const m10 = m[1], m11 = m[5], m12 = m[9];
+  const m20 = m[2], m21 = m[6], m22 = m[10];
+  const tr = m00 + m11 + m22;
+  let x, y, z, w;
+  if (tr > 0) {
+    const q = Math.sqrt(tr + 1) * 2;
+    w = 0.25 * q; x = (m21 - m12) / q; y = (m02 - m20) / q; z = (m10 - m01) / q;
+  } else if (m00 > m11 && m00 > m22) {
+    const q = Math.sqrt(1 + m00 - m11 - m22) * 2;
+    w = (m21 - m12) / q; x = 0.25 * q; y = (m01 + m10) / q; z = (m02 + m20) / q;
+  } else if (m11 > m22) {
+    const q = Math.sqrt(1 + m11 - m00 - m22) * 2;
+    w = (m02 - m20) / q; x = (m01 + m10) / q; y = 0.25 * q; z = (m12 + m21) / q;
+  } else {
+    const q = Math.sqrt(1 + m22 - m00 - m11) * 2;
+    w = (m10 - m01) / q; x = (m02 + m20) / q; y = (m12 + m21) / q; z = 0.25 * q;
+  }
+  const l = Math.hypot(x, y, z, w) || 1;
+  return [x / l, y / l, z / l, w / l];
+}
+/** mat4 → 单位双四元数 { r:[x,y,z,w], d:[x,y,z,w] }，d = 0.5·t·r。 */
+export function mat4ToDualQuat(m) {
+  const r = mat4RotationQuat(m);
+  const t = [Number(m[12]) || 0, Number(m[13]) || 0, Number(m[14]) || 0, 0];
+  const d = quatMul(t, r).map((v) => 0.5 * v);
+  return { r, d };
+}
+/** 双四元数作用到点：p' = R·p·R* + 2·(D·R*).xyz。 */
+export function dqTransformPoint(R, D, p) {
+  const rot = quatRotateVec(R, [p[0], p[1], p[2]]);
+  const dr = quatMul(D, quatConj(R));
+  return [rot[0] + 2 * dr[0], rot[1] + 2 * dr[1], rot[2] + 2 * dr[2]];
+}
+/** 单点蒙皮（测试/工具用）：mode='lbs'|'dqs'。 */
+export function skinPointWithMats(mats, joints, weights, p, nb, mode) {
+  const dqs = String(mode || 'lbs').toLowerCase() === 'dqs';
+  if (!dqs) {
+    let x = 0, y = 0, z = 0;
+    for (let k = 0; k < 4; k++) {
+      const w = Number(weights[k]) || 0, j = Number(joints[k]);
+      if (!w || !(j >= 0) || j >= nb) continue;
+      const o = j * 16;
+      x += w * (mats[o] * p[0] + mats[o + 4] * p[1] + mats[o + 8] * p[2] + mats[o + 12]);
+      y += w * (mats[o + 1] * p[0] + mats[o + 5] * p[1] + mats[o + 9] * p[2] + mats[o + 13]);
+      z += w * (mats[o + 2] * p[0] + mats[o + 6] * p[1] + mats[o + 10] * p[2] + mats[o + 14]);
+    }
+    return [x, y, z];
+  }
+  let R = [0, 0, 0, 0], D = [0, 0, 0, 0], ref = null, used = 0;
+  for (let k = 0; k < 4; k++) {
+    const w = Number(weights[k]) || 0, j = Number(joints[k]);
+    if (!w || !(j >= 0) || j >= nb) continue;
+    const dq = mat4ToDualQuat(mats.subarray ? mats.subarray(j * 16, j * 16 + 16) : mats.slice(j * 16, j * 16 + 16));
+    let r = dq.r, d = dq.d;
+    if (!ref) ref = r;
+    else if (r[0] * ref[0] + r[1] * ref[1] + r[2] * ref[2] + r[3] * ref[3] < 0) {
+      r = r.map((v) => -v); d = d.map((v) => -v);
+    }
+    for (let q = 0; q < 4; q++) { R[q] += w * r[q]; D[q] += w * d[q]; }
+    used++;
+  }
+  if (!used) return [p[0], p[1], p[2]];
+  const rl = Math.hypot(R[0], R[1], R[2], R[3]) || 1;
+  R = R.map((v) => v / rl); D = D.map((v) => v / rl);
+  return dqTransformPoint(R, D, p);
+}
+
 export function skinModel(asset, clipName, time, outPos, outNrm, shape) {
   const clip = clipName ? asset.clipByName(clipName) : null;
   asset._anim = clip;
@@ -1669,20 +2283,66 @@ export function skinModel(asset, clipName, time, outPos, outNrm, shape) {
   const poseBase = spec ? (spec.base || null) : null;
   const poseRootY = spec ? (Number(spec.rootY) || 0) : (Number(shape && shape.rootY) || 0);
   const poseBlend = shape && shape.poseBlend && shape.poseBlend.length ? shape.poseBlend : null;
-  const wantPose = !!(poseMap || (poseDirs && poseDirs.length) || poseBase || poseBlend);
+  const wantPose = !!(poseMap || (poseDirs && poseDirs.length) || poseBase || poseBlend || (shape && (shape.ik || shape.constraints || shape.clips)));
   const bm = asset.bones && asset.bones.length
     ? (poseBlend ? boneMatricesWithPoseMix(asset, time || 0, poseBlend)
-       : (wantPose ? boneMatricesWithPose(asset, time || 0, poseMap, poseDirs, poseBase, poseRootY) : boneMatrices(asset, time || 0)))
+       : (wantPose ? boneMatricesWithPose(asset, time || 0, poseMap, poseDirs, poseBase, poseRootY, shape && (shape.ik || shape.constraints || shape.clips) ? { ik: shape.ik, constraints: shape.constraints, clips: shape.clips } : null)
+          : boneMatrices(asset, time || 0)))
     : null;
   const P = asset.positions, N = asset.normals, J = asset.joints, W = asset.weights, nb = asset.bones ? asset.bones.length : 0;
   const pos = outPos && outPos.length === P.length ? outPos : new Float32Array(P.length);
   const nrm = outNrm && outNrm.length === P.length ? outNrm : new Float32Array(P.length);
   const nv = P.length / 3;
+  const modeRaw = String((shape && shape.skinning) || 'lbs').toLowerCase();
+  const useDQS = modeRaw === 'dqs' || modeRaw === 'auto';
+  // 每帧一次：把骨骼蒙皮矩阵转成双四元数（不是每顶点）
+  let dqsBones = null;
+  if (useDQS && bm && bm.mats && nb > 0) {
+    dqsBones = new Array(nb);
+    for (let j = 0; j < nb; j++) dqsBones[j] = mat4ToDualQuat(bm.mats.subarray(j * 16, j * 16 + 16));
+  }
   for (let v = 0; v < nv; v++) {
     let x = 0, y = 0, z = 0, nx = 0, ny = 0, nz = 0;
     if (!bm || !J || !W) {
       pos[v * 3] = P[v * 3]; pos[v * 3 + 1] = P[v * 3 + 1]; pos[v * 3 + 2] = P[v * 3 + 2];
       nrm[v * 3] = N[v * 3]; nrm[v * 3 + 1] = N[v * 3 + 1]; nrm[v * 3 + 2] = N[v * 3 + 2];
+      continue;
+    }
+    if (dqsBones) {
+      // 双四元数线性混合（DLB）：半球对齐后加权求和，再归一化
+      let R = [0, 0, 0, 0], D = [0, 0, 0, 0], ref = null, used = 0;
+      for (let k = 0; k < 4; k++) {
+        const w = W[v * 4 + k];
+        const j = J[v * 4 + k];
+        if (!w || j >= nb) continue;
+        const dq = dqsBones[j];
+        let rr = dq.r, dd = dq.d;
+        if (!ref) ref = rr;
+        else if (rr[0] * ref[0] + rr[1] * ref[1] + rr[2] * ref[2] + rr[3] * ref[3] < 0) {
+          rr = [-rr[0], -rr[1], -rr[2], -rr[3]];
+          dd = [-dd[0], -dd[1], -dd[2], -dd[3]];
+        }
+        R[0] += w * rr[0]; R[1] += w * rr[1]; R[2] += w * rr[2]; R[3] += w * rr[3];
+        D[0] += w * dd[0]; D[1] += w * dd[1]; D[2] += w * dd[2]; D[3] += w * dd[3];
+        used++;
+      }
+      if (!used) {
+        pos[v * 3] = P[v * 3]; pos[v * 3 + 1] = P[v * 3 + 1]; pos[v * 3 + 2] = P[v * 3 + 2];
+        nrm[v * 3] = N[v * 3]; nrm[v * 3 + 1] = N[v * 3 + 1]; nrm[v * 3 + 2] = N[v * 3 + 2];
+        continue;
+      }
+      const rl = Math.hypot(R[0], R[1], R[2], R[3]) || 1;
+      R = [R[0] / rl, R[1] / rl, R[2] / rl, R[3] / rl];
+      D = [D[0] / rl, D[1] / rl, D[2] / rl, D[3] / rl];
+      // 与 skinPointWithMats 完全同源：p' = R·p·R* + 2·(D·R*).xyz
+      const p2 = quatRotateVec(R, [P[v * 3], P[v * 3 + 1], P[v * 3 + 2]]);
+      const dr = quatMul(D, quatConj(R));
+      pos[v * 3] = p2[0] + 2 * dr[0];
+      pos[v * 3 + 1] = p2[1] + 2 * dr[1];
+      pos[v * 3 + 2] = p2[2] + 2 * dr[2];
+      const n2 = quatRotateVec(R, [N[v * 3], N[v * 3 + 1], N[v * 3 + 2]]);
+      const nl = Math.hypot(n2[0], n2[1], n2[2]) || 1;
+      nrm[v * 3] = n2[0] / nl; nrm[v * 3 + 1] = n2[1] / nl; nrm[v * 3 + 2] = n2[2] / nl;
       continue;
     }
     for (let k = 0; k < 4; k++) {
@@ -1843,6 +2503,120 @@ export function removeShot(scene, index) {
  * ============================================================ */
 
 /** 姿态关键帧插值：返回该时刻的 bonePose（无关键帧返回 null）。 */
+/* ============================================================
+ * 动画曲线核心（四元数 / 缓动表 / 三次贝塞尔 / 通道求值）
+ * 算法对照 Blender 源码（只借鉴算法，不复制 GPL 代码；本插件 Apache-2.0）：
+ *   - blenkernel/intern/fcurve.cc#fcurve_eval_keyframes_interpolate（BEZT_IPO_BEZ 三次贝塞尔）
+ *   - animrig/intern/fcurve.cc 的 auto handle 语义（HD_AUTO / HD_AUTO_ANIM）
+ *   - blenlib 的四元数插值语义（最短弧、归一化）
+ * ============================================================ */
+export function quatNormalize(q) {
+  const l = Math.hypot(Number(q[0]) || 0, Number(q[1]) || 0, Number(q[2]) || 0, Number(q[3]) || 0) || 1;
+  return [q[0] / l, q[1] / l, q[2] / l, q[3] / l];
+}
+/** 缓动表（in 方向；out/inout 由 easeFactor 组合）。 */
+const EASE_IN_FN = {
+  sine: (t) => 1 - Math.cos((t * Math.PI) / 2),
+  quad: (t) => t * t,
+  cubic: (t) => t * t * t,
+  quart: (t) => t * t * t * t,
+  quint: (t) => t * t * t * t * t,
+  expo: (t) => (t <= 0 ? 0 : Math.pow(2, 10 * t - 10)),
+  circ: (t) => 1 - Math.sqrt(Math.max(0, 1 - t * t)),
+  back: (t) => { const c = 1.70158; return t * t * ((c + 1) * t - c); },
+  elastic: (t) => {
+    if (t <= 0) return 0;
+    if (t >= 1) return 1;
+    return -Math.pow(2, 10 * t - 10) * Math.sin((t * 10 - 10.75) * ((2 * Math.PI) / 3));
+  },
+  bounce: (t) => {
+    if (t < 1 / 2.75) return 7.5625 * t * t;
+    if (t < 2 / 2.75) { const u = t - 1.5 / 2.75; return 7.5625 * u * u + 0.75; }
+    if (t < 2.5 / 2.75) { const u = t - 2.25 / 2.75; return 7.5625 * u * u + 0.9375; }
+    const u = t - 2.625 / 2.75;
+    return 7.5625 * u * u + 0.984375;
+  },
+};
+/** 缓动：'auto'（smoothstep）/ 'linear' / 'constant' / '<曲线>_in|_out|_in_out'。 */
+export function easeFactor(kind, x) {
+  const k = Math.max(0, Math.min(1, Number(x) || 0));
+  const id = String(kind == null ? 'auto' : kind).toLowerCase().replace(/[\s-]+/g, '_');
+  if (id === 'constant') return 0;
+  if (id === 'linear') return k;
+  if (id === 'auto' || id === 'smooth' || id === 'smoothstep' || id === 'bezier') return k * k * (3 - 2 * k);
+  const m = /^(sine|quad|cubic|quart|quint|expo|circ|back|elastic|bounce)(?:_?(in_out|in|out))?$/.exec(id);
+  if (m) {
+    const fn = EASE_IN_FN[m[1]];
+    const dir = m[2] || 'in_out';
+    if (dir === 'in') return fn(k);
+    if (dir === 'out') return 1 - fn(1 - k);
+    return k < 0.5 ? fn(2 * k) / 2 : 1 - fn(2 - 2 * k) / 2;
+  }
+  return k * k * (3 - 2 * k);
+}
+/** 一维三次贝塞尔。 */
+function bez1(p0, p1, p2, p3, t) {
+  const u = 1 - t;
+  return u * u * u * p0 + 3 * u * u * t * p1 + 3 * u * t * t * p2 + t * t * t * p3;
+}
+/** 由 x 反解贝塞尔参数 t（x 单调；手柄已限幅）。二分法稳定且精度足够。 */
+function bezierSolveT(x0, x1, x2, x3, x) {
+  if (x <= x0) return 0;
+  if (x >= x3) return 1;
+  let lo = 0, hi = 1;
+  for (let i = 0; i < 48; i++) {
+    const mid = (lo + hi) / 2;
+    if (bez1(x0, x1, x2, x3, mid) < x) lo = mid; else hi = mid;
+  }
+  return (lo + hi) / 2;
+}
+/** 自动切线（auto-clamped 语义）：极值点取水平切线，其余用中心差分并限幅。 */
+function autoHandle(keys, i, val) {
+  const k = keys[i];
+  const prev = keys[i - 1], next = keys[i + 1];
+  const dtNext = next ? Math.max(1e-6, next.t - k.t) : 1e-6;
+  if (!prev || !next) return { dx: 0, dy: 0 };   // 端点：水平切线（Blender 端点同义）
+  const v0 = val(prev), v1 = val(k), v2 = val(next);
+  const isExtremum = (v1 >= v0 && v1 >= v2) || (v1 <= v0 && v1 <= v2);
+  const slope = isExtremum ? 0 : (v2 - v0) / Math.max(1e-6, next.t - prev.t);
+  const dx = Math.min(dtNext / 3, (k.t - prev.t) / 3);
+  return { dx, dy: slope * dx };
+}
+/**
+ * 通道求值：keys = [{ t, interp?, ease?, hIn?{dx,dy}, hOut?{dx,dy} }]
+ *   interp: 'auto'(默认，smoothstep/legacy) | 'linear' | 'constant' | 'bezier'
+ *   bezier 时用显式手柄（dx=时间偏移, dy=值偏移），缺省走自动切线。
+ */
+export function evalKeyChannel(keys, valueOf, time) {
+  const ks = (keys || []).filter((k) => k && k.t !== undefined).slice().sort((a, b) => a.t - b.t);
+  if (!ks.length) return null;
+  const val = (k) => { const v = Number(valueOf(k)); return Number.isFinite(v) ? v : 0; };
+  const t = Math.max(0, Number(time) || 0);
+  if (t <= ks[0].t) return val(ks[0]);
+  if (t >= ks[ks.length - 1].t) return val(ks[ks.length - 1]);
+  let i = 0;
+  while (i < ks.length - 1 && ks[i + 1].t <= t) i++;
+  const a = ks[i], b = ks[i + 1];
+  const span = b.t - a.t;
+  const k = span > 1e-6 ? (t - a.t) / span : 0;
+  const va = val(a), vb = val(b);
+  const interp = String((b.interp || a.interp || 'auto')).toLowerCase();
+  if (interp === 'constant') return va;
+  if (interp === 'bezier') {
+    const ho = a.hOut && Number.isFinite(Number(a.hOut.dx)) ? { dx: Number(a.hOut.dx), dy: Number(a.hOut.dy) || 0 } : (() => { const h = autoHandle(ks, i, val); return { dx: h.dx, dy: h.dy }; })();
+    const hi = b.hIn && Number.isFinite(Number(b.hIn.dx)) ? { dx: Number(b.hIn.dx), dy: Number(b.hIn.dy) || 0 } : (() => { const h = autoHandle(ks, i + 1, val); return { dx: -h.dx, dy: -h.dy }; })();
+    let x1 = a.t + ho.dx, x2 = b.t + hi.dx;
+    // 手柄 x 限幅（对应 Blender BKE_fcurve_correct_bezpart：防止时间轴回环）
+    x1 = Math.min(Math.max(x1, a.t + 1e-6), b.t - 1e-6);
+    x2 = Math.min(Math.max(x2, a.t + 1e-6), b.t - 1e-6);
+    if (x2 < x1) { const mid = (x1 + x2) / 2; x1 = mid; x2 = mid; }
+    const u = bezierSolveT(a.t, x1, x2, b.t, t);
+    return bez1(va, va + ho.dy, vb + hi.dy, vb, u);
+  }
+  const e = interp === 'linear' ? k : easeFactor(b.ease || a.ease || 'auto', k);
+  return va + (vb - va) * e;
+}
+
 export function interpolatePoseKeys(poseKeys, time) {
   if (!Array.isArray(poseKeys) || !poseKeys.length) return null;
   const ks = poseKeys.filter((k) => k && k.t !== undefined).sort((a, b) => a.t - b.t);
@@ -1856,19 +2630,27 @@ export function interpolatePoseKeys(poseKeys, time) {
     if (t >= ks[i].t && t <= ks[i + 1].t) { a = ks[i]; b = ks[i + 1]; break; }
   }
   const span = b.t - a.t;
-  const k = span > 1e-6 ? (t - a.t) / span : 0;
+  const rawK = span > 1e-6 ? (t - a.t) / span : 0;
+  // 默认线性（向后兼容既有 poseKeys 语义）；需要缓动时在关键帧上显式写 ease:'auto' 等
+  const k = easeFactor(b.ease || a.ease || 'linear', rawK);
   const pa = a.bonePose || {}, pb = b.bonePose || {};
-  // 合并两帧出现过的所有骨骼索引
   const idxSet = new Set([...Object.keys(pa), ...Object.keys(pb)]);
   const out = {};
   for (const key of idxSet) {
     const ra = pa[key] || [0, 0, 0];
     const rb = pb[key] || [0, 0, 0];
-    out[key] = [
-      (Number(ra[0]) || 0) + ((Number(rb[0]) || 0) - (Number(ra[0]) || 0)) * k,
-      (Number(ra[1]) || 0) + ((Number(rb[1]) || 0) - (Number(ra[1]) || 0)) * k,
-      (Number(ra[2]) || 0) + ((Number(rb[2]) || 0) - (Number(ra[2]) || 0)) * k,
-    ];
+    if (ra.length === 4 || rb.length === 4) {
+      // 四元数通道：最短弧 slerp（Blender bone rotation 语义）；3 分量按欧拉转四元数兜底
+      const qa = ra.length === 4 ? ra : eulerToQuat(Number(ra[0]) || 0, Number(ra[1]) || 0, Number(ra[2]) || 0);
+      const qb = rb.length === 4 ? rb : eulerToQuat(Number(rb[0]) || 0, Number(rb[1]) || 0, Number(rb[2]) || 0);
+      out[key] = quatSlerp(qa, qb, k);
+    } else {
+      out[key] = [
+        (Number(ra[0]) || 0) + ((Number(rb[0]) || 0) - (Number(ra[0]) || 0)) * k,
+        (Number(ra[1]) || 0) + ((Number(rb[1]) || 0) - (Number(ra[1]) || 0)) * k,
+        (Number(ra[2]) || 0) + ((Number(rb[2]) || 0) - (Number(ra[2]) || 0)) * k,
+      ];
+    }
   }
   return out;
 }
@@ -1990,6 +2772,26 @@ export function buildStageFromSpec(spec) {
     const pose = poseOf(c.pose);
     if (pose) ob.poseId = pose;
     if (c.material && typeof c.material === 'object') ob.material = { ...c.material };
+    if (c.skinning && /^(lbs|dqs|auto)$/i.test(String(c.skinning))) ob.skinning = String(c.skinning).toLowerCase();
+    if (Array.isArray(c.ik) && c.ik.length) {
+      ob.ik = c.ik.filter((x) => x && Array.isArray(x.chain) && x.chain.length >= 3 && x.target)
+        .map((x) => { const o = { chain: x.chain.map(String), target: x.target }; if (x.pole) o.pole = x.pole; if (x.weight !== undefined) o.weight = Number(x.weight); return o; });
+      if (!ob.ik.length) delete ob.ik;
+    }
+    if (Array.isArray(c.constraints) && c.constraints.length) {
+      ob.constraints = c.constraints.filter((x) => x && x.bone && x.type).map((x) => Object.assign({}, x));
+      if (!ob.constraints.length) delete ob.constraints;
+    }
+    if (Array.isArray(c.clips) && c.clips.length) {
+      ob.clips = c.clips.filter((x) => x && Array.isArray(x.keys) && x.keys.length).map((x) => {
+        const o = { keys: x.keys, blend: String(x.blend || 'replace'), influence: Number(x.influence === undefined ? 1 : x.influence) };
+        if (x.t0 !== undefined) o.t0 = Number(x.t0);
+        if (x.t1 !== undefined) o.t1 = Number(x.t1);
+        if (x.loop) o.loop = true;
+        return o;
+      });
+      if (!ob.clips.length) delete ob.clips;
+    }
     addPath(ob, c.path, c.pathMode);
     if (ob.path && c.pathFace === false) ob.pathFace = false;
     if (c.locomotion && typeof c.locomotion === 'object') ob.locomotion = { ...c.locomotion };
@@ -2014,6 +2816,18 @@ export function buildStageFromSpec(spec) {
       color: String(p.color || '#b3b8bf'),
     };
     if (p.material && typeof p.material === 'object') pob.material = { ...p.material };
+    // 道具关键帧：与角色同构（t/pos/rotY/rx/rz/ease），供长枪等跟手（applyPlayhead 对所有对象统一应用）
+    if (Array.isArray(p.keys)) {
+      pob.keys = p.keys.map((k) => ({
+        t: num(k.t, 0),
+        pos: v3of(k.pos, 0),
+        rotY: num(k.rotY, 0),
+        rx: num(k.rx, 0),
+        rz: num(k.rz, 0),
+        ease: String(k.ease || 'auto'),
+        ...(k.interp ? { interp: String(k.interp) } : {}),
+      })).sort((x, y) => x.t - y.t);
+    }
     objects.push(pob);
   }
   const cameras = (Array.isArray(sp.cameras) ? sp.cameras : []).map((c, i) => {
@@ -2119,6 +2933,10 @@ export function compileStageSpec(scene) {
       if (ob.scale && (Number(ob.scale.x) !== 1 || Number(ob.scale.y) !== 1 || Number(ob.scale.z) !== 1)) c.scale = arr(ob.scale);
       if (ob.poseId) c.pose = ob.poseId;
       if (ob.material) c.material = { ...ob.material };
+      if (ob.skinning) c.skinning = ob.skinning;
+      if (Array.isArray(ob.ik) && ob.ik.length) c.ik = JSON.parse(JSON.stringify(ob.ik));
+      if (Array.isArray(ob.constraints) && ob.constraints.length) c.constraints = JSON.parse(JSON.stringify(ob.constraints));
+      if (Array.isArray(ob.clips) && ob.clips.length) c.clips = JSON.parse(JSON.stringify(ob.clips));
       if (ob.bonePose && Object.keys(ob.bonePose).length) c.bonePose = JSON.parse(JSON.stringify(ob.bonePose));
       if (Array.isArray(ob.path) && ob.path.length) {
         c.path = ob.path.map(arr); c.pathMode = ob.pathMode || 'curve';
@@ -2136,6 +2954,9 @@ export function compileStageSpec(scene) {
         scale: arr(ob.scale || v3(1, 1, 1)), color: ob.color,
         visible: ob.visible === false ? false : undefined,
         material: ob.material ? { ...ob.material } : undefined,
+        ...(Array.isArray(ob.keys) && ob.keys.length
+          ? { keys: ob.keys.map((k) => ({ t: round3(k.t), pos: arr(k.pos), rotY: round3(k.rotY || 0), rx: round3(k.rx || 0), rz: round3(k.rz || 0), ease: k.ease || 'auto' })) }
+          : {}),
       });
     }
   }
@@ -2415,6 +3236,33 @@ export function applyPlayhead(scene, t) {
       }
       if (ry) next.pos = v3(next.pos.x, next.pos.y + ry, next.pos.z);
     }
+    // 姿态中心偏移（供 gizmo / 拾取跟随身体，而非留在地面原点）
+    if (next.kind === 'model' && gltfAssetOf(next.assetId)) {
+      try {
+        const a2 = gltfAssetOf(next.assetId);
+        const clipName = next.clip || (a2.animations[0] && a2.animations[0].name) || '';
+        const clip = clipName ? a2.clipByName(clipName) : null;
+        let hipsY = null;
+        if (clip && Array.isArray(clip.tracks)) {
+          const hipTrack = clip.tracks.find((tr) => tr.path === 'translation' && tr.node === (a2.bones.find((x) => String(x.name).replace(/^mixamorig:?/i, '') === 'Hips') || {}).nodeIdx);
+          if (hipTrack) {
+            const tv = hipTrack.times, vv = hipTrack.vals;
+            const n = tv.length;
+            if (n) {
+              let i2 = 0;
+              const tt = Math.max(tv[0], Math.min(tv[n - 1], time));
+              while (i2 < n - 2 && tv[i2 + 1] < tt) i2++;
+              const k2 = (tt - tv[i2]) / Math.max(1e-6, tv[i2 + 1] - tv[i2]);
+              hipsY = (vv[i2 * 3 + 1] * (1 - k2) + vv[(i2 + 1) * 3 + 1] * k2) / 100;  // 厘米 → 米
+            }
+          }
+        }
+        if (hipsY !== null && Number.isFinite(hipsY)) {
+          // 髋的实际世界高度就作为 gizmo 中心高度（站立≈1.04，倒地≈0.35）
+          next.poseCenterY = Math.max(0.15, Math.min(1.2, hipsY));
+        }
+      } catch { /* 姿态中心算不出就退回原点 */ }
+    }
     // 姿态关键帧：优先于静态 bonePose（姿态随时间过渡）
     if (Array.isArray(o.poseKeys) && o.poseKeys.length) {
       const ip = interpolatePoseKeys(o.poseKeys, time);
@@ -2447,15 +3295,19 @@ export function applyPlayhead(scene, t) {
         }
       }
     }
-    // 对象关键帧：位置 / 朝向 / 翻滚
+    // 对象关键帧：位置 / 朝向 / 翻滚（逐通道求值，支持 bezier/linear/constant + ease）
     if (Array.isArray(o.keys) && o.keys.length) {
-      const pr = pickPair(o.keys);
-      if (pr) {
-        next.pos = lerp3(pr.a.pos || o.pos, pr.b.pos || o.pos, pr.k);
-        next.rotY = lerp(Number(pr.a.rotY) || 0, Number(pr.b.rotY) || 0, pr.k);
-        next.rx = lerp(Number(pr.a.rx) || 0, Number(pr.b.rx) || 0, pr.k);
-        next.rz = lerp(Number(pr.a.rz) || 0, Number(pr.b.rz) || 0, pr.k);
-      }
+      const kx = evalKeyChannel(o.keys, (kk) => (kk.pos ? kk.pos.x : undefined), time);
+      const ky = evalKeyChannel(o.keys, (kk) => (kk.pos ? kk.pos.y : undefined), time);
+      const kz = evalKeyChannel(o.keys, (kk) => (kk.pos ? kk.pos.z : undefined), time);
+      const kr = evalKeyChannel(o.keys, (kk) => kk.rotY, time);
+      const kx2 = evalKeyChannel(o.keys, (kk) => kk.rx, time);
+      const kz2 = evalKeyChannel(o.keys, (kk) => kk.rz, time);
+      const hasPosKey = o.keys.some((kk) => kk && kk.pos);
+      if (hasPosKey) next.pos = v3(kx === null ? o.pos.x : kx, ky === null ? o.pos.y : ky, kz === null ? o.pos.z : kz);
+      next.rotY = kr === null ? (Number(o.rotY) || 0) : kr;
+      next.rx = kx2 === null ? (Number(o.rx) || 0) : kx2;
+      next.rz = kz2 === null ? (Number(o.rz) || 0) : kz2;
     }
     // 路径优先级高于对象位置关键帧：但只接管平面 X/Z，**竖直 Y 保留关键帧的高度**
     // （否则翻越/跳跃的关键帧抬升会被路径压回地面 —— 用户实测"翻不过去"）
@@ -2676,7 +3528,7 @@ export function cameraFlyStep(cam, input, dt, opts) {
  * 单位一律是 CSS 像素 → 同一相机/同一 CSS 尺寸下两者必然一致（历史 bug：绘制用设备像素、拾取用 CSS，命中区偏移）。
  */
 export function gizmoMetrics(cam, sel, hCss, originOverride) {
-  const origin = originOverride || v3(sel.pos.x, sel.pos.y, sel.pos.z);
+  const origin = originOverride || v3(sel.pos.x, sel.pos.y + (Number(sel.poseCenterY) || 0), sel.pos.z);
   const depth = depthOf(cam, origin);
   const pxWorld = pixelSizeAt(cam, hCss, depth);
   const minWorld = Math.max(0.25, (Number(sel.h) || 1.7) / 3);
@@ -2782,6 +3634,97 @@ function matchBone(bones, kw) {
   for (let i = 0; i < bones.length; i++) if (shortBoneName(bones[i].name).toLowerCase() === want) return i;
   for (let i = 0; i < bones.length; i++) if (shortBoneName(bones[i].name).toLowerCase().endsWith(want)) return i;
   return -1;
+}
+/**
+ * 通用人形骨架映射：把任意模型的骨骼名归一化到标准语义关节。
+ * 覆盖 Mixamo / VRM(0.x,1.0) / Daz-Genesis / MakeHuman / Unreal / Blender(.L/.R) / 裸名。
+ * 返回 { semantic: nodeIdx } —— 动作只以语义关节表达，因此同一动作可套到任意人形模型。
+ */
+const CANON_BONES = [
+  'Hips', 'Spine', 'Chest', 'Neck', 'Head',
+  'LeftShoulder', 'LeftArm', 'LeftForeArm', 'LeftHand',
+  'RightShoulder', 'RightArm', 'RightForeArm', 'RightHand',
+  'LeftUpLeg', 'LeftLeg', 'LeftFoot', 'LeftToeBase',
+  'RightUpLeg', 'RightLeg', 'RightFoot', 'RightToeBase',
+];
+/** 各骨架上常见的别名（key 为语义名，值为可接受的正则片段）。 */
+const RIG_ALIASES = {
+  Hips: ['hips', 'hip', 'pelvis'],
+  Spine: ['spine', 'spine1', 'abdomen', 'abdomenlower', 'lowerback'],
+  Chest: ['chest', 'spine2', 'upperchest', 'torso', 'abdomenupper'],
+  Neck: ['neck', 'necklower'],
+  Head: ['head', 'skull'],
+  LeftShoulder: ['lshoulder', 'lcollar', 'lclavicle'], LeftArm: ['larm', 'lshldr', 'lupperarm'], LeftForeArm: ['lforearm', 'llowerarm', 'lelbow'], LeftHand: ['lhand', 'lwrist'],
+  RightShoulder: ['rshoulder', 'rcollar', 'rclavicle'], RightArm: ['rarm', 'rshldr', 'rupperarm'], RightForeArm: ['rforearm', 'rlowerarm', 'relbow'], RightHand: ['rhand', 'rwrist'],
+  LeftUpLeg: ['lupleg', 'lthigh'], LeftLeg: ['lleg', 'lshin'], LeftFoot: ['lfoot'], LeftToeBase: ['ltoe'],
+  RightUpLeg: ['rupleg', 'rthigh'], RightLeg: ['rleg', 'rshin'], RightFoot: ['rfoot'], RightToeBase: ['rtoe'],
+};
+/** 骨骼名归一化：去前缀、去分隔符、小写、统一左右（_.L / _L / .Left / left）。 */
+function canonBoneName(name) {
+  let n = String(name || '');
+  n = n.replace(/^mixamorig:?/i, '');
+  n = n.replace(/^bip_?\d*_?/i, '');
+  n = n.toLowerCase();
+  // 统一左右标记：把 left/right、_l/_r、.l/.r、-l/-r、l_/r_ 统一成前缀 l/r
+  let side = '';
+  if (/(lef|^l[._\-\s]|_l$|\.l$|\bl$)/.test(n)) side = 'l';
+  else if (/(righ|^r[._\-\s]|_r$|\.r$|\br$)/.test(n)) side = 'r';
+  // 去掉所有分隔符与左右词
+  n = n.replace(/[\.\-_\s]/g, '').replace(/^(left|right)/, '');
+  n = n.replace(/(left|right)$/, '');
+  // 语义归一：upperleg/thigh → upleg；lowerleg/shin/calf → leg；upperarm → arm；lowerarm/forearm → forearm
+  n = n.replace(/upperleg/g, 'upleg').replace(/thigh/g, 'upleg');
+  n = n.replace(/lowerleg/g, 'leg').replace(/shin/g, 'leg').replace(/calf/g, 'leg');
+  n = n.replace(/upperarm/g, 'arm');
+  n = n.replace(/lowerarm/g, 'forearm');
+  n = n.replace(/clavicle/g, 'shoulder').replace(/collar/g, 'shoulder').replace(/shldr/g, 'shoulder');
+  n = n.replace(/toes|toebase/g, 'toe');
+  n = n.replace(/pelvis/g, 'hips');
+  return side + n;
+}
+/** 把任意骨架映射到标准语义关节；返回 { semantic: nodeIdx, coverage, missing }。 */
+export function autoRigMap(asset) {
+  const bones = (asset && asset.bones) || [];
+  const nodes = (asset && asset.nodes) || [];
+  const byCanon = new Map();
+  for (const b of bones) {
+    const c = canonBoneName(b.name);
+    if (!byCanon.has(c)) byCanon.set(c, b.nodeIdx);
+  }
+  const semantic = {};
+  for (const [sem, aliases] of Object.entries(RIG_ALIASES)) {
+    let nodeIdx = -1;
+    for (const al of aliases) {
+      for (const [c, ni] of byCanon) {
+        if (c === al) { nodeIdx = ni; break; }
+      }
+      if (nodeIdx >= 0) break;
+    }
+    if (nodeIdx < 0) {
+      // 二次匹配：包含关系（处理 leftarm_01 之类的变体）
+      for (const al of aliases) {
+        for (const [c, ni] of byCanon) {
+          if (c.includes(al)) { nodeIdx = ni; break; }
+        }
+        if (nodeIdx >= 0) break;
+      }
+    }
+    if (nodeIdx >= 0) semantic[sem] = nodeIdx;
+  }
+  const total = CANON_BONES.length;
+  const got = Object.keys(semantic).length;
+  return {
+    semantic,
+    coverage: got / total,
+    missing: CANON_BONES.filter((k) => !(k in semantic)),
+    total: nodes.length,
+  };
+}
+/** 读取资产某节点的 rest 局部旋转四元数。 */
+export function restQuatOf(asset, nodeIdx) {
+  const n = (asset && asset.nodes && asset.nodes[nodeIdx]) || null;
+  if (!n || !n.r) return [0, 0, 0, 1];
+  return [Number(n.r[0]) || 0, Number(n.r[1]) || 0, Number(n.r[2]) || 0, Number(n.r[3]) || 1];
 }
 /** 默认场景（新建预演时）。 */
 export function directorDefaultScene(title) {
@@ -2941,7 +3884,7 @@ export function directorObjectFaces(ob) {
       const typeId = actorTypeIdOf(presetId);
       const h = Number(ob.h) || (ACTOR_PRESETS.find((p) => p.id === presetId) || {}).h || 1.78;
       const sk = skinModel(asset, ob.clip || '', Number(ob.animTime) || 0, null, null,
-        Object.assign({}, bodyShapeOf(typeId), ob.bonePose ? { bonePose: ob.bonePose } : {}, ob.poseId ? { poseId: ob.poseId } : {}));
+        Object.assign({}, bodyShapeOf(typeId), ob.bonePose ? { bonePose: ob.bonePose } : {}, ob.poseId ? { poseId: ob.poseId } : {}, ob.skinning ? { skinning: ob.skinning } : {}, ob.ik ? { ik: ob.ik } : {}, ob.constraints ? { constraints: ob.constraints } : {}, ob.clips ? { clips: ob.clips } : {}));
       const scale = (Number(asset.rawHeight) > 0 ? h / asset.rawHeight : 1) * (Number(ob.s) || 1);
       const ry = Number(ob.rotY) || 0, c0 = Math.cos(ry), s0 = Math.sin(ry);
       const idx = asset.indices || [];
@@ -2977,7 +3920,8 @@ export function directorObjectFaces(ob) {
     if (asset && asset.positions) {
       const shape = Object.assign({}, ob.typeId ? bodyShapeOf(ob.typeId) : {},
         ob.bonePose ? { bonePose: ob.bonePose } : {}, ob.poseId ? { poseId: ob.poseId } : {},
-        ob.poseBlend ? { poseBlend: ob.poseBlend } : {});
+        ob.poseBlend ? { poseBlend: ob.poseBlend } : {}, ob.skinning ? { skinning: ob.skinning } : {},
+        ob.ik ? { ik: ob.ik } : {}, ob.constraints ? { constraints: ob.constraints } : {}, ob.clips ? { clips: ob.clips } : {});
       const sk = skinModel(asset, ob.clip || '', Number(ob.animTime) || 0, null, null, shape);
       const scale = (Number(asset.rawHeight) > 0 ? (Number(ob.h) || 1.78) / asset.rawHeight : 1);
       const out = [];
@@ -3963,10 +4907,10 @@ export function createDirectorGlRenderer(canvas) {
         const asset = gltfAssetOf(ob.assetId);
         if (!asset) continue;
         const poseKey = (ob.poseId || '') + '|' + (Array.isArray(ob.poseAnim) ? ob.poseAnim.map((p) => p.poseId + '@' + p.t).join(',') + '#' + (Number(ob.animTime) || 0).toFixed(3) : '') + '|' + (ob.bonePose ? Object.keys(ob.bonePose).sort().map((bi) => bi + '=' + (ob.bonePose[bi] || []).map((v) => Number(v).toFixed(3)).join(',')).join(';') : '');
-        const kk = ob.id + ":" + (ob.clip || "") + ":" + (Number(ob.animTime) || 0).toFixed(3) + ":" + (ob.typeId || "") + ":" + poseKey + ":shadowV2";
+        const kk = ob.id + ":" + (ob.clip || "") + ":" + (Number(ob.animTime) || 0).toFixed(3) + ":" + (ob.typeId || "") + ":" + (ob.skinning || "lbs") + ":" + (ob.ik ? JSON.stringify(ob.ik) : "") + ":" + (ob.constraints ? JSON.stringify(ob.constraints) : "") + ":" + poseKey + ":shadowV2";
         let sk = skCache.get(kk);
         if (!sk) {
-          sk = skinModel(asset, ob.clip || (asset.animations[0] && asset.animations[0].name), Number(ob.animTime) || 0, null, null, Object.assign({}, ob.typeId ? bodyShapeOf(ob.typeId) : {}, ob.bonePose ? { bonePose: ob.bonePose } : {}, ob.poseId ? { poseId: ob.poseId } : {}, ob.poseBlend ? { poseBlend: ob.poseBlend } : {}));
+          sk = skinModel(asset, ob.clip || (asset.animations[0] && asset.animations[0].name), Number(ob.animTime) || 0, null, null, Object.assign({}, ob.typeId ? bodyShapeOf(ob.typeId) : {}, ob.bonePose ? { bonePose: ob.bonePose } : {}, ob.poseId ? { poseId: ob.poseId } : {}, ob.poseBlend ? { poseBlend: ob.poseBlend } : {}, ob.skinning ? { skinning: ob.skinning } : {}, ob.ik ? { ik: ob.ik } : {}, ob.constraints ? { constraints: ob.constraints } : {}, ob.clips ? { clips: ob.clips } : {}));
           if (skCache.size > 40) skCache.clear();
           skCache.set(kk, sk);
         }
@@ -4437,10 +5381,10 @@ export function createDirectorGlRenderer(canvas) {
           if (asset) {
             // 缓存键必须包含「体型 + 骨骼姿态」：姿态一改就得重新蒙皮，否则永远命中旧网格
             const poseKey = (ob.poseId || '') + '|' + (ob.bonePose ? Object.keys(ob.bonePose).sort().map((bi) => bi + '=' + (ob.bonePose[bi] || []).map((v) => Number(v).toFixed(3)).join(',')).join(';') : '');
-            const k = ob.id + ':' + (ob.clip || '') + ':' + (Number(ob.animTime) || 0).toFixed(3) + ':' + (ob.typeId || '') + ':' + poseKey;
+            const k = ob.id + ':' + (ob.clip || '') + ':' + (Number(ob.animTime) || 0).toFixed(3) + ':' + (ob.typeId || '') + ':' + (ob.skinning || 'lbs') + ':' + (ob.ik ? JSON.stringify(ob.ik) : '') + ':' + (ob.constraints ? JSON.stringify(ob.constraints) : '') + ':' + poseKey;
             let sk = skCache.get(k);
             if (!sk) {
-              sk = skinModel(asset, ob.clip || (asset.animations[0] && asset.animations[0].name), Number(ob.animTime) || 0, null, null, Object.assign({}, ob.typeId ? bodyShapeOf(ob.typeId) : {}, ob.bonePose ? { bonePose: ob.bonePose } : {}, ob.poseId ? { poseId: ob.poseId } : {}, ob.poseBlend ? { poseBlend: ob.poseBlend } : {}));
+              sk = skinModel(asset, ob.clip || (asset.animations[0] && asset.animations[0].name), Number(ob.animTime) || 0, null, null, Object.assign({}, ob.typeId ? bodyShapeOf(ob.typeId) : {}, ob.bonePose ? { bonePose: ob.bonePose } : {}, ob.poseId ? { poseId: ob.poseId } : {}, ob.poseBlend ? { poseBlend: ob.poseBlend } : {}, ob.skinning ? { skinning: ob.skinning } : {}, ob.ik ? { ik: ob.ik } : {}, ob.constraints ? { constraints: ob.constraints } : {}, ob.clips ? { clips: ob.clips } : {}));
               if (skCache.size > 24) skCache.clear();
               skCache.set(k, sk);
             }
@@ -4607,7 +5551,8 @@ export function createDirectorGlRenderer(canvas) {
       if (o.gizmo && o.selectedId) {
         const sel = (scene.objects || []).find((x) => x.id === o.selectedId);
         if (sel) {
-          const origin = v3(sel.pos.x, sel.pos.y, sel.pos.z);
+          // gizmo 跟随姿态中心（倒地/下蹲时身体不在原点：让轴心贴住身体，而非留在地面）
+          const origin = v3(sel.pos.x, sel.pos.y + (Number(sel.poseCenterY) || 0), sel.pos.z);
           // 屏幕恒定大小（Blender: wm_gizmo_calculate_scale）：轴长 105 CSS px，环 0.62×轴长。
           // 尺寸唯一来源 gizmoMetrics，拾取用同一个函数 → 不可能再出现「画的位置和点不中」。
           const gm = gizmoMetrics(cam, sel, hCss, origin);

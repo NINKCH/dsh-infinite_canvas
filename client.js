@@ -632,6 +632,7 @@ window.__ModuleLoader__.load({
       'dirBone': '骨骼',
       'dirBoneRot': '骨骼旋转',
       'dirPoseLib': '姿态库',
+      'dirCustomAction': '自定义动作',
       'dirPoseAnimAdd': '记录姿态帧',
       'dirPoseAnimClear': '清空姿态动画',
       'dirPoseAnimAdded': '姿态帧已记录',
@@ -682,6 +683,46 @@ window.__ModuleLoader__.load({
       'dirCurFill': '当前构图',
       'dirAddShot': '添加镜头',
       'dirPoseKey': '姿态关键帧',
+      'dirIk': 'IK 反向动力学',
+      'dirIkAdd': '添加 IK',
+      'dirIkChain': '骨骼链',
+      'dirIkTarget': '目标',
+      'dirIkTargetPoint': '固定点',
+      'dirIkTargetKeys': '关键帧',
+      'dirIkTakeCurrent': '取当前位置',
+      'dirIkKey': '打目标帧',
+      'dirIkPole': '极向量',
+      'dirIkEmpty': '暂无 IK',
+      'dirConstraint': '约束',
+      'dirConstraintAdd': '添加约束',
+      'dirConstraintType': '类型',
+      'dirConstraintTarget': '目标点',
+      'dirConstraintFrom': '来源骨骼',
+      'dirConstraintMix': '混合',
+      'dirConstraintLimit': '角度限制（度）',
+      'dirConstraintEmpty': '暂无约束',
+      'dirClips': '动作层',
+      'dirClipAdd': '添加动作层',
+      'dirClipBake': '烘焙动作',
+      'dirClipBvh': 'BVH 导入',
+      'dirClipBvhPh': '粘贴 BVH 文本（可选：先在外部减采样）',
+      'dirClipBlend': '混合方式',
+      'dirClipInfluence': '影响',
+      'dirClipLoop': '循环',
+      'dirClipEmpty': '暂无动作层',
+      'dirClipBaked': '已从姿态关键帧烘焙动作层',
+      'dirClipBvhImported': 'BVH 已导入为动作层',
+      'dirClipBvhFail': 'BVH 解析/重定向失败',
+      'dirClipKeys': '关键帧数',
+      'dirClipName': '名称',
+      'dirClipUp': '上移',
+      'dirClipDown': '下移',
+      'assetMigrated': '已迁移 {n} 个旧资产到数据目录',
+      'assetMigration': '资产迁移',
+      'assetMigrateNow': '立即迁移',
+      'assetMigrateDone': '已迁移 {n} · 缺失 {m}',
+      'assetMigrateNoRoot': '未设置数据根目录，暂不迁移',
+      'dirPoseKey': '姿态关键帧',
       'dirPoseKeyCount': '姿态帧',
       'dirPoseKeyClear2': '清除姿态帧',
       'dirPoseKeyAdded': '姿态关键帧已记录',
@@ -701,11 +742,11 @@ window.__ModuleLoader__.load({
       'dirPathNone': '无',
       'dirPathAddPoint': '加点',
       'dirPathPointAdded': '路径点已添加',
-      'dirPathDraw': '画路径',
+      'dirPathDraw': '画线',
       'dirPathDrawing': '正在画（点地面）',
       'dirPathDrawHint': '点地面添加路径点，再点按钮结束',
-      'dirPathClear': '清空路径',
-      'dirPathPointDel': '删除路径点',
+      'dirPathClear': '清空',
+      'dirPathPointDel': '删点',
       'dirSpecTitle': 'AI 预演规格',
       'dirSpecShow': '规格 JSON',
       'dirSpecCopy': '生成规格',
@@ -721,7 +762,7 @@ window.__ModuleLoader__.load({
       'dirPathPointNone': '请先点选一个路径点',
       'dirPathCleared': '路径已清除，物体已复位',
       'dirPathCount': '路径点',
-      'dirLocomotion': '移动驱动（自动步频）',
+      'dirLocomotion': '移动驱动',
       'dirLocoSource': '动作来源',
       'dirLocoNone': '不驱动',
       'dirLocoClip': '自动步频（跟随动作）',
@@ -732,7 +773,7 @@ window.__ModuleLoader__.load({
       'dirLocoCycle': '循环周期(s)',
       'dirLocoReadout': '当前',
       'dirLocoStepsPerSec': '步/秒',
-      'dirPathHint': '物体沿路径运动',
+      'dirPathHint': '沿路径运动',
       'dirPathLine': '折线',
       'dirPathCurve': '曲线（跟随朝向）',
       'dirLookAhead': '前瞻距离',
@@ -1474,13 +1515,13 @@ window.__ModuleLoader__.load({
       'dirCamAdded': 'Camera added (current view)',
       'dirCamDeleted': 'Camera deleted',
       'dirPathNone': 'None',
-      'dirPathAddPoint': 'Add point',
+      'dirPathAddPoint': 'Add',
       'dirPathPointAdded': 'Path point added',
-      'dirPathDraw': 'Draw path',
+      'dirPathDraw': 'Draw',
       'dirPathDrawing': 'Drawing (click ground)',
       'dirPathDrawHint': 'Click ground to add points, click again to finish',
-      'dirPathClear': 'Clear path',
-      'dirPathPointDel': 'Delete point',
+      'dirPathClear': 'Clear',
+      'dirPathPointDel': 'Del pt',
       'dirSpecTitle': 'AI stage spec',
       'dirSpecShow': 'Spec JSON',
       'dirSpecCopy': 'Generate spec',
@@ -1507,7 +1548,7 @@ window.__ModuleLoader__.load({
       'dirLocoCycle': 'Cycle (s)',
       'dirLocoReadout': 'Current',
       'dirLocoStepsPerSec': 'steps/s',
-      'dirPathHint': 'Object follows path',
+      'dirPathHint': 'Follows path',
       'dirShot': 'Shot',
       'dirSkeleton': 'Skeleton',
       'dirMaterial': 'Material',
@@ -1522,6 +1563,7 @@ window.__ModuleLoader__.load({
       'dirBone': 'Bone',
       'dirBoneRot': 'Bone rotation',
       'dirPoseLib': 'Pose library',
+      'dirCustomAction': 'Custom action',
       'dirPoseAnimAdd': 'Record pose key',
       'dirPoseAnimClear': 'Clear pose anim',
       'dirPoseAnimAdded': 'Pose key recorded',
@@ -1575,6 +1617,46 @@ window.__ModuleLoader__.load({
       'dirShotApplied': 'Shot applied',
       'dirCurFill': 'Framing',
       'dirAddShot': 'Add shot',
+      'dirPoseKey': 'Pose keyframe',
+      'dirIk': 'Inverse kinematics',
+      'dirIkAdd': 'Add IK',
+      'dirIkChain': 'Bone chain',
+      'dirIkTarget': 'Target',
+      'dirIkTargetPoint': 'Fixed point',
+      'dirIkTargetKeys': 'Keyframes',
+      'dirIkTakeCurrent': 'Use current',
+      'dirIkKey': 'Key target',
+      'dirIkPole': 'Pole',
+      'dirIkEmpty': 'No IK',
+      'dirConstraint': 'Constraints',
+      'dirConstraintAdd': 'Add constraint',
+      'dirConstraintType': 'Type',
+      'dirConstraintTarget': 'Target point',
+      'dirConstraintFrom': 'Source bone',
+      'dirConstraintMix': 'Mix',
+      'dirConstraintLimit': 'Angle limits (deg)',
+      'dirConstraintEmpty': 'No constraints',
+      'dirClips': 'Action layers',
+      'dirClipAdd': 'Add layer',
+      'dirClipBake': 'Bake',
+      'dirClipBvh': 'Import BVH',
+      'dirClipBvhPh': 'Paste BVH text (decimate first if large)',
+      'dirClipBlend': 'Blend',
+      'dirClipInfluence': 'Influence',
+      'dirClipLoop': 'Loop',
+      'dirClipEmpty': 'No layers',
+      'dirClipBaked': 'Action layer baked from pose keys',
+      'dirClipBvhImported': 'BVH imported as action layer',
+      'dirClipBvhFail': 'BVH parse/retarget failed',
+      'dirClipKeys': 'Keys',
+      'dirClipName': 'Name',
+      'dirClipUp': 'Up',
+      'dirClipDown': 'Down',
+      'assetMigrated': 'Migrated {n} legacy assets to data root',
+      'assetMigration': 'Asset migration',
+      'assetMigrateNow': 'Migrate now',
+      'assetMigrateDone': 'Migrated {n} · missing {m}',
+      'assetMigrateNoRoot': 'No data root configured; migration deferred',
       'dirPoseKey': 'Pose key',
       'dirPoseKeyCount': 'Pose keys',
       'dirPoseKeyClear2': 'Clear pose keys',
@@ -2418,8 +2500,8 @@ body[data-ds-dark-theme] .dshic-studio-modal{border-color:var(--dsw-alias-border
 .dshic-dir-treeitem{height:24px;padding:0 8px;border:none;border-radius:6px;background:transparent;color:var(--dsw-alias-label-primary);font:inherit;font-size:11.5px;text-align:left;cursor:pointer;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 .dshic-dir-treeitem:hover{background:var(--dsw-alias-interactive-bg-hover);}
 .dshic-dir-treeitem.is-on{background:color-mix(in srgb,var(--dsw-alias-brand-primary) 14%,transparent);color:var(--dsw-alias-brand-primary);}
-.dshic-dir-keyrow{display:flex;gap:6px;margin-top:6px;}
-.dshic-dir-mini{height:22px;padding:0 8px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:11px;cursor:pointer;}
+.dshic-dir-keyrow{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px;align-items:center;}
+.dshic-dir-mini{height:22px;min-width:0;padding:0 8px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:11px;cursor:pointer;white-space:nowrap;flex:none;display:inline-flex;align-items:center;justify-content:center;line-height:1;}
 .dshic-dir-mini:hover{border-color:var(--dsw-alias-brand-primary);color:var(--dsw-alias-brand-primary);}
 .dshic-dir-mini.is-danger:hover{border-color:var(--dsw-alias-state-error-primary);color:var(--dsw-alias-state-error-primary);}
 .dshic-dir-props{flex:1;padding:0 12px 12px;display:flex;flex-direction:column;gap:6px;min-height:0;}
@@ -2431,7 +2513,9 @@ body[data-ds-dark-theme] .dshic-studio-modal{border-color:var(--dsw-alias-border
 .dshic-dir-row{display:flex;align-items:center;gap:6px;font-size:11.5px;color:var(--dsw-alias-label-secondary);}
 .dshic-dir-row>span{flex:none;width:44px;}
 .dshic-dir-prompt{width:100%;box-sizing:border-box;height:96px;resize:none;padding:7px 9px;border:1px solid var(--dsw-alias-border-l1);border-radius:8px;background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-secondary);font:inherit;font-size:11px;line-height:1.5;}
-.dshic-dir-dock{flex:none;border-top:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-1);overflow-x:auto;overflow-y:hidden;}
+/* 时间轴：底部固定 1/3 高度，内部滚动，不再挤压 3D 视口 */
+.dshic-dir-dock{flex:none;height:min(33vh,320px);max-height:320px;min-height:150px;border-top:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-1);overflow-x:auto;overflow-y:auto;overscroll-behavior:contain;}
+.dshic-dir-dockbar{position:sticky;top:0;z-index:6;}
 .dshic-dir-dockbar{height:34px;display:flex;align-items:center;gap:8px;padding:0 12px;position:sticky;left:0;min-width:max-content;background:var(--dsw-alias-bg-layer-1);z-index:4;}
 .dshic-dir-docktitle{font-size:11.5px;font-weight:600;color:var(--dsw-alias-label-secondary);}
 .dshic-dir-time{font-size:11px;color:var(--dsw-alias-label-secondary);font-variant-numeric:tabular-nums;white-space:nowrap;}
@@ -2493,7 +2577,7 @@ body[data-ds-dark-theme] .dshic-studio-modal{border-color:var(--dsw-alias-border
 .dshic-dir-posebtn{height:26px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:11px;cursor:pointer;}
 .dshic-dir-posebtn:hover{border-color:var(--dsw-alias-brand-primary);color:var(--dsw-alias-brand-primary);}
 .dshic-dir-posebtn.is-on{background:color-mix(in srgb,var(--dsw-alias-brand-primary) 16%,transparent);color:var(--dsw-alias-brand-primary);border-color:var(--dsw-alias-brand-primary);}
-.dshic-dir-btnrow{display:flex;gap:6px;margin:6px 0 2px;}
+.dshic-dir-btnrow{display:flex;flex-wrap:wrap;gap:6px;margin:6px 0 2px;align-items:center;}
 .dshic-dir-btnrow .dshic-mini{flex:1;justify-content:center;display:inline-flex;align-items:center;}
 .dshic-dir-envrow{display:flex;align-items:center;gap:6px;font-size:11.5px;color:var(--dsw-alias-label-secondary);margin-bottom:5px;}
 .dshic-dir-envrow>span{flex:none;width:52px;}
@@ -2502,7 +2586,7 @@ body[data-ds-dark-theme] .dshic-studio-modal{border-color:var(--dsw-alias-border
 .dshic-dir-envrow input[type="color"]{height:24px;padding:0;border:1px solid var(--dshic-line2);border-radius:6px;background:var(--dshic-field-bg);width:100%;}
 .dshic-dir-empty{font-size:11.5px;color:var(--dsw-alias-label-secondary);line-height:1.7;padding:8px 0;}
 .dshic-dir-msg.is-err{background:color-mix(in srgb,var(--dsw-alias-state-error-primary) 88%,#000);}
-.dshic-dir-row{display:flex;align-items:center;gap:7px;flex:none;}
+.dshic-dir-row{display:flex;align-items:center;gap:7px;flex:none;flex-wrap:nowrap;white-space:nowrap;}
 .dshic-dir-lbl{width:52px;flex:none;font-size:11.5px;color:var(--dsw-alias-label-secondary);}
 .dshic-dir-num{flex:1;min-width:0;height:24px;border-radius:6px;padding:0 6px;font:inherit;font-size:12px;
   border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);}
@@ -4645,7 +4729,11 @@ body[data-ds-dark-theme] .dshic-pick-item.is-on{background:color-mix(in srgb,var
         // 服务端不可用 → 回退 IDB；服务端可用但无记录 → 迁移期只查一次（miss 后永不再查）
         if (serverOk && idbMiss.has(id)) return null;
         const local = await idbGetRaw(id).catch(() => null);
-        if (local) return local;
+        if (local) {
+          // 旧 IDB-only 记录：命中即后台触发一次性迁移（幂等），下次就走磁盘/SQLite
+          if (serverOk && !local.rel && !local.sha) migrateLegacyAssets('idb-hit').catch(() => { /* 静默 */ });
+          return local;
+        }
         if (serverOk) idbMiss.add(id);
         return null;
       }
@@ -4660,6 +4748,7 @@ body[data-ds-dark-theme] .dshic-pick-item.is-on{background:color-mix(in srgb,var
       } catch { return null; }
     }
     async function idbDelete(id) {
+      if (idbDeleteImpl) return idbDeleteImpl(id);
       assetNameCache.delete(id);
       // 释放该资产的 objectURL：否则 Blob（视频可达几十 MB）会被 URL 钉在内存里直到刷新
       if (assetUrlCache.has(id)) {
@@ -4740,7 +4829,9 @@ body[data-ds-dark-theme] .dshic-pick-item.is-on{background:color-mix(in srgb,var
       } catch { /* 忽略 */ }
       return out.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
     }
+    let idbAllImpl = null;      // 测试注入（迁移逻辑单测）
     async function idbAll() {
+      if (idbAllImpl) return idbAllImpl();
       const db = await openDb();
       return new Promise((resolve, reject) => {
         const rq = db.transaction(DB_STORE, 'readonly').objectStore(DB_STORE).getAll();
@@ -4900,36 +4991,66 @@ body[data-ds-dark-theme] .dshic-pick-item.is-on{background:color-mix(in srgb,var
         projectId: rec.projectId, projectName: (proj && proj.name) || rec.projectId, asset: assetIndexRecord(rec),
       }).catch(() => { /* 索引失败不影响资产本身 */ });
     }
-    /** 数据根目录就绪后：把浏览器 IndexedDB 里的存量 blob 资产搬到数据目录的项目文件夹
-     *  （projects/<项目>/<类型>/<文件>），搬完从 IndexedDB 移除——**IndexedDB 只减不增，最终清零**。 */
-    async function autoMigrateAssetsToRoot() {
-      if (!S.dataRoot) return;
-      try {
-        const all = await idbAll();
-        const pending = all.filter((r) => r && r.blob && !r.rel && !r.sha);
-        if (!pending.length) return;
-        let done = 0;
-        for (const rec of pending) {
-          try {
-            const mime = rec.blob.type || rec.mime || (rec.kind === 'image' ? 'image/png' : 'video/mp4');
-            const rel = `projects/${rec.projectId}/${rec.kind}/${assetFileBase(rec)}.${extFromMime(mime)}`;
-            const r = await fetch('/' + NS + '/api/asset?rel=' + encodeURIComponent(rel), { method: 'POST', body: rec.blob });
-            if (!r.ok) continue;
-            const meta = { ...rec, rel, size: rec.size || rec.blob.size };
-            delete meta.blob;
-            meta.stored = 'disk';
-            const proj = S.projects.find((p) => p.id === rec.projectId);
-            await hostRpc('assetCreate', { asset: assetIndexRecord(meta), projectName: (proj && proj.name) || '' });
-            try { await idbDelete(rec.id); } catch { /* 本地清理失败不阻塞迁移 */ }
-            done++;
-          } catch { /* 单个失败继续下一个 */ }
+    /**
+     * 一次性迁移：把浏览器 IndexedDB 里的存量资产搬进数据目录 + SQLite，然后**清空 IDB**。
+     * 设计要求：IndexedDB 只减不增、最终清零；本函数是唯一迁移入口，幂等且并发安全。
+     *   - 有 blob：落盘 projects/<pid>/<kind>/<file> → assetCreate（**保留原 id**）→ idbDelete
+     *   - 无 blob：记入 missing（WebView 重建后真丢失，只能重生成，不再假装能显示）
+     *   - 无 dataRoot：只记 pending，等数据根就绪后自动补跑
+     * 触发点：启动、数据根变化、打开资产面板前、设置页手动。
+     */
+    let migrateBusy = null;
+    async function migrateLegacyAssets(reason) {
+      if (!S.dataRoot) {
+        update((st) => { st.assetMigration = Object.assign({}, st.assetMigration || {}, { pendingDataRoot: true, reason: reason || '' }); });
+        return { ok: false, skipped: 'no-data-root' };
+      }
+      if (migrateBusy) return migrateBusy;
+      migrateBusy = (async () => {
+        const stat = { reason: reason || 'auto', at: Date.now(), total: 0, migrated: 0, failed: 0, missing: 0, missingIds: [] };
+        try {
+          const all = await idbAll();
+          stat.total = all.length;
+          for (const rec of all) {
+            if (!rec || !rec.id) continue;
+            if (rec.rel || rec.sha) continue;          // 已落盘/已有 CAS 记录
+            if (!rec.blob) {
+              stat.missing++;
+              if (stat.missingIds.length < 200) stat.missingIds.push(rec.id);
+              continue;
+            }
+            try {
+              const mime = rec.blob.type || rec.mime || (rec.kind === 'image' ? 'image/png' : rec.kind === 'video' ? 'video/mp4' : 'application/octet-stream');
+              const pid = String(rec.projectId || '');
+              if (!pid) { stat.failed++; continue; }
+              const rel = `projects/${pid}/${rec.kind || 'image'}/${assetFileBase(rec)}.${extFromMime(mime)}`;
+              const r = await fetch('/' + NS + '/api/asset?rel=' + encodeURIComponent(rel), { method: 'POST', body: rec.blob });
+              if (!r.ok) { stat.failed++; continue; }
+              const meta = { ...rec, rel, size: rec.size || rec.blob.size };
+              delete meta.blob;
+              meta.stored = 'disk';
+              const proj = S.projects.find((p) => p.id === pid);
+              await hostRpc('assetCreate', { asset: assetIndexRecord(meta), projectName: (proj && proj.name) || '' });
+              try { await idbDelete(rec.id); } catch { /* 清理失败不阻塞 */ }
+              if (assetMem.has(rec.id)) assetMem.set(rec.id, meta);
+              stat.migrated++;
+            } catch { stat.failed++; }
+          }
+          update((st) => { st.assetMigration = stat; if (stat.migrated) st.assetsTick++; });
+          if (stat.migrated) toast((T('assetMigrated') || '已迁移 {n} 个旧资产到数据目录').replace('{n}', String(stat.migrated)));
+          return { ok: true, ...stat };
+        } catch (e) {
+          update((st) => { st.assetMigration = Object.assign({}, stat, { error: String((e && e.message) || e) }); });
+          return { ok: false, error: String((e && e.message) || e) };
+        } finally {
+          migrateBusy = null;
         }
-        if (done) {
-          toast(T('dataRootMigrated').replace('{n}', String(done)));
-          update((s) => { s.assetsTick++; });
-        }
-      } catch { /* 静默：迁移失败不影响主流程，下次设置数据根目录时再试 */ }
+      })();
+      return migrateBusy;
     }
+    /** 兼容旧调用名（外部/测试可能引用）。 */
+    function autoMigrateAssetsToRoot() { return migrateLegacyAssets('legacy-alias'); }
+
     function useAssetUrl(id) {
       const [url, setUrl] = useState(null);
       useEffect(() => {
@@ -5161,7 +5282,18 @@ async function ensureThumbForAsset(assetId) {
   if (thumbInflight.has(assetId)) return thumbInflight.get(assetId);
   const task = (async () => {
     const rec = await idbGet(assetId).catch(() => null);
-    if (!rec || !rec.rel || rec.kind === 'video') return null;   // 视频走首帧 poster
+    if (!rec || rec.kind === 'video') return null;   // 视频走首帧 poster
+    // 旧 IDB-only 资产（无 rel）：先用 blob 生成内存缩略图保证可见，并触发一次性迁移
+    if (!rec.rel) {
+      if (thumbFailed.has(assetId)) return null;
+      const legacyBlob = await assetBlob(assetId).catch(() => null);
+      const legacyThumb = await makeThumbBlob(legacyBlob);
+      if (!legacyThumb) { thumbFailed.add(assetId); return null; }
+      const objUrl = URL.createObjectURL(legacyThumb);
+      thumbCache.set(assetId, objUrl);
+      migrateLegacyAssets('thumb-fallback').catch(() => { /* 后台自愈，失败不阻塞显示 */ });
+      return objUrl;
+    }
     const url = thumbUrlForRel(rec.rel);
     if (await probeHeadUrl(url)) { thumbCache.set(assetId, url); return url; }
     if (thumbFailed.has(assetId)) return null;
@@ -7520,12 +7652,15 @@ function queueThumb(assetId) {
     }
     /** 从 Host 拉取数据根目录配置（Host 旧版无此 RPC → 标记不支持）。 */
     async function refreshDataRoot() {
+      const prevRoot = S.dataRoot;
       try {
         const r = await hostRpc('dataRootGet');
         update((s) => { s.dataRoot = r.dataRoot || null; s.dataRootExists = !!r.exists; s.dataRootSupported = true; s.store = r.store || (r.sql ? 'sqlite' : (r.dataRoot ? 'json' : null)); });
       } catch (e) {
         update((s) => { s.dataRoot = null; s.store = null; s.dataRootSupported = !/未知操作/.test(String((e && e.message) || e)); });
       }
+      // 数据根从「空」变为「有」：自动补跑一次性迁移（此前因未配置被跳过）
+      if (S.dataRoot && !prevRoot) migrateLegacyAssets('root-ready').catch(() => { /* 静默 */ });
     }
     // ---------- 对话 ↔ 画布同步：轮询 Host 项目索引 + 跳转请求 ----------
     let hostSyncStopped = false;
@@ -13407,6 +13542,26 @@ function queueThumb(assetId) {
       MODEL_INDEX = (j && j.models) || [];
       return MODEL_INDEX;
     }
+    // 动作库（内置成熟动作 clip：three.js AnimationClip → 本地 tracks）
+    const ACTION_DIR = 'assets/director/clips/';
+    let ACTION_CLIPS = null;
+    async function loadActionClips() {
+      if (ACTION_CLIPS) return ACTION_CLIPS;
+      try {
+        const E2 = directorEngine();
+        const r = await fetch(pluginAssetUrl(ACTION_DIR + 'manifest.json'));
+        if (!r.ok) { ACTION_CLIPS = []; return ACTION_CLIPS; }
+        const j = await r.json();
+        const list = [];
+        for (const it of (j && j.clips) || []) {
+          const rr = await fetch(pluginAssetUrl(ACTION_DIR + it.file));
+          if (!rr.ok) continue;
+          list.push(await rr.json());
+        }
+        ACTION_CLIPS = E2 ? E2.decodeActionClips(list) : [];
+      } catch { ACTION_CLIPS = []; }
+      return ACTION_CLIPS;
+    }
     /** 按需加载一个模型并注册进引擎；返回 asset。 */
     async function loadModel(id) {
       const E2 = directorEngine();
@@ -13415,7 +13570,8 @@ function queueThumb(assetId) {
       if (cached) return cached;
       const r = await fetch(pluginAssetUrl(MODEL_DIR + id + '.json'));
       if (!r.ok) throw new Error('模型加载失败 ' + id);
-      const asset = E2.decodeModelPack(await r.json());
+      const clips = await loadActionClips().catch(() => []);
+      const asset = E2.decodeModelPack(await r.json(), clips);
       MODEL_CACHE.add(id);
       return E2.registerGltfAsset(id, asset);
     }
@@ -13430,6 +13586,7 @@ function queueThumb(assetId) {
       idle: { zh: '待机', en: 'Idle' }, run: { zh: '奔跑', en: 'Run' },
       walk: { zh: '行走', en: 'Walk' }, sneak_pose: { zh: '潜行', en: 'Sneak' },
       jump: { zh: '跳跃', en: 'Jump' }, dance: { zh: '舞蹈', en: 'Dance' },
+      wave: { zh: '挥手', en: 'Wave' },
       death: { zh: '倒地', en: 'Death' }, hit: { zh: '受击', en: 'Hit' },
     };
     const clipLabel = (name) => {
@@ -13558,6 +13715,9 @@ const DIRECTOR_KEY_HELP = [
       durRef.current = Math.max(0.5,
         ...(scene && Array.isArray(scene.shots) && scene.shots.length ? scene.shots.map((s2) => Number(s2.end) || 0) : [Number(scene && scene.shot && scene.shot.duration) || 6]));
       const dragRef = useRef(null);
+      const [bvhOpen, setBvhOpen] = useState(false);
+      const [customActionOpen, setCustomActionOpen] = useState(false);
+      const [bvhText, setBvhText] = useState('');
       const fileRef = useRef(null);
       const recRef = useRef(null);
       const undoRef = useRef([]);
@@ -14185,7 +14345,7 @@ const DIRECTOR_KEY_HELP = [
         patch((n) => {
           const id = 'obj_' + Date.now().toString(36);
           const base = { id, kind, name: p.label || p.id, pos: E.v3(Math.round(pos.x * 4) / 4, 0, Math.round(pos.z * 4) / 4), rotY: 0, visible: true };
-          if (kind === 'mannequin') Object.assign(base, { kind: 'model', assetId: 'xbot', typeId: p.typeId, h: p.h, scale: E.v3(p.w || 1, 1, p.d || 1), clip: (E.gltfAssetOf('xbot') && E.gltfAssetOf('xbot').animations[0] ? E.gltfAssetOf('xbot').animations[0].name : ''), animTime: 0, color: p.color || '' });
+          if (kind === 'mannequin') Object.assign(base, { kind: 'model', assetId: 'xbot', typeId: p.typeId, h: p.h, scale: E.v3(p.w || 1, 1, p.d || 1), clip: 'idle', animTime: 0, color: p.color || '' });
           else if (kind === 'model') Object.assign(base, { assetId: p.id, h: p.height || 1.7, clip: '', animTime: 0, color: p.color || '' });
           else if (kind === 'actor') Object.assign(base, { preset: p.id, h: 1, pose: 'stand' });
           else if (kind === 'building') Object.assign(base, { preset: p.id, s: 1 });
@@ -15256,6 +15416,193 @@ const DIRECTOR_KEY_HELP = [
                   value: String(((((scene.env || {}).fog) || {}).far !== undefined ? ((scene.env || {}).fog).far : 40)),
                   onChange: (e2) => patch((n) => { n.env = Object.assign({}, n.env || {}, { fog: Object.assign({ enabled: true, color: '#aab4c0', near: 6, density: 1 }, (n.env || {}).fog || {}, { far: Math.max(1, Number(e2.target.value) || 40) }) }); }) })),
                 ] : []),
+                // ── IK / 约束 / 动作层（AI 能力对应的编辑面板）──
+                ...(sel && sel.kind === 'model' ? (() => {
+                  const asset = E.gltfAssetOf(sel.assetId);
+                  const bones = asset ? E.boneListOf(asset) : [];
+                  if (!bones.length) return [];
+                  const r = (label, node) => envRow(label, node);
+                  const boneSel = (val, onChange) => h('select', { className: 'dshic-dir-input', value: String(val || ''), onChange },
+                    [h('option', { key: '', value: '' }, '—')].concat(bones.map((b) => h('option', { key: b.index, value: b.name }, b.name))));
+                  const num = (v, on, step) => h('input', { className: 'dshic-dir-input', type: 'number', step: step || 0.01, value: String(Number(v) || 0), onChange: (e2) => on(Number(e2.target.value) || 0) });
+                  const writeObj = (fn) => patch((n) => { const o2 = n.objects.find((x) => x.id === sel.id); if (o2) fn(o2); });
+                  const ikList = Array.isArray(sel.ik) ? sel.ik : [];
+                  const conList = Array.isArray(sel.constraints) ? sel.constraints : [];
+                  const clipList = Array.isArray(sel.clips) ? sel.clips : [];
+                  const ikPos = (t) => {
+                    if (Array.isArray(t)) return t.map(Number);
+                    if (t && Array.isArray(t.keys) && t.keys.length) return (t.keys[t.keys.length - 1].pos || [0, 0, 0]).map(Number);
+                    return t ? [Number(t.x) || 0, Number(t.y) || 0, Number(t.z) || 0] : [0, 0, 0];
+                  };
+                  const endPos = (chain) => {
+                    try {
+                      const local = E.applyBonePoseToLocal(asset, playT, sel.bonePose || null, null, null, 0, { ik: sel.ik, constraints: sel.constraints, clips: sel.clips });
+                      const wm = E.localWorldMatrices(asset, local);
+                      const bn = bones.find((b) => b.name === chain[2]);
+                      if (!bn) return null;
+                      const m = wm[bn.nodeIdx];
+                      return Number.isFinite(m[12]) ? [m[12], m[13], m[14]] : null;
+                    } catch { return null; }
+                  };
+                  const actionSelect = h('div', { className: 'dshic-dir-row' }, h('span', null, T('dirAction')), h('select', {
+                    className: 'dshic-dir-input', value: sel.userActionId ? ('ua:' + sel.userActionId) : ('clip:' + String(sel.clip || ((E.gltfAssetOf(sel.assetId) || {}).animations || [{}])[0].name || '')),
+                    'data-action': 'dir-action-select',
+                    onChange: (e2) => patch((n) => { const v = String(e2.target.value || ''); const t2 = n.objects.find((x) => x.id === sel.id); if (t2) { if (v.indexOf('ua:') === 0) { const ua = E.loadUserActions(S.activeId).find((a) => a.id === v.slice(3)); if (ua) { E.applyUserAction(t2, ua); t2.userActionId = ua.id; t2.animTime = 0; } } else { const nm2 = v.slice(5); t2.clip = nm2; t2.animTime = 0; t2.userActionId = null; } } }),
+                  }, [].concat(((E.gltfAssetOf(sel.assetId) || {}).animations || []).map((a2) => h('option', { key: 'clip:' + a2.name, value: 'clip:' + a2.name }, clipLabel(a2.name))), E.loadUserActions(S.activeId).map((ua) => h('option', { key: 'ua:' + ua.id, value: 'ua:' + ua.id }, '★ ' + ua.name)))));
+                  return [
+                    h('div', { className: 'dshic-dir-subhead' }, T('dirAction')),
+                    actionSelect,
+                    h('div', { className: 'dshic-dir-btnrow' },
+                      h('button', { type: 'button', className: 'dshic-dir-mini', onClick: dupSel }, T('dirDup')),
+                      h('button', { type: 'button', className: 'dshic-dir-mini is-danger', onClick: delSel }, T('dirDel')),
+                      h('button', {
+                        type: 'button', className: 'dshic-dir-mini', 'data-action': 'dir-custom-action-toggle',
+                        onClick: () => setCustomActionOpen((v) => !v),
+                      }, (customActionOpen ? '▾ ' : '▸ ') + T('dirCustomAction'))),
+                    // ── 自定义动作（默认收起）：IK / 约束 / 动作层 / 骨骼 / 保存 ──
+                    // ── 自定义动作（默认收起）──
+                    ...(customActionOpen ? [
+                    h('div', { className: 'dshic-dir-subhead' }, T('dirIk')),
+                    ...(ikList.length ? ikList.map((ik, ii) => {
+                      const chain = (ik.chain || []).slice(0, 3);
+                      const pos = ikPos(ik.target);
+                      const isKeys = !!(ik.target && !Array.isArray(ik.target) && Array.isArray(ik.target.keys));
+                      const upd = (fn) => writeObj((o2) => { o2.ik = JSON.parse(JSON.stringify(ikList)); fn(o2.ik[ii]); });
+                      return h('div', { key: 'ik-' + ii, className: 'dshic-dir-lightbox' },
+                        r(T('dirIkChain'), h('div', { className: 'dshic-dir-xyz' },
+                          [0, 1, 2].map((k2) => h('span', { key: k2, style: { flex: '1 1 0' } },
+                            boneSel(chain[k2], (e2) => upd((x) => { if (!Array.isArray(x.chain)) x.chain = []; x.chain[k2] = e2.target.value; })))))),
+                        r(T('dirIkTarget'), h('select', {
+                          className: 'dshic-dir-input',
+                          value: isKeys ? 'keys' : 'point',
+                          onChange: (e2) => upd((x) => {
+                            if (e2.target.value === 'keys') x.target = { keys: [{ t: Math.round(playT * 100) / 100, pos: pos.slice() }] };
+                            else x.target = pos.slice();
+                          }),
+                        }, [h('option', { key: 'point', value: 'point' }, T('dirIkTargetPoint')), h('option', { key: 'keys', value: 'keys' }, T('dirIkTargetKeys'))])),
+                        r('XYZ', h('div', { className: 'dshic-dir-xyz' },
+                          [0, 1, 2].map((k2) => h('span', { key: k2, style: { flex: '1 1 0' } }, num(pos[k2], (v) => {
+                            upd((x) => {
+                              const p2 = ikPos(x.target);
+                              p2[k2] = v;
+                              if (isKeys) x.target.keys = (x.target.keys || []).concat([{ t: Math.round(playT * 100) / 100, pos: p2 }]);
+                              else x.target = p2;
+                            });
+                          }, 0.05))))),
+                        r(T('dirIkPole'), h('div', { className: 'dshic-dir-xyz' },
+                          [0, 1, 2].map((k2) => h('span', { key: k2, style: { flex: '1 1 0' } }, num((ik.pole || [])[k2] || 0, (v) => upd((x) => {
+                            const p2 = Array.isArray(x.pole) ? x.pole.slice() : [0, 0, 0];
+                            p2[k2] = v; x.pole = p2;
+                          }), 0.05))))),
+                        h('div', { className: 'dshic-dir-keyrow' },
+                          h('button', { type: 'button', className: 'dshic-dir-mini', 'data-action': 'dir-ik-take-current', onClick: () => {
+                            const p2 = endPos(chain);
+                            if (!p2) { setMsg({ kind: 'err', text: T('dirIkEmpty') }); return; }
+                            upd((x) => {
+                              if (isKeys) x.target = { keys: (x.target.keys || []).concat([{ t: Math.round(playT * 100) / 100, pos: p2 }]) };
+                              else x.target = p2;
+                            });
+                          } }, '⌖ ' + T('dirIkTakeCurrent')),
+                          h('button', { type: 'button', className: 'dshic-dir-mini', 'data-action': 'dir-ik-key', onClick: () => {
+                            upd((x) => {
+                              if (!x.target || Array.isArray(x.target)) x.target = { keys: [{ t: 0, pos: Array.isArray(x.target) ? x.target : [0, 0, 0] }] };
+                              x.target.keys = (x.target.keys || []).concat([{ t: Math.round(playT * 100) / 100, pos: ikPos(x.target) }]);
+                            });
+                          } }, '◆ ' + T('dirIkKey')),
+                          h('button', { type: 'button', className: 'dshic-dir-mini is-danger', onClick: () => writeObj((o2) => {
+                            const arr = (o2.ik || []).slice(); arr.splice(ii, 1);
+                            if (arr.length) o2.ik = arr; else delete o2.ik;
+                          }) }, '✖')));
+                    }) : [h('div', { key: 'ik-empty', className: 'dshic-dir-time' }, T('dirIkEmpty'))]),
+                    h('div', { className: 'dshic-dir-row' },
+                      h('button', { type: 'button', className: 'dshic-dir-mini', 'data-action': 'dir-ik-add', onClick: () => writeObj((o2) => {
+                        const pick = (nm) => bones.find((b) => b.name === nm);
+                        const def = ['RightUpLeg', 'RightLeg', 'RightFoot'].map((nm) => (pick(nm) || { name: '' }).name);
+                        const chain2 = def.every((x2) => x2) ? def : bones.slice(0, 3).map((b) => b.name);
+                        const p2 = endPos(chain2) || [0, 0, 0];
+                        o2.ik = (o2.ik || []).concat([{ chain: chain2, target: p2, pole: [p2[0], p2[1] + 1, p2[2] + 1] }]);
+                      }) }, '＋ ' + T('dirIkAdd'))),
+
+                    h('div', { className: 'dshic-dir-subhead' }, T('dirConstraint')),
+                    ...(conList.length ? conList.map((c, ci) => {
+                      const upd = (fn) => writeObj((o2) => { o2.constraints = JSON.parse(JSON.stringify(conList)); fn(o2.constraints[ci]); });
+                      const type = String(c.type || 'damped_track');
+                      return h('div', { key: 'con-' + ci, className: 'dshic-dir-lightbox' },
+                        r(T('dirConstraintType'), h('select', { className: 'dshic-dir-input', value: type, onChange: (e2) => upd((x) => { x.type = e2.target.value; if (x.type === 'damped_track' && !x.target) x.target = [0, 1, 0]; if (x.type === 'copy_rotation' && !x.from) x.from = bones[0].name; if (x.type === 'limit_rotation') { x.min = x.min || [-0.5, -0.5, -0.5]; x.max = x.max || [0.5, 0.5, 0.5]; } }) },
+                          [h('option', { key: 'dt', value: 'damped_track' }, 'Damped Track'), h('option', { key: 'cr', value: 'copy_rotation' }, 'Copy Rotation'), h('option', { key: 'lr', value: 'limit_rotation' }, 'Limit Rotation')])),
+                        r(T('dirBone') || 'Bone', boneSel(c.bone, (e2) => upd((x) => { x.bone = e2.target.value; }))),
+                        type === 'copy_rotation' ? r(T('dirConstraintFrom'), boneSel(c.from, (e2) => upd((x) => { x.from = e2.target.value; }))) : null,
+                        type === 'copy_rotation' ? r(T('dirConstraintMix'), num(c.mix === undefined ? 1 : c.mix, (v) => upd((x) => { x.mix = v; }), 0.05)) : null,
+                        type === 'damped_track' ? r(T('dirConstraintTarget'), h('div', { className: 'dshic-dir-xyz' },
+                          [0, 1, 2].map((k2) => h('span', { key: k2, style: { flex: '1 1 0' } }, num((Array.isArray(c.target) ? c.target : [0, 1, 0])[k2] || 0, (v) => upd((x) => {
+                            const p2 = Array.isArray(x.target) ? x.target.slice() : [0, 1, 0]; p2[k2] = v; x.target = p2;
+                          }), 0.05))))) : null,
+                        type === 'limit_rotation' ? r(T('dirConstraintLimit'), h('div', { className: 'dshic-dir-xyz' },
+                          [0, 1, 2].map((k2) => h('span', { key: k2, style: { flex: '1 1 0' } }, num(Math.round(((c.min || [])[k2] || 0) * 180 / Math.PI), (v) => upd((x) => {
+                            const mn = (x.min || [-0.5, -0.5, -0.5]).slice(); mn[k2] = (v * Math.PI) / 180; x.min = mn;
+                          }), 5))))) : null,
+                        type === 'limit_rotation' ? r('MAX', h('div', { className: 'dshic-dir-xyz' },
+                          [0, 1, 2].map((k2) => h('span', { key: k2, style: { flex: '1 1 0' } }, num(Math.round(((c.max || [])[k2] || 0) * 180 / Math.PI), (v) => upd((x) => {
+                            const mx = (x.max || [0.5, 0.5, 0.5]).slice(); mx[k2] = (v * Math.PI) / 180; x.max = mx;
+                          }), 5))))) : null,
+                        h('div', { className: 'dshic-dir-keyrow' },
+                          h('button', { type: 'button', className: 'dshic-dir-mini is-danger', onClick: () => writeObj((o2) => {
+                            const arr = (o2.constraints || []).slice(); arr.splice(ci, 1);
+                            if (arr.length) o2.constraints = arr; else delete o2.constraints;
+                          }) }, '✖')));
+                    }) : [h('div', { key: 'con-empty', className: 'dshic-dir-time' }, T('dirConstraintEmpty'))]),
+                    h('div', { className: 'dshic-dir-row' },
+                      h('button', { type: 'button', className: 'dshic-dir-mini', 'data-action': 'dir-constraint-add', onClick: () => writeObj((o2) => {
+                        o2.constraints = (o2.constraints || []).concat([{ type: 'damped_track', bone: (bones[0] || {}).name || '', target: [0, 1, 0] }]);
+                      }) }, '＋ ' + T('dirConstraintAdd'))),
+
+                    h('div', { className: 'dshic-dir-subhead' }, T('dirClips')),
+                    ...(clipList.length ? clipList.map((cp, ci) => {
+                      const upd = (fn) => writeObj((o2) => { o2.clips = JSON.parse(JSON.stringify(clipList)); fn(o2.clips[ci]); });
+                      const move = (d2) => writeObj((o2) => { const arr = (o2.clips || []).slice(); const j = ci + d2; if (j < 0 || j >= arr.length) return; const t2 = arr[ci]; arr[ci] = arr[j]; arr[j] = t2; o2.clips = arr; });
+                      return h('div', { key: 'clip-' + ci, className: 'dshic-dir-lightbox' },
+                        r(T('dirClipName'), h('input', { className: 'dshic-dir-input', value: String(cp.name || ''), onChange: (e2) => upd((x) => { x.name = e2.target.value; }) })),
+                        r(T('dirClipBlend'), h('select', { className: 'dshic-dir-input', value: String(cp.blend || 'replace'), onChange: (e2) => upd((x) => { x.blend = e2.target.value; }) },
+                          [h('option', { key: 'r', value: 'replace' }, 'replace'), h('option', { key: 'a', value: 'add' }, 'add'), h('option', { key: 'm', value: 'multiply' }, 'multiply')])),
+                        r(T('dirClipInfluence'), h('input', { className: 'dshic-dir-input', type: 'range', min: 0, max: 1, step: 0.05, value: String(cp.influence === undefined ? 1 : cp.influence), onChange: (e2) => upd((x) => { x.influence = Number(e2.target.value); }) })),
+                        r(T('dirClipLoop'), h('input', { type: 'checkbox', checked: !!cp.loop, onChange: (e2) => upd((x) => { x.loop = e2.target.checked; }) })),
+                        h('div', { className: 'dshic-dir-time' }, T('dirClipKeys') + ' ' + ((cp.keys || []).length)),
+                        h('div', { className: 'dshic-dir-keyrow' },
+                          h('button', { type: 'button', className: 'dshic-dir-mini', onClick: () => move(-1) }, '↑'),
+                          h('button', { type: 'button', className: 'dshic-dir-mini', onClick: () => move(1) }, '↓'),
+                          h('button', { type: 'button', className: 'dshic-dir-mini is-danger', onClick: () => writeObj((o2) => {
+                            const arr = (o2.clips || []).slice(); arr.splice(ci, 1);
+                            if (arr.length) o2.clips = arr; else delete o2.clips;
+                          }) }, '✖')));
+                    }) : [h('div', { key: 'clip-empty', className: 'dshic-dir-time' }, T('dirClipEmpty'))]),
+                    h('div', { className: 'dshic-dir-keyrow' },
+                      h('button', { type: 'button', className: 'dshic-dir-mini', 'data-action': 'dir-clip-add', onClick: () => writeObj((o2) => {
+                        o2.clips = (o2.clips || []).concat([{ name: T('dirClips') + ' ' + ((o2.clips || []).length + 1), keys: [], blend: 'replace', influence: 1 }]);
+                      }) }, '＋ ' + T('dirClipAdd')),
+                      h('button', { type: 'button', className: 'dshic-dir-mini', 'data-action': 'dir-clip-bake', onClick: () => {
+                        const keys = JSON.parse(JSON.stringify(sel.poseKeys || []));
+                        if (!keys.length) { setMsg({ kind: 'err', text: T('dirClipEmpty') }); return; }
+                        writeObj((o2) => { o2.clips = (o2.clips || []).concat([{ name: 'baked ' + ((o2.clips || []).length + 1), keys, blend: 'replace', influence: 1 }]); });
+                        setMsg({ kind: 'ok', text: T('dirClipBaked') });
+                      } }, '⇪ ' + T('dirClipBake')),
+                      h('button', { type: 'button', className: 'dshic-dir-mini', 'data-action': 'dir-bvh-import', onClick: () => setBvhOpen(!bvhOpen) }, '⚄ ' + T('dirClipBvh'))),
+                    bvhOpen ? h('div', { className: 'dshic-dir-lightbox' },
+                      h('textarea', { className: 'dshic-dir-input', style: { width: '100%', minHeight: '70px' }, placeholder: T('dirClipBvhPh'), value: bvhText, onChange: (e2) => setBvhText(e2.target.value) }),
+                      h('div', { className: 'dshic-dir-keyrow' },
+                        h('button', { type: 'button', className: 'dshic-dir-mini', onClick: () => {
+                          try {
+                            const bvh = E.parseBVH(bvhText);
+                            const rt = E.retargetBVH(asset, bvh, { sampleStep: 2 });
+                            if (!rt.poseKeys.length) throw new Error('empty');
+                            writeObj((o2) => { o2.clips = (o2.clips || []).concat([{ name: 'bvh ' + ((o2.clips || []).length + 1), keys: rt.poseKeys, blend: 'replace', influence: 1, loop: true, t0: 0, t1: rt.duration }]); });
+                            setMsg({ kind: 'ok', text: T('dirClipBvhImported') });
+                            setBvhOpen(false); setBvhText('');
+                          } catch { setMsg({ kind: 'err', text: T('dirClipBvhFail') }); }
+                        } }, '✓ ' + T('dirClipBvh')),
+                        h('button', { type: 'button', className: 'dshic-dir-mini', onClick: () => { setBvhOpen(false); setBvhText(''); } }, '✖'))) : null,
+                    ] : []),
+                  ];
+                })() : []),
                 // ── 景深 ──
                 ...(!sel && previzMode !== 'render' ? [
                 envRow(T('dirDof'), h('label', null, h('input', { type: 'checkbox', 'data-action': 'dir-dof-on', checked: !!(((scene.env || {}).dof) || {}).enabled,
@@ -15308,7 +15655,7 @@ const DIRECTOR_KEY_HELP = [
                         });
                         setMsg({ kind: 'ok', text: T('dirPathPointAdded') });
                       },
-                    }, '＋ ' + T('dirPathAddPoint')),
+                    }, T('dirPathAddPoint')),
                     h('button', {
                       type: 'button', className: 'dshic-dir-mini', 'data-action': 'dir-path-draw',
                       onClick: () => { S.directorPathPick = !S.directorPathPick; setMsg({ kind: 'ok', text: T('dirPathDrawHint') }); bumpView(); },
@@ -15316,7 +15663,7 @@ const DIRECTOR_KEY_HELP = [
                     h('button', {
                       type: 'button', className: 'dshic-dir-mini is-danger', 'data-action': 'dir-path-clear',
                       onClick: () => { patch((n2) => { const o2 = n2.objects.find((x) => x.id === sel.id); if (!o2) return; if (o2.pathOrigin) o2.pos = { x: o2.pathOrigin.x, y: o2.pathOrigin.y, z: o2.pathOrigin.z }; o2.path = []; o2.pathMode = 'none'; }); setMsg({ kind: 'ok', text: T('dirPathCleared') }); },
-                    }, '✖ ' + T('dirPathClear')),
+                    }, T('dirPathClear')),
                     h('button', {
                       type: 'button', className: 'dshic-dir-mini is-danger', 'data-action': 'dir-path-del-point',
                       onClick: () => {
@@ -15329,7 +15676,7 @@ const DIRECTOR_KEY_HELP = [
                         S.directorPathSel = null;
                         setMsg({ kind: 'ok', text: T('dirPathPointDeleted') });
                       },
-                    }, '－ ' + T('dirPathPointDel'))),
+                    }, T('dirPathPointDel'))),
                   h('div', { className: 'dshic-dir-time' }, T('dirPathCount') + ' ' + ((sel.path || []).length) + ' · ' + T('dirPathHint')),
                   // ── 移动驱动：让动作跟着路径速度走（避免滑步）。
                   //     动作只在一处选：跟随上方「动作」下拉；这里只调步频参数或改用自建动作。──
@@ -15419,10 +15766,6 @@ const DIRECTOR_KEY_HELP = [
                       type: 'button', className: 'dshic-dir-mini', 'data-action': 'dir-obj-color-reset',
                       onClick: () => patch((n2) => { const o2 = n2.objects.find((x) => x.id === sel.id); if (o2) o2.color = ''; }),
                     }, T('dirReset'))),
-                  sel.kind === 'model' ? h('div', { className: 'dshic-dir-row' }, h('span', null, T('dirAction')), h('select', {
-                    className: 'dshic-dir-input', value: sel.userActionId ? ('ua:' + sel.userActionId) : ('clip:' + String(sel.clip || (E.gltfAssetOf(sel.assetId) || {}).animations && ((E.gltfAssetOf(sel.assetId) || {}).animations[0] || {}).name || '')),
-                    onChange: (e2) => patch((n) => { const v = String(e2.target.value || ''); const t2 = n.objects.find((x) => x.id === sel.id); if (t2) { if (v.indexOf('ua:') === 0) { const ua = E.loadUserActions(S.activeId).find((a) => a.id === v.slice(3)); if (ua) { E.applyUserAction(t2, ua); t2.userActionId = ua.id; } } else { t2.clip = v.replace(/^clip:/, ''); t2.userActionId = null; } }; }),
-                  }, [].concat(((E.gltfAssetOf(sel.assetId) || {}).animations || []).map((a2) => h('option', { key: 'clip:' + a2.name, value: 'clip:' + a2.name }, clipLabel(a2.name))), E.loadUserActions(S.activeId).map((ua) => h('option', { key: 'ua:' + ua.id, value: 'ua:' + ua.id }, '★ ' + ua.name))))) : null,
                   h('div', { className: 'dshic-dir-btnrow' },
                     h('button', { type: 'button', className: 'dshic-dir-mini', onClick: dupSel }, T('dirDup')),
                     h('button', { type: 'button', className: 'dshic-dir-mini is-danger', onClick: delSel }, T('dirDel')))) : null,
@@ -15432,7 +15775,7 @@ const DIRECTOR_KEY_HELP = [
                   if (!bones.length) return null;
                   const poseMap = sel.bonePose || {};
                   const activeBone = Number(sel.boneIndex) >= 0 ? Number(sel.boneIndex) : -1;
-                  return h('div', null,
+                  return customActionOpen ? h('div', null,
                     h('div', { className: 'dshic-dir-subhead' }, T('dirSkeleton') + ' (' + bones.length + ')'),
                     h('div', { className: 'dshic-dir-row' },
                       h('span', null, T('dirBone')),
@@ -15457,23 +15800,6 @@ const DIRECTOR_KEY_HELP = [
                             o2.bonePose[activeBone] = cur;
                           }),
                         })))),
-                    // ── 基础姿态（骨架级，方向式）──
-                    h('div', { className: 'dshic-dir-subhead' }, T('dirPoseLib')),
-                    h('div', { className: 'dshic-dir-posegrid' },
-                      E.BONE_POSES.filter((p) => p.id !== 'none').map((p) => h('button', {
-                        key: p.id, type: 'button',
-                        className: cls('dshic-dir-posebtn', sel.poseId === p.id && 'is-on'),
-                        'data-pose': p.id,
-                        onClick: () => {
-                          patch((n) => {
-                            const o2 = n.objects.find((x) => x.id === sel.id);
-                            if (!o2) return;
-                            o2.bonePose = {};   // 姿态由 poseId 在蒙皮时按当前动画姿势求解
-                            o2.poseId = p.id;
-                          });
-                          setMsg({ kind: 'ok', text: T('dirPoseApplied') + ' · ' + (effLang() === 'en' ? p.en : p.zh) });
-                        },
-                      }, effLang() === 'en' ? p.en : p.zh))),
                     // ── 用户自建动作：骨骼 + 姿态调好后保存，保存后出现在上方「动作」下拉 ──
                     h('div', { className: 'dshic-dir-row' },
                       h('input', {
@@ -15509,7 +15835,7 @@ const DIRECTOR_KEY_HELP = [
                           const o2 = n.objects.find((x) => x.id === sel.id);
                           if (o2) { o2.bonePose = {}; o2.poseId = null; o2.poseAnim = []; o2.poseKeys = []; o2.userActionId = null; }
                         }),
-                      }, T('dirPoseClear'))));
+                      }, T('dirPoseClear')))) : null;
                 })() : null,
                 ...(!sel && previzMode !== 'render' ? [
                 h('div', { className: 'dshic-dir-subhead' }, T('dirShot')),
@@ -17297,7 +17623,7 @@ const DIRECTOR_KEY_HELP = [
           await refreshDataRoot();
           toast(T('dataRootSaved') + (S.dataRoot ? '：' + S.dataRoot : ''));
           if (same) { setBusy(false); return; } // 同目录重复保存：不重复迁移
-          autoMigrateAssetsToRoot(); // 换了目录：把本地遗留 blob 搬进新目录（v1 旧布局由 Host 侧自动迁移）
+          migrateLegacyAssets('data-root'); // 换了目录：一次性迁移旧 blob（v1 旧布局由 Host 侧自动迁移）
           assetMem.clear();
           update((s) => { s.assetsTick++; });
         } catch (e) { toast('设置失败：' + ((e && e.message) || e)); }
@@ -17310,7 +17636,7 @@ const DIRECTOR_KEY_HELP = [
         setVal(S.dataRoot || root);
         toast(T('dataRootSaved') + '：' + S.dataRoot);
         if (same) return; // 同目录：不重复迁移
-        autoMigrateAssetsToRoot(); // 换了目录：把本地遗留 blob 搬进新目录
+        migrateLegacyAssets('data-root'); // 换了目录：一次性迁移旧 blob
         assetMem.clear();
         update((s) => { s.assetsTick++; });
       };
@@ -18338,7 +18664,7 @@ const DIRECTOR_KEY_HELP = [
           // 检查更新（Host RPC；Host 旧版未带此方法时静默）
           checkUpdate(true);
           // 数据根目录（Host 旧版静默降级为 IndexedDB 模式）；就绪后把本地遗留 blob 搬进服务端（v1 旧布局由 Host 侧自动迁移）
-          refreshDataRoot().then(() => autoMigrateAssetsToRoot()).catch(() => { /* 静默 */ });
+          refreshDataRoot().then(() => migrateLegacyAssets('boot')).catch(() => { /* 静默 */ });
           // 对话 ↔ 画布同步（启动一次 + 3s 轮询；旧 Host 自动停轮询）
           hostSyncTick().then(() => pushAllProjectsToHost());
           const hostSyncTimer = setInterval(() => hostSyncTick(), 3000);
@@ -18462,6 +18788,16 @@ const DIRECTOR_KEY_HELP = [
             notifyCount: () => notifyCount, resetNotifyCount: () => { notifyCount = 0; },
             setCanvasElForTest: (el) => { canvasEl = el; },
             edgePath,
+          };
+          // 旧 IDB 资产一次性迁移的测试缝（供 scripts/test-asset-migration.mjs 驱动真实迁移逻辑）
+          window.__DSH_IC_MIGRATE__ = {
+            migrateLegacyAssets,
+            ensureThumbForAsset,
+            state: () => S.assetMigration || null,
+            setIdbAllForTest: (fn) => { idbAllImpl = fn || null; },
+            setIdbDeleteForTest: (fn) => { idbDeleteImpl = fn || null; },
+            setDataRootForTest: (v) => { S.dataRoot = v || null; },
+            thumbCache, thumbFailed,
           };
           // 排版纯函数/常量出口：预览区比例、节点外框公式、等比缩放、面板宽度（供 scripts/test-node-layout.mjs 断言）
           window.__DSH_IC_LAYOUT__ = {

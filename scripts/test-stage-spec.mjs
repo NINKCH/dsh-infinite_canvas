@@ -101,10 +101,37 @@ const spec = {
   ok(cli.includes('compileStageSpec'), '缺少「从当前场景生成规格」');
 }
 
+// ── ⑧ 道具关键帧（长枪跟手）：spec 解析 / 播放头求值 / 往返保真 ──
+{
+  const handKeys = [{ t: 0, pos: [-1.2, 1.25, 0.35] }, { t: 1, pos: [-0.6, 1.25, 0.4] }, { t: 2, pos: [0, 1.2, 0.45] }, { t: 3, pos: [0.6, 1.25, 0.4] }];
+  const rodSpec = {
+    duration: 3,
+    characters: [{ name: 'A', pos: [-1.2, 0, 0.3], pose: 'spear_ready' }],
+    props: [
+      { id: 'shaft', preset: 'cylinder', pos: handKeys[0].pos, rotY: 1.45, rx: 1.5708, scale: [0.025, 1.4, 0.025], color: '#a9c9d8', keys: handKeys },
+      { id: 'tip', preset: 'cone', pos: [-0.45, 1.25, 0.35], scale: [0.06, 0.14, 0.06], color: '#e2ebf2',
+        keys: handKeys.map((k) => ({ t: k.t, pos: [k.pos[0] + 0.75, k.pos[1], k.pos[2]] })) },
+    ],
+    cameras: [{ name: 'c', pos: [0, 1.6, 4], target: [0, 1.1, 0], fov: 40 }],
+    shots: [{ camera: 'c', start: 0, end: 3 }],
+  };
+  const rodScene = E.buildStageFromSpec(rodSpec);
+  const shaft = rodScene.objects.find((o) => o.id === 'shaft');
+  ok(Array.isArray(shaft.keys) && shaft.keys.length === 4, '道具 keys 应被 spec 解析（实际 ' + (shaft.keys ? shaft.keys.length : 0) + '）');
+  const p0 = E.applyPlayhead(rodScene, 0).objects.find((o) => o.id === 'shaft');
+  const p3 = E.applyPlayhead(rodScene, 3).objects.find((o) => o.id === 'shaft');
+  ok(Math.abs(p3.pos.x - p0.pos.x) > 0.5, '道具应随时间移动（长枪跟手）：x ' + p0.pos.x.toFixed(2) + ' → ' + p3.pos.x.toFixed(2));
+  const tip3 = E.applyPlayhead(rodScene, 3).objects.find((o) => o.id === 'tip');
+  ok(Math.abs(tip3.pos.x - p3.pos.x - 0.75) < 0.01, '枪尖应保持相对枪杆的偏移（跟手不脱节）');
+  const rodBack = E.compileStageSpec(rodScene);
+  const backKeys = (rodBack.props.find((p) => p.id === 'shaft') || {}).keys;
+  ok(Array.isArray(backKeys) && backKeys.length === 4, '道具 keys 往返后应保留（实际 ' + (backKeys ? backKeys.length : 0) + '）');
+}
+
 if (errs.length) {
   console.error('✗ AI 规格测试未通过（' + errs.length + ' 项）：');
   for (const e of errs) console.error('  - ' + e);
   process.exit(1);
 }
-console.log('✓ AI 场景规格测试通过（spec→scene→spec 往返 / 分镜按 name 解析 / 路径与转向 / 容错 / 循环动作 / Host 工具与客户端接线）');
+console.log('✓ AI 场景规格测试通过（spec→scene→spec 往返 / 分镜解析 / 路径转向 / 容错 / 循环动作 / 道具关键帧跟手 / Host 工具与客户端接线）');
 process.exit(0);
