@@ -297,7 +297,72 @@ Five tabs share one search box. Click an asset to drop it into the scene; charac
 
 ---
 
-## 9. Troubleshooting
+## 9. Craft page: four-layer console
+
+The third tab of the right sidebar — **Craft** — decides **how the whole piece is shot**. It is not a prompt template: it is a binding constraint composed into every script, storyboard, image and video generation.
+
+There are **no dropdowns** on the page. Every option is an icon tile: click to select, click again to clear.
+
+### 9.1 What each layer owns
+
+| Layer | Count | Decides | Why it needs its own layer |
+|---|---|---|---|
+| **Director** | 24 | Camera language, lighting, cutting rhythm, style parameters | It constrains the shot's camera fields, the keyframe and the video's camera move at once — the least replaceable decision in the whole piece |
+| **Genre** | 21 narrative / 10 sector | Pressure mechanics, audience payoff, scene granules, episode hooks | The same "revenge" premise is fragmented neon under Wong Kar-wai and hard-lit slow motion under Tsui Hark; folding them together poisons both |
+| **Delivery form** | 8 | Structure blocks, ASL floor, rhythm, quality bar | It decides "short drama vs cinematic texture vs commercial", which is orthogonal to genre |
+| **Look** | 9 | Imaging base, material, render texture | 2D thick paint / guoman 3D / game CG are imaging domains, not directors |
+
+**Eight delivery forms**: Short drama · Cinematic texture · Commercial · Documentary · Music video · Trailer · Explainer · Interview.
+
+- A **short drama** is a self-contained 60–180 s unit and **covers both single episodes and multi-episode series** — a series is just episode after episode, so there is no separate "series" form. Its quality bar is "shoot it like film", not "shoot it like a short video".
+- **Cinematic texture** is a *texture* spec, not a feature-length one. It constrains how each shot must be made to read as cinema (ASL floor 1.5 s, 24 fps, motivated light, real materials, readable depth), and its duration tiers stop at 30–300 s. The reason is practical: **a video model emits only 3–8 s per clip** (5 s by default here), so "a 120-minute film" can only be hundreds of clips stitched together — a 120-minute tier in the spec would be fiction. For a feature, advance episode by episode; this spec makes each segment pass the cinema line.
+- **Commercial** merges 宣传片 (brand film) / 广告片 (ad) / 产品片 (product film) into one card — near-identical needs, split internally by block ratios instead of three cards.
+
+The genre layer **switches automatically with the delivery form**: pick Commercial and it shows sector cards (tech, finance, medical, beauty, auto, education, FMCG, travel, real estate, food); every other form shows narrative genres.
+
+**Priority**: explicit user instruction > director > delivery form (only on ASL and structure) > genre > look.
+
+### 9.2 Aspect ratio is not decided here
+
+Vertical, horizontal, square or widescreen all work with any delivery form — **aspect and resolution are chosen on the video node at generation time**. Vertical delivery is common for short drama, but that is a distribution choice, not a craft spec; **a short drama can equally be shot horizontal and to a cinematic standard**. The delivery form constrains **structure, rhythm and quality bar**, not proportion.
+
+### 9.3 Three buttons
+
+- **Preview** — shows the assembled slice and its byte size, so you can confirm what actually goes in
+- **To bible** — writes the style summary (director + genre + form + look) into the bible's style field; the chat side reads it from there
+- **Clear** — resets all four layers; generation falls back to the previous behaviour
+
+### 9.4 Configuration is per project
+
+One piece, one configuration. It is stored **on the project document** (same sync mechanism as the series bible), so the chat side reads the same selection the panel shows, and switching projects switches the craft page with it. **Existing projects have no such field and fall back to defaults — generation behaves exactly as before.**
+
+### 9.5 Using it from the chat
+
+Say "shoot this in Wong Kar-wai's style" and the agent will:
+
+1. call `canvas_list_skills` to see the plugin's four skills, the full four-layer inventory, and the current project selection;
+2. call `canvas_skill_pack({ projectId, kind })` to pull the matching slice (`script` / `storyboard` / `prompt` / `assets`);
+3. write against that slice — **the same slice the canvas itself uses**.
+
+You can also have the agent change the configuration in chat (it passes `set: true` to persist it); the panel syncs on refresh.
+
+### 9.6 Where it is injected
+
+| Node / capability | What it receives |
+|---|---|
+| Script node | Genre cards + the lens's narrative/rhythm/performance sections + the form's structure blocks |
+| Storyboard node | The lens's camera language, lighting, style parameters and shot checklist + the form + the camera-move dictionary |
+| Image node | A style lock: style parameters + look imaging/material + genre granules + three negative lists |
+| Video node | Same (also appended when an upstream storyboard feeds it, without breaking the structured format) |
+| Character/scene/prop sheets | The lens's lighting and colour + the look card |
+| Bible AI draft | Same as script |
+
+**With all four layers empty nothing is injected.**
+
+---
+
+## 10. Troubleshooting
+
 
 | Symptom | Cause & fix |
 |---|---|

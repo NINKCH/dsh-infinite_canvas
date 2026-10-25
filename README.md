@@ -96,6 +96,56 @@ Assets are shared with the canvas: the characters, trees, furniture and building
 
 Full walkthrough — asset tabs, gizmo, keyboard map, shots and export: **[User guide → 3D Director Stage](./docs/guide.en.md#8-3d-director-stage)**.
 
+## Craft page: director / genre / delivery form / look
+
+The third tab of the right sidebar decides **how the whole piece is shot**. It is not a prompt template — it is a binding constraint that gets composed into every script, storyboard, image and video generation. **There are no dropdowns on the page**: every option is an icon tile; click to select, click again to clear.
+
+### What each layer owns
+
+| Layer | Count | Decides | Why it needs its own layer |
+|---|---|---|---|
+| **Director** | 24 | Camera language, lighting, cutting rhythm, style parameters | It constrains the shot's camera fields, the keyframe, and the video's camera move at once — the least replaceable decision in the whole piece |
+| **Genre** | 21 narrative / 10 sector | Pressure mechanics, audience payoff, scene granules, episode hooks | The same "revenge" premise is fragmented neon under Wong Kar-wai and hard-lit slow motion under Tsui Hark; folding them together poisons both |
+| **Delivery form** | 8 | Structure blocks, ASL floor, rhythm, quality bar | It decides "short drama vs cinematic texture vs commercial", which is orthogonal to genre |
+| **Look** | 9 | Imaging base, material, render texture | 2D thick paint / guoman 3D / game CG are imaging domains, not directors; mixing them into the director layer makes "how to cut" fight "what it looks like" |
+
+**Directors (24)**: Chinese 8 (Wong Kar-wai, Zhang Yimou, Hou Hsiao-hsien, Bi Gan, Tsui Hark, Lu Yang, Yuen Woo-ping, Wu Ershan) · Japan/Korea 2 (Kurosawa, Park Chan-wook) · Western 14 (Spielberg, Hitchcock, Kubrick, Scorsese, Fellini, Bergman, Tarkovsky, Nolan, Villeneuve, Fincher, Refn, Malick, Michael Mann, Coen Brothers).
+
+**Delivery forms (8)**: Short drama · Cinematic texture · Commercial · Documentary · Music video · Trailer · Explainer · Interview.
+
+- A **short drama** is a self-contained 60–180 s unit and **covers both single episodes and multi-episode series** — a series is just episode after episode, so there is no separate "series" form.
+- **Cinematic texture** is a *texture* spec, not a feature-length one: it constrains how each shot must be made to read as cinema (ASL floor 1.5 s, 24 fps, motivated light, real materials), and its duration tiers stop at 30–300 s. The reason is practical — **a video model emits only 3–8 s per clip** (5 s by default here), so "a 120-minute film" can only be hundreds of clips stitched together.
+- **Commercial** merges 宣传片 / 广告片 / 产品片 — near-identical needs, split internally by block ratios instead of three separate cards.
+
+### Aspect ratio is not decided here
+
+Vertical, horizontal, square or widescreen all work with any delivery form — **aspect and resolution are chosen on the video node at generation time**. Vertical delivery is common for short drama, but that is a distribution choice, not a craft spec; **a short drama can equally be shot horizontal and to a cinematic standard**.
+
+### Where it is injected
+
+| Node / capability | What it receives |
+|---|---|
+| Script node | Genre cards + the lens's narrative/rhythm/performance sections + the form's structure blocks |
+| Storyboard node | The lens's camera language, lighting, style parameters and shot checklist + the form + the camera-move dictionary |
+| Image node | A style lock: style parameters + look imaging/material + genre granules + three negative lists |
+| Video node | Same (also appended when an upstream storyboard feeds it, without breaking the structured format) |
+| Character/scene/prop sheets | The lens's lighting and colour + the look card |
+| Bible AI draft | Same as script |
+
+**With all four layers empty nothing is injected** — existing projects behave exactly as before.
+
+### Three buttons
+
+- **Preview** — shows the assembled slice and its byte size
+- **To bible** — writes the style summary into the bible's style field, so the chat side reads it too
+- **Clear** — resets all four layers
+
+### It works from the chat too
+
+The configuration is stored on the project document (same sync mechanism as the series bible), so **the chat side reads the same selection the panel shows**. Say "shoot this in Wong Kar-wai's style" in chat and the agent calls `canvas_list_skills` to see what craft exists, then `canvas_skill_pack` to pull the matching slice — **the same slice the canvas itself uses**.
+
+Full walkthrough — **[User guide → Craft page](./docs/guide.en.md#9-craft-page-four-layer-console)**.
+
 ## How it works
 
 ```mermaid

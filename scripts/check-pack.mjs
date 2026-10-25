@@ -26,6 +26,9 @@ const REQUIRED = [
   'locale/en.json',
   'locale/zh.json',
   'assets/canvas-studio/SKILL.md',
+  'assets/canvas-director/SKILL.md',
+  'assets/canvas-director/manifest.json',
+  'assets/canvas-director/pack.js',
   'assets/canvas-craft/SKILL.md',
   'assets/support/README.md',
   'assets/director/engine.js',
@@ -38,7 +41,7 @@ const REQUIRED = [
 // 包内允许出现的路径形态（package.json 与 LICENSE 由 npm 恒定收入，无需列 files 白名单）
 // assets/support/*：帮助与反馈用的微信二维码等界面静态资源（必须随包分发，否则用户看不到）
 // docs/images/*：README/用户手册引用的截图（文档里的相对路径必须能解析，否则 npm/GitHub 上裂图）
-const ALLOWED = /^(package\.json|LICENSE|LICENCE|NOTICE|index\.js|client\.js|icon\.svg|cordis\.patch\.yml|README(\.zh-CN)?\.md|locale\/[a-zA-Z-]+\.json|assets\/[a-z0-9-]+\/SKILL\.md|assets\/support\/[A-Za-z0-9._-]+|assets\/director\/[a-zA-Z0-9._-]+\.js|assets\/director\/models\/[A-Za-z0-9._-]+\.json|docs\/[a-zA-Z0-9._-]+\.md|docs\/images\/[a-zA-Z0-9._-]+\.(png|svg|jpe?g|webp))$/;
+const ALLOWED = /^(package\.json|LICENSE|LICENCE|NOTICE|index\.js|client\.js|skill-pack\.js|skill-pack-loader\.js|index-core-skill-profile\.js|icon\.svg|cordis\.patch\.yml|README(\.zh-CN)?\.md|locale\/[a-zA-Z-]+\.json|assets\/[a-z0-9-]+\/SKILL\.md|assets\/canvas-director\/(?:pack\.js|manifest\.json)|assets\/canvas-director\/(?:lenses|genres|industries|forms|looks|moves)\/[a-z0-9_-]+\.md|assets\/support\/[A-Za-z0-9._-]+|assets\/director\/[a-zA-Z0-9._-]+\.js|assets\/director\/models\/[A-Za-z0-9._-]+\.json|docs\/[a-zA-Z0-9._-]+\.md|docs\/images\/[a-zA-Z0-9._-]+\.(png|svg|jpe?g|webp))$/;
 
 const errors = [];
 const ok = (msg) => console.log('  ✓ ' + msg);

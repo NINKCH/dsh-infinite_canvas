@@ -1,61 +1,66 @@
 {
-    "name":  "@ninkch/dsh-infinite-canvas",
-    "version":  "0.19.2",
-    "description":  "Node-based short-drama studio for DeepSeek Harness: script → storyboard → assets → shots → voiced, subtitled final cut on an infinite canvas.",
-    "keywords":  [
-                     "dsh",
-                     "deepseek-harness",
-                     "plugin",
-                     "infinite-canvas",
-                     "storyboard",
-                     "short-drama",
-                     "ai-video",
-                     "image-generation",
-                     "video-generation",
-                     "seedance",
-                     "photocraft",
-                     "filmcraft"
-                 ],
-    "license":  "Apache-2.0",
-    "author":  "NINKCH",
-    "publishConfig":  {
-                          "registry":  "https://registry.npmjs.org/"
-                      },
-    "repository":  {
-                       "type":  "git",
-                       "url":  "git+https://github.com/NINKCH/dsh-infinite_canvas.git"
-                   },
-    "type":  "module",
-    "icon":  "./icon.svg",
-    "exports":  {
-                    ".":  "./index.js",
-                    "./client":  "./client.js",
-                    "./package.json":  "./package.json",
-                    "./locale/*.json":  "./locale/*.json",
-                    "./assets/director/*.js":  "./assets/director/*.js"
-                },
-    "files":  [
-                  "index.js",
-                  "client.js",
-                  "icon.svg",
-                  "cordis.patch.yml",
-                  "locale/*.json",
-                  "assets/*/SKILL.md",
-                  "assets/support/*",
-                  "assets/director/*.js",
-                  "assets/director/models/*.json",
-                  "README.md",
-                  "README.zh-CN.md",
-                  "docs/*.md",
-                  "docs/images/*"
-              ],
-    "dsh":  {
-                "bundle":  {
-                               "patch":  "./cordis.patch.yml"
-                           },
-                "client":  {
-                               "platform":  "web",
-                               "immediately":  true
-                           }
-            }
+    "name": "@ninkch/dsh-infinite-canvas",
+    "version": "0.19.2",
+    "description": "Node-based short-drama studio for DeepSeek Harness: script → storyboard → assets → shots → voiced, subtitled final cut on an infinite canvas.",
+    "keywords": [
+        "dsh",
+        "deepseek-harness",
+        "plugin",
+        "infinite-canvas",
+        "storyboard",
+        "short-drama",
+        "ai-video",
+        "image-generation",
+        "video-generation",
+        "seedance",
+        "photocraft",
+        "filmcraft"
+    ],
+    "license": "Apache-2.0",
+    "author": "NINKCH",
+    "publishConfig": {
+        "registry": "https://registry.npmjs.org/"
+    },
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/NINKCH/dsh-infinite_canvas.git"
+    },
+    "type": "module",
+    "icon": "./icon.svg",
+    "exports": {
+        ".": "./index.js",
+        "./client": "./client.js",
+        "./package.json": "./package.json",
+        "./locale/*.json": "./locale/*.json",
+        "./assets/director/*.js": "./assets/director/*.js",
+        "./assets/canvas-director/*.js": "./assets/canvas-director/*.js"
+    },
+    "files": [
+        "index.js",
+        "client.js",
+        "icon.svg",
+        "cordis.patch.yml",
+        "locale/*.json",
+        "assets/*/SKILL.md",
+        "assets/support/*",
+        "assets/director/*.js",
+        "assets/director/models/*.json",
+        "README.md",
+        "README.zh-CN.md",
+        "docs/*.md",
+        "docs/images/*",
+        "skill-pack.js",
+        "skill-pack-loader.js",
+        "index-core-skill-profile.js",
+        "assets/canvas-director/**"
+    ],
+    "dsh": {
+        "bundle": {
+            "patch": "./cordis.patch.yml"
+        },
+        "client": {
+            "platform": "web",
+            "immediately": true
+        }
+    }
 }
