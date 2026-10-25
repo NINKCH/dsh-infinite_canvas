@@ -6,6 +6,21 @@ GitHub Releases carry the same notes in English; maintainer-facing runbooks live
 
 ## [Unreleased]
 
+### Fixed
+- **The gizmo rule is now absolute and the pose root offset no longer poisons the object origin.** `applyPlayhead` had been adding a pose's `rootY` (crouch/fly vertical offset) to `pos.y` on top of the bone-level Hips translation that already applies the same offset — a double application that also moved the object's logical origin, so the axis rose to hip height whenever a pose with root motion was active. The offset now applies to bones only. The follow-body opt-in around `poseCenterY` is gone entirely: the axis sits at `(pos.x, pos.y, pos.z)` — a humanoid's sole centre — always, in both the draw and pick paths (verified identical, so what you see is what you grab). The regression asserts the gizmo paths contain no `poseCenterY` and no follow switch at all.
+
+### Added
+- **A new masculine body mesh: Explorer** (Mixamo rig, 49 bones, foot-anchored, two clips `idle` 1.4 s and `motion` 10.6 s) in the model library for tall/short/thick male variants. Male body types are also blockier across the board (standard/teen/slim/muscular/plump all gain waist depth and limb mass, so the standard male no longer reads thin-waisted).
+
+### Changed
+- **Character colours are high-saturation** (storyai-style vivid blue/magenta/emerald/violet/amber/orange/crimson) instead of pastel, so body types are distinguishable at a glance on the dark stage.
+
+### Fixed
+- **Body-shape deformation silently did nothing on non-metre meshes.** The waist/chest/belly/bust bands used absolute metre coordinates tuned for xbot (rawHeight ≈ 1.8); soldier is a ~44-unit mesh and Explorer ~194 — the bands landed at ankle height and the deformation quietly missed. All bands are now relative to the mesh's posed height, so the same `m_standard` shape deforms every rig proportionally (verified: waist verts on the 44-unit soldier move ~0.014 with feet anchored, Explorer ~1.4).
+
+### Internal
+- Body-type regression data: colour and proportion keys for the 12 mannequin types are asserted in the director tests; the Explorer pack (`models/explorer.json`, 1.28 MB) ships in `assets/director/models/` and is registered in the library index.
+
 ## [0.19.4] — 2026-10-25
 
 ### Fixed

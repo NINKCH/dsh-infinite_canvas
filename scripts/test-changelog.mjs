@@ -116,8 +116,9 @@ if (unrelHasEntries) {
 const COVERAGE = [
   // 0.19.0 已发布：上一批 7 个未发版提交随该版本进入 main，清单在此清零。
   // 下一轮从 dev 新建功能提交起，再按提交逐条补记（数量必须与 main..dev 的功能提交数相等）。
-  // 0.19.4：gizmo 轴心回到物体原点（不再悬空到髋高）
-  { sha: '1d800ad', keys: [/gizmo/i, /axis origin/i, /mid-air/i, /floated/i, /poseCenterY/i, /hip height/i] },
+  // 0.19.4 已发布：gizmo 轴心首修（1d800ad）随该版本进入 main，从此清零。
+  // 0.19.5 待发：gizmo 轴心规则最终版（恒物体原点 + 姿态根位移只在骨骼层）
+  { sha: '3efbee5', keys: [/gizmo/i, /object origin/i, /pose root/i, /follow-body/i, /followBody/i] },
 ];
 for (const c of COVERAGE) {
   ok(c.keys.some((re) => re.test(coverageText)), '未发版提交 ' + c.sha + ' 在 CHANGELOG（Unreleased 或最新已发布段）里找不到对应记录（补记不全）');

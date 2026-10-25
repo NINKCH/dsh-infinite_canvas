@@ -1434,17 +1434,17 @@ export function decodeActionClips(list) {
  */
 // waist：腰部横向系数（男性 >1 直腰方厚，女性 <1 收腰）；chestFlat：男性压扁胸部正面
 const BODY_SHAPE_OF = {
-  m_standard: { bust: 0, belly: 0.00, muscle: 0.15, shoulder: 1.08, hip: 1.02, waist: 1.08, chestFlat: 0.10 },
+  m_standard: { bust: 0, belly: 0.00, muscle: 0.32, shoulder: 1.12, hip: 1.02, waist: 1.16, chestFlat: 0.10 },
   f_standard: { bust: 1.00, belly: 0.04, muscle: 0.00, shoulder: 0.94, hip: 1.10, waist: 0.88, chestFlat: 0 },
-  m_teen: { bust: 0, belly: 0.02, muscle: 0.06, shoulder: 0.98, hip: 0.98, waist: 1.04, chestFlat: 0.08 },
+  m_teen: { bust: 0, belly: 0.02, muscle: 0.14, shoulder: 1.00, hip: 0.98, waist: 1.08, chestFlat: 0.08 },
   f_teen: { bust: 0.62, belly: 0.03, muscle: 0.00, shoulder: 0.90, hip: 1.02, waist: 0.90, chestFlat: 0 },
   m_child: { bust: 0, belly: 0.06, muscle: 0.00, shoulder: 0.84, hip: 0.88, waist: 1.02, chestFlat: 0.04 },
   f_child: { bust: 0.18, belly: 0.06, muscle: 0.00, shoulder: 0.82, hip: 0.90, waist: 0.94, chestFlat: 0 },
-  m_slim: { bust: 0, belly: -0.02, muscle: 0.05, shoulder: 1.02, hip: 0.96, waist: 1.04, chestFlat: 0.10 },
+  m_slim: { bust: 0, belly: -0.02, muscle: 0.12, shoulder: 1.04, hip: 0.96, waist: 1.06, chestFlat: 0.10 },
   f_slim: { bust: 0.78, belly: -0.03, muscle: 0.00, shoulder: 0.88, hip: 0.98, waist: 0.84, chestFlat: 0 },
-  m_muscular: { bust: 0, belly: -0.02, muscle: 0.55, shoulder: 1.22, hip: 1.06, waist: 1.10, chestFlat: 0.12 },
+  m_muscular: { bust: 0, belly: -0.02, muscle: 0.62, shoulder: 1.26, hip: 1.08, waist: 1.16, chestFlat: 0.12 },
   f_muscular: { bust: 0.90, belly: -0.02, muscle: 0.38, shoulder: 1.06, hip: 1.10, waist: 0.92, chestFlat: 0 },
-  m_plump: { bust: 0, belly: 0.30, muscle: 0.06, shoulder: 1.12, hip: 1.20, waist: 1.16, chestFlat: 0.02 },
+  m_plump: { bust: 0, belly: 0.34, muscle: 0.10, shoulder: 1.16, hip: 1.22, waist: 1.24, chestFlat: 0.02 },
   f_plump: { bust: 1.15, belly: 0.32, muscle: 0.02, shoulder: 1.02, hip: 1.24, waist: 1.00, chestFlat: 0 },
 };
 export function bodyShapeOf(typeId) { return BODY_SHAPE_OF[typeId] || BODY_SHAPE_OF.m_standard; }
@@ -1456,6 +1456,17 @@ function applyBodyShape(asset, pos, shape) {
   const J = asset.joints, W = asset.weights;
   const nv = pos.length / 3;
   const { bust = 0, belly = 0, muscle = 0, shoulder = 1, hip = 1, waist = 1, chestFlat = 0 } = shape;
+  // 形变带按「相对身高」计算，不再用绝对米：xbot 是米制（rawHeight≈1.8），
+  // soldier≈44、explorer≈194 都是厘米制——绝对带在它们身上会错位到脚踝（形变静默失效）。
+  // k = 该资产身高 / 基准身高 1.809（这些带最初按 xbot 调的）。
+  let Hm = asset._shapeH;
+  if (!Hm) {
+    let mn = Infinity, mx = -Infinity;
+    for (let i = 1; i < pos.length; i += 3) { const y = pos[i]; if (y < mn) mn = y; if (y > mx) mx = y; }
+    Hm = (Number.isFinite(mn) && mx > mn) ? (mx - mn) : 1.8;
+    asset._shapeH = Hm;
+  }
+  const k = Hm / 1.809;              // 长度缩放（y 带中心/宽度、横向高斯宽度都用它）
   for (let v = 0; v < nv; v++) {
     // 主导骨骼
     let bi = -1, bw = 0;
@@ -1468,29 +1479,29 @@ function applyBodyShape(asset, pos, shape) {
     const isArm = /arm|hand|forearm|shoulder|clav/.test(nm);
     const isLeg = /thigh|leg|shin|foot/.test(nm);
     // 腰部横向：男性直腰（>1），女性收腰（<1）——这是男女轮廓最关键的区别
-    if (isTorso && /spine1|spine|hips/.test(nm) && y > 0.85 && y < 1.22) {
-      const gw = Math.exp(-Math.pow((y - 1.03) / 0.14, 2));
+    if (isTorso && /spine1|spine|hips/.test(nm) && y > 0.47 * Hm && y < 0.675 * Hm) {
+      const gw = Math.exp(-Math.pow((y - 0.5694 * Hm) / (0.0774 * Hm), 2));
       nx *= 1 + (waist - 1) * gw;
     }
     // 男性胸部正面压扁（女性不压）
-    if (chestFlat > 0 && isTorso && /chest|spine2/.test(nm) && y > 1.20 && z > 0) {
+    if (chestFlat > 0 && isTorso && /chest|spine2/.test(nm) && y > 0.663 * Hm && z > 0) {
       nz *= 1 - chestFlat;
     }
     // 肩胯宽度
     if (isTorso && /chest|spine2|spine1|spine|clav/.test(nm)) nx *= shoulder;
     if (isTorso && /hips/.test(nm)) { nx *= hip; nz *= hip * 0.98; }
     // 腹部体积：腹部（y 在中段）向前鼓
-    if (belly > 0 && isTorso && y > 0.75 && y < 1.45) {
-      const g = Math.exp(-Math.pow((y - 1.08) / 0.22, 2));
-      nz += belly * 0.085 * g * Math.exp(-Math.pow(x / 0.19, 2));
+    if (belly > 0 && isTorso && y > 0.4146 * Hm && y < 0.8016 * Hm) {
+      const g = Math.exp(-Math.pow((y - 0.597 * Hm) / (0.1216 * Hm), 2));
+      nz += belly * 0.085 * k * g * Math.exp(-Math.pow(x / (0.19 * k), 2));
       nx *= 1 + belly * 0.10 * g;
     }
     if (belly < 0 && isTorso) { nx *= 1 + belly * 0.25; nz *= 1 + belly * 0.25; }
     // 胸部体积（女性）：胸前两侧隆起
-    if (bust > 0 && isTorso && y > 1.14 && y < 1.52 && z > 0) {
-      const gg = Math.exp(-Math.pow((y - 1.33) / 0.10, 2));
-      const lobe = Math.exp(-Math.pow((Math.abs(x) - 0.075) / 0.055, 2));
-      nz += bust * 0.075 * gg * lobe;
+    if (bust > 0 && isTorso && y > 0.630 * Hm && y < 0.840 * Hm && z > 0) {
+      const gg = Math.exp(-Math.pow((y - 0.735 * Hm) / (0.0553 * Hm), 2));
+      const lobe = Math.exp(-Math.pow((Math.abs(x) - 0.075 * k) / (0.055 * k), 2));
+      nz += bust * 0.075 * k * gg * lobe;
     }
     // 肌肉围度：四肢加粗
     if (muscle > 0 && (isArm || isLeg)) {
@@ -3370,18 +3381,18 @@ export function resetView(scene) {
  * 不必真的重建 12 套网格（那样包体积会爆炸）。
  */
 export const MANNEQUIN_TYPES = [
-  { id: 'm_standard', zh: '男性 · 标准', en: 'Male standard', h: 1.78, w: 1.00, d: 1.00 , color: '#7ba7d7' },
-  { id: 'f_standard', zh: '女性 · 标准', en: 'Female standard', h: 1.66, w: 0.92, d: 0.94 , color: '#d78fb0' },
-  { id: 'm_teen', zh: '男性 · 少年', en: 'Male teen', h: 1.60, w: 0.90, d: 0.92 , color: '#6fb3a0' },
-  { id: 'f_teen', zh: '女性 · 少年', en: 'Female teen', h: 1.54, w: 0.86, d: 0.90 , color: '#c99bd6' },
-  { id: 'm_child', zh: '男性 · 儿童', en: 'Male child', h: 1.18, w: 0.80, d: 0.86 , color: '#8fc46a' },
-  { id: 'f_child', zh: '女性 · 儿童', en: 'Female child', h: 1.15, w: 0.78, d: 0.85 , color: '#e0b062' },
-  { id: 'm_slim', zh: '男性 · 纤细', en: 'Male slim', h: 1.80, w: 0.88, d: 0.90 , color: '#7f9fd0' },
-  { id: 'f_slim', zh: '女性 · 纤细', en: 'Female slim', h: 1.68, w: 0.84, d: 0.88 , color: '#cf9fc0' },
-  { id: 'm_muscular', zh: '男性 · 健壮', en: 'Male muscular', h: 1.82, w: 1.12, d: 1.08 , color: '#d98a6a' },
-  { id: 'f_muscular', zh: '女性 · 健壮', en: 'Female muscular', h: 1.70, w: 1.02, d: 1.02 , color: '#c07f9c' },
-  { id: 'm_plump', zh: '男性 · 丰腴', en: 'Male plump', h: 1.74, w: 1.18, d: 1.14 , color: '#9aa6c4' },
-  { id: 'f_plump', zh: '女性 · 丰腴', en: 'Female plump', h: 1.62, w: 1.14, d: 1.12 , color: '#c49ab0' },
+  { id: 'm_standard', zh: '男性 · 标准', en: 'Male standard', h: 1.78, w: 1.00, d: 1.00 , color: '#2f7fe8' },
+  { id: 'f_standard', zh: '女性 · 标准', en: 'Female standard', h: 1.66, w: 0.92, d: 0.94 , color: '#e857a8' },
+  { id: 'm_teen', zh: '男性 · 少年', en: 'Male teen', h: 1.60, w: 0.90, d: 0.92 , color: '#17b877' },
+  { id: 'f_teen', zh: '女性 · 少年', en: 'Female teen', h: 1.54, w: 0.86, d: 0.90 , color: '#8b5cf6' },
+  { id: 'm_child', zh: '男性 · 儿童', en: 'Male child', h: 1.18, w: 0.80, d: 0.86 , color: '#7cc93f' },
+  { id: 'f_child', zh: '女性 · 儿童', en: 'Female child', h: 1.15, w: 0.78, d: 0.85 , color: '#f0a832' },
+  { id: 'm_slim', zh: '男性 · 纤细', en: 'Male slim', h: 1.80, w: 0.88, d: 0.90 , color: '#38a8e8' },
+  { id: 'f_slim', zh: '女性 · 纤细', en: 'Female slim', h: 1.68, w: 0.84, d: 0.88 , color: '#e85d6f' },
+  { id: 'm_muscular', zh: '男性 · 健壮', en: 'Male muscular', h: 1.82, w: 1.12, d: 1.08 , color: '#f07818' },
+  { id: 'f_muscular', zh: '女性 · 健壮', en: 'Female muscular', h: 1.70, w: 1.02, d: 1.02 , color: '#d83050' },
+  { id: 'm_plump', zh: '男性 · 丰腴', en: 'Male plump', h: 1.74, w: 1.18, d: 1.14 , color: '#5865d8' },
+  { id: 'f_plump', zh: '女性 · 丰腴', en: 'Female plump', h: 1.62, w: 1.14, d: 1.12 , color: '#a05fd8' },
 ];
 export function mannequinTypeOf(id) { return MANNEQUIN_TYPES.find((t) => t.id === id) || MANNEQUIN_TYPES[0]; }
 

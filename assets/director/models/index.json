@@ -280,6 +280,16 @@
       "category": "building",
       "height": 62,
       "kb": 115
+    },
+    {
+      "id": "explorer",
+      "label": "壮汉模特 · Explorer",
+      "height": 1.9,
+      "clips": [
+        "motion",
+        "idle"
+      ],
+      "kb": 1250
     }
   ]
 }
