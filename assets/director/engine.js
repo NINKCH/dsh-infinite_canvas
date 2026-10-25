@@ -3226,15 +3226,17 @@ export function applyPlayhead(scene, t) {
       const bl = poseBlendAt(BONE_POSES, o.poseAnim, poseSampleTime);
       if (bl) { next.poseBlend = bl; next.poseId = null; }
     }
-    // 姿态根位移（下蹲/轻功/倒地需要整体升降）：直接作用在位置上，最可靠
+    // 姿态根位移（下蹲/轻功/倒地需要整体升降）：**只在骨骼层生效**（见 applyBonePoseToLocal
+    // 的 ①b2 段：把 Hips 整体上下平移）。这里绝不能再往 pos.y 里加一次——
+    // 那是重复应用，而且会把物体的逻辑原点（人物脚底）污染成"髋部高度"，
+    // 导致 gizmo 轴心悬空、路径/关键帧的 y 基准也跟着漂。
+    // （历史 bug：这一行曾把 rootY 加到 next.pos.y 上，站立时 pos.y≈1.04，轴心飘到腰腹。）
+    // 姿态中心偏移（**仅供需要「跟随身体」的场合**，例如要让 gizmo 贴住倒地的人）：
+    // 单独存成 poseCenterY，绝不并进 pos.y —— pos.y 永远是物体原点。
     {
-      let ry = 0;
-      if (o.poseId) { const sp = BONE_POSES.find((p) => p.id === o.poseId); if (sp && sp.rootY) ry = Number(sp.rootY) || 0; }
-      if (Array.isArray(o.poseAnim) && o.poseAnim.length) {
-        const bl = poseBlendAt(BONE_POSES, o.poseAnim, poseSampleTime);
-        if (bl) { let acc = 0, w = 0; for (const e of bl) { acc += (Number(e.rootY) || 0) * e.w; w += e.w; } ry = w > 0 ? acc / w : 0; }
-      }
-      if (ry) next.pos = v3(next.pos.x, next.pos.y + ry, next.pos.z);
+      // 姿态根位移只用于**渲染骨骼**（applyBonePoseToLocal 负责），此处不再写 pos.y。
+      // 保留一个显式的空块形式以免误读：确需场景级整体升降时，请改 sh 的 ground 或加关键帧，
+      // 不要把姿态位移混进物体原点。
     }
     // 姿态中心偏移（供 gizmo / 拾取跟随身体，而非留在地面原点）
     if (next.kind === 'model' && gltfAssetOf(next.assetId)) {
@@ -5554,13 +5556,10 @@ export function createDirectorGlRenderer(canvas) {
       if (o.gizmo && o.selectedId) {
         const sel = (scene.objects || []).find((x) => x.id === o.selectedId);
         if (sel) {
-          // 轴心默认在物体原点（人物 = 脚底中心），轴朝向由 objectAxes(sel) 给出
+          // 轴心恒 = 物体自身坐标系原点（人物 = 脚底中心），轴朝向由 objectAxes(sel) 给出
           // → 物体旋转时轴跟着转（人物倒地后 z 轴仍指向头），不是固定世界坐标。
-          // 「跟随身体」是显式开关：仅当选中项或场景打开 gizmoFollowBody 时才抬到髋高。
-          const followBody = !!(sel.gizmoFollowBody || o.gizmoFollowBody);
-          const origin = followBody
-            ? v3(sel.pos.x, sel.pos.y + (Number(sel.poseCenterY) || 0), sel.pos.z)
-            : v3(sel.pos.x, sel.pos.y, sel.pos.z);
+          // 绝不随姿态/髋高上浮：任何"智能抬升"都会让轴悬空（0.19.3/0.19.4 的教训）。
+          const origin = v3(sel.pos.x, sel.pos.y, sel.pos.z);
           // 屏幕恒定大小（Blender: wm_gizmo_calculate_scale）：轴长 105 CSS px，环 0.62×轴长。
           // 尺寸唯一来源 gizmoMetrics，拾取用同一个函数 → 不可能再出现「画的位置和点不中」。
           const gm = gizmoMetrics(cam, sel, hCss, origin);
@@ -5947,12 +5946,8 @@ export function directorPickGizmo(scene, selectedId, w, h, sx, sy) {
   if (!cam) return null;
   // 与绘制完全同源：精确屏幕投影 + 同一个 gizmoMetrics（w/h 都是 CSS 尺寸）
   const project = (p) => directorScreenOf(cam, w, h, p);
-  // 轴心规则必须与绘制一致：默认物体原点，只有显式打开「跟随身体」才抬到髋高
-  const pickFollow = !!(sel.gizmoFollowBody || scene.gizmoFollowBody);
-  const pickOrigin = pickFollow
-    ? v3(sel.pos.x, sel.pos.y + (Number(sel.poseCenterY) || 0), sel.pos.z)
-    : v3(sel.pos.x, sel.pos.y, sel.pos.z);
-  const gm = gizmoMetrics(cam, sel, h, pickOrigin);
+  // 与绘制完全同源：轴心恒 = 物体原点（规则必须与绘制一字不差，否则点不中画出来的轴）
+  const gm = gizmoMetrics(cam, sel, h, v3(sel.pos.x, sel.pos.y, sel.pos.z));
   const origin = gm.origin, L = gm.L, R = gm.R;
   const ax = objectAxes(sel);
   const AXES = [['x', ax.x], ['y', ax.y], ['z', ax.z]];
