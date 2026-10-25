@@ -6,6 +6,11 @@ GitHub Releases carry the same notes in English; maintainer-facing runbooks live
 
 ## [Unreleased]
 
+## [0.19.4] — 2026-10-25
+
+### Fixed
+- **The gizmo axis floated in mid-air.** Its origin had been lifted to the animated hip height so that a fall-down pose would not leave the axis behind on the ground. That was the wrong fix: the axis must sit at the object's **own coordinate origin** — for a humanoid, the centre of the soles — and stay there however the pose moves. The orientation was never the problem: it already comes from `objectAxes(sel)`, so the axis follows the object's rotation (tip the figure over and the z axis still points at the head rather than at the world zenith). The default origin is `(pos.x, pos.y, pos.z)` again, hip-following became an explicit opt-in (`sel.gizmoFollowBody`), and the pick branch takes the same origin rule so drawing and hit-testing stay aligned. A regression block now pins it: standing and fallen poses both keep the origin at `y = 0`, a 90° x-rotation moves the z axis off world +Z, and a 90° y-rotation moves the x axis onto world ±Z.
+
 ## [0.19.3] — 2026-10-25
 
 ### Added

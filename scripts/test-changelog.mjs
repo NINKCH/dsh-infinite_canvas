@@ -116,6 +116,8 @@ if (unrelHasEntries) {
 const COVERAGE = [
   // 0.19.0 已发布：上一批 7 个未发版提交随该版本进入 main，清单在此清零。
   // 下一轮从 dev 新建功能提交起，再按提交逐条补记（数量必须与 main..dev 的功能提交数相等）。
+  // 0.19.4：gizmo 轴心回到物体原点（不再悬空到髋高）
+  { sha: '1d800ad', keys: [/gizmo/i, /axis origin/i, /mid-air/i, /floated/i, /poseCenterY/i, /hip height/i] },
 ];
 for (const c of COVERAGE) {
   ok(c.keys.some((re) => re.test(coverageText)), '未发版提交 ' + c.sha + ' 在 CHANGELOG（Unreleased 或最新已发布段）里找不到对应记录（补记不全）');
@@ -189,14 +191,27 @@ if (cntAll && Number(cntAll) > 0) {
     'Revert "fix(OBS-1)',
     'Revert "chore(test)',
   ];
-  const isChore = (subject) => CHORE_SUBJECTS.some((p) => subject === p || subject.startsWith(p + ':') || subject.startsWith(p + ' '));
+  const isChore = (subject) => CHORE_SUBJECTS.some((p) => subject === p || subject.startsWith(p + ':') || subject.startsWith(p + ' '))
+    // 发版提交（`release: X.Y.Z` / `release: X.Y.Z — ...`）：只改版本号与 CHANGELOG，
+    // 不产生用户可见功能变化 → 归纯收尾，不进功能账。
+    // 以往发版提交落在 main 上（不在 main..dev 范围）所以没暴露；0.19.4 起版本号先提交到 dev，
+    // 必须显式豁免，否则门禁把自己的发版提交当成"漏记的功能提交"。
+    || /^release:\s*\d+\.\d+\.\d+/.test(String(subject || ''));
   /** IC-B5 文件面断言（subject 白名单的第二道锁）：收尾提交只许触碰
-   *  CHANGELOG.md / scripts/（门禁与测试）/ docs/（文档）。client.js、index.js、
-   *  locale/、assets/ 等任何用户可见面越界 → false（调用方报红指名提交与文件）。 */
+   *  CHANGELOG.md / scripts/（门禁与测试）/ docs/（文档）/ package.json（发版提交改版本号）。
+   *  client.js、index.js、locale/、assets/ 等任何用户可见面越界 → false（调用方报红指名提交与文件）。
+   *  注意 package.json 只在 `release:` 提交里合法（见下面的 releaseIsChore 分支），
+   *  普通收尾提交不得借改版本号逃账。 */
   const isChoreFileAllowed = (paths) => (paths || []).every((p) => {
     const f = String(p || '').replace(/\\/g, '/');
     return f === 'CHANGELOG.md' || f.startsWith('scripts/') || f.startsWith('docs/');
   });
+  /** `release:` 提交额外允许 package.json（只改版本号），其余仍受上面的文件面约束。 */
+  const isReleaseFileAllowed = (paths) => (paths || []).every((p) => {
+    const f = String(p || '').replace(/\\/g, '/');
+    return f === 'CHANGELOG.md' || f === 'package.json' || f.startsWith('scripts/') || f.startsWith('docs/');
+  });
+  const isRelease = (subject) => /^release:\s*\d+\.\d+\.\d+/.test(String(subject || ''));
   const functional = [];
   const shasSet = new Set();
   for (const line of shas) {
@@ -209,7 +224,9 @@ if (cntAll && Number(cntAll) > 0) {
     // 并入功能账并报红——「真改 client.js 的提交只要标题写成 fix(OBS-1) 就能逃账」的
     // 最后一条通道由此关闭。
     const files = (git(['diff-tree', '--no-commit-id', '--name-only', '-r', sha]) || '').split(/\r?\n/).filter(Boolean);
-    if (!isChoreFileAllowed(files)) {
+    // 发版提交走稍宽的文件面（允许 package.json），其余收尾提交走严格面
+    const fileOk = isRelease(subject) ? isReleaseFileAllowed(files) : isChoreFileAllowed(files);
+    if (!fileOk) {
       // IC-B5 净零提交对豁免（PM 裁决 D，通用规则、零 sha 特例）：验证用探针 + 其 revert
       // 成对时整体豁免。**真撤销判据 = 限定文件的净 diff 为空**：`git diff <探针>^ <revert>
       // -- <探针触及的文件>` 输出为空 —— 只比对「文件名集合」不安全（同文件、不同改法的

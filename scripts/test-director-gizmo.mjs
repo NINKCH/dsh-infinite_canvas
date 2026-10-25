@@ -133,6 +133,49 @@ for (const cam of [
   ok(/轴端缩放手柄最后画/.test(src), '手柄必须最后绘制（否则会被旋转环盖住）');
 }
 
+// ── ⑤b 轴心与朝向（用户明确判定，回归红线）──
+// 规则：
+//   1) 轴心 = **物体自身坐标系原点**（人物是脚底中心），不随姿态/髋高上浮 → 不许悬空；
+//   2) 轴朝向跟随物体旋转（objectAxes），不是固定世界坐标；
+//   3) 人物倒地后 z 轴仍指向「头的方向」，不是世界天顶。
+{
+  const gmCam = mkCam(E.v3(0, 1.5, 5), E.v3(0, 0.9, 0));
+
+  // 1) 站立：poseCenterY ≈ 1.04，但轴心必须仍在 y=0（脚底）
+  const standing = { id: 's', pos: E.v3(1, 0, 2), h: 1.7, rx: 0, rotY: 0, rz: 0, poseCenterY: 1.04 };
+  const gStand = E.gizmoMetrics(gmCam, standing, H);
+  ok(Math.abs(gStand.origin.y - 0) < 1e-6,
+    '站立时轴心必须在物体原点 y=0（脚底中心），实际 y=' + gStand.origin.y);
+  ok(Math.abs(gStand.origin.x - 1) < 1e-6 && Math.abs(gStand.origin.z - 2) < 1e-6,
+    '轴心水平位置必须等于物体 pos');
+
+  // 2) 倒地：poseCenterY ≈ 0.34，轴心仍必须在 y=0
+  const fallen = { id: 'f', pos: E.v3(0, 0, 0), h: 1.7, rx: Math.PI / 2, rotY: 0, rz: 0, poseCenterY: 0.34 };
+  const gFall = E.gizmoMetrics(gmCam, fallen, H);
+  ok(Math.abs(gFall.origin.y - 0) < 1e-6,
+    '倒地时轴心仍必须在物体原点 y=0，不得抬到髋高，实际 y=' + gFall.origin.y);
+
+  // 3) 朝向跟随物体：绕 x 转 90° 后，物体自身 z 轴离开世界 +Z（证明不是世界坐标）
+  const axF = E.objectAxes(fallen);
+  ok(Math.abs(axF.z.z) < 1e-6 && Math.abs(Math.abs(axF.z.y) - 1) < 1e-6,
+    '倒地后物体 z 轴应离开世界 +Z（转到 ±Y，即头的朝向），实际 ' + JSON.stringify(axF.z));
+  // 未旋转时 z 轴即世界 +Z
+  const axS = E.objectAxes({ pos: E.v3(0, 0, 0), rx: 0, rotY: 0, rz: 0 });
+  ok(Math.abs(axS.z.z - 1) < 1e-6, '未旋转时 z 轴应等于世界 +Z，实际 ' + JSON.stringify(axS.z));
+
+  // 4) 绕 y 转 90° 后，物体的 x 轴不再等于世界 x（证明不是世界坐标）
+  const turned = E.objectAxes({ pos: E.v3(0, 0, 0), rx: 0, rotY: Math.PI / 2, rz: 0 });
+  ok(Math.abs(turned.x.x) < 1e-6 && Math.abs(Math.abs(turned.x.z) - 1) < 1e-6,
+    '绕 Y 旋转 90° 后物体 x 轴应转到世界 ±Z（轴跟随物体，不是世界坐标），实际 ' + JSON.stringify(turned.x));
+
+  // 5) 源码级：默认 origin 不得再叠加 poseCenterY（只能出现在 followBody 分支里）
+  const engSrc = await import('node:fs').then((m) => m.readFileSync(path.join(ROOT, 'assets/director/engine.js'), 'utf8'));
+  ok(/const origin = originOverride \|\| v3\(sel\.pos\.x, sel\.pos\.y, sel\.pos\.z\);/.test(engSrc),
+    'gizmoMetrics 默认 origin 必须是 (pos.x, pos.y, pos.z)，不得叠加 poseCenterY');
+  const poseHits = (engSrc.match(/sel\.pos\.y \+ \(Number\(sel\.poseCenterY\) \|\| 0\)/g) || []).length;
+  ok(poseHits >= 1 && poseHits <= 3, 'poseCenterY 只能出现在 followBody 分支与拾取同源分支里，实际 ' + poseHits + ' 处');
+}
+
 // ── ⑥ 框选灵敏：包围盒相交即选中（宽物体框住一半也算），隐藏/框外不选 ──
 {
   const cam = mkCam(E.v3(0, 2.2, 7), E.v3(0, 1, 0));
