@@ -3197,11 +3197,16 @@ body[data-ds-dark-theme] .dshic-storage-details{border-color:var(--dsw-alias-bor
 .dshic-refbadge{position:absolute;right:7px;top:7px;z-index:3;display:inline-flex;align-items:center;gap:3px;
   background:var(--dshic-refbadge-bg);color:var(--dsw-alias-label-primary);border:1px solid var(--dshic-line2);border-radius:var(--dshic-badge-r);
   padding:2px 6px 2px 3px;font-size:10.5px;cursor:pointer;}
-/* 媒体节点右上角动作键（图片放大 / 视频全屏）：与参考图角标同一位置的替代物 */
-.dshic-media-zoom{position:absolute;right:7px;top:7px;z-index:3;display:inline-flex;align-items:center;justify-content:center;
-  width:24px;height:24px;border-radius:7px;background:var(--dshic-refbadge-bg);color:var(--dsw-alias-label-primary);
-  border:1px solid var(--dshic-line2);font-size:13px;line-height:1;cursor:pointer;}
-.dshic-media-zoom:hover{border-color:var(--dsw-alias-label-primary);}
+/* 右下角动作区：放大/全屏键与分辨率条同一行（用户要求：按钮紧贴分辨率旁） */
+.dshic-media-corner{position:absolute;right:6px;bottom:6px;z-index:3;display:flex;align-items:center;gap:4px;}
+/* 媒体节点右下角动作键（图片放大 / 视频全屏） */
+.dshic-media-zoom{display:inline-flex;align-items:center;justify-content:center;flex:none;
+  width:20px;height:20px;border-radius:5px;background:var(--dshic-meta-bg);color:var(--dsw-alias-label-secondary);
+  border:1px solid var(--dshic-line2);font-size:12px;line-height:1;cursor:pointer;padding:0;
+  font-variant-numeric:tabular-nums;}
+.dshic-media-zoom:hover{color:var(--dsw-alias-label-primary);border-color:var(--dsw-alias-label-primary);}
+/* 行内的分辨率条：取消自身绝对定位，交给 .dshic-media-corner 排列 */
+.dshic-media-meta.is-inline{position:static;right:auto;bottom:auto;}
 .dshic-refbadge:hover{background:var(--dsw-alias-interactive-bg-hover,color-mix(in srgb,var(--dsw-alias-label-primary) 8%,transparent));}
 .dshic-refbadge-thumb{width:16px;height:16px;border-radius:5px;object-fit:cover;border:1px solid var(--dsw-alias-border-l2);background:var(--dshic-preview-bg);display:block;}
 .dshic-refbadge-thumb.is-empty{display:inline-block;}
@@ -12155,42 +12160,36 @@ function queueThumb(assetId) {
                 h('span', { className: 'dshic-media-empty-ic' }, Ic('plus', 17)),
                 h('span', { className: 'dshic-media-empty-t' }, T(kind === 'video' ? 'clickToGenVideo' : 'clickToGenImage')))
             : null,
-          // 右下角小信息条（原型 .meta）：比例 · 节点尺寸；播放中让位给控件条，避免互相遮挡
-          done && mediaInfo && vidMode !== 'controls'
-            ? h('div', { key: 'meta', className: 'dshic-media-meta' }, mediaInfo)
+          // 右下角动作区：放大/全屏键紧贴分辨率条（同一行横向排列）
+          // 播放中（控件条出现）时隐藏，避免压住进度条。
+          (done && !(kind === 'video' && vidMode === 'controls'))
+            ? h('div', { key: 'corner', className: 'dshic-media-corner' },
+                kind === 'image'
+                  ? h('button', {
+                      type: 'button', className: 'dshic-media-zoom', title: T('viewOriginal'), 'data-role': 'media-zoom',
+                      onPointerDown: (e) => e.stopPropagation(),
+                      onClick: async (e) => {
+                        e.stopPropagation();
+                        const u = await assetUrl(n.data.assetId).catch(() => null);
+                        if (u) openLightbox('image', u, n.data.label);
+                      },
+                    }, '+')
+                  : h('button', {
+                      type: 'button', className: 'dshic-media-zoom', title: T('fullscreen'), 'data-role': 'media-full',
+                      onPointerDown: (e) => e.stopPropagation(),
+                      onClick: async (e) => {
+                        e.stopPropagation();
+                        const u = await assetUrl(n.data.assetId).catch(() => null);
+                        if (u) openLightbox('video', u, n.data.label);
+                      },
+                    }, '\u26f6'),
+                mediaInfo ? h('span', { className: 'dshic-media-meta is-inline' }, mediaInfo) : null)
             : null,
           statusLabel
             ? h('div', { key: 'st', className: cls('dshic-status-badge', running ? 'is-run' : done ? 'is-done' : 'is-err') },
                 h('span', { className: 'dshic-status-dot' }),
                 statusLabel + ((running && n.data.progress) ? ' ' + n.data.progress : ''))
             : null,
-          // 图片：右上角放大按钮（按需取原图，与双击同一条路径）
-          (done && kind === 'image')
-            ? h('button', {
-                key: 'zoom', type: 'button', className: 'dshic-media-zoom', title: T('viewOriginal'), 'data-role': 'media-zoom',
-                onPointerDown: (e) => e.stopPropagation(),
-                onClick: async (e) => {
-                  e.stopPropagation();
-                  const u = await assetUrl(n.data.assetId).catch(() => null);
-                  if (u) openLightbox('image', u, n.data.label);
-                },
-              }, '+')
-            : null,
-          // 视频：右上角全屏按钮
-          (done && kind === 'video')
-            ? h('button', {
-                key: 'full', type: 'button', className: 'dshic-media-zoom', title: T('fullscreen'), 'data-role': 'media-full',
-                onPointerDown: (e) => e.stopPropagation(),
-                onClick: async (e) => {
-                  e.stopPropagation();
-                  const u = await assetUrl(n.data.assetId).catch(() => null);
-                  if (u) openLightbox('video', u, n.data.label);
-                },
-              }, '\u26f6')
-            : null,
-          // 参考图徽标：只保留在**视频节点播放栏**之外的下方操作栏（左下角已有「参考图 N」），
-          // 右上角不再放（用户要求：右上角应是全屏按钮）。
-          null,
           n.data.error ? h('div', { key: 'err', className: 'dshic-media-err', title: n.data.error }, '⚠ ' + n.data.error) : null,
         ),
         // 操作栏（第三段）：下载 / 重新生成 / 参考图 N（末尾左下角，作用于已生成结果）。
