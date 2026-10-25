@@ -6,6 +6,25 @@ GitHub Releases carry the same notes in English; maintainer-facing runbooks live
 
 ## [Unreleased]
 
+## [0.19.2] — 2026-10-25
+
+### Added
+- **Action library for the 3D director stage**: `props.keys` keyframes so a prop (spear shaft, tip) can follow a hand through time; `autoRigMap()` maps any humanoid skeleton (Mixamo, VRM 0.x/1.0, Blender `.L/.R`, Daz/Genesis, Unreal, MakeHuman) onto 21 canonical semantic joints, so one action can drive any humanoid model without a per-rig allowlist; a collapsible **Custom action** panel groups IK, constraints, action layers and per-bone editing behind one toggle so the properties column stays readable.
+- **Two-bone analytic IK** (`solveTwoBoneDirs`, `resolveIkAndConstraints`): cosine-law solve with pole vector, pivot-correct aiming that converges in 3 iterations even when the parent has non-uniform scale, plus `damped_track` / `copy_rotation` / `limit_rotation` constraints. Evaluation order follows FK → constraints → IK.
+- **Mocap intake** (`parseBVH`, `mapBVHToBones`, `retargetBVH`, `sampleClips`): BVH hierarchy/motion parsing, rest-delta retargeting to pose keys, and NLA-lite layering with `replace` / `add` / `multiply`, `influence`, `loop` and `t0/t1`.
+- **Dual-quaternion skinning** (`mat4ToDualQuat`, `dqTransformPoint`, `skinPointWithMats`): `skinModel` accepts `skinning: 'lbs' | 'dqs' | 'auto'`, so large joint rotations no longer collapse the mesh.
+- **Keyframe interpolation parity**: Bezier F-Curve evaluation (binary-search `t` + cubic Bezier, handle-overlap correction), a full easing table (`smoothstep`/`linear`/`sine`/`quad`/`cubic`/`quart`/`quint`/`expo`/`circ`/`back`/`elastic`/`bounce` × `in`/`out`/`in_out`), quaternion slerp for pose keys and tracks, and per-key easing in `poseAnim`.
+
+### Fixed
+- **Poses and root offsets sat above or below the floor**: `rootY` (crouch / qinggong / knockdown) was applied in metres to a node translation measured in centimetres, so every pose that relied on it kept its feet off the ground (crouch was 30 cm in the air). It is now scaled to the node unit, which puts crouch at 1 cm and knockdown at 7 mm.
+- **The gizmo stayed on the floor while the character lay down**: the axis origin was pinned to the object root. It now follows the animated hip height (`poseCenterY`), so the axis sits on the body in every pose while drawing and picking stay on the same origin.
+- **The timeline dock grew without limit** and squeezed the viewport to a strip. It is now capped at `min(33vh, 320px)` with its own vertical scroll and a sticky toolbar.
+- **The legacy-asset migration never ran after startup**: `autoMigrateAssetsToRoot` only fired once at boot and returned early when no data root was configured, and the 0.19.1 thumbnail path refused assets without a `rel`, so pre-0.18 IndexedDB-only assets showed as grey placeholders. The migration is now idempotent, runs on boot / data-root change / first asset access, keeps the original asset id when writing the file and the SQLite row, and deletes the IndexedDB record; assets whose blob is genuinely gone are reported as missing instead of silently failing.
+- **Button labels wrapped out of their boxes and overlapped the next row**: buttons are now `inline-flex` with `white-space: nowrap` and rows wrap instead of clipping, and the longest director labels were shortened.
+
+### Internal
+- New regression scripts: `test-director-anim.mjs` (Bezier/easing/slerp), `test-dqs.mjs` (dual-quaternion skinning), `test-ik.mjs` (IK + constraints), `test-bvh.mjs` (BVH parse/retarget/layers), `test-rig-map.mjs` (skeleton mapping across five naming conventions), `test-action-library.mjs` (action clips load and play), `test-director-panels.mjs` (custom-action panel wiring), `test-asset-migration.mjs` (legacy asset self-heal). The gate now runs 76 suites.
+
 ## [0.19.1] — 2026-10-25
 
 ### Added
