@@ -518,12 +518,15 @@ window.__ModuleLoader__.load({
       'dirStaticPreviz': '静态预演',
       'dirDynamicPreviz': '动态预演',
       'dirAssets': '资产',
+      'dirEngineUpdated': '导演台引擎已更新——刷新页面后生效',
+      'dirRefresh': '刷新页面',
       'dirObjects': '对象',
       'dirProps': '属性',
       'dirDirectorView': '导演视角',
       'dirResetView': '重置视角',
       'dirCurrentTime': '当前时间',
       'dirAction': '动作',
+      'dirPose': '姿势',
       'dirSaved': '已保存',
       'dirTabActors': '角色',
       'dirTabGeom': '几何体',
@@ -848,6 +851,8 @@ window.__ModuleLoader__.load({
       'import': '导入图片/视频',
       'addAssetNode': '添加到画布',
       'download': '下载',
+      'viewOriginal': '查看原图',
+      'fullscreen': '全屏',
       'delAsset': '删除资产',
       'emptyAssets': '还没有资产。运行工作流或导入文件后，生成的图片/视频会沉淀在这里。',
       'imageApi': '图片 API（OpenAI images 兼容）',
@@ -1074,7 +1079,7 @@ window.__ModuleLoader__.load({
       'refreshCheckHint': '按当前设定集重新校验（生成后补全的设定集条目不会让旧告警自动消失）',
       'restartHint': '插件后台尚未加载最新版本：请重启一次 DeepSeek Harness 后重试（仅首次更新需要）',
       'rpcFail': '请求失败',
-      'skillEnhance': '技能增强',
+      'skillEnhance': '技能增强',
       'undo': '撤销 (Ctrl+Z)',
       'redo': '重做 (Ctrl+Y)',
       'copyNode': '复制节点',
@@ -1433,12 +1438,15 @@ window.__ModuleLoader__.load({
       'dirStaticPreviz': 'Static previz',
       'dirDynamicPreviz': 'Dynamic previz',
       'dirAssets': 'Assets',
+      'dirEngineUpdated': 'Director engine updated — reload to apply',
+      'dirRefresh': 'Reload page',
       'dirObjects': 'Objects',
       'dirProps': 'Properties',
       'dirDirectorView': 'Director view',
       'dirResetView': 'Reset view',
       'dirCurrentTime': 'Time',
       'dirAction': 'Action',
+      'dirPose': 'Pose',
       'dirSaved': 'Saved',
       'dirTabActors': 'Actors',
       'dirTabGeom': 'Shapes',
@@ -1767,6 +1775,8 @@ window.__ModuleLoader__.load({
       'import': 'Import image/video',
       'addAssetNode': 'Add to canvas',
       'download': 'Download',
+      'viewOriginal': 'View original',
+      'fullscreen': 'Fullscreen',
       'delAsset': 'Delete asset',
       'emptyAssets': 'No assets yet. Generated images/videos will land here after a run or import.',
       'imageApi': 'Image API (OpenAI images compatible)',
@@ -1994,7 +2004,7 @@ window.__ModuleLoader__.load({
       'refreshCheckHint': 'Re-check against the current series bible (entries added after generation do not clear stale warnings automatically)',
       'restartHint': 'The plugin backend is not loaded yet: restart DeepSeek Harness once and retry (first update only)',
       'rpcFail': 'Request failed',
-      'skillEnhance': 'Skill boost',
+      'skillEnhance': 'Skill boost',
       'undo': 'Undo (Ctrl+Z)',
       'redo': 'Redo (Ctrl+Y)',
       'copyNode': 'Duplicate node',
@@ -2486,7 +2496,8 @@ body[data-ds-dark-theme] .dshic-studio-modal{border-color:var(--dsw-alias-border
 .dshic-dir-card-img{width:100%;height:64px;object-fit:contain;border-radius:6px;background:var(--dsw-alias-bg-base);}
 .dshic-dir-card-ic{font-size:16px;line-height:1;color:var(--dsw-alias-label-secondary);}
 .dshic-dir-card-lb{font-size:10.5px;line-height:1.25;text-align:center;word-break:break-all;}
-.dshic-dir-stage{flex:1;min-width:0;display:flex;}
+.dshic-dir-stage{flex:1;min-width:0;display:flex;position:relative;}
+.dshic-dir-stalebar{position:absolute;left:50%;transform:translateX(-50%);top:12px;z-index:6;display:flex;align-items:center;gap:10px;padding:7px 12px;border-radius:10px;background:#0b0d12;border:1px solid #f0a832;color:#f0a832;font-size:12px;white-space:nowrap;}
 .dshic-dir-viewport{flex:1;position:relative;overflow:hidden;background:#0b0d12;touch-action:none;min-height:0;}
 .dshic-dir-canvas{position:absolute;inset:0;width:100%;height:100%;display:block;}
 .dshic-dir-tools{position:absolute;left:12px;top:12px;display:flex;flex-direction:column;gap:2px;padding:4px;border-radius:10px;background:color-mix(in srgb,#0b0d12 82%,transparent);}
@@ -2562,7 +2573,7 @@ body[data-ds-dark-theme] .dshic-studio-modal{border-color:var(--dsw-alias-border
 .dshic-dir-row>span{flex:none;width:44px;}
 .dshic-dir-prompt{width:100%;box-sizing:border-box;height:96px;resize:none;padding:7px 9px;border:1px solid var(--dsw-alias-border-l1);border-radius:8px;background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-secondary);font:inherit;font-size:11px;line-height:1.5;}
 /* 时间轴：底部固定 1/3 高度，内部滚动，不再挤压 3D 视口 */
-.dshic-dir-dock{flex:none;height:min(33vh,320px);max-height:320px;min-height:150px;border-top:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-1);overflow-x:auto;overflow-y:auto;overscroll-behavior:contain;}
+.dshic-dir-dock{flex:none;height:min(22vh,214px);max-height:214px;min-height:132px;border-top:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-1);overflow-x:auto;overflow-y:auto;overscroll-behavior:contain;}
 .dshic-dir-dockbar{position:sticky;top:0;z-index:6;}
 .dshic-dir-dockbar{height:34px;display:flex;align-items:center;gap:8px;padding:0 12px;position:sticky;left:0;min-width:max-content;background:var(--dsw-alias-bg-layer-1);z-index:4;}
 .dshic-dir-docktitle{font-size:11.5px;font-weight:600;color:var(--dsw-alias-label-secondary);}
@@ -3186,6 +3197,11 @@ body[data-ds-dark-theme] .dshic-storage-details{border-color:var(--dsw-alias-bor
 .dshic-refbadge{position:absolute;right:7px;top:7px;z-index:3;display:inline-flex;align-items:center;gap:3px;
   background:var(--dshic-refbadge-bg);color:var(--dsw-alias-label-primary);border:1px solid var(--dshic-line2);border-radius:var(--dshic-badge-r);
   padding:2px 6px 2px 3px;font-size:10.5px;cursor:pointer;}
+/* 媒体节点右上角动作键（图片放大 / 视频全屏）：与参考图角标同一位置的替代物 */
+.dshic-media-zoom{position:absolute;right:7px;top:7px;z-index:3;display:inline-flex;align-items:center;justify-content:center;
+  width:24px;height:24px;border-radius:7px;background:var(--dshic-refbadge-bg);color:var(--dsw-alias-label-primary);
+  border:1px solid var(--dshic-line2);font-size:13px;line-height:1;cursor:pointer;}
+.dshic-media-zoom:hover{border-color:var(--dsw-alias-label-primary);}
 .dshic-refbadge:hover{background:var(--dsw-alias-interactive-bg-hover,color-mix(in srgb,var(--dsw-alias-label-primary) 8%,transparent));}
 .dshic-refbadge-thumb{width:16px;height:16px;border-radius:5px;object-fit:cover;border:1px solid var(--dsw-alias-border-l2);background:var(--dshic-preview-bg);display:block;}
 .dshic-refbadge-thumb.is-empty{display:inline-block;}
@@ -10920,11 +10936,16 @@ function queueThumb(assetId) {
     }
 
     function MiniSelect({ value, options, onChange, title, width }) {
+      // 三个事件全拦：pointerdown 防节点拖动/框选，mousedown 防浏览器行为被打断导致下拉弹不开，
+      // click 防冒泡到内容区把生成面板弹出来盖住下拉（用户实测「下拉选不到」就是这个）。
+      const stop = (e) => { e.stopPropagation(); };
       return h('select', {
         className: 'dshic-msel', value, title,
         style: width ? { width } : undefined,
         onChange: (e) => onChange(e.target.value),
-        onPointerDown: (e) => e.stopPropagation(),
+        onPointerDown: stop,
+        onMouseDown: stop,
+        onClick: stop,
       }, options.map((o) => h('option', { key: String(o.value), value: String(o.value) }, o.label)));
     }
 
@@ -11797,7 +11818,7 @@ function queueThumb(assetId) {
     /** 视频控件条（仅 mode === 'controls' 时渲染）：进度可拖动 seek、音量可调/可静音。
      *  不使用原生 controls；控件条自身吞掉 pointerdown/click，点它不会打开生成面板，
      *  画面其余区域的单击开面板 / 双击播放暂停保持既有规则。 */
-    function VideoControls({ mode, current, duration, volume, muted, onToggle, onSeek, onVolume, onMute }) {
+    function VideoControls({ mode, current, duration, volume, muted, onToggle, onSeek, onVolume, onMute, onFull }) {
       if (mode !== 'controls') return null;
       const total = Number(duration) || 0;
       const cur = Math.max(0, Math.min(Number(current) || 0, total || Number(current) || 0));
@@ -11836,7 +11857,11 @@ function queueThumb(assetId) {
             style: { '--dshic-fill': vPct + '%' },
             onPointerDown: stop, onClick: stop,
             onChange: (e) => { if (onVolume) onVolume(Number(e.target.value)); },
-          })));
+          })),
+        h('button', {
+          type: 'button', className: 'dshic-ctl-btn', title: T('fullscreen'), 'data-role': 'ctl-full',
+          onPointerDown: stop, onClick: (e) => { stop(e); if (onFull) onFull(); },
+        }, '\u26f6'));
     }
 
     /** 统一媒体节点（图片/视频合并后唯一的结果节点）：节点内只显示结果。
@@ -12119,6 +12144,10 @@ function queueThumb(assetId) {
             ? h(VideoControls, {
                 mode: vidMode, current, duration, volume, muted,
                 onToggle: togglePlay, onSeek: seekVideo, onVolume: setVideoVolume, onMute: toggleMute,
+                onFull: async () => {
+                  const u = await assetUrl(n.data.assetId).catch(() => null);
+                  if (u) openLightbox('video', u, n.data.label);
+                },
               })
             : null,
           !done
@@ -12135,16 +12164,33 @@ function queueThumb(assetId) {
                 h('span', { className: 'dshic-status-dot' }),
                 statusLabel + ((running && n.data.progress) ? ' ' + n.data.progress : ''))
             : null,
-          refEdges.length
+          // 图片：右上角放大按钮（按需取原图，与双击同一条路径）
+          (done && kind === 'image')
             ? h('button', {
-                key: 'ref', type: 'button', className: 'dshic-refbadge', title: T('refBadgeTitle'),
-                onClick: (e) => { e.stopPropagation(); openPanel(); },
-              },
-                refThumbUrl
-                  ? h('img', { className: 'dshic-refbadge-thumb', src: refThumbUrl, draggable: false })
-                  : h('span', { className: 'dshic-refbadge-thumb is-empty' }),
-                h('span', {}, String(refEdges.length)))
+                key: 'zoom', type: 'button', className: 'dshic-media-zoom', title: T('viewOriginal'), 'data-role': 'media-zoom',
+                onPointerDown: (e) => e.stopPropagation(),
+                onClick: async (e) => {
+                  e.stopPropagation();
+                  const u = await assetUrl(n.data.assetId).catch(() => null);
+                  if (u) openLightbox('image', u, n.data.label);
+                },
+              }, '+')
             : null,
+          // 视频：右上角全屏按钮
+          (done && kind === 'video')
+            ? h('button', {
+                key: 'full', type: 'button', className: 'dshic-media-zoom', title: T('fullscreen'), 'data-role': 'media-full',
+                onPointerDown: (e) => e.stopPropagation(),
+                onClick: async (e) => {
+                  e.stopPropagation();
+                  const u = await assetUrl(n.data.assetId).catch(() => null);
+                  if (u) openLightbox('video', u, n.data.label);
+                },
+              }, '\u26f6')
+            : null,
+          // 参考图徽标：只保留在**视频节点播放栏**之外的下方操作栏（左下角已有「参考图 N」），
+          // 右上角不再放（用户要求：右上角应是全屏按钮）。
+          null,
           n.data.error ? h('div', { key: 'err', className: 'dshic-media-err', title: n.data.error }, '⚠ ' + n.data.error) : null,
         ),
         // 操作栏（第三段）：下载 / 重新生成 / 参考图 N（末尾左下角，作用于已生成结果）。
@@ -13941,6 +13987,9 @@ const DIRECTOR_KEY_HELP = [
     function DirectorStage() {
       const open = S.directorOpen;
       const [engReady, setEngReady] = useState(!!ENG);
+      // 引擎过期检测：engine.js 只在整页加载时 import 一次，插件更新后旧页面仍在跑旧引擎——
+      // 打开面板时对比 sessionStorage 里记录的版本，不一致就常驻提示「刷新页面」。
+      const [staleEngine, setStaleEngine] = useState(false);
       const [scene, setScene] = useState(() => (directorEngine() ? directorEngine().loadStageDoc(S.activeId, T('directorDefaultTitle')) : null));
       const [tick, setTick] = useState(0);
       const [busy, setBusy] = useState(false);
@@ -13960,6 +14009,18 @@ const DIRECTOR_KEY_HELP = [
       const [viewRev, setViewRev] = useState(0);
       const bumpView = () => setViewRev((v) => v + 1);
       const [rendererKind, setRendererKind] = useState('');
+      // 引擎版本比对（面板打开且引擎就绪时做一次；旧版本≠新版本 → 常驻横幅）
+      useEffect(() => {
+        if (!open || !engReady) return;
+        try {
+          const E2 = directorEngine();
+          const v = E2 && E2.ENGINE_VERSION;
+          if (!v) return;
+          const prev = sessionStorage.getItem('dsh-ic:engineV');
+          if (prev && prev !== v) setStaleEngine(true);
+          sessionStorage.setItem('dsh-ic:engineV', v);
+        } catch { /* 无 sessionStorage 时静默跳过 */ }
+      }, [open, engReady]);
       useEffect(() => { setThumbReadyHook(() => bumpView()); return () => setThumbReadyHook(null); }, []);
       const [assetQ, setAssetQ] = useState('');
       const [playing, setPlaying] = useState(false);
@@ -14625,7 +14686,7 @@ const DIRECTOR_KEY_HELP = [
         patch((n) => {
           const id = 'obj_' + Date.now().toString(36);
           const base = { id, kind, name: p.label || p.id, pos: E.v3(Math.round(pos.x * 4) / 4, 0, Math.round(pos.z * 4) / 4), rotY: 0, visible: true };
-          if (kind === 'mannequin') Object.assign(base, { kind: 'model', assetId: 'xbot', typeId: p.typeId, h: p.h, scale: E.v3(p.w || 1, 1, p.d || 1), clip: 'idle', animTime: 0, color: p.color || '' });
+          if (kind === 'mannequin') Object.assign(base, { kind: 'model', assetId: p.assetId || 'xbot', typeId: p.typeId, h: p.h, scale: E.v3(p.w || 1, 1, p.d || 1), clip: 'idle', animTime: 0, color: p.color || '' });
           else if (kind === 'model') Object.assign(base, { assetId: p.id, h: p.height || 1.7, clip: '', animTime: 0, color: p.color || '' });
           else if (kind === 'actor') Object.assign(base, { preset: p.id, h: 1, pose: 'stand' });
           else if (kind === 'building') Object.assign(base, { preset: p.id, s: 1 });
@@ -14639,8 +14700,10 @@ const DIRECTOR_KEY_HELP = [
       const addPreset = (kind, p) => { S.directorPendingPlace = { kind, preset: p }; setMsg(null); bumpView(); };
       /** 12 体型：同一关节人偶资产（xbot）+ 体型比例，点视口落位。 */
       const addMannequin = async (t) => {
-        await loadModel('xbot').catch((err) => setMsg({ kind: 'err', text: String((err && err.message) || err) }));
-        S.directorPendingPlace = { kind: 'mannequin', preset: { id: 'xbot', typeId: t.id, label: (effLang() === 'en' ? t.en : t.zh), h: t.h, w: t.w, d: t.d, color: t.color || '' } };
+        // 男性体型用 Explorer 网格，女性/未指明用 X——资产跟随体型表，不再写死
+        const aid = t.assetId || 'xbot';
+        await loadModel(aid).catch((err) => setMsg({ kind: 'err', text: String((err && err.message) || err) }));
+        S.directorPendingPlace = { kind: 'mannequin', preset: { id: aid, assetId: aid, typeId: t.id, label: (effLang() === 'en' ? t.en : t.zh), h: t.h, w: t.w, d: t.d, color: t.color || '' } };
 
         bumpView();
       };
@@ -15491,7 +15554,7 @@ const DIRECTOR_KEY_HELP = [
                   })()),
                 tab === 'human' && fil((E.MANNEQUIN_TYPES || []).map((t, i) => ({ id: t.id, label: (effLang() === 'en' ? t.en : t.zh), t, i }))).map((it) =>
                   cardBtn('q-' + it.id, '\u263a', it.label, () => addMannequin(it.t),
-                    thumbOf('type:' + it.id, 'xbot', { typeId: it.id, h: it.t.h }))),
+                    thumbOf('type:' + it.id, it.t.assetId || 'xbot', { typeId: it.id, h: it.t.h }))),
                 tab === 'geoms' && fil(lists.geoms).map((p) => {
                   const key2 = 'geom:' + p.id;
                   let url = THUMB_CACHE.get(key2) || '';
@@ -15501,6 +15564,9 @@ const DIRECTOR_KEY_HELP = [
                 tab === 'cams' && fil(lists.cams).map((p) => cardBtn('c-' + p.id, '\u2317', p.label, () => applyCamPreset(p.id)))),
               h('input', { ref: fileRef, type: 'file', style: { display: 'none' }, onChange: onUpload })),
             h('main', { className: 'dshic-dir-stage' },
+              staleEngine && h('div', { className: 'dshic-dir-stalebar', 'data-role': 'dir-stalebar' },
+                h('span', null, T('dirEngineUpdated')),
+                h('button', { type: 'button', className: 'dshic-mini', onClick: () => location.reload() }, T('dirRefresh'))),
               h('div', {
                 className: cls('dshic-dir-viewport', S.directorPendingPlace && 'is-placing', S.directorDragging && 'is-dragging'), 'data-role': 'dir-viewport',
                 onPointerDown: onDown, onPointerMove: onMove, onPointerUp: onUp, onPointerLeave: onUp,
@@ -15729,9 +15795,17 @@ const DIRECTOR_KEY_HELP = [
                     'data-action': 'dir-action-select',
                     onChange: (e2) => patch((n) => { const v = String(e2.target.value || ''); const t2 = n.objects.find((x) => x.id === sel.id); if (t2) { if (v.indexOf('ua:') === 0) { const ua = E.loadUserActions(S.activeId).find((a) => a.id === v.slice(3)); if (ua) { E.applyUserAction(t2, ua); t2.userActionId = ua.id; t2.animTime = 0; } } else { const nm2 = v.slice(5); t2.clip = nm2; t2.animTime = 0; t2.userActionId = null; } } }),
                   }, [].concat(((E.gltfAssetOf(sel.assetId) || {}).animations || []).map((a2) => h('option', { key: 'clip:' + a2.name, value: 'clip:' + a2.name }, clipLabel(a2.name))), E.loadUserActions(S.activeId).map((ua) => h('option', { key: 'ua:' + ua.id, value: 'ua:' + ua.id }, '★ ' + ua.name)))));
+                  // 姿势选择（BONE_POSES 全表，含 awplanet 复刻的 ap_* 19 套）：
+                  // 覆盖在动作之上（base 四元数叠加），「无」= 清除姿势。
+                  const poseSelect = h('div', { className: 'dshic-dir-row' }, h('span', null, T('dirPose')), h('select', {
+                    className: 'dshic-dir-input', value: 'pose:' + String(sel.poseId || 'none'),
+                    'data-action': 'dir-pose-select',
+                    onChange: (e2) => patch((n) => { const v = String(e2.target.value || '').slice(5); const t2 = n.objects.find((x) => x.id === sel.id); if (t2) { t2.poseId = v === 'none' ? null : v; if (t2.poseId) t2.bonePose = {}; } }),
+                  }, (E.BONE_POSES || []).map((p) => h('option', { key: 'pose:' + p.id, value: 'pose:' + p.id }, (effLang() === 'en' ? p.en : p.zh) || p.id))));
                   return [
                     h('div', { className: 'dshic-dir-subhead' }, T('dirAction')),
                     actionSelect,
+                    poseSelect,
                     h('div', { className: 'dshic-dir-btnrow' },
                       h('button', { type: 'button', className: 'dshic-dir-mini', onClick: dupSel }, T('dirDup')),
                       h('button', { type: 'button', className: 'dshic-dir-mini is-danger', onClick: delSel }, T('dirDel')),

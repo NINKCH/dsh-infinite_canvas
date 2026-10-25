@@ -1,4 +1,4 @@
-export const ENGINE_VERSION = 'ground-off-1';
+export const ENGINE_VERSION = 'explorer-1';  // 改引擎必递增：client 靠它提示用户刷新页面
 /**
  * 3D 导演台引擎（独立 ES 模块，零依赖）。
  *
@@ -786,6 +786,195 @@ export const BONE_POSES = [
       { bone: 'LeftArm', to: [0.78, 0.22, 0.58] }, { bone: 'RightArm', to: [-0.80, 0.18, 0.56] },
       { bone: 'LeftForeArm', to: [0.62, 0.06, 0.78] }, { bone: 'RightForeArm', to: [-0.64, 0.02, 0.76] },
     ] },
+  // ── 导演姿势库（复刻 awplanet DIRECTOR_POSE_RECIPES，19 套）──
+  { id: 'ap_stand_relaxed', zh: '站姿 · 放松', en: 'Stand relaxed', rootY: 0,
+    // 来源：awplanet DIRECTOR_POSE_RECIPES（加法欧拉）→ 本表 base 四元数（同语义）
+    base: {
+      Spine: [-0.08, 0.02, -0.05],
+      LeftArm: [0.16, 0.02, 0.18],
+      RightArm: [0.12, -0.02, -0.16],
+      LeftUpLeg: [0.03, 0.04, 0.08],
+      RightUpLeg: [-0.02, -0.02, -0.05]
+    } },
+  { id: 'ap_stand_contrapposto', zh: '站姿 · 重心对立', en: 'Stand contrapposto', rootY: 0,
+    // 来源：awplanet DIRECTOR_POSE_RECIPES（加法欧拉）→ 本表 base 四元数（同语义）
+    base: {
+      Spine: [-0.05, 0.05, -0.16],
+      Spine1: [0.03, -0.04, 0.12],
+      Spine2: [0.03, -0.04, 0.12],
+      LeftUpLeg: [0.02, 0.1, 0.16],
+      RightUpLeg: [-0.04, -0.04, -0.11],
+      LeftArm: [0.08, -0.06, 0.34],
+      RightArm: [0.04, 0.04, -0.22]
+    } },
+  { id: 'ap_stand_alert', zh: '站姿 · 警戒', en: 'Stand alert', rootY: 0,
+    // 来源：awplanet DIRECTOR_POSE_RECIPES（加法欧拉）→ 本表 base 四元数（同语义）
+    base: {
+      Spine: [0.08, 0, 0],
+      Spine1: [0.08, 0, 0],
+      Neck: [0.06, 0, 0],
+      LeftArm: [-0.08, 0.02, 0.08],
+      RightArm: [-0.08, -0.02, -0.08],
+      LeftUpLeg: [-0.03, 0, 0.04],
+      RightUpLeg: [-0.03, 0, -0.04]
+    } },
+  { id: 'ap_stand_lean', zh: '站姿 · 倚靠', en: 'Stand lean', rootY: 0,
+    // 来源：awplanet DIRECTOR_POSE_RECIPES（加法欧拉）→ 本表 base 四元数（同语义）
+    base: {
+      Spine: [-0.16, 0.08, -0.2],
+      Spine1: [0.05, -0.04, 0.13],
+      Spine2: [0.05, -0.04, 0.13],
+      LeftUpLeg: [0.1, 0.05, 0.1],
+      LeftArm: [0.22, -0.1, 0.38],
+      RightArm: [0.05, 0.08, -0.18]
+    } },
+  { id: 'ap_crossed_arms', zh: '站姿 · 抱臂', en: 'Crossed arms', rootY: 0,
+    // 来源：awplanet DIRECTOR_POSE_RECIPES（加法欧拉）→ 本表 base 四元数（同语义）
+    base: {
+      Spine: [-0.04, 0, 0.02],
+      LeftArm: [0.72, 0.18, 0.78],
+      RightArm: [0.72, -0.18, -0.78],
+      LeftForeArm: [0.34, -0.1, -1.18],
+      RightForeArm: [0.34, 0.1, 1.18]
+    } },
+  { id: 'ap_hands_hips', zh: '站姿 · 叉腰', en: 'Hands on hips', rootY: 0,
+    // 来源：awplanet DIRECTOR_POSE_RECIPES（加法欧拉）→ 本表 base 四元数（同语义）
+    base: {
+      Spine: [0.02, 0, -0.04],
+      LeftArm: [0.48, -0.1, 0.68],
+      RightArm: [0.48, 0.1, -0.68],
+      LeftForeArm: [0.16, -0.2, -0.92],
+      RightForeArm: [0.16, 0.2, 0.92]
+    } },
+  { id: 'ap_sit_low', zh: '坐 · 低坐', en: 'Sit low', rootY: -0.52,
+    // 来源：awplanet DIRECTOR_POSE_RECIPES（加法欧拉）→ 本表 base 四元数（同语义）
+    base: {
+      Spine: [-0.12, 0, 0],
+      LeftUpLeg: [-1.18, 0.06, 0.12],
+      RightUpLeg: [-1.18, -0.06, -0.12],
+      LeftLeg: [1.18, 0, 0],
+      RightLeg: [1.18, 0, 0],
+      LeftArm: [0.32, 0.04, 0.18],
+      RightArm: [0.32, -0.04, -0.18]
+    } },
+  { id: 'ap_sit_side', zh: '坐 · 侧坐', en: 'Sit side', rootY: -0.52,
+    // 来源：awplanet DIRECTOR_POSE_RECIPES（加法欧拉）→ 本表 base 四元数（同语义）
+    base: {
+      Spine: [-0.08, 0.14, -0.1],
+      LeftUpLeg: [-1, 0.2, 0.46],
+      RightUpLeg: [-1.18, -0.26, 0.18],
+      LeftLeg: [1.02, 0, -0.12],
+      RightLeg: [1.08, 0, 0.18]
+    } },
+  { id: 'ap_crouch', zh: '蹲 · 预备', en: 'Crouch ready', rootY: -0.28,
+    // 来源：awplanet DIRECTOR_POSE_RECIPES（加法欧拉）→ 本表 base 四元数（同语义）
+    base: {
+      Spine: [-0.32, 0, 0],
+      LeftUpLeg: [-0.92, 0.04, 0.12],
+      RightUpLeg: [-0.92, -0.04, -0.12],
+      LeftLeg: [1.32, 0, 0],
+      RightLeg: [1.32, 0, 0],
+      LeftArm: [0.55, -0.08, 0.25],
+      RightArm: [0.55, 0.08, -0.25]
+    } },
+  { id: 'ap_kneel', zh: '跪 · 单膝', en: 'Kneel one knee', rootY: -0.42,
+    // 来源：awplanet DIRECTOR_POSE_RECIPES（加法欧拉）→ 本表 base 四元数（同语义）
+    base: {
+      Spine: [-0.18, 0, 0],
+      LeftUpLeg: [-1.22, 0.06, 0.12],
+      LeftLeg: [1.52, 0, 0],
+      RightUpLeg: [-0.35, -0.08, -0.12],
+      RightLeg: [0.72, 0, 0],
+      LeftArm: [0.35, -0.05, 0.18],
+      RightArm: [0.35, 0.05, -0.18]
+    } },
+  { id: 'ap_kneel_both', zh: '跪 · 双膝', en: 'Kneel both knees', rootY: -0.55,
+    // 来源：awplanet DIRECTOR_POSE_RECIPES（加法欧拉）→ 本表 base 四元数（同语义）
+    base: {
+      Spine: [-0.1, 0, 0],
+      LeftUpLeg: [-1.28, 0.08, 0.12],
+      RightUpLeg: [-1.28, -0.08, -0.12],
+      LeftLeg: [1.48, 0, 0],
+      RightLeg: [1.48, 0, 0],
+      LeftArm: [0.22, -0.04, 0.14],
+      RightArm: [0.22, 0.04, -0.14]
+    } },
+  { id: 'ap_lie_prone', zh: '卧 · 俯卧', en: 'Lie prone', rootY: -0.82,
+    // 来源：awplanet DIRECTOR_POSE_RECIPES（加法欧拉）→ 本表 base 四元数（同语义）
+    base: {
+      Spine: [-1.32, 0, 0],
+      Spine1: [0.1, 0, 0],
+      Spine2: [0.1, 0, 0],
+      LeftUpLeg: [0.12, 0.04, 0.1],
+      RightUpLeg: [0.12, -0.04, -0.1],
+      LeftArm: [0.92, -0.1, 0.38],
+      RightArm: [0.92, 0.1, -0.38]
+    } },
+  { id: 'ap_lie_back', zh: '卧 · 仰卧', en: 'Lie back', rootY: -0.82,
+    // 来源：awplanet DIRECTOR_POSE_RECIPES（加法欧拉）→ 本表 base 四元数（同语义）
+    base: {
+      Spine: [1.28, 0, 0],
+      LeftUpLeg: [-0.16, 0.08, 0.12],
+      RightUpLeg: [-0.16, -0.08, -0.12],
+      LeftLeg: [0.42, 0, 0],
+      RightLeg: [0.42, 0, 0],
+      LeftArm: [0.7, -0.2, 0.62],
+      RightArm: [0.7, 0.2, -0.62]
+    } },
+  { id: 'ap_point_forward', zh: '指向前方', en: 'Point forward', rootY: 0,
+    // 来源：awplanet DIRECTOR_POSE_RECIPES（加法欧拉）→ 本表 base 四元数（同语义）
+    base: {
+      Spine: [0.03, -0.1, 0],
+      RightArm: [-0.12, -0.52, -1.18],
+      RightForeArm: [-0.08, -0.12, -0.28],
+      LeftArm: [0.18, 0.06, 0.18]
+    } },
+  { id: 'ap_reach_up', zh: '举手够物', en: 'Reach up', rootY: 0,
+    // 来源：awplanet DIRECTOR_POSE_RECIPES（加法欧拉）→ 本表 base 四元数（同语义）
+    base: {
+      Spine: [0.08, 0, 0.06],
+      RightArm: [-1.42, -0.14, -0.36],
+      RightForeArm: [-0.18, 0.06, -0.08],
+      LeftArm: [0.2, 0.02, 0.22]
+    } },
+  { id: 'ap_guard_ready', zh: '戒备势', en: 'Guard ready', rootY: 0,
+    // 来源：awplanet DIRECTOR_POSE_RECIPES（加法欧拉）→ 本表 base 四元数（同语义）
+    base: {
+      Spine: [-0.16, 0, 0],
+      LeftArm: [0.76, -0.08, 0.42],
+      RightArm: [0.76, 0.08, -0.42],
+      LeftForeArm: [0.42, -0.18, -0.76],
+      RightForeArm: [0.42, 0.18, 0.76],
+      LeftUpLeg: [-0.12, 0.06, 0.1],
+      RightUpLeg: [-0.12, -0.06, -0.1]
+    } },
+  { id: 'ap_surrender', zh: '投降势', en: 'Surrender', rootY: 0,
+    // 来源：awplanet DIRECTOR_POSE_RECIPES（加法欧拉）→ 本表 base 四元数（同语义）
+    base: {
+      Spine: [0.04, 0, 0],
+      LeftArm: [-1.28, 0.1, 0.46],
+      RightArm: [-1.28, -0.1, -0.46],
+      LeftForeArm: [-0.24, 0.05, -0.22],
+      RightForeArm: [-0.24, -0.05, 0.22]
+    } },
+  { id: 'ap_hands_head', zh: '双手抱头', en: 'Hands on head', rootY: 0,
+    // 来源：awplanet DIRECTOR_POSE_RECIPES（加法欧拉）→ 本表 base 四元数（同语义）
+    base: {
+      Spine: [-0.08, 0, 0],
+      LeftArm: [-0.84, 0.18, 0.82],
+      RightArm: [-0.84, -0.18, -0.82],
+      LeftForeArm: [-0.54, 0, -1.12],
+      RightForeArm: [-0.54, 0, 1.12]
+    } },
+  { id: 'ap_talk_open', zh: '说话 · 张开', en: 'Talk open', rootY: 0,
+    // 来源：awplanet DIRECTOR_POSE_RECIPES（加法欧拉）→ 本表 base 四元数（同语义）
+    base: {
+      Spine: [0.02, 0.06, -0.04],
+      LeftArm: [0.1, -0.16, 0.58],
+      RightArm: [0.1, 0.16, -0.58],
+      LeftForeArm: [0.34, -0.12, -0.34],
+      RightForeArm: [0.34, 0.12, 0.34]
+    } },
 ];
 
 
@@ -1434,18 +1623,18 @@ export function decodeActionClips(list) {
  */
 // waist：腰部横向系数（男性 >1 直腰方厚，女性 <1 收腰）；chestFlat：男性压扁胸部正面
 const BODY_SHAPE_OF = {
-  m_standard: { bust: 0, belly: 0.00, muscle: 0.32, shoulder: 1.12, hip: 1.02, waist: 1.16, chestFlat: 0.10 },
-  f_standard: { bust: 1.00, belly: 0.04, muscle: 0.00, shoulder: 0.94, hip: 1.10, waist: 0.88, chestFlat: 0 },
-  m_teen: { bust: 0, belly: 0.02, muscle: 0.14, shoulder: 1.00, hip: 0.98, waist: 1.08, chestFlat: 0.08 },
-  f_teen: { bust: 0.62, belly: 0.03, muscle: 0.00, shoulder: 0.90, hip: 1.02, waist: 0.90, chestFlat: 0 },
-  m_child: { bust: 0, belly: 0.06, muscle: 0.00, shoulder: 0.84, hip: 0.88, waist: 1.02, chestFlat: 0.04 },
-  f_child: { bust: 0.18, belly: 0.06, muscle: 0.00, shoulder: 0.82, hip: 0.90, waist: 0.94, chestFlat: 0 },
-  m_slim: { bust: 0, belly: -0.02, muscle: 0.12, shoulder: 1.04, hip: 0.96, waist: 1.06, chestFlat: 0.10 },
-  f_slim: { bust: 0.78, belly: -0.03, muscle: 0.00, shoulder: 0.88, hip: 0.98, waist: 0.84, chestFlat: 0 },
-  m_muscular: { bust: 0, belly: -0.02, muscle: 0.62, shoulder: 1.26, hip: 1.08, waist: 1.16, chestFlat: 0.12 },
-  f_muscular: { bust: 0.90, belly: -0.02, muscle: 0.38, shoulder: 1.06, hip: 1.10, waist: 0.92, chestFlat: 0 },
-  m_plump: { bust: 0, belly: 0.34, muscle: 0.10, shoulder: 1.16, hip: 1.22, waist: 1.24, chestFlat: 0.02 },
-  f_plump: { bust: 1.15, belly: 0.32, muscle: 0.02, shoulder: 1.02, hip: 1.24, waist: 1.00, chestFlat: 0 },
+  m_standard: { bust: 0, belly: 0.00, muscle: 0.50, shoulder: 1.14, hip: 0.96, waist: 1.24, chestFlat: 0.10, head: 1.00 },
+  f_standard: { bust: 1.00, belly: 0.04, muscle: 0.00, shoulder: 0.94, hip: 1.10, waist: 0.88, chestFlat: 0, head: 1.00 },
+  m_teen: { bust: 0, belly: 0.02, muscle: 0.30, shoulder: 1.00, hip: 0.98, waist: 1.12, chestFlat: 0.08, head: 1.08 },
+  f_teen: { bust: 0.62, belly: 0.03, muscle: 0.00, shoulder: 0.90, hip: 1.02, waist: 0.90, chestFlat: 0, head: 1.00 },
+  m_child: { bust: 0, belly: 0.06, muscle: 0.10, shoulder: 0.86, hip: 0.88, waist: 1.06, chestFlat: 0.04, head: 1.18 },
+  f_child: { bust: 0.18, belly: 0.06, muscle: 0.00, shoulder: 0.82, hip: 0.90, waist: 0.94, chestFlat: 0, head: 1.00 },
+  m_slim: { bust: 0, belly: -0.02, muscle: 0.25, shoulder: 1.04, hip: 0.96, waist: 1.10, chestFlat: 0.10, head: 1.00 },
+  f_slim: { bust: 0.78, belly: -0.03, muscle: 0.00, shoulder: 0.88, hip: 0.98, waist: 0.84, chestFlat: 0, head: 1.00 },
+  m_muscular: { bust: 0, belly: -0.02, muscle: 0.85, shoulder: 1.30, hip: 1.08, waist: 1.20, chestFlat: 0.12, head: 0.98 },
+  f_muscular: { bust: 0.90, belly: -0.02, muscle: 0.38, shoulder: 1.06, hip: 1.10, waist: 0.92, chestFlat: 0, head: 1.00 },
+  m_plump: { bust: 0, belly: 0.55, muscle: 0.18, shoulder: 1.16, hip: 1.24, waist: 1.30, chestFlat: 0.02, head: 1.00 },
+  f_plump: { bust: 1.15, belly: 0.32, muscle: 0.02, shoulder: 1.02, hip: 1.24, waist: 1.00, chestFlat: 0, head: 1.00 },
 };
 export function bodyShapeOf(typeId) { return BODY_SHAPE_OF[typeId] || BODY_SHAPE_OF.m_standard; }
 
@@ -1455,7 +1644,7 @@ function applyBodyShape(asset, pos, shape) {
   const bones = asset.bones;
   const J = asset.joints, W = asset.weights;
   const nv = pos.length / 3;
-  const { bust = 0, belly = 0, muscle = 0, shoulder = 1, hip = 1, waist = 1, chestFlat = 0 } = shape;
+  const { bust = 0, belly = 0, muscle = 0, shoulder = 1, hip = 1, waist = 1, chestFlat = 0, head = 1 } = shape;
   // 形变带按「相对身高」计算，不再用绝对米：xbot 是米制（rawHeight≈1.8），
   // soldier≈44、explorer≈194 都是厘米制——绝对带在它们身上会错位到脚踝（形变静默失效）。
   // k = 该资产身高 / 基准身高 1.809（这些带最初按 xbot 调的）。
@@ -1503,10 +1692,17 @@ function applyBodyShape(asset, pos, shape) {
       const lobe = Math.exp(-Math.pow((Math.abs(x) - 0.075 * k) / (0.055 * k), 2));
       nz += bust * 0.075 * k * gg * lobe;
     }
-    // 肌肉围度：四肢加粗
+    // 肌肉围度：四肢加粗（乘数 0.55 对齐 storyai 的 15-27% 单部位幅度）
     if (muscle > 0 && (isArm || isLeg)) {
-      const k = 1 + muscle * (/forearm|hand|shin|foot/.test(nm) ? 0.10 : 0.22);
+      const k = 1 + muscle * (/forearm|hand|shin|foot/.test(nm) ? 0.16 : 0.55);
       nx *= k; nz *= k;
+    }
+    // 头部缩放（儿童/少年大头比例）：以颈部为枢轴，对主导骨为 Head 系的顶点做等比缩放
+    if (head !== 1 && /head/.test(nm) && !/hand/.test(nm)) {
+      const pivot = 0.80 * Hm;
+      nx = pivot + (nx - pivot) * head;
+      ny = pivot + (ny - pivot) * head;
+      nz = pivot + (nz - pivot) * head;
     }
     if (nx !== x || ny !== y || nz !== z) { pos[v * 3] = nx; pos[v * 3 + 1] = ny; pos[v * 3 + 2] = nz; }
   }
