@@ -421,6 +421,10 @@ function dbAssetDelete(id) {
       const mapped = physicalRel(row.rel) || row.rel;
       const { abs } = safeJoin(root, mapped);
       unlinkSync(abs);
+      // 派生预览文件随原文件一起删（不存在则忽略）
+      for (const suffix of ['.thumb.jpg', '.poster.jpg']) {
+        try { unlinkSync(abs + suffix); } catch { /* 没有就忽略 */ }
+      }
     } catch { /* 已不存在视为成功 */ }
   }
   return { ok: true, deleted: true };
@@ -880,7 +884,8 @@ function dataRootImport() {
     }
     try {
       const list = JSON.parse(readFileSync(path.join(dir, 'assets.json'), 'utf8'));
-      if (Array.isArray(list)) assets[id] = list;
+      // 派生预览文件不是资产：历史 data 里混入也要剔除
+    if (Array.isArray(list)) assets[id] = list.filter((a) => !isDerivedMedia(a && a.rel));
     } catch { /* 无资产索引 */ }
     // 多画布：画布文档镜像在 projects/<项目文件夹>/canvases/*.json（updatedAt 新者胜）
     try {
@@ -973,6 +978,21 @@ const MIME_BY_EXT = {
 function mimeOf(p) {
   const m = /\.([a-z0-9]+)$/i.exec(p);
   return m ? (MIME_BY_EXT[m[1].toLowerCase()] || 'application/octet-stream') : 'application/octet-stream';
+}
+
+// ============================================================
+// 派生预览文件（系统内部用，**不是资产**）
+//   <rel>.thumb.jpg   节点展示用的极小压缩图（图片/截图/视频首帧）
+//   <rel>.poster.jpg  视频首帧（历史口径，视作同一类派生文件）
+// 规则：不进资产库 / assets.json / 导入扫描；随原文件删除；不分配资产 ID。
+// ============================================================
+const THUMB_MAX_SIDE = 512; // 缩略图最长边（px）
+function isDerivedMedia(rel) {
+  return /\.(?:thumb|poster)\.jpg$/i.test(String(rel || '').trim());
+}
+function thumbRelOf(rel) {
+  const t = String(rel || '').trim();
+  return t ? t + '.thumb.jpg' : null;
 }
 
 /**
@@ -2775,7 +2795,7 @@ async function updateInstall() {
 export const inject = ['webServer', 'tools'];
 
 // 仅供诊断 / 自动化测试（不属于 RPC 面，运行时行为不受影响）
-export const _internals = { updateCheck, updateInstall, npmLatestVersion, cmpVer, findPnpm, getProfileDir: () => PROFILE_DIR, getVersion: () => VERSION, dataRoot, setDataRoot, dataRootMigrate, dataRootImport, ensureProjectFolder, physicalRel, mirrorProjectToDataRoot, writeAssetIndex, removeAssetIndexEntry, readDataRootMeta, removeDataRootProject, sqlDeleteProjectRows, deletedProjectIds, addDeletedProjectId, clearDeletedProjectId, fetchProxyForward, storyboardConsistencyWarnings, readAssetIndexNames, safeJoin, mimeOf, pipeFile, getIcConfigPath: () => CONFIG_PATH, canvasCreateProject, canvasWriteNode, canvasConnect, canvasDeleteProject, canvasDeleteNode, canvasRunNode, canvasNodeStatus, canvasGetBible, canvasUpdateBible, canvasCreateNode, canvasOpen, canvasesList, canvasCreate, canvasRename, canvasDelete, canvasDocId, isCanvasDocId, splitCanvasDocId, normalizeCanvasId, canvasRegistry, sanitizeCanvases, readCanvasDoc, writeCanvasDoc, deleteCanvasDocsForProject, projectsList, projectsPut, projectsGet, projectsDelete, projectsSync, sqliteAvailable: () => !!SQLITE, getDb, closeDb, dbAssetsList, dbAssetsGet, dbAssetNames, dbAssetCreate, dbAssetUpdate, dbAssetDelete, objectAbsFor, ftsReconcile, readDocOrNull, docExists, sqlActive, rpcMethods: () => _rpcMethods, canvasUpdateNode, canvasGenerateNode };
+export const _internals = { THUMB_MAX_SIDE, thumbRelOf, isDerivedMedia, updateCheck, updateInstall, npmLatestVersion, cmpVer, findPnpm, getProfileDir: () => PROFILE_DIR, getVersion: () => VERSION, dataRoot, setDataRoot, dataRootMigrate, dataRootImport, ensureProjectFolder, physicalRel, mirrorProjectToDataRoot, writeAssetIndex, removeAssetIndexEntry, readDataRootMeta, removeDataRootProject, sqlDeleteProjectRows, deletedProjectIds, addDeletedProjectId, clearDeletedProjectId, fetchProxyForward, storyboardConsistencyWarnings, readAssetIndexNames, safeJoin, mimeOf, pipeFile, getIcConfigPath: () => CONFIG_PATH, canvasCreateProject, canvasWriteNode, canvasConnect, canvasDeleteProject, canvasDeleteNode, canvasRunNode, canvasNodeStatus, canvasGetBible, canvasUpdateBible, canvasCreateNode, canvasOpen, canvasesList, canvasCreate, canvasRename, canvasDelete, canvasDocId, isCanvasDocId, splitCanvasDocId, normalizeCanvasId, canvasRegistry, sanitizeCanvases, readCanvasDoc, writeCanvasDoc, deleteCanvasDocsForProject, projectsList, projectsPut, projectsGet, projectsDelete, projectsSync, sqliteAvailable: () => !!SQLITE, getDb, closeDb, dbAssetsList, dbAssetsGet, dbAssetNames, dbAssetCreate, dbAssetUpdate, dbAssetDelete, objectAbsFor, ftsReconcile, readDocOrNull, docExists, sqlActive, rpcMethods: () => _rpcMethods, canvasUpdateNode, canvasGenerateNode };
 
 function resolveModel(providers, want) {
   const byProvider = want && want.provider
@@ -3926,7 +3946,8 @@ export function apply(ctx) {
             if (!st.isFile()) { res.statusCode = 404; res.end('not found'); return; }
             res.setHeader('content-type', mimeOf(abs));
             res.setHeader('accept-ranges', 'bytes');
-            res.setHeader('cache-control', 'no-cache');
+            // 派生预览文件内容不变 → 长缓存；原文件保持 no-cache
+            res.setHeader('cache-control', isDerivedMedia(rel) ? 'public, max-age=31536000, immutable' : 'no-cache');
             // HEAD：只回应元信息（node fetch HEAD 探针用），不读文件、不占解码/内存
             if (req.method === 'HEAD') {
               res.statusCode = 200;
@@ -3999,7 +4020,50 @@ export function apply(ctx) {
           }
         },
       }),
-      // CAS 对象库读路径（0.18）：0.18.0–0.18.4 上传的媒体仍在 objects/ 里，必须继续可读。
+      // 节点展示用缩略图落盘：body 为 jpeg/png，写入 `<rel>.thumb.jpg`。
+  // 缩略图是系统派生文件：不进 assets.json、不出现在资产库；节点只加载它（几十 KB），
+  // 点开看原图 / 点播放才加载原文件。
+  ctx.webServer.register({
+    kind: 'exact',
+    path: `/${NAME}/api/thumb`,
+    async handler(req, res) {
+      res.setHeader('content-type', 'application/json; charset=utf-8');
+      try {
+        if (req.method !== 'POST' && req.method !== 'PUT') {
+          res.statusCode = 405;
+          res.end(JSON.stringify({ error: '仅接受 POST/PUT' }));
+          return;
+        }
+        const root = dataRoot();
+        if (!root) throw new Error('未设置数据根目录');
+        const u = new URL(req.url, 'http://localhost');
+        const rawRel = String(u.searchParams.get('rel') || '').trim();
+        if (!rawRel) throw new Error('缺少 rel');
+        if (/\.thumb\.jpg$/i.test(rawRel)) throw new Error('rel 不应包含 thumb 后缀');
+        const ct = String(req.headers['content-type'] || '').toLowerCase();
+        if (ct && !/^image\/(jpeg|png)/.test(ct)) throw new Error('缩略图只接受 image/jpeg 或 image/png');
+        const rel = physicalRel(rawRel) || rawRel;
+        const { abs, clean } = safeJoin(root, rel + '.thumb.jpg');
+        mkdirSync(path.dirname(abs), { recursive: true });
+        const chunks = [];
+        let size = 0;
+        const MAX_THUMB = 2 * 1024 * 1024;
+        for await (const c of req) {
+          size += c.length;
+          if (size > MAX_THUMB) { res.statusCode = 413; res.end(JSON.stringify({ error: 'thumb 过大（上限 2MB）' })); return; }
+          chunks.push(c);
+        }
+        if (!size) throw new Error('thumb 内容为空');
+        await fs.writeFile(abs, Buffer.concat(chunks));
+        res.end(JSON.stringify({ ok: true, rel: clean, size, maxSide: THUMB_MAX_SIDE }));
+      } catch (e) {
+        res.statusCode = 400;
+        res.end(JSON.stringify({ error: String((e && e.message) || e) }));
+      }
+    },
+  }),
+
+  // CAS 对象库读路径（0.18）：0.18.0–0.18.4 上传的媒体仍在 objects/ 里，必须继续可读。
       // IC-08 起写路径已退役（POST/PUT 一律 405），只有 GET。
       ctx.webServer.register({
         kind: 'exact',

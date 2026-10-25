@@ -6,6 +6,24 @@ GitHub Releases carry the same notes in English; maintainer-facing runbooks live
 
 ## [Unreleased]
 
+## [0.19.1] — 2026-10-25
+
+### Added
+- **Node previews are now cheap derived thumbnails, not the originals.** Every image (generated, imported or uploaded) and every video (first frame, including imported videos) gets a system-generated 512 px JPEG preview (`<rel>.thumb.jpg`; videos reuse `<rel>.poster.jpg`) written next to the original. Nodes render only that preview, so a board of large 2K–4K stills no longer pins hundreds of megabytes of decoded textures. The thumbnails are **not assets**: they never enter `assets.json`, the asset library or the data-root import scan, and they are deleted together with the original.
+- **Originals load on demand, one at a time.** Double-clicking an image fetches its original only then (single `<img>`, unmounted when the lightbox closes); clicking play mounts one `<video src=original>` and pauses/unmounts it when playback stops. Download resolves the original on click too — nothing prefetches originals any more.
+
+### Fixed
+- **A white flash while zooming the page or while the assistant streamed a reply** — the whole board (dozens of large images, edges, filters) sat in one composited layer via a permanent `will-change: transform` on `.dshic-world`; changing the page zoom made Chromium reallocate that huge texture and paint tiles white before re-rasterising. `will-change` is now applied only while a pointer interaction is in progress.
+- **Ctrl+wheel zoomed the whole page as well as the canvas** — the director viewport used React's `onWheel`, which is registered as a passive listener, so `preventDefault()` was ignored. It now uses a native non-passive wheel listener.
+- **`createImageBitmap` could hang instead of throwing**, which would leave thumbnail generation awaiting forever and the node stuck on its placeholder. Thumbnail creation now races the bitmap call against a 1.5 s timeout and falls back to `<img>` + canvas.
+- **Missing media flashed between skeleton and placeholder** — a 404 used to be retried on every render. Missing files now hit a per-session negative cache and render a stable "file missing" card with a retry button; the poster probe also no longer counts a 405 as a fatal error.
+- **The running-node sheen animation used `filter: brightness()`**, which forces a repaint each frame; it now animates opacity.
+
+### Internal
+- New `scripts/test-thumbs.mjs` (registered in `scripts/regress.mjs`) pins the thumbnail contract: derived-file naming and exclusion, the `/api/thumb` route, node images using `*.thumb.jpg`, originals only on demand, the missing-media negative cache, the removal of the permanent composited layer and the non-passive wheel listener.
+- `scripts/test-canvas-perf.mjs` updated for the new media-node hook order (thumbnail URL + lazy play URL) and its fake canvas gained `fillRect` so the downscaled first-frame path is exercised.
+
+
 ## [0.19.0] — 2026-10-25
 
 ### Added
