@@ -16006,6 +16006,20 @@ const DIRECTOR_KEY_HELP = [
                 sel ? h('div', null,
                   h('div', { className: 'dshic-dir-subhead' }, T('dirSelObject')),
                   h('div', { className: 'dshic-dir-row' }, h('span', null, T('dirPos')), num3([sel.pos.x, sel.pos.y, sel.pos.z], (v, i) => patch((n) => { const t2 = n.objects.find((x) => x.id === sel.id); if (t2) t2.pos[i === 0 ? 'x' : i === 1 ? 'y' : 'z'] = i === 1 ? Math.max(0, v) : v; }))),
+                  // 身高：直接改对象自己的 h（米）。体型表的 h 只在新建时写入，已有对象靠这里改。
+                  (sel.kind === 'model')
+                    ? h('div', { className: 'dshic-dir-row' }, h('span', null, T('dirHeight')), h('input', {
+                        className: 'dshic-dir-input', type: 'number', step: 0.01, min: 0.2, max: 3,
+                        'data-action': 'dir-obj-height',
+                        value: String(Math.round((Number(sel.h) || 1.7) * 100) / 100),
+                        onChange: (e2) => patch((n) => {
+                          const v = Number(e2.target.value);
+                          if (!Number.isFinite(v) || v <= 0) return;
+                          const t2 = n.objects.find((x) => x.id === sel.id);
+                          if (t2) t2.h = Math.min(3, Math.max(0.2, v));
+                        }),
+                      }))
+                    : null,
                   h('div', { className: 'dshic-dir-row' }, h('span', null, T('dirRotY')), h('input', {
                     className: 'dshic-dir-input', type: 'number', step: 15,
                     value: String(Math.round(((Number(sel.rotY) || 0) * 180 / Math.PI + 540) % 360 - 180)),

@@ -1,4 +1,4 @@
-export const ENGINE_VERSION = 'explorer-1';  // 改引擎必递增：client 靠它提示用户刷新页面
+export const ENGINE_VERSION = 'explorer-2';  // 改引擎必递增：client 靠它提示用户刷新页面  // 改引擎必递增：client 靠它提示用户刷新页面
 /**
  * 3D 导演台引擎（独立 ES 模块，零依赖）。
  *
@@ -3596,10 +3596,10 @@ export function resetView(scene) {
 export const MANNEQUIN_TYPES = [
   { id: 'm_standard', zh: '男性 · 标准', en: 'Male standard', h: 1.78, w: 1.00, d: 1.00 , color: '#2f7fe8' },
   { id: 'f_standard', zh: '女性 · 标准', en: 'Female standard', h: 1.66, w: 0.92, d: 0.94 , color: '#e857a8' },
-  { id: 'm_teen', zh: '男性 · 少年', en: 'Male teen', h: 1.60, w: 0.90, d: 0.92 , color: '#17b877' },
-  { id: 'f_teen', zh: '女性 · 少年', en: 'Female teen', h: 1.54, w: 0.86, d: 0.90 , color: '#8b5cf6' },
-  { id: 'm_child', zh: '男性 · 儿童', en: 'Male child', h: 1.18, w: 0.80, d: 0.86 , color: '#7cc93f' },
-  { id: 'f_child', zh: '女性 · 儿童', en: 'Female child', h: 1.15, w: 0.78, d: 0.85 , color: '#f0a832' },
+  { id: 'm_teen', zh: '男性 · 少年', en: 'Male teen', h: 1.15, w: 0.90, d: 0.92 , color: '#17b877' },
+  { id: 'f_teen', zh: '女性 · 少年', en: 'Female teen', h: 1.12, w: 0.86, d: 0.90 , color: '#8b5cf6' },
+  { id: 'm_child', zh: '男性 · 儿童', en: 'Male child', h: 0.80, w: 0.90, d: 0.96 , color: '#7cc93f' },
+  { id: 'f_child', zh: '女性 · 儿童', en: 'Female child', h: 0.80, w: 0.88, d: 0.95 , color: '#f0a832' },
   { id: 'm_slim', zh: '男性 · 纤细', en: 'Male slim', h: 1.80, w: 0.88, d: 0.90 , color: '#38a8e8' },
   { id: 'f_slim', zh: '女性 · 纤细', en: 'Female slim', h: 1.68, w: 0.84, d: 0.88 , color: '#e85d6f' },
   { id: 'm_muscular', zh: '男性 · 健壮', en: 'Male muscular', h: 1.82, w: 1.12, d: 1.08 , color: '#f07818' },
