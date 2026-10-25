@@ -6,6 +6,8 @@ GitHub Releases carry the same notes in English; maintainer-facing runbooks live
 
 ## [Unreleased]
 
+## [0.19.3] — 2026-10-25
+
 ### Added
 - **A dedicated "技能" (Craft) page on the right sidebar**: the old one-line expert dropdown is now a four-layer visual console with **no dropdowns at all** — every option is an icon tile. **Director lens** (24, the top layer because it owns the camera language), **genre** (21 narrative + 10 sector cards, multi-select, swaps automatically for the commercial form), **delivery form** (8: structure blocks, ASL floor, rhythm, quality bar — **aspect is not part of it**), **look** (9: imaging, material, texture; empty = follow the lens), plus the expert as a tile row. Selection is per project.
 - **All four layers feed every prompt-generating path, not just scripts.** Script nodes, storyboard nodes, bible drafts and asset-sheet prompts receive the capability-specific slice; image and video nodes additionally get a `[镜头语言锁]` block carrying the lens's style parameters and negative phrases. Unconfigured projects inject nothing, so existing behaviour is unchanged.
