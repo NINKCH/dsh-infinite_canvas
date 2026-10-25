@@ -654,6 +654,8 @@ window.__ModuleLoader__.load({
       'dirActionNone': '当前没有选中自建动作',
       'dirLens': '焦段(mm)',
       'dirSensor': '传感器',
+      'mediaMissing': '素材缺失',
+      'retry': '重试',
       'dirKeys': '快捷键',
       'dirRenderLive': '实时渲染中 · 所见即成片',
       'dirSun': '太阳光（物理日光）',
@@ -1548,6 +1550,8 @@ window.__ModuleLoader__.load({
       'dirExportCancelled': 'Export cancelled',
       'dirLookAhead': 'Look ahead',
       'dirSensor': 'Sensor',
+      'mediaMissing': 'Asset file missing',
+      'retry': 'Retry',
       'dirKeys': 'Shortcuts',
       'dirRenderLive': 'Live render · what you see is the final',
       'dirSun': 'Sun (physical daylight)',
@@ -2562,7 +2566,9 @@ body[data-ds-dark-theme] .dshic-inline-input{border-color:var(--dsw-alias-border
 .dshic-canvas{flex:1;position:relative;overflow:hidden;background-color:var(--dsw-alias-bg-base);
   background-image:radial-gradient(color-mix(in srgb,var(--dsw-alias-border-l2) 55%,transparent) 1px,transparent 1px);
   outline:none;}
-.dshic-world{position:absolute;left:0;top:0;transform-origin:0 0;will-change:transform;}
+.dshic-world{position:absolute;left:0;top:0;transform-origin:0 0;}
+/* 仅在交互中提升图层：常驻 will-change 会把整张画布变成一张巨大纹理，页面缩放/重排时先白一片 */
+.dshic-world.is-interacting{will-change:transform;}
 .dshic-edges{position:absolute;left:0;top:0;width:1px;height:1px;overflow:visible;pointer-events:none;}
 .dshic-edge{fill:none;stroke-width:2;pointer-events:none;}
 .dshic-edge.kind-text{stroke:var(--dsw-alias-label-secondary);}
@@ -2990,7 +2996,7 @@ body[data-ds-dark-theme] .dshic-storage-details{border-color:var(--dsw-alias-bor
 .dshic-canvas.is-node-dragging .dshic-media-wrap.is-running .dshic-media-fill{animation:none !important;}
 /* 视频 poster 生成失败：中性占位（不闪、不破图） */
 .dshic-media-placeholder{position:absolute;inset:0;background:var(--dshic-preview-bg);display:block;}
-@keyframes dshic-sheen{0%{filter:brightness(.92)}50%{filter:brightness(1.06)}100%{filter:brightness(.92)}}
+@keyframes dshic-sheen{0%{opacity:.82}50%{opacity:1}100%{opacity:.82}}
 /* 操作栏（第三段，原型 .foot）：固定高度 NODE_FOOT_H = 7 + 24 + 7 + 1px border-top；
    border-top + 上下内距保证按钮与画面之间有明显间距（不贴边），且 flex:none 不参与画面比例 */
 .dshic-media-foot{flex:none;height:var(--dshic-foot-h);box-sizing:border-box;display:flex;align-items:center;gap:6px;
@@ -4856,6 +4862,7 @@ body[data-ds-dark-theme] .dshic-pick-item.is-on{background:color-mix(in srgb,var
       rec.rel = rel;
       rec.size = blob.size;
       rec.stored = 'disk';
+  if (kind === 'image') { try { queueThumb(rec.id); } catch { /* 忽略 */ } }
       const proj = S.projects.find((p) => p.id === projectId);
       if (S.store === 'sqlite') {
         // 主路径：文件落项目文件夹 + 元数据进 canvas.db（任意浏览器/远程立即可见）
@@ -5016,7 +5023,12 @@ body[data-ds-dark-theme] .dshic-pick-item.is-on{background:color-mix(in srgb,var
               cv.width = w; cv.height = h;
               const ctx = cv.getContext && cv.getContext('2d');
               if (!ctx) return finish(null);
-              ctx.drawImage(v, 0, 0, w, h);
+              const k2 = Math.min(1, 512 / Math.max(w, h));
+              const w2 = Math.max(1, Math.round(w * k2));
+              const h2 = Math.max(1, Math.round(h * k2));
+              cv.width = w2; cv.height = h2;
+              ctx.fillStyle = '#14181f'; ctx.fillRect(0, 0, w2, h2);
+              ctx.drawImage(v, 0, 0, w2, h2);
               finish(cv.toDataURL('image/jpeg', 0.72));
             } catch { finish(null); }
           };
@@ -5092,6 +5104,108 @@ body[data-ds-dark-theme] .dshic-pick-item.is-on{background:color-mix(in srgb,var
       }, [assetId]);
       return { poster, state };
     }
+
+// ============================================================
+// 节点缩略图（系统派生文件，**不是资产**）
+//   <rel>.thumb.jpg：最长边 512、JPEG 0.72；不进 assets.json / 资产库 / 导入扫描。
+//   节点只挂它（几十 KB）；点开看原图 / 点播放才按需加载原文件（看哪个取哪个）。
+// ============================================================
+const THUMB_MAX = 512, THUMB_QUALITY = 0.72;
+const thumbCache = new Map();
+const thumbInflight = new Map();
+const thumbFailed = new Set();     // 负缓存：每个资产每会话只尝试一次
+const thumbUrlForRel = (rel) => (rel ? fileUrlFor(rel + '.thumb.jpg') : null);
+function thumbIsFailed(assetId) { return !!assetId && thumbFailed.has(assetId); }
+async function probeHeadUrl(url) {
+  if (!url) return false;
+  try { const r = await fetch(url, { method: 'HEAD', cache: 'no-store' }); return !!(r && r.ok); } catch { return false; }
+}
+async function makeThumbBlob(blob) {
+  if (!blob) return null;
+  const draw = (src, w0, h0) => {
+    const k = Math.min(1, THUMB_MAX / Math.max(1, Math.max(w0, h0)));
+    const w = Math.max(1, Math.round(w0 * k));
+    const h = Math.max(1, Math.round(h0 * k));
+    const cv = document.createElement('canvas');
+    cv.width = w; cv.height = h;
+    const g = cv.getContext && cv.getContext('2d');
+    if (!g) return Promise.resolve(null);
+    g.fillStyle = '#14181f'; g.fillRect(0, 0, w, h);
+    g.drawImage(src, 0, 0, w, h);
+    return new Promise((res) => { try { cv.toBlob((b) => res(b || null), 'image/jpeg', THUMB_QUALITY); } catch { res(null); } });
+  };
+  // createImageBitmap 在部分环境（软件渲染 / 异常 GPU）会**挂起而不抛错**：
+  // 必须加超时竞速，否则 thumbInflight 永不清除、节点永远停在占位（"一直加载"）。
+  try {
+    if (typeof createImageBitmap === 'function') {
+      const bmp = await Promise.race([
+        createImageBitmap(blob),
+        new Promise((_, rej) => setTimeout(() => rej(new Error('bitmap timeout')), 1500)),
+      ]);
+      try { return await draw(bmp, bmp.width || 1, bmp.height || 1); }
+      finally { try { if (bmp.close) bmp.close(); } catch { /* 忽略 */ } }
+    }
+  } catch { /* 超时/不支持 → 走 <img> 回退 */ }
+  const url = URL.createObjectURL(blob);
+  try {
+    const img = await new Promise((res, rej) => {
+      const im = new Image();
+      im.onload = () => res(im); im.onerror = () => rej(new Error('decode failed')); im.src = url;
+    });
+    return await draw(img, img.naturalWidth || 1, img.naturalHeight || 1);
+  } catch { return null; } finally { try { URL.revokeObjectURL(url); } catch { /* 忽略 */ } }
+}
+async function ensureThumbForAsset(assetId) {
+  if (!assetId) return null;
+  if (thumbCache.has(assetId)) return thumbCache.get(assetId);
+  if (thumbInflight.has(assetId)) return thumbInflight.get(assetId);
+  const task = (async () => {
+    const rec = await idbGet(assetId).catch(() => null);
+    if (!rec || !rec.rel || rec.kind === 'video') return null;   // 视频走首帧 poster
+    const url = thumbUrlForRel(rec.rel);
+    if (await probeHeadUrl(url)) { thumbCache.set(assetId, url); return url; }
+    if (thumbFailed.has(assetId)) return null;
+    const blob = await assetBlob(assetId).catch(() => null);
+    const thumb = await makeThumbBlob(blob);
+    if (!thumb) { thumbFailed.add(assetId); return null; }
+    try {
+      const r = await fetch('/' + NS + '/api/thumb?rel=' + encodeURIComponent(rec.rel), {
+        method: 'POST', headers: { 'content-type': 'image/jpeg' }, body: thumb,
+      });
+      if (r && r.ok) { thumbCache.set(assetId, url); return url; }
+    } catch { /* 落盘失败 → 内存兜底 */ }
+    const objUrl = URL.createObjectURL(thumb);
+    thumbCache.set(assetId, objUrl);
+    return objUrl;
+  })();
+  thumbInflight.set(assetId, task);
+  task.then(() => thumbInflight.delete(assetId), () => thumbInflight.delete(assetId));
+  return task;
+}
+function useNodeThumb(assetId) {
+  const [url, setUrl] = useState(null);
+  useEffect(() => {
+    if (!assetId) { setUrl(null); return undefined; }
+    let ok = true;
+    ensureThumbForAsset(assetId).then((u) => { if (ok) setUrl(u); }).catch(() => { if (ok) setUrl(null); });
+    return () => { ok = false; };
+  }, [assetId]);
+  return url;
+}
+let thumbQueueActive = 0;
+const thumbQueue = [];
+function queueThumb(assetId) {
+  if (!assetId) return;
+  thumbQueue.push(assetId);
+  const pump = () => {
+    while (thumbQueueActive < 2 && thumbQueue.length) {
+      const id = thumbQueue.shift();
+      thumbQueueActive++;
+      ensureThumbForAsset(id).catch(() => null).finally(() => { thumbQueueActive--; pump(); });
+    }
+  };
+  pump();
+}
 
     // ============================================================
     // 生成能力：演示模式（本地合成）+ 自定义 API
@@ -8404,6 +8518,7 @@ body[data-ds-dark-theme] .dshic-pick-item.is-on{background:color-mix(in srgb,var
       rec.rel = rel;
       rec.size = blob.size;
       rec.stored = 'disk';
+  if (kind === 'image') { try { queueThumb(rec.id); } catch { /* 忽略 */ } }
       const proj = S.projects.find((p) => p.id === projectId);
       if (S.store === 'sqlite') {
         const saved = await hostRpc('assetCreate', { asset: assetIndexRecord(rec), projectName: (proj && proj.name) || '' });
@@ -9837,6 +9952,7 @@ body[data-ds-dark-theme] .dshic-pick-item.is-on{background:color-mix(in srgb,var
     }
 
     function onCanvasPointerDown(e) {
+  try { if (worldEl) worldEl.classList.add('is-interacting'); } catch { /* 忽略 */ }
       const target = e.target;
       // 生成面板是浮层（不在 world 内）：面板内的点击不能触发画布平移/清空选择
       if (target.closest && target.closest('.dshic-composer')) return;
@@ -10061,6 +10177,7 @@ body[data-ds-dark-theme] .dshic-pick-item.is-on{background:color-mix(in srgb,var
       }
     }
     function onCanvasPointerUp(e) {
+  try { if (worldEl) worldEl.classList.remove('is-interacting'); } catch { /* 忽略 */ }
       if (!drag.mode) return;
       const mode = drag.mode;
       // 收尾：先补上最后一帧拖拽（rAF 尚未执行的 pointermove），清掉视觉 class 与 Alt 标记
@@ -11641,7 +11758,9 @@ body[data-ds-dark-theme] .dshic-pick-item.is-on{background:color-mix(in srgb,var
         })();
         return () => { ok = false; };
       }, [n.id, S.assetsTick, S.store]);
-      const assetUrlV = useAssetUrl(n.data.assetId);
+      // 节点只挂派生缩略图（几十 KB）；原图/原视频仅在「点开看 / 点播放」时按需取，且一次只取一个
+      const thumbUrlV = useNodeThumb(kind === 'image' ? n.data.assetId : null);
+      const [playUrl, setPlayUrl] = useState(null);   // 视频原文件 URL：只在播放期间存在
       // 视频默认只画静态 poster；<video> 只在播放时挂载（见下方播放状态机）
       const videoPoster = useVideoPoster(kind === 'video' ? n.data.assetId : null);
       const posterUrl = videoPoster.poster;
@@ -11667,7 +11786,7 @@ body[data-ds-dark-theme] .dshic-pick-item.is-on{background:color-mix(in srgb,var
       const refEdges = S.graph.edges.filter((x) => x.toNode === n.id && x.toPort === 'ref');
       const firstRefSrc = refEdges.length ? S.graph.nodes[refEdges[0].fromNode] : null;
       const firstRefAid = firstRefSrc ? servedAssetId(firstRefSrc, refEdges[0].fromPort) : null;
-      const refThumbUrl = useAssetUrl(firstRefAid);
+      const refThumbUrl = useNodeThumb(firstRefAid);
       const running = n.data.status === 'running';
       const done = !!n.data.assetId;
       const statusLabel = running ? T('genRunning') : done ? T('generated') : (n.data.status === 'error' ? T('genFailed') : '');
@@ -11691,7 +11810,8 @@ body[data-ds-dark-theme] .dshic-pick-item.is-on{background:color-mix(in srgb,var
           normalizeMediaNodeSize(nd);
         });
       };
-      const imgShown = done && !!assetUrlV && kind === 'image' && mediaState !== 'error';
+      const imgShown = done && !!thumbUrlV && kind === 'image' && mediaState !== 'error';
+      const imgMissing = done && kind === 'image' && !thumbUrlV && thumbIsFailed(n.data.assetId);
       const videoPlaying = done && kind === 'video' && playing;
       // 视频：有 poster 即视为就绪（mediaState ready 由 poster 的 onLoad 设置，不再依赖 <video> 元数据）
       const posterLoading = done && kind === 'video' && !posterUrl && (posterState === 'idle' || posterState === 'loading');
@@ -11721,7 +11841,14 @@ body[data-ds-dark-theme] .dshic-pick-item.is-on{background:color-mix(in srgb,var
         const v = videoRef.current;
         if (!v) return;
         try { const p = v.play(); if (p && typeof p.catch === 'function') p.catch(() => { /* 保留播放键 */ }); } catch { /* 忽略 */ }
-      }, [playing, n.data.assetId]);
+      }, [playing, n.data.assetId, playUrl]);
+      // 播放时才去取原视频 URL（懒加载：看哪个取哪个；暂停/结束立即释放）
+      useEffect(() => {
+        if (!videoPlaying) { setPlayUrl(null); return undefined; }
+        let ok = true;
+        assetUrl(n.data.assetId).then((u) => { if (ok) setPlayUrl(u); }).catch(() => { if (ok) setPlayUrl(null); });
+        return () => { ok = false; };
+      }, [videoPlaying, n.data.assetId]);
       /** 进度条拖动 seek（控件条只在播放中出现，拖动期间不打断播放）。 */
       const seekVideo = (t) => {
         const v = videoRef.current;
@@ -11781,19 +11908,39 @@ body[data-ds-dark-theme] .dshic-pick-item.is-on{background:color-mix(in srgb,var
           posterFailed
             ? h('div', { key: 'poster-fail', className: 'dshic-media-placeholder', 'aria-hidden': 'true' })
             : null,
+            // 原文件缺失（404）：稳定占位 + 重试，不再每次渲染都请求
+            imgMissing
+              ? h('div', { key: 'missing', className: 'dshic-media-placeholder is-missing' },
+                h('span', null, T('mediaMissing')),
+                h('button', {
+                  type: 'button', className: 'dshic-mini is-ghost',
+                  onPointerDown: (e) => e.stopPropagation(),
+                  onClick: (e) => {
+                    e.stopPropagation();
+                    thumbFailed.delete(n.data.assetId);
+                    setMediaState('idle');
+                    update((s2) => { s2.assetsTick++; });
+                  },
+                }, T('retry')))
+              : null,
           imgShown
             ? h('img', {
-                key: 'img', className: 'dshic-media-fill', src: assetUrlV, draggable: false,
+                key: 'img', className: 'dshic-media-fill', src: thumbUrlV, draggable: false, decoding: 'async',
                 onLoad: (e) => { setMediaState('ready'); const el = e && e.currentTarget; recordMediaDims(el && el.naturalWidth, el && el.naturalHeight); },
                 onError: () => setMediaState('error'),
-                onDoubleClick: (e) => { e.stopPropagation(); openLightbox('image', assetUrlV, n.data.label); },
+                onDoubleClick: async (e) => {
+              e.stopPropagation();
+              // 双击放大：**此时才**取原图（单张、按需；关闭灯箱即卸载）
+              const u = await assetUrl(n.data.assetId).catch(() => null);
+              if (u) openLightbox('image', u, n.data.label);
+            },
               })
             : null,
           // 播放时才挂真实 <video>（poster 作为 poster 属性兜底，挂载瞬间也不闪）
           videoPlaying
             ? h('video', {
-                key: 'vid', ref: videoRef, className: 'dshic-media-fill', src: assetUrlV || undefined,
-                poster: posterUrl || undefined, preload: 'metadata', autoPlay: true,
+                key: 'vid', ref: videoRef, className: 'dshic-media-fill', src: playUrl || undefined,
+                poster: posterUrl || undefined, preload: 'auto', autoPlay: true,
                 // 视频控件保留 stopPropagation（拖动/选择不被视频吃掉），单击画面打开生成面板；
                 // 双击画面 = 播放/暂停（原型行为）；播放键自身另行 stopPropagation。
                 onPointerDown: (e) => { e.stopPropagation(); },
@@ -11866,9 +12013,12 @@ body[data-ds-dark-theme] .dshic-pick-item.is-on{background:color-mix(in srgb,var
         done
           ? h('div', { key: 'acts', className: 'dshic-media-foot', 'data-node-foot': '1' },
               h('button', {
-                type: 'button', className: 'dshic-mini is-ghost', disabled: !assetUrlV,
+                type: 'button', className: 'dshic-mini is-ghost', disabled: !done,
                 onPointerDown: (e) => e.stopPropagation(),
-                onClick: async () => downloadBlobFromUrl(assetUrlV, await downloadNameForAsset(n.data.assetId, (kind === 'image' ? 'image' : 'video') + '-' + n.id.slice(-5), kind)),
+                onClick: async () => {
+              const u = await assetUrl(n.data.assetId).catch(() => null);
+              if (u) downloadBlobFromUrl(u, await downloadNameForAsset(n.data.assetId, (kind === 'image' ? 'image' : 'video') + '-' + n.id.slice(-5), kind));
+            },
               }, Ic('download', 11), T('download')),
               h('button', {
                 type: 'button', className: 'dshic-mini is-ghost', disabled: running,
@@ -13393,6 +13543,9 @@ const DIRECTOR_KEY_HELP = [
       // 任何「不影响 scene 但影响画面」的变化（切模式/选中/悬停/显示开关）都必须 bumpView()，
       // 渲染 effect 只认这个 revision → 不再出现「切了模式要等点击画面才刷新」。
       const canvasRef = useRef(null);
+      const dirWheelHandlerRef = useRef(null);   // 最新的滚轮处理器（原生监听转发用）
+      const dirViewportElRef = useRef(null);
+      const dirWheelListenerRef = useRef(null);
       const pipRef = useRef(null);
       const pipGlRef = useRef(null);
       const glRef = useRef(null);
@@ -14910,7 +15063,23 @@ const DIRECTOR_KEY_HELP = [
             h('main', { className: 'dshic-dir-stage' },
               h('div', {
                 className: cls('dshic-dir-viewport', S.directorPendingPlace && 'is-placing', S.directorDragging && 'is-dragging'), 'data-role': 'dir-viewport',
-                onPointerDown: onDown, onPointerMove: onMove, onPointerUp: onUp, onPointerLeave: onUp, onWheel: onWheel,
+                onPointerDown: onDown, onPointerMove: onMove, onPointerUp: onUp, onPointerLeave: onUp,
+            // 原生 non-passive 滚轮：React 的 onWheel 无法 preventDefault（页面会一起缩放）
+            ref: (el) => {
+              dirWheelHandlerRef.current = onWheel;
+              const prev = dirViewportElRef.current;
+              if (prev && prev !== el && dirWheelListenerRef.current) {
+                try { prev.removeEventListener('wheel', dirWheelListenerRef.current); } catch { /* 忽略 */ }
+              }
+              dirViewportElRef.current = el;
+              if (!dirWheelListenerRef.current) {
+                dirWheelListenerRef.current = (ev) => { const fn = dirWheelHandlerRef.current; if (fn) fn(ev); };
+              }
+              if (el) {
+                try { el.removeEventListener('wheel', dirWheelListenerRef.current); } catch { /* 忽略 */ }
+                try { el.addEventListener('wheel', dirWheelListenerRef.current, { passive: false }); } catch { /* 忽略 */ }
+              }
+            },
                 onContextMenu: (e2) => { if (e2 && e2.preventDefault) e2.preventDefault(); },
               },
                 h('canvas', { ref: canvasRef, className: 'dshic-dir-canvas' }),

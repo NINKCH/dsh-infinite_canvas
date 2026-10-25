@@ -78,6 +78,7 @@ const SUITE = [
   { name: 'test-shot-sequence.mjs', desc: '分镜串联：多镜头按时间切换相机（Sequencer Strip 模型）/ 增删 / 退化 / UI 入口' },
   { name: 'test-pose-keys.mjs', desc: '姿态关键帧：poseKeys 线性插值 / 多骨 / 骨骼增删过渡 / 轴约束 X-Y-Z 锁定' },
   { name: 'test-director-ux.mjs', desc: '导演台可用性：白模导出 / MP4优先 / 工作区文件往返 / 脏标记 / gizmo 轴超环+加粗+悬停' },
+  { name: 'test-thumbs.mjs', desc: '缩略图：512 派生图 / 节点只用缩略图 / 原图按需 / 缺失负缓存 / 无常驻合成层 / 滚轮非 passive' },
   { name: 'test-director-e2e.mjs', desc: '浏览器端到端：分镜机位切换/隐藏对象/动画循环/规格往返保真/提示词中英景别/UI入口齐备' },
   { name: 'test-director-preview.mjs', desc: '实时渲染预览=成片：颜色材质/地面·阴影·太阳开关/辅助线不入成片/确定性' },
   { name: 'test-director-gizmo.mjs', desc: 'gizmo 几何/拾取：轴长105px/三轴手柄同形/一次点中/远处容差/尺寸单一来源' },

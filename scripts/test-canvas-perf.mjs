@@ -86,7 +86,8 @@ class FakeVideo {
 }
 class FakeCanvas {
   constructor() { this.width = 0; this.height = 0; }
-  getContext() { return { drawImage: noop }; }
+  // 缩略图生成会先铺底色再画：测试桩要提供 fillStyle/fillRect，否则被当成失败
+  getContext() { return { drawImage: noop, fillRect: noop, fillStyle: '#000' }; }
   toDataURL() { return 'data:image/jpeg;base64,cG9zdGVy'; }
 }
 const documentStub = {
@@ -181,28 +182,29 @@ ok(!!PERF, '未暴露 window.__DSH_IC_PERF__（测试缝隙缺失）');
 {
   const node = { id: 'n-v1', type: 'video', x: 0, y: 0, w: 640, h: 424, data: { assetId: 'v1', label: 'video' } };
   const props = { n: node, kind: 'video', refSig: '' };
-  // hook 序号：0=assetUrl 1=poster 2=posterState 3=mediaState 4=playing 5=ended 6=current 7=duration 8=volume 9=muted
+  // hook 序号：0=thumbUrl 1=playUrl 2=poster 3=posterState 4=mediaState 5=playing 6=ended 7=current 8=duration 9=volume 10=muted
   const renderVideo = (over) => {
-    stateOverrides = Object.assign({ 0: '/api/file?rel=projects/p/video/v1.mp4', 1: '/api/file?rel=projects/p/video/v1.mp4.poster.jpg', 2: 'ready' }, over || {});
+    stateOverrides = Object.assign({ 2: '/api/file?rel=projects/p/video/v1.mp4.poster.jpg', 3: 'ready' }, over || {});
     return allInner(PERF.MediaNodeBodyInner(props));
   };
   let els = renderVideo({});
   ok(els.some((e) => e.type === 'img' && String(e.props.src || '').includes('.poster.jpg')), '空闲视频节点没有渲染 poster <img>');
   ok(!els.some((e) => e.type === 'video'), '空闲视频节点仍挂着 <video>（应只画 poster）');
   ok(!els.some((e) => hasClass(e, 'dshic-media-skeleton')), '有 poster 时不应出现骨架');
-  els = renderVideo({ 4: true });
+  els = renderVideo({ 5: true });
   const vid = els.find((e) => e.type === 'video');
   ok(!!vid, 'playing=true 时没有挂载 <video>');
   ok(vid && String(vid.props.poster || '').includes('.poster.jpg'), '播放中的 <video> 缺少 poster 兜底');
-  ok(vid && vid.props.preload === 'metadata', '播放中的 <video> preload 不是 metadata');
+  ok(vid && vid.props.preload === 'auto', '播放中的 <video> preload 不是 auto');
   ok(vid && typeof vid.props.onDoubleClick === 'function' && typeof vid.props.onClick === 'function', '<video> 双击播放/单击开面板事件丢失');
-  els = renderVideo({ 5: true });
+  els = renderVideo({ 6: true });
   ok(!els.some((e) => e.type === 'video'), '暂停/播完后 <video> 未被卸载（应回到 poster）');
   ok(els.some((e) => hasClass(e, 'dshic-media-play') && hasClass(e, 'is-replay')), '播完后圆形键没有切成重播态');
   const imgNode = { id: 'n-i1', type: 'image', x: 0, y: 0, w: 360, h: 360, data: { assetId: 'i1', label: 'img' } };
-  stateOverrides = { 0: '/api/file?rel=projects/p/image/i1.png', 3: 'ready' };
+  stateOverrides = { 0: '/api/file?rel=projects/p/image/i1.png.thumb.jpg', 4: 'ready' };
   const imgEls = allInner(PERF.MediaNodeBodyInner({ n: imgNode, kind: 'image', refSig: '' }));
-  ok(imgEls.some((e) => e.type === 'img' && !String(e.props.src || '').includes('.poster')), '图片节点未渲染普通 <img>');
+  ok(imgEls.some((e) => e.type === 'img' && String(e.props.src || '').includes('.thumb.jpg')), '图片节点应渲染缩略图 <img>');
+    ok(!imgEls.some((e) => e.type === 'img' && /i1\\.png$/.test(String(e.props.src || ''))), '图片节点不得直接加载原图');
   ok(!els.some((e) => e.type === 'video'), '图片节点不应出现 <video>');
   // 浏览器级可见性裁剪：视口外媒体内容跳过绘制；节点框/端口仍在节点层，不裁端口
   ok(/\.dshic-media-wrap\{[^}]*content-visibility:auto/.test(src), '媒体内容缺少 content-visibility:auto（无可见性裁剪）');
@@ -213,15 +215,15 @@ ok(!!PERF, '未暴露 window.__DSH_IC_PERF__（测试缝隙缺失）');
 {
   const node = { id: 'n-v2', type: 'video', x: 0, y: 0, w: 640, h: 424, data: { assetId: 'v2', label: 'video' } };
   const render = (over) => {
-    stateOverrides = Object.assign({ 0: '/api/file?rel=projects/p/video/v2.mp4' }, over);
+    stateOverrides = Object.assign({}, over);
     return allInner(PERF.MediaNodeBodyInner({ n: node, kind: 'video', refSig: '' }));
   };
-  let els = render({ 1: '/poster.jpg', 2: 'ready' });
+  let els = render({ 2: '/poster.jpg', 3: 'ready' });
   ok(els.some((e) => e.type === 'img' && String(e.props.src) === '/poster.jpg'), 'poster 就绪时没有渲染 poster');
   ok(!els.some((e) => hasClass(e, 'dshic-media-skeleton')), 'poster 就绪时骨架仍在（会闪烁）');
-  els = render({ 1: null, 2: 'loading' });
+  els = render({ 2: null, 3: 'loading' });
   ok(els.some((e) => hasClass(e, 'dshic-media-skeleton')), '无 poster（首次生成中）应显示一次骨架');
-  els = render({ 1: null, 2: 'error' });
+  els = render({ 2: null, 3: 'error' });
   ok(!els.some((e) => hasClass(e, 'dshic-media-skeleton')), 'poster 失败后仍来回显示骨架（闪烁）');
   ok(els.some((e) => hasClass(e, 'dshic-media-placeholder')), 'poster 失败时缺少中性占位');
   ok(/有 poster 即视为就绪/.test(src), '源码未说明 poster 即 ready 的语义');
