@@ -135,6 +135,9 @@ const COVERAGE = [
   { sha: 'f5b5a5b', keys: [/head scaling/i, /smoothstep/i, /neck gap/i, /vertices/i] },
   // 0.19.5 待发：属性面板身高输入 + 引擎版本递增
   { sha: '4573e7a', keys: [/height input/i, /property panel/i, /ENGINE_VERSION/i, /stale/i] },
+  // 0.19.5 待发：CHANGELOG 补记 + 身高断言改为顺序关系
+  { sha: '9d3fd0e', keys: [/height/i, /engine version/i, /changelog/i] },
+  { sha: '8c80735', keys: [/height/i, /ordering/i, /test/i] },
 ];
 for (const c of COVERAGE) {
   ok(c.keys.some((re) => re.test(coverageText)), '未发版提交 ' + c.sha + ' 在 CHANGELOG（Unreleased 或最新已发布段）里找不到对应记录（补记不全）');

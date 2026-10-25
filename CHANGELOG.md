@@ -6,6 +6,8 @@ GitHub Releases carry the same notes in English; maintainer-facing runbooks live
 
 ## [Unreleased]
 
+## [0.19.5] — 2026-10-26
+
 ### Added
 - **Nineteen Mixamo action clips converted from awplanet's FBX set** (idle ×2, walk ×5, run ×5, run-stop, turn ×2, jump, running jump, sit-laugh, dodge-back) and merged into the action library. Conversion is reproducible: `scripts/build-director-actions.mjs` runs FBX2glTF, resamples every track to 30 fps, and zeroes the root node's horizontal translation so an action plays its pose in place while paths and keyframes own the movement. The single-frame "pirate" FBX was dropped — it is a static pose, not an action.
 - **A pose library of 41 entries, including 19 director poses replicated from awplanet's `DIRECTOR_POSE_RECIPES`** (relaxed / contrapposto / alert / lean / crossed arms / hands on hips / sitting ×2 / crouch / kneeling ×2 / prone / supine / point / reach / guard / surrender / hands-on-head / talking) — translated 1:1 from additive Euler recipes to the existing `BONE_POSES` quaternion pipeline, with ground poses carrying `rootY` so lying figures do not sink through the floor. A **Pose dropdown** next to the Action selector exposes the whole library on any selected character.
