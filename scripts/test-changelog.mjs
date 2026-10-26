@@ -114,30 +114,8 @@ if (unrelHasEntries) {
 // OBS-1 硬要求（QA 判据）：清单**手工维护**，绝不从 `git log` 动态生成——动态清单会自证
 // （脚本生成的清单当然自己全中，"缺一必红"退化成摆设）。数量相等 + 逐 sha 关键词命中，两条都拦。
 const COVERAGE = [
-  // 0.19.0 已发布：上一批 7 个未发版提交随该版本进入 main，清单在此清零。
-  // 下一轮从 dev 新建功能提交起，再按提交逐条补记（数量必须与 main..dev 的功能提交数相等）。
-  // 0.19.4 已发布：gizmo 轴心首修（1d800ad）随该版本进入 main，从此清零。
-  // 0.19.5 待发：gizmo 轴心规则最终版（恒物体原点 + 姿态根位移只在骨骼层）
-  { sha: '3efbee5', keys: [/gizmo/i, /object origin/i, /pose root/i, /follow-body/i, /followBody/i] },
-  // 0.19.5 待发：Explorer 模型 + 高饱和体型配色 + 形变带按身高比例
-  { sha: '3950d65', keys: [/explorer/i, /body mesh/i, /saturat/i, /body-shape/i, /mannequin/i, /height-relative/i] },
-  // 0.19.5 待发：体型标志色成为渲染默认（旧对象也着色）
-  { sha: '00e65b7', keys: [/signature colour/i, /mannequin/i, /render fallback/i, /saturat/i, /color/i] },
-  // 0.19.5 待发：UI 修复（下拉/放大/全屏/时间轴）+ 男性模型还原
-  { sha: 'e29bad2', keys: [/muniSelect/i, /zoom/i, /fullscreen/i, /timeline/i, /restore/i, /spacesuit/i, /宇航/i] },
-  // 0.19.5 待发：19 个 Mixamo 动作 + 颈部感知的头部骨骼缩放
-  { sha: '16c9b7b', keys: [/Mixamo action/i, /action clips/i, /head scaling/i, /neck/i, /awplanet/i] },
-  // 0.19.5 待发：缓存资产补动作 + 头部缩放移到骨骼层
-  { sha: 'f18a986', keys: [/cached asset/i, /action library/i, /Head bone/i, /head scaling/i, /bones/i] },
-  // 0.19.5 待发：媒体节点放大/全屏键挪到分辨率条旁
-  { sha: '4aea600', keys: [/resolution chip/i, /zoom/i, /fullscreen/i, /bottom-right/i] },
-  // 0.19.5 待发：头部顶点级缩放（消除头身分离）
-  { sha: 'f5b5a5b', keys: [/head scaling/i, /smoothstep/i, /neck gap/i, /vertices/i] },
-  // 0.19.5 待发：属性面板身高输入 + 引擎版本递增
-  { sha: '4573e7a', keys: [/height input/i, /property panel/i, /ENGINE_VERSION/i, /stale/i] },
-  // 0.19.5 待发：CHANGELOG 补记 + 身高断言改为顺序关系
-  { sha: '9d3fd0e', keys: [/height/i, /engine version/i, /changelog/i] },
-  { sha: '8c80735', keys: [/height/i, /ordering/i, /test/i] },
+  // 0.19.5 已发布（ca31b53 / v0.19.5）：上面全部提交随该版本进入 main，清单在此清零。
+  // 本轮（技能架构体检 + 规格改名）的提交在此补记；数量必须与 main..dev 的功能提交数相等。
 ];
 for (const c of COVERAGE) {
   ok(c.keys.some((re) => re.test(coverageText)), '未发版提交 ' + c.sha + ' 在 CHANGELOG（Unreleased 或最新已发布段）里找不到对应记录（补记不全）');

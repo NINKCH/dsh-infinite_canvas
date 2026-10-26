@@ -12,7 +12,8 @@ import { normalizeSkillProfile } from './index-core-skill-profile.js';
 /** moves 永远随 storyboard/prompt 走（运镜是这两类生成的必需品）。 */
 const MOVES_FOR_KIND = {
   script: [],
-  storyboard: ['camera-moves'],
+  // 分镜要调度动作，运镜 + 打斗节奏两张卡都带；提示词只需运镜。
+  storyboard: ['camera-moves', 'fight-rhythm'],
   prompt: ['camera-moves'],
   assets: [],
 };
@@ -65,11 +66,15 @@ export async function buildSkillPack(opts) {
     const md = readCard(hereDir, 'looks', lookEntry.file);
     if (md) items.push({ layer: 'look', md, meta: lookEntry });
   }
-  for (const mid of (MOVES_FOR_KIND[kind] || [])) {
-    const mv = (inv.moves || []).find((x) => x.id === mid);
-    if (!mv) continue;
-    const md = readMove(hereDir, mv.file);
-    if (md) items.push({ layer: 'moves', md, meta: mv });
+  // 运镜只在「已经有层卡命中」时才跟随注入。
+  // 否则四层全空的项目也会被塞进 5KB 运镜词典 —— 违反「未配置不注入」（老项目零变化）。
+  if (items.length) {
+    for (const mid of (MOVES_FOR_KIND[kind] || [])) {
+      const mv = (inv.moves || []).find((x) => x.id === mid);
+      if (!mv) continue;
+      const md = readMove(hereDir, mv.file);
+      if (md) items.push({ layer: 'moves', md, meta: mv });
+    }
   }
 
   const P = await getPackModule();
@@ -97,15 +102,15 @@ function headLine(kind, profile, inv, zh) {
     return [
       '【画布技能包 · ' + kindLabel(kind) + '】',
       '导演透镜：' + nameOf('lenses', profile.lens) + '　题材：' + (genreNames.join('、') || '—')
-        + '　类型规格：' + nameOf('forms', profile.form) + '　影调：' + (profile.look ? nameOf('looks', profile.look) : '跟随导演'),
-      '优先级：用户显式指令 > 导演透镜 > 类型规格（仅画幅与单镜时长上压过透镜）> 题材 > 影调 > 技能默认。以下为对应切片，写提示词时必须遵守；与本块冲突的通则让位于本块。',
+        + '　规格：' + nameOf('forms', profile.form) + '　影调：' + (profile.look ? nameOf('looks', profile.look) : '跟随导演'),
+      '优先级：用户显式指令 > 导演透镜 > 规格（仅单镜时长与结构上压过透镜；画幅由视频节点生成时决定，不在此列）> 题材 > 影调 > 技能默认。以下为对应切片，写提示词时必须遵守；与本块冲突的通则让位于本块。',
     ].join('\n');
   }
   return [
     '[Canvas skill pack · ' + kindLabel(kind, false) + ']',
     'Director lens: ' + nameOf('lenses', profile.lens) + '  Genre: ' + (genreNames.join(', ') || '-')
-      + '  Delivery form: ' + nameOf('forms', profile.form) + '  Look: ' + (profile.look ? nameOf('looks', profile.look) : 'follow the lens'),
-    'Precedence: explicit user instruction > director lens > delivery form (only aspect and clip length) > genre > look > skill defaults. The slices below are binding; where a generic rule disagrees, this block wins.',
+      + '  Spec: ' + nameOf('forms', profile.form) + '  Look: ' + (profile.look ? nameOf('looks', profile.look) : 'follow the lens'),
+    'Precedence: explicit user instruction > director lens > spec (only clip length and structure; aspect is chosen on the video node at generation time) > genre > look > skill defaults. The slices below are binding; where a generic rule disagrees, this block wins.',
   ].join('\n');
 }
 
@@ -121,14 +126,14 @@ export const SKILL_CATALOG = [
   { name: 'canvas-studio', when: '任何时候先读：建项目 / 写节点 / 触发生成 / 查状态' },
   { name: 'canvas-craft', when: '写剧本或拆分镜前：剧本四要素、分镜六要素、提示词规范' },
   { name: 'canvas-layout', when: '批量建节点前：一类型一列、绝不重叠' },
-  { name: 'canvas-director', when: '写任何提示词前：导演透镜 / 题材 / 类型规格 / 影调 / 运镜，先用 canvas_skill_pack 取切片' },
+  { name: 'canvas-director', when: '写任何提示词前：导演透镜 / 题材 / 规格 / 影调 / 运镜，先用 canvas_skill_pack 取切片' },
 ];
 
 /** 层清单的可读渲染（canvas_list_skills 的正文）。 */
 export function renderInventory(inv, profile, zh) {
   const lines = [];
-  const ZH_LABEL = { lenses: '导演透镜', genres: '叙事题材', industries: '行业题材', forms: '类型规格', looks: '影调质感' };
-  const EN_LABEL = { lenses: 'Director lenses', genres: 'Genres', industries: 'Industries', forms: 'Delivery forms', looks: 'Looks' };
+  const ZH_LABEL = { lenses: '导演透镜', genres: '叙事题材', industries: '行业题材', forms: '规格', looks: '影调质感' };
+  const EN_LABEL = { lenses: 'Director lenses', genres: 'Genres', industries: 'Industries', forms: 'Specs', looks: 'Looks' };
   const L = zh === false ? EN_LABEL : ZH_LABEL;
   for (const layer of ['lenses', 'genres', 'industries', 'forms', 'looks']) {
     const list = (inv && inv[layer]) || [];
@@ -172,7 +177,7 @@ export function renderProfile(profile, inv, zh) {
   }
   return '导演=' + (nameOf('lenses', profile.lens) || '（未选）')
     + '　题材=' + (g.join('、') || '（未选）')
-    + '　类型规格=' + (nameOf('forms', profile.form) || '（未选）')
+    + '　规格=' + (nameOf('forms', profile.form) || '（未选）')
     + '　影调=' + (profile.look ? nameOf('looks', profile.look) : '跟随导演');
 }
 

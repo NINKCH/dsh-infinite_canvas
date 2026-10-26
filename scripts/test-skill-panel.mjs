@@ -33,7 +33,7 @@ const M = parsed.manifest || { lenses: [], genres: [], industries: [], forms: []
 eq(M.lenses.length, 24, '导演透镜数量不对');
 eq(M.genres.length, 21, '叙事题材数量不对');
 eq(M.industries.length, 10, '行业题材数量不对');
-eq(M.forms.length, 8, '类型规格数量不对');
+eq(M.forms.length, 8, '规格数量不对');
 eq(M.looks.length, 9, '影调数量不对');
 
 const NEED = {
@@ -78,9 +78,9 @@ for (const it of M.forms) {
   const spec = P.frontmatterSpec(md);
   ok(Array.isArray(spec.durations) && spec.durations.length, 'form/' + it.id + ': spec.durations 不是非空数组');
   ok(Number.isFinite(spec.asl_floor_s), 'form/' + it.id + ': spec.asl_floor_s 不是数字');
-  // 画幅不属于类型规格：spec.aspect 必须缺席（画幅在视频节点生成时选）
+  // 画幅不属于规格：spec.aspect 必须缺席（画幅在视频节点生成时选）
   ok(spec.aspect === undefined || (Array.isArray(spec.aspect) && spec.aspect.length === 0),
-    'form/' + it.id + ': spec.aspect 存在——类型规格不应锁画幅（画幅由视频生成时选）');
+    'form/' + it.id + ': spec.aspect 存在——规格不应锁画幅（画幅由视频生成时选）');
 }
 for (const it of M.looks) {
   const md = fs.readFileSync(path.join(PACK, 'looks', it.file), 'utf8');
@@ -220,16 +220,17 @@ if (TABS && CRAFT) {
   ok(a.lens !== b.lens, '两个项目的技能配置串了（项目隔离失效）');
   eq(a.genres.join(','), 'crime-police', 'pA 的 genres 未读出');
   eq(b.genres.length, 0, 'pB 的 genres 应为空');
-  lsMap.set(KEY + 'pC', JSON.stringify({ lens: 123, genres: 'not-array', form: null, targetSec: 'abc', look: {} }));
+  lsMap.set(KEY + 'pC', JSON.stringify({ lens: 123, genres: 'not-array', form: null, look: {} }));
   const c = CRAFT.loadSkillProfile('pC');
   eq(c.lens, '', '非法 lens 未回落空串');
   eq(c.genres.length, 0, '非法 genres 未回落空数组');
-  eq(c.form, 'short-drama', '非法 form 未回落默认 short-drama');
-  eq(c.targetSec, 0, '非法 targetSec 未回落 0');
+  // 默认值统一为「未选」（空串），不再回填 short-drama —— 三处 DEFAULT* 必须一致
+  eq(c.form, '', '非法 form 未回落空串（未选）');
   eq(c.look, '', '非法 look 未回落空串');
   const d = CRAFT.loadSkillProfile('never-seen');
   eq(d.lens, '', '无记录时 lens 应空');
-  eq(d.form, 'short-drama', '无记录时 form 应默认');
+  eq(d.form, '', '无记录时 form 应为空（未选，不是 short-drama）');
+  ok(!('targetSec' in d) && !('aspect' in d) && !('platform' in d), '死字段 aspect/targetSec/platform 应已移除');
   CRAFT.saveSkillProfile('pD', { lens: 'nolan', genres: ['wuxia'], form: 'cinematic', look: 'guoman-3d-xianxia' });
   const e2 = CRAFT.loadSkillProfile('pD');
   eq(e2.lens, 'nolan', 'saveSkillProfile 后读回不一致');
@@ -265,7 +266,7 @@ if (TABS && CRAFT) {
   const sk = all(TABS.SkillsTab());
   eq(sk.filter((x) => x.type === 'select').length, 0, '技能页出现 <select>（要求全用瓦片，不许下拉框）');
   const cards = sk.filter((x) => x.type === TABS.SkillCard).map((x) => x.props && x.props.id).filter(Boolean);
-  // 四层：导演 / 题材 / 类型规格 / 影调（「专家」层已按方案 A 移除）
+  // 四层：导演 / 题材 / 规格 / 影调（「专家」层已按方案 A 移除）
   for (const id of ['lens', 'genre', 'form', 'look']) {
     ok(cards.includes(id), '技能页缺少「' + id + '」层卡片');
   }
@@ -282,9 +283,9 @@ if (TABS && CRAFT) {
     return grid ? (grid.props.items || []).length : -1;
   };
   eq(itemCountOf('lens'), M.lenses.length, '导演瓦片数量与 manifest 不一致');
-  eq(itemCountOf('form'), M.forms.length, '类型规格瓦片数量与 manifest 不一致');
+  eq(itemCountOf('form'), M.forms.length, '规格瓦片数量与 manifest 不一致');
   eq(itemCountOf('look'), M.looks.length, '影调瓦片数量与 manifest 不一致');
-  eq(itemCountOf('genre'), M.genres.length, '默认类型规格下题材瓦片应取自叙事题材');
+  eq(itemCountOf('genre'), M.genres.length, '默认规格下题材瓦片应取自叙事题材');
   const GLYPHS = CRAFT.SKILL_GLYPHS;
   ok(!!GLYPHS, '缺少 SKILL_GLYPHS 图标表');
   if (GLYPHS) {
@@ -329,8 +330,10 @@ if (TABS && CRAFT) {
   ok(!/const EXPERTS = \[/.test(src), 'EXPERTS 注册表仍存在（方案 A 应已删除）');
   const runGen = fnSlice('runGenNode');
   ok(!!runGen, '未能定位 runGenNode');
-  const lockCount = (runGen.match(/buildShotLockText\('prompt'\)/g) || []).length;
+  // 图片分支按节点类型选切片（设定图走 assets），视频分支固定 prompt
+  const lockCount = (runGen.match(/buildShotLockText\((?:'prompt'|lockKind)\)/g) || []).length;
   ok(lockCount >= 2, 'buildShotLockText 应同时接在图片分支与视频分支（实际出现 ' + lockCount + ' 次）');
+  ok(/设定图/.test(runGen), '图片分支缺少「设定图 → assets 切片」判定');
   const lockFn = fnSlice('buildShotLockText');
   ok(!!lockFn, '未能定位 buildShotLockText');
   ok(/yamlBlock/.test(lockFn), '风格增强块未使用 yamlBlock 取风格参数');
@@ -339,10 +342,13 @@ if (TABS && CRAFT) {
   ok(/pickSections\(lens/.test(lockFn) || /pickSections\(md, k\)/.test(lockFn), '风格增强块未按能力取透镜切片');
   ok(/影调与材质/.test(lockFn), '风格增强块缺影调的成像与材质内容');
   ok(/常见场面颗粒|参考镜头|视觉母题/.test(lockFn), '风格增强块缺题材的场面颗粒');
-  ok(/类型负向词|交付规格/.test(lockFn), '风格增强块缺类型规格的节奏与负向词');
-  ok(/if \(!profile\.lens && !profile\.look && !\(profile\.genres \|\| \[\]\)\.length\) return '';/.test(lockFn),
-    '风格增强块缺少「全空则不注入」的短路');
-  ok(/if \(!profile\.lens && !\(profile\.genres \|\| \[\]\)\.length && !profile\.look/.test(src),
+  ok(/类型负向词|交付规格/.test(lockFn), '风格增强块缺规格的节奏与负向词');
+  // 短路必须把「规格」算作一层（只选规格时也要注入）
+  ok(/if \(!profile\.lens && !profile\.look && !profile\.form && !\(profile\.genres \|\| \[\]\)\.length\) return '';/.test(lockFn),
+    '风格增强块的短路未包含 form（只选规格时不注入 → 与对话侧分叉）');
+  ok(/const hasAnyLayer = !!\(profile\.lens \|\| profile\.form \|\| profile\.look/.test(src),
+    'buildSkillPackText 的短路未包含 form');
+  ok(/if \(!hasAnyLayer && !o\.force\) return \{ text: '', bytes: 0 \};/.test(src),
     'buildSkillPackText 缺少「四层全空则不注入」的短路（老项目行为会变）');
 }
 
@@ -355,7 +361,7 @@ if (errs.length) {
   process.exit(1);
 }
 console.log('✓ 技能页回归通过：');
-console.log(`  · 数据层：导演 ${M.lenses.length} / 叙事题材 ${M.genres.length} / 行业题材 ${M.industries.length} / 类型规格 ${M.forms.length} / 影调 ${M.looks.length}`);
+console.log(`  · 数据层：导演 ${M.lenses.length} / 叙事题材 ${M.genres.length} / 行业题材 ${M.industries.length} / 规格 ${M.forms.length} / 影调 ${M.looks.length}`);
 console.log('  · 每份卡：必备小节齐全、slice 标记齐全、无外链与第三方来源、无 BOM');
 console.log('  · 切片反向断言：script 不含风格参数 / prompt 不含叙事方法 / assets 不含剪辑节奏；四类切片均 < 全文 80%');
 console.log('  · 技能配置：项目隔离、非法值回落、无记录回落默认、写后读一致');

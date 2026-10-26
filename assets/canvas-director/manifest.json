@@ -462,7 +462,7 @@
    "file": "short-drama.md",
    "glyph": "short-drama",
    "oneliner": "单集或多集的短剧：60-180 秒自足单元，10 秒立钩；按电影标准拍，不是低配",
-   "group": "类型"
+   "group": "规格"
   },
   {
    "id": "cinematic",
@@ -470,7 +470,7 @@
    "file": "cinematic.md",
    "glyph": "cinematic",
    "oneliner": "电影质感规格（不是长片）：每镜都要过电影线——动机光、真材质、成立景深",
-   "group": "类型"
+   "group": "规格"
   },
   {
    "id": "commercial",
@@ -478,7 +478,7 @@
    "file": "commercial.md",
    "glyph": "commercial",
    "oneliner": "宣传片 / 广告片 / 产品片合一：一条片只承诺一件事，证据必须看得见",
-   "group": "类型"
+   "group": "规格"
   },
   {
    "id": "documentary",
@@ -486,7 +486,7 @@
    "file": "documentary.md",
    "glyph": "documentary",
    "oneliner": "可信优先于好看：现场光、真环境音、允许承认不知道",
-   "group": "类型"
+   "group": "规格"
   },
   {
    "id": "music-video",
@@ -494,7 +494,7 @@
    "file": "music-video.md",
    "glyph": "music-video",
    "oneliner": "节奏单位是拍不是秒：切点对齐 BPM，全片必有一次「停」",
-   "group": "类型"
+   "group": "规格"
   },
   {
    "id": "trailer",
@@ -502,7 +502,7 @@
    "file": "trailer.md",
    "glyph": "trailer",
    "oneliner": "设局—加压—爆发—按钮：只给一个信息，藏住结局",
-   "group": "类型"
+   "group": "规格"
   },
   {
    "id": "explainer",
@@ -510,7 +510,7 @@
    "file": "explainer.md",
    "glyph": "explainer",
    "oneliner": "一块屏一条信息：语速 4.5-6.5 字/秒，画面必须与旁白同步",
-   "group": "类型"
+   "group": "规格"
   },
   {
    "id": "interview",
@@ -518,7 +518,7 @@
    "file": "interview.md",
    "glyph": "interview",
    "oneliner": "脸与话是全部资产：ASL 8-20 秒，犹豫和沉默都要留着",
-   "group": "类型"
+   "group": "规格"
   }
  ],
  "looks": [

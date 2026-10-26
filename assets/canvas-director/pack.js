@@ -9,7 +9,7 @@
  *    标记缺失时回落到纯标题匹配（保证「复制过来就能用」的鲁棒性）。
  *
  * 术语：kind = 生成能力（script / storyboard / prompt / assets），
- *       layer = 数据层（lens 导演 / genre 叙事题材 / industry 行业题材 / form 类型规格 / look 影调 / moves 运镜）。
+ *       layer = 数据层（lens 导演 / genre 叙事题材 / industry 行业题材 / form 规格 / look 影调 / moves 运镜）。
  */
 
 /** Markdown 里 slice 标记的格式：`<!-- slice:story prompt -->`（一个标记可声明归属多个能力）。 */
@@ -49,7 +49,7 @@ export const SECTION_DEFAULT_SLICE = {
   '常见承诺': 'story prompt',
   '禁项': 'prompt',
   '参考镜头': 'prompt',
-  // 类型规格卡
+  // 规格卡
   '交付规格': 'story shot prompt',
   '结构块': 'story',
   '这个类型的观众契约': 'story shot',
@@ -288,6 +288,9 @@ export function buildPackText(kind, items, opts) {
     blocks.push({ title: layerLabel(it.layer, zh) + '：' + name + (meta.oneliner ? ' —— ' + meta.oneliner : ''), body });
     used.push({ layer: it.layer, id: meta.id || '', bytes: utf8Bytes(body) });
   }
+  // 一条切片都没切出来 → 返回空：否则调用方只会拿到一段光秃秃的头部
+  // （典型场景：kind=assets 时某层没有 assets 小节，不该产出「只有标题」的空壳）。
+  if (!blocks.length) return { text: '', bytes: 0, used: [] };
   const head = o.head || '';
   const r = composePackText(blocks, { head });
   return { text: r.text, bytes: r.bytes, used };
@@ -295,8 +298,8 @@ export function buildPackText(kind, items, opts) {
 
 /** 层的中文标签。 */
 export function layerLabel(layer, zh) {
-  const ZH = { lens: '导演透镜', genre: '题材', industry: '行业题材', form: '类型规格', look: '影调', moves: '运镜与节奏' };
-  const EN = { lens: 'Director lens', genre: 'Genre', industry: 'Industry', form: 'Delivery form', look: 'Look', moves: 'Camera & rhythm' };
+  const ZH = { lens: '导演透镜', genre: '题材', industry: '行业题材', form: '规格', look: '影调', moves: '运镜与节奏' };
+  const EN = { lens: 'Director lens', genre: 'Genre', industry: 'Industry', form: 'Spec', look: 'Look', moves: 'Camera & rhythm' };
   const m = zh === false ? EN : ZH;
   return m[layer] || layer;
 }
@@ -305,10 +308,7 @@ export function layerLabel(layer, zh) {
 export const DEFAULT_PROFILE = {
   lens: '',
   genres: [],
-  form: 'short-drama',
-  aspect: '',
-  targetSec: 0,
-  platform: '',
+  form: '',
   look: '',
   genreMode: 'auto',
 };
@@ -328,14 +328,10 @@ export function normalizeProfile(raw, allowed) {
       .filter((x) => !Array.isArray(a.genres) || !a.genres.length || a.genres.includes(x))
       .slice(0, 12)
     : [];
-  const sec = Number(b.targetSec);
   return {
     lens: pick(b.lens, a.lenses),
     genres,
     form: pick(b.form, a.forms) || DEFAULT_PROFILE.form,
-    aspect: pick(b.aspect, a.aspects),
-    targetSec: Number.isFinite(sec) && sec > 0 ? Math.round(sec) : 0,
-    platform: pick(b.platform, a.platforms),
     look: pick(b.look, a.looks),
     genreMode: (b.genreMode === 'narrative' || b.genreMode === 'industry') ? b.genreMode : 'auto',
   };

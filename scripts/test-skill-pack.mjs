@@ -67,7 +67,7 @@ const run = async (name, args) => {
   eq(inv.lenses.length, 24, 'loader.packInventory: 导演数量不对');
   eq(inv.genres.length, 21, 'loader.packInventory: 叙事题材数量不对');
   eq(inv.industries.length, 10, 'loader.packInventory: 行业题材数量不对');
-  eq(inv.forms.length, 8, 'loader.packInventory: 类型规格数量不对');
+  eq(inv.forms.length, 8, 'loader.packInventory: 规格数量不对');
   eq(inv.looks.length, 9, 'loader.packInventory: 影调数量不对');
   // 所有条目都可用（文件都在）
   for (const layer of ['lenses', 'genres', 'industries', 'forms', 'looks']) {
@@ -102,7 +102,7 @@ let skillList = [];
       'canvas-director: 必须 modelInvocable + userInvocable');
     const got = await p.get(dir, {});
     ok(typeof got.content === 'string' && got.content.length > 2000, 'canvas-director: 正文过短');
-    for (const k of ['导演透镜', '题材', '类型规格', '影调', 'canvas_skill_pack', '13']) {
+    for (const k of ['导演透镜', '题材', '规格', '影调', 'canvas_skill_pack', '13']) {
       ok(String(got.content).includes(k), 'canvas-director 正文缺关键内容「' + k + '」');
     }
     ok(got.rank === undefined && got.locator === undefined, 'canvas-director: get() 应剥离 rank/locator');
@@ -140,7 +140,7 @@ let pid = null;
   for (const k of ['canvas-studio', 'canvas-craft', 'canvas-layout', 'canvas-director']) {
     ok(text.includes(k), 'canvas_list_skills 未列出技能 ' + k);
   }
-  for (const k of ['导演透镜', '叙事题材', '行业题材', '类型规格', '影调质感', '运镜与节奏']) {
+  for (const k of ['导演透镜', '叙事题材', '行业题材', '规格', '影调质感', '运镜与节奏']) {
     ok(text.includes(k), 'canvas_list_skills 未列出层 ' + k);
   }
   // 清单应带 id=名称 形态，至少能点到几个已知 id
@@ -217,7 +217,7 @@ let pid = null;
     ok(/导演=王家卫/.test(String(after.text)), '临时覆盖污染了项目配置（应只在本次生效）');
   }
 
-  // D8 行业题材可当题材用（商业类型规格场景）
+  // D8 行业题材可当题材用（商业规格场景）
   {
     const r = await run('canvas_skill_pack', { projectId: pid, kind: 'prompt', form: 'commercial', genres: ['tech'] });
     ok(r && r.ok, '行业题材切片失败');
@@ -231,6 +231,46 @@ let pid = null;
 // ============================================================
 try { fs.rmSync(SANDBOX, { recursive: true, force: true }); } catch { /* 清理失败不影响 */ }
 
+
+// ── 本次修复的回归断言（技能架构体检） ──
+{
+  const { buildSkillPack } = await import(pathToFileURL(path.join(ROOT, "skill-pack.js")).href);
+  const onlyForm = { lens: "", genres: [], form: "cinematic", look: "" };
+  // A) 只选规格 → 每个 kind 都必有内容（script/storyboard/prompt；assets 该规格无 assets 切片则为空）
+  for (const kind of ["script", "storyboard", "prompt"]) {
+    const r = await buildSkillPack({ kind, profile: onlyForm, hereDir: ROOT, zh: true });
+    ok(r.bytes > 500, "只选规格时 kind=" + kind + " 应注入（实际 " + r.bytes + " 字节）—— 画布与对话侧会分叉");
+  }
+  // B) 四层全空 → 全空（老项目零变化；运镜也不许单独注入）
+  const emptyProfile = { lens: "", genres: [], form: "", look: "" };
+  for (const kind of ["script", "storyboard", "prompt", "assets"]) {
+    const r = await buildSkillPack({ kind, profile: emptyProfile, hereDir: ROOT, zh: true });
+    ok(r.bytes === 0 && !r.text, "四层全空时 kind=" + kind + " 必须为 0 字节（实际 " + r.bytes + "）");
+  }
+  // C) 三处默认值一致（都是空串）
+  {
+    const packMod = await import(pathToFileURL(path.join(ROOT, "assets/canvas-director/pack.js")).href);
+    const coreMod = await import(pathToFileURL(path.join(ROOT, "index-core-skill-profile.js")).href);
+    ok(packMod.DEFAULT_PROFILE.form === "", "pack.js DEFAULT_PROFILE.form 应为空");
+    ok(coreMod.DEFAULT_SKILL_PROFILE.form === "", "index-core DEFAULT_SKILL_PROFILE.form 应为空");
+  }
+  // D) assets 切片无内容时不吐「只有头部」的空壳
+  {
+    const r = await buildSkillPack({ kind: "assets", profile: onlyForm, hereDir: ROOT, zh: true });
+    ok(r.bytes === 0, "assets kind 在没有 assets 切片时必须返回 0 字节（实际 " + r.bytes + "）");
+  }
+  // E) 分镜链路带打斗节奏卡；提示词只带运镜
+  {
+    const sb = await buildSkillPack({ kind: "storyboard", profile: onlyForm, hereDir: ROOT, zh: true });
+    ok(sb.used.some((u) => u.layer === "moves"), "分镜链路应注入运镜/节奏卡");
+    ok(sb.bytes > 0 && /打斗|节奏/.test(sb.text), "分镜链路应含打斗节奏内容");
+  }
+  // F) 工具层 kind 白名单（源码级：非法 kind 必须抛错而不是静默出空切片）
+  {
+    const idxSrc = fs.readFileSync(path.join(ROOT, "index.js"), "utf8");
+    ok(/kind 必须是 script \/ storyboard \/ prompt \/ assets/.test(idxSrc), "canvas_skill_pack 缺少 kind 白名单校验");
+  }
+}
 if (errs.length) {
   console.error(`✗ 技能包 Host 侧回归失败（${errs.length} 项）：`);
   for (const e of errs) console.error('  - ' + e);

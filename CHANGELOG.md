@@ -6,6 +6,25 @@ GitHub Releases carry the same notes in English; maintainer-facing runbooks live
 
 ## [Unreleased]
 
+### Added
+- **The panel now reads the skill configuration back from the project document.** `canvas_skill_pack({set:true})` from the chat side used to write the document while the panel kept showing its own `localStorage` copy — the "both sides share one source" claim only held in one direction. `mergeHostDoc` now compares `skillUpdatedAt` and writes the newer configuration back to the panel, mirroring how the series bible already syncs.
+- **Asset-sheet nodes get their own slice.** Image nodes whose label ends in 设定图 (created by `assetSheetNodeSpec`) now take the `assets` slice instead of the generic prompt slice — imaging and material only, no storyboard or editing rules. Detection failure falls back to the prompt slice.
+- **The fight-rhythm card is finally injected.** `moves` shipped two cards but only `camera-moves` was ever read; the storyboard path now carries `fight-rhythm` as well, on both the Host and client sides.
+
+### Changed
+- **「类型规格」is now「规格」** (English: "Delivery form" → "Spec") across the UI, Host tool descriptions, skill text and both user guides — 81 occurrences over 13 files. Code identifiers (`forms` / `form` / `skillForm`) are untouched, so stored configurations stay valid.
+- **All three skill-profile default sets now agree the form is unset.** `pack.js`, `index-core-skill-profile.js` and the client previously disagreed (`'short-drama'` vs `''` vs `'short-drama'`), which meant the two sides had different ideas of "nothing configured".
+- **Dead profile fields removed** — `aspect`, `targetSec` and `platform` had no UI controls and stopped meaning anything once the spec stopped deciding aspect.
+
+### Fixed
+- **Selecting only a spec injected nothing on the canvas side.** `buildSkillPackText` and `buildShotLockText` short-circuited on `lens`/`genres`/`look` but not `form`, so a project configured with just a spec got 0 bytes on every canvas path while `canvas_skill_pack` returned 4.7–9 KB — the two sides wrote against different rules. Verified: form-only now yields 4727 / 9087 / 7934 bytes for script / storyboard / prompt, and a fully empty profile still yields 0.
+- **An unconfigured project was still injected with 5.5 KB of camera moves on the Host side** — the moves loop ran before the empty check, so `storyboard` and `prompt` always carried `camera-moves` even with all four layers empty. Moves are now only added once a layer card has resolved.
+- **A kind with no matching slice returned a header-only shell** — `assets` for a spec with no assets sections produced 365 bytes of pure header. `buildPackText` now returns empty when no section survives slicing.
+- **`canvas_skill_pack` accepted any `kind`** — `{kind:'nonsense'}` returned 「【画布技能包 · nonsense】」plus empty slices. The tool now rejects anything outside the four documented kinds.
+
+### Internal
+- New regression assertions in `test-skill-pack.mjs`: spec-only configuration must inject on all three generation kinds, a fully empty profile must inject nothing (moves included), the three default sets must agree on an unset spec, the assets kind must return empty rather than a header-only shell, the storyboard path must carry the fight-rhythm card, and the tool source must validate `kind`.
+
 ## [0.19.5] — 2026-10-26
 
 ### Added
