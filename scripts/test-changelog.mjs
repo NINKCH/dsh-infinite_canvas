@@ -115,7 +115,8 @@ if (unrelHasEntries) {
 // （脚本生成的清单当然自己全中，"缺一必红"退化成摆设）。数量相等 + 逐 sha 关键词命中，两条都拦。
 const COVERAGE = [
   // 0.19.5 已发布（ca31b53 / v0.19.5）：上面全部提交随该版本进入 main，清单在此清零。
-  // 本轮（技能架构体检 + 规格改名）的提交在此补记；数量必须与 main..dev 的功能提交数相等。
+  // 本轮（技能架构体检 + 规格改名）：
+  { sha: '4f92f17', keys: [/spec-only/i, /form-only/i, /two-way/i, /skillProfile/i, /kind whitelist/i, /fight-rhythm/i, /assets slice/i, /renamed/i] },
 ];
 for (const c of COVERAGE) {
   ok(c.keys.some((re) => re.test(coverageText)), '未发版提交 ' + c.sha + ' 在 CHANGELOG（Unreleased 或最新已发布段）里找不到对应记录（补记不全）');
