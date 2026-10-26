@@ -21,6 +21,7 @@ GitHub Releases carry the same notes in English; maintainer-facing runbooks live
 - **An unconfigured project was still injected with 5.5 KB of camera moves on the Host side** — the moves loop ran before the empty check, so `storyboard` and `prompt` always carried `camera-moves` even with all four layers empty. Moves are now only added once a layer card has resolved.
 - **A kind with no matching slice returned a header-only shell** — `assets` for a spec with no assets sections produced 365 bytes of pure header. `buildPackText` now returns empty when no section survives slicing.
 - **`canvas_skill_pack` accepted any `kind`** — `{kind:'nonsense'}` returned 「【画布技能包 · nonsense】」plus empty slices. The tool now rejects anything outside the four documented kinds.
+- **A `readSkillPack` RPC shipped with no consumer.** The client reads card files over the static `plugin-asset` HTTP route and the chat side loads skills through the skills service, so the RPC (with its whole path-whitelist guard) was a second channel nobody called. Removed; its path-boundary tests now target the loader directly.
 
 ### Internal
 - New regression assertions in `test-skill-pack.mjs`: spec-only configuration must inject on all three generation kinds, a fully empty profile must inject nothing (moves included), the three default sets must agree on an unset spec, the assets kind must return empty rather than a header-only shell, the storyboard path must carry the fight-rhythm card, and the tool source must validate `kind`.
