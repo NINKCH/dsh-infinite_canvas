@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * 技能包 Host 侧回归：
- *   A) readSkillPack 白名单（越界/非法扩展名/绝对路径/超大 一律抛错）
+ *   A) 卡文件路径边界（越界/非法扩展名/绝对路径/超大 一律抛错；RPC 通道已移除，client 走静态 HTTP）
  *   B) 技能注册表含 canvas-director（4 份，可枚举、可加载、正文含四层关键词）
  *   C) canvas_list_skills：4 份技能 + 四层清单 + 项目配置
  *   D) canvas_skill_pack：四档切片、set:true 写进项目文档并可读回、非法 id 回落

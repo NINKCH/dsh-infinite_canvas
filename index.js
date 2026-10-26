@@ -3264,25 +3264,7 @@ export function apply(ctx) {
           text: String(text ?? ((def && typeof def === 'object') ? JSON.stringify(def) : '')).slice(0, 80000),
         };
       },
-      /** 读 canvas-director 技能包里的任意卡文件（Client 侧切片用）。
-       *  安全：白名单前缀 + 禁 `..` + 禁绝对路径/盘符 + 只许 .md/.js/.json + 落在包目录内 + ≤256KB。 */
-      async readSkillPack(args) {
-        const rel = String((args && args.rel) || '').replace(/\\/g, '/').replace(/^\/+/, '').trim();
-        if (!rel) throw new Error('缺少 rel');
-        if (rel.includes('..')) throw new Error('非法路径: ' + rel);
-        if (/^[a-z]:/i.test(rel) || rel.startsWith('/')) throw new Error('非法路径: ' + rel);
-        if (!/^canvas-director\/(?:[A-Za-z0-9_.\-\u4e00-\u9fa5]+\/)*[A-Za-z0-9_.\-\u4e00-\u9fa5]+\.(?:md|js|json)$/.test(rel)) {
-          throw new Error('非法路径: ' + rel + '（只允许 canvas-director 下的 .md/.js/.json）');
-        }
-        const baseDir = path.join(HERE, 'assets', 'canvas-director');
-        const abs = path.resolve(path.join(HERE, 'assets', rel));
-        if (abs !== baseDir && !abs.startsWith(baseDir + path.sep)) throw new Error('路径越界: ' + rel);
-        let st;
-        try { st = statSync(abs); } catch { throw new Error('文件不存在: ' + rel); }
-        if (!st.isFile()) throw new Error('不是文件: ' + rel);
-        if (st.size > 256 * 1024) throw new Error('文件过大: ' + rel + '（>' + (256 * 1024) + 'B）');
-        return { rel, text: readFileSync(abs, 'utf8'), bytes: st.size };
-      },
+      
     };
 
     const toolDisposers = [];
