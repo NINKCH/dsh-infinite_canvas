@@ -96,7 +96,7 @@ Assets are shared with the canvas: the characters, trees, furniture and building
 
 Full walkthrough — asset tabs, gizmo, keyboard map, shots and export: **[User guide → 3D Director Stage](./docs/guide.en.md#8-3d-director-stage)**.
 
-## Craft page: director / genre / delivery form / look
+## Craft page: director / genre / spec / look
 
 The third tab of the right sidebar decides **how the whole piece is shot**. It is not a prompt template — it is a binding constraint that gets composed into every script, storyboard, image and video generation. **There are no dropdowns on the page**: every option is an icon tile; click to select, click again to clear.
 
@@ -106,12 +106,12 @@ The third tab of the right sidebar decides **how the whole piece is shot**. It i
 |---|---|---|---|
 | **Director** | 24 | Camera language, lighting, cutting rhythm, style parameters | It constrains the shot's camera fields, the keyframe, and the video's camera move at once — the least replaceable decision in the whole piece |
 | **Genre** | 21 narrative / 10 sector | Pressure mechanics, audience payoff, scene granules, episode hooks | The same "revenge" premise is fragmented neon under Wong Kar-wai and hard-lit slow motion under Tsui Hark; folding them together poisons both |
-| **Delivery form** | 8 | Structure blocks, ASL floor, rhythm, quality bar | It decides "short drama vs cinematic texture vs commercial", which is orthogonal to genre |
+| **Spec** | 8 | Structure blocks, ASL floor, rhythm, quality bar | It decides "short drama vs cinematic texture vs commercial", which is orthogonal to genre |
 | **Look** | 9 | Imaging base, material, render texture | 2D thick paint / guoman 3D / game CG are imaging domains, not directors; mixing them into the director layer makes "how to cut" fight "what it looks like" |
 
 **Directors (24)**: Chinese 8 (Wong Kar-wai, Zhang Yimou, Hou Hsiao-hsien, Bi Gan, Tsui Hark, Lu Yang, Yuen Woo-ping, Wu Ershan) · Japan/Korea 2 (Kurosawa, Park Chan-wook) · Western 14 (Spielberg, Hitchcock, Kubrick, Scorsese, Fellini, Bergman, Tarkovsky, Nolan, Villeneuve, Fincher, Refn, Malick, Michael Mann, Coen Brothers).
 
-**Delivery forms (8)**: Short drama · Cinematic texture · Commercial · Documentary · Music video · Trailer · Explainer · Interview.
+**Specs (8)**: Short drama · Cinematic texture · Commercial · Documentary · Music video · Trailer · Explainer · Interview.
 
 - A **short drama** is a self-contained 60–180 s unit and **covers both single episodes and multi-episode series** — a series is just episode after episode, so there is no separate "series" form.
 - **Cinematic texture** is a *texture* spec, not a feature-length one: it constrains how each shot must be made to read as cinema (ASL floor 1.5 s, 24 fps, motivated light, real materials), and its duration tiers stop at 30–300 s. The reason is practical — **a video model emits only 3–8 s per clip** (5 s by default here), so "a 120-minute film" can only be hundreds of clips stitched together.
@@ -119,7 +119,7 @@ The third tab of the right sidebar decides **how the whole piece is shot**. It i
 
 ### Aspect ratio is not decided here
 
-Vertical, horizontal, square or widescreen all work with any delivery form — **aspect and resolution are chosen on the video node at generation time**. Vertical delivery is common for short drama, but that is a distribution choice, not a craft spec; **a short drama can equally be shot horizontal and to a cinematic standard**.
+Vertical, horizontal, square or widescreen all work with any spec — **aspect and resolution are chosen on the video node at generation time**. Vertical delivery is common for short drama, but that is a distribution choice, not a craft spec; **a short drama can equally be shot horizontal and to a cinematic standard**.
 
 ### Where it is injected
 

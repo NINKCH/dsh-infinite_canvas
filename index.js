@@ -934,7 +934,7 @@ function normalizeBible(raw) {
   };
 }
 /**
- * 技能配置（四层：导演透镜 / 题材 / 类型规格 / 影调）字段规范化。
+ * 技能配置（四层：导演透镜 / 题材 / 规格 / 影调）字段规范化。
  * 实现搬进 index-core-skill-profile.js（skill-pack.js 也要引用，避免循环依赖）。
  */
 /**
@@ -1299,7 +1299,7 @@ async function projectsPut(args) {
     out.bible = prev.bible;
     out.bibleUpdatedAt = prev.bibleUpdatedAt || 0;
   }
-  // 技能配置（四层：导演/题材/类型规格/影调）同样是项目级，与设定集同一套同步语义
+  // 技能配置（四层：导演/题材/规格/影调）同样是项目级，与设定集同一套同步语义
   let canvasSkillProfile = null;
   if (canvasId) {
     const projectDoc = readDocOrNull(id) || {};
@@ -1618,7 +1618,7 @@ function nextNodePos(doc, type, connectFromId, size) {
 }
 // ---------- 内置技能（操作规程 + 创作方法论，约束并提升对话的画布创作）----------
 // canvas-studio＝操作硬约束；canvas-craft＝剧本/分镜/提示词创作方法论；canvas-layout＝节点布局纪律；
-// canvas-director＝导演透镜/题材/类型规格/影调/运镜（创作控制层，按生成能力切片注入）
+// canvas-director＝导演透镜/题材/规格/影调/运镜（创作控制层，按生成能力切片注入）
 const SKILL_NAMES = ['canvas-studio', 'canvas-craft', 'canvas-layout', 'canvas-director'];
 // = @deepseek-ai/dsh-skill 的 BUNDLED_SKILL_RANK（避免 import DSH 包；registry 要求 rank 必须是有限数字）
 const SKILL_RANK = 600;
@@ -3264,25 +3264,7 @@ export function apply(ctx) {
           text: String(text ?? ((def && typeof def === 'object') ? JSON.stringify(def) : '')).slice(0, 80000),
         };
       },
-      /** 读 canvas-director 技能包里的任意卡文件（Client 侧切片用）。
-       *  安全：白名单前缀 + 禁 `..` + 禁绝对路径/盘符 + 只许 .md/.js/.json + 落在包目录内 + ≤256KB。 */
-      async readSkillPack(args) {
-        const rel = String((args && args.rel) || '').replace(/\\/g, '/').replace(/^\/+/, '').trim();
-        if (!rel) throw new Error('缺少 rel');
-        if (rel.includes('..')) throw new Error('非法路径: ' + rel);
-        if (/^[a-z]:/i.test(rel) || rel.startsWith('/')) throw new Error('非法路径: ' + rel);
-        if (!/^canvas-director\/(?:[A-Za-z0-9_.\-\u4e00-\u9fa5]+\/)*[A-Za-z0-9_.\-\u4e00-\u9fa5]+\.(?:md|js|json)$/.test(rel)) {
-          throw new Error('非法路径: ' + rel + '（只允许 canvas-director 下的 .md/.js/.json）');
-        }
-        const baseDir = path.join(HERE, 'assets', 'canvas-director');
-        const abs = path.resolve(path.join(HERE, 'assets', rel));
-        if (abs !== baseDir && !abs.startsWith(baseDir + path.sep)) throw new Error('路径越界: ' + rel);
-        let st;
-        try { st = statSync(abs); } catch { throw new Error('文件不存在: ' + rel); }
-        if (!st.isFile()) throw new Error('不是文件: ' + rel);
-        if (st.size > 256 * 1024) throw new Error('文件过大: ' + rel + '（>' + (256 * 1024) + 'B）');
-        return { rel, text: readFileSync(abs, 'utf8'), bytes: st.size };
-      },
+      
     };
 
     const toolDisposers = [];
@@ -3818,7 +3800,7 @@ export function apply(ctx) {
         // ── 技能包：把「本插件有哪些技能、各管什么」和「当前该按什么口径写提示词」交给对话侧 ──
         reg({
           name: 'canvas_list_skills',
-          description: '列出本插件（无限画布）提供的全部技能，以及技能包（导演透镜 / 题材 / 类型规格 / 影调 / 运镜）的完整清单和当前项目的已选配置。【开始任何画布创作前先调它】：它会告诉你写剧本、分镜、图片提示词、视频提示词各自该加载哪份技能、可用哪些透镜与题材，随后用 canvas_skill_pack 取切片。',
+          description: '列出本插件（无限画布）提供的全部技能，以及技能包（导演透镜 / 题材 / 规格 / 影调 / 运镜）的完整清单和当前项目的已选配置。【开始任何画布创作前先调它】：它会告诉你写剧本、分镜、图片提示词、视频提示词各自该加载哪份技能、可用哪些透镜与题材，随后用 canvas_skill_pack 取切片。',
           parameters: {
             type: 'object',
             properties: { projectId: { type: 'string', description: '可选：项目 id（给出时一并返回该项目的已选配置）' } },
@@ -3847,7 +3829,7 @@ export function apply(ctx) {
         });
         reg({
           name: 'canvas_skill_pack',
-          description: '按生成能力取「导演透镜 + 题材 + 类型规格 + 影调 + 运镜」的已拼装切片，用于写剧本（script）/ 分镜（storyboard）/ 图片与视频提示词（prompt）/ 角色场景道具设定图（assets）。返回切片全文、字节数与生效配置，可直接拼进你的系统提示或提示词。【这是让对话写出的内容与画布自生成保持同一口径的唯一入口】；也可以用 lens/genres/form/look 临时覆盖，或传 set:true 把配置写进项目（与画布 UI 选择同源）。',
+          description: '按生成能力取「导演透镜 + 题材 + 规格 + 影调 + 运镜」的已拼装切片，用于写剧本（script）/ 分镜（storyboard）/ 图片与视频提示词（prompt）/ 角色场景道具设定图（assets）。返回切片全文、字节数与生效配置，可直接拼进你的系统提示或提示词。【这是让对话写出的内容与画布自生成保持同一口径的唯一入口】；也可以用 lens/genres/form/look 临时覆盖，或传 set:true 把配置写进项目（与画布 UI 选择同源）。',
           parameters: {
             type: 'object',
             properties: {
@@ -3855,7 +3837,7 @@ export function apply(ctx) {
               kind: { type: 'string', enum: ['script', 'storyboard', 'prompt', 'assets'], description: '生成能力：script=剧本，storyboard=分镜，prompt=图片/视频提示词，assets=资产设定图。缺省 script' },
               lens: { type: 'string', description: '可选：临时覆盖导演透镜 id（见 canvas_list_skills）' },
               genres: { type: 'array', items: { type: 'string' }, description: '可选：临时覆盖题材 id 数组（叙事题材与行业题材都可）' },
-              form: { type: 'string', description: '可选：临时覆盖类型规格 id' },
+              form: { type: 'string', description: '可选：临时覆盖规格 id' },
               look: { type: 'string', description: '可选：临时覆盖影调 id；传空串表示跟随导演' },
               set: { type: 'boolean', description: '可选：true = 把本次生效的配置写进项目（之后画布自生成也用同一套）' },
             },
@@ -3878,6 +3860,9 @@ export function apply(ctx) {
             if (args.look !== undefined) override.look = args.look;
             const merged = normalizeSkillProfile({ ...base, ...override }, allow);
             const kind = String((args && args.kind) || 'script');
+            if (!['script', 'storyboard', 'prompt', 'assets'].includes(kind)) {
+              throw new Error('kind 必须是 script / storyboard / prompt / assets，收到：' + kind);
+            }
             const built = await buildSkillPack({ kind, profile: merged, hereDir: HERE, zh: true });
             if (args.set) {
               doc.skillProfile = merged;

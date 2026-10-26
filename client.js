@@ -1289,8 +1289,8 @@ window.__ModuleLoader__.load({
       'skillGenre': "题材",
       'skillIndustry': "行业题材",
       'skillGenreHint': "决定压力机制与观众回报，可多选",
-      'skillIndustryHint': "按类型规格自动切换为行业题材，可多选",
-      'skillForm': "类型规格",
+      'skillIndustryHint': "按规格自动切换为行业题材，可多选",
+      'skillForm': "规格",
       'skillFormHint': "决定结构块、节奏与质量档；画幅在视频生成时选",
       'skillLook': "影调",
       'skillLookHint': "成像与材质质感；不选则跟随导演",
@@ -2214,8 +2214,8 @@ window.__ModuleLoader__.load({
       'skillGenre': "Genre",
       'skillIndustry': "Sector",
       'skillGenreHint': "Sets pressure mechanics and audience payoff; multi-select",
-      'skillIndustryHint': "Switches to sector cards for this delivery form; multi-select",
-      'skillForm': "Form",
+      'skillIndustryHint': "Switches to sector cards for this spec; multi-select",
+      'skillForm': "Spec",
       'skillFormHint': "Sets structure, rhythm and quality bar; aspect is chosen at video generation",
       'skillLook': "Look",
       'skillLookHint': "Imaging and material texture; leave empty to follow the director",
@@ -7833,6 +7833,17 @@ function queueThumb(assetId) {
         saveBibleLocal(pid, full.bible);
         if (full.bibleUpdatedAt) lsSet(LS_BIBLE_SYNC + pid, full.bibleUpdatedAt);
       }
+      // 技能配置随项目文档一起回写：对话侧用 canvas_skill_pack set:true 改的配置，
+      // 面板要能看见（否则「两端同源」只成立一半）。比本地戳新才覆盖，防面板刚改的被旧副本冲掉。
+      if (full.skillProfile && typeof full.skillProfile === 'object') {
+        const hostTs = Number(full.skillUpdatedAt) || 0;
+        const localTs = Number(lsGet(LS_SKILL_SYNC + pid, 0)) || 0;
+        if (hostTs > localTs) {
+          saveSkillProfileLocal(pid, loadSkillProfileFromRaw(full.skillProfile));
+          if (hostTs) lsSet(LS_SKILL_SYNC + pid, String(hostTs));
+          if (pid === S.activeId) update((s) => { s.skillsTick = (s.skillsTick || 0) + 1; });
+        }
+      }
       if (isActiveCanvas) update((s) => { s.graph = { nodes, edges: keep, view: s.graph.view, tombstones: tombOut, edgeTombstones: local.edgeTombstones || [] }; s.assetsTick++; });
     }
     async function hostSyncTick() {
@@ -8295,7 +8306,7 @@ function queueThumb(assetId) {
      * 统一的创作上下文：剧本 / 分镜 / 设定集 / 图片与视频提示词都从这里取。
      * 两块内容，缺一不可：
      *   ① rules   —— canvas-craft 技能全文（剧本四要素、分镜六要素、提示词规范、连续性）
-     *   ② packText —— 四层技能包切片（导演 / 题材 / 类型规格 / 影调），按生成能力切
+     *   ② packText —— 四层技能包切片（导演 / 题材 / 规格 / 影调），按生成能力切
      * 不再有「专家人设」：它原本只是 canvas-craft 的下位复述（四要素、六要素、大特写、
      * 因果钩子、冲撞点、180° 轴线、术语勘误全都在技能里），两条并存只会给出互相矛盾的指令。
      */
@@ -9685,8 +9696,11 @@ function queueThumb(assetId) {
           const metas = refs.map((r) => ({ blob: r.blob, name: r.name, category: r.category, assetId: r.assetId }));
           let p = buildEffectivePrompt(prompt, refs, entities, bible, true); // light：图片不内联设定全文（防文字渲染污染 + 参考图约束稀释）
           // 技能包的「镜头语言锁」：只追加风格参数与负向词，不内联叙事与剪辑（不污染图片提示词）
+          // 资产设定图（label 以「设定图」结尾，由 assetSheetNodeSpec 生成）走 assets 切片：
+          // 只要成像与材质，不要分镜/剪辑；普通图片仍走 prompt 切片。判定失败自动退化为 prompt。
+          const lockKind = /设定图\s*$/.test(String((n.data && n.data.label) || '')) ? 'assets' : 'prompt';
           try {
-            const lock = await buildShotLockText('prompt');
+            const lock = await buildShotLockText(lockKind);
             if (lock) p = p + '\n' + lock;
           } catch { /* 技能包不可用时不影响生成 */ }
           // 模型解析：节点选择优先，未指定路由到星标默认模型；都没有 = 明确报错（不再静默走演示模式）
@@ -13587,11 +13601,13 @@ function queueThumb(assetId) {
 
     // ============================================================
     // 技能包（canvas-director）：四层配置 + 按生成能力切片
-    //   L1 导演透镜 24 / L2 题材（叙事 21 + 行业 10）/ L3 类型规格 9 / L4 影调 9
+    //   L1 导演透镜 24 / L2 题材（叙事 21 + 行业 10）/ L3 规格 9 / L4 影调 9
     //   配置是**项目级**：本地 localStorage 缓存 + 随项目文档同步到 Host（对话侧可读）
     //   切片用 assets/canvas-director/pack.js 的纯函数（与 Host 同源，保证口径一致）
     // ============================================================
     const LS_SKILL_PROFILE = 'dsh-ic:skills:';
+    // 技能配置的同步戳：对话侧写项目文档时带 skillUpdatedAt，比本地新才回写面板（双向同步用）
+    const LS_SKILL_SYNC = 'dsh-ic:skillsync:';
     const SKILL_PACK_DIR = 'assets/canvas-director/';
     let PACK_MOD = null;             // pack.js 模块
     let PACK_MANIFEST = null;        // manifest.json 解析结果
@@ -13645,23 +13661,29 @@ function queueThumb(assetId) {
     }
 
     /** 当前项目的技能配置（本地缓存；缺字段回落默认；非法值静默回落）。 */
-    function loadSkillProfile(pid) {
-      if (!pid) return { lens: '', genres: [], form: 'short-drama', aspect: '', targetSec: 0, platform: '', look: '', genreMode: 'auto' };
-      const raw = lsGet(LS_SKILL_PROFILE + pid, null);
+    const EMPTY_SKILL_PROFILE = { lens: '', genres: [], form: '', look: '', genreMode: 'auto' };
+    /** 归一技能配置（纯函数）：只接受字符串标量，数字/对象/数组一律非法回落，不抛错。
+     *  抽出来是为了「从项目文档回写面板」也能走同一套规则（对话侧写的是原始字段）。 */
+    function loadSkillProfileFromRaw(raw) {
       const b = (raw && typeof raw === 'object' && !Array.isArray(raw)) ? raw : {};
-      // 只接受字符串标量：数字/对象/数组一律视为非法 → 回落（与形式校验同款策略：非法即回落，不抛错）
       const str = (v) => (typeof v === 'string' ? v.trim() : '');
-      const sec = Number(b.targetSec);
       return {
         lens: str(b.lens),
         genres: Array.isArray(b.genres) ? [...new Set(b.genres.map((x) => (typeof x === 'string' ? x.trim() : '')).filter(Boolean))].slice(0, 12) : [],
-        form: str(b.form) || 'short-drama',
-        aspect: str(b.aspect),
-        targetSec: Number.isFinite(sec) && sec > 0 ? Math.round(sec) : 0,
-        platform: str(b.platform),
+        form: str(b.form),
         look: str(b.look),
         genreMode: (b.genreMode === 'narrative' || b.genreMode === 'industry') ? b.genreMode : 'auto',
       };
+    }
+    function loadSkillProfile(pid) {
+      if (!pid) return { ...EMPTY_SKILL_PROFILE };
+      return loadSkillProfileFromRaw(lsGet(LS_SKILL_PROFILE + pid, null));
+    }
+    /** 只写本地（用于从项目文档回写面板配置，不再推 Host —— 否则会形成推送回环）。 */
+    function saveSkillProfileLocal(pid, profile) {
+      if (!pid) return;
+      lsSet(LS_SKILL_PROFILE + pid, profile);
+      notify();
     }
     /** 写技能配置：本地立即落盘 + 防抖推 Host（与设定集同一套思路）。 */
     let skillPushTimer = null;
@@ -13674,7 +13696,10 @@ function queueThumb(assetId) {
         try {
           const proj = S.projects.find((p) => p.id === pid);
           const deleted = defaultCanvasDeleted(pid);
-          const doc = deleted ? { skillProfile: profile } : { ...(loadGraphDoc(pid) || emptyGraph()), skillProfile: profile };
+          // skillUpdatedAt：对话侧据此判断哪边更新（与 Host 的 canvas_skill_pack set:true 同一字段）
+          const stamp = Date.now();
+          lsSet(LS_SKILL_SYNC + pid, String(stamp));
+          const doc = deleted ? { skillProfile: profile, skillUpdatedAt: stamp } : { ...(loadGraphDoc(pid) || emptyGraph()), skillProfile: profile, skillUpdatedAt: stamp };
           hostRpc('projectsPut', {
             id: pid, name: (proj && proj.name) || pid,
             canvases: proj && Array.isArray(proj.canvases) ? proj.canvases : [],
@@ -13699,8 +13724,10 @@ function queueThumb(assetId) {
       const manifest = await loadPackManifest();
       if (!manifest) return { text: '', bytes: 0 };
       const profile = o.profile || loadSkillProfile(pid);
-      // 四层都没选 → 不注入（老项目行为完全不变）
-      if (!profile.lens && !(profile.genres || []).length && !profile.look && !o.force) return { text: '', bytes: 0 };
+      // 四层都没选 → 不注入（老项目行为完全不变）。**规格也算一层**：只选「规格」时同样要注入，
+      // 否则对话侧带约束、画布侧不带，两端产出分叉。
+      const hasAnyLayer = !!(profile.lens || profile.form || profile.look || (profile.genres || []).length);
+      if (!hasAnyLayer && !o.force) return { text: '', bytes: 0 };
       let P;
       try { P = await loadPackModule(); } catch { return { text: '', bytes: 0 }; }
       const zh = effLang() !== 'en';
@@ -13719,10 +13746,12 @@ function queueThumb(assetId) {
       }
       if (profile.form) await push('form', (manifest.forms || []).find((x) => x.id === profile.form));
       if (profile.look) await push('look', (manifest.looks || []).find((x) => x.id === profile.look));
-      // 运镜词典跟着分镜与提示词走
+      // 运镜词典跟着分镜与提示词走；打斗节奏只在分镜（它讲的是镜头组织手法）
       if (kind === 'storyboard' || kind === 'prompt') {
-        const mv = (manifest.moves || []).find((x) => x.id === 'camera-moves');
-        if (mv) await push('moves', { ...mv, oneliner: mv.oneliner || '' });
+        for (const mid of (kind === 'storyboard' ? ['camera-moves', 'fight-rhythm'] : ['camera-moves'])) {
+          const mv = (manifest.moves || []).find((x) => x.id === mid);
+          if (mv) await push('moves', { ...mv, oneliner: mv.oneliner || '' });
+        }
       }
       if (!items.length) return { text: '', bytes: 0 };
       const head = packHeadLine(kind, profile, manifest, zh);
@@ -13748,18 +13777,18 @@ function queueThumb(assetId) {
           '【画布技能包 · ' + kl + '】',
           '导演透镜：' + (nameOf('lenses', profile.lens) || '未选')
             + '　题材：' + (genreNames.join('、') || '未选')
-            + '　类型规格：' + (nameOf('forms', profile.form) || '未选')
+            + '　规格：' + (nameOf('forms', profile.form) || '未选')
             + '　影调：' + (profile.look ? nameOf('looks', profile.look) : '跟随导演'),
-          '优先级：用户显式指令 > 导演透镜 > 类型规格（仅画幅与单镜时长上压过透镜）> 题材 > 影调。以下为对应切片，写提示词时按它执行；与本块冲突的通用规则让位于本块。',
+          '优先级：用户显式指令 > 导演透镜 > 规格（仅单镜时长与结构上压过透镜；画幅由视频节点生成时决定，不在此列）> 题材 > 影调。以下为对应切片，写提示词时按它执行；与本块冲突的通用规则让位于本块。',
         ].join('\n');
       }
       return [
         '[Canvas skill pack · ' + kl + ']',
         'Director lens: ' + (nameOf('lenses', profile.lens) || 'none')
           + '  Genre: ' + (genreNames.join(', ') || 'none')
-          + '  Delivery form: ' + (nameOf('forms', profile.form) || 'none')
+          + '  Spec: ' + (nameOf('forms', profile.form) || 'none')
           + '  Look: ' + (profile.look ? nameOf('looks', profile.look) : 'follow the lens'),
-        'Precedence: explicit user instruction > director lens > delivery form (aspect and clip length only) > genre > look. The slices below are binding; generic rules that disagree give way.',
+        'Precedence: explicit user instruction > director lens > spec (clip length and structure only; aspect is set on the video node) > genre > look. The slices below are binding; generic rules that disagree give way.',
       ].join('\n');
     }
 
@@ -13769,11 +13798,11 @@ function queueThumb(assetId) {
      *
      * 这是整条链路最容易掉队的一环：剧本与分镜走的是 AI 生成（拿到完整切片），
      * 但图片与视频是「拼装提示词」——如果只带风格参数与负向词，影调的成像/材质/光学、
-     * 类型规格的节奏、题材的场面颗粒就全丢了，于是第一镜对、后面越走越偏。
+     * 规格的节奏、题材的场面颗粒就全丢了，于是第一镜对、后面越走越偏。
      *
      * 按生成能力取切片：
      *   kind='prompt' —— 图片与视频。风格参数 + 影调（成像/光比/色彩/介质/光学/材质/特效）
-     *                    + 类型规格（ASL 与负向词）+ 题材的「常见场面颗粒」+ 三份负向词
+     *                    + 规格（ASL 与负向词）+ 题材的「常见场面颗粒」+ 三份负向词
      *   kind='assets' —— 角色/场景/道具设定图。影调的成像与色彩（不含叙事与剪辑）
      *
      * 不内联：叙事方法、剪辑节奏、人物表演（这些只对剧本/分镜有意义）。
@@ -13784,7 +13813,8 @@ function queueThumb(assetId) {
       const manifest = await loadPackManifest();
       if (!manifest) return '';
       const profile = loadSkillProfile(pid);
-      if (!profile.lens && !profile.look && !(profile.genres || []).length) return '';
+      // 规格也算一层（同 buildSkillPackText 说明）
+      if (!profile.lens && !profile.look && !profile.form && !(profile.genres || []).length) return '';
       let P;
       try { P = await loadPackModule(); } catch { return ''; }
       const k = kind === 'assets' ? 'assets' : 'prompt';
@@ -13828,7 +13858,7 @@ function queueThumb(assetId) {
         if (granules) push((ge ? '题材的场面颗粒' : '行业视觉母题') + '（' + entry.name + '）：', granules);
       }
 
-      // ④ 类型规格：节奏与负向词（画幅不在这里定，由视频节点选）
+      // ④ 规格：节奏与负向词（画幅不在这里定，由视频节点选）
       const formEntry = profile.form ? (manifest.forms || []).find((x) => x.id === profile.form) : null;
       if (formEntry) {
         const md = await readPackCard('form', formEntry.file);
@@ -18452,7 +18482,7 @@ const DIRECTOR_KEY_HELP = [
 
     // ============================================================
     // 技能页（craft）：四层创作控制台
-    //   L1 导演透镜（24）/ L2 题材（叙事21 + 行业10）/ L3 类型规格（9）/ L4 影调（9）+ 专家
+    //   L1 导演透镜（24）/ L2 题材（叙事21 + 行业10）/ L3 规格（9）/ L4 影调（9）+ 专家
     //   全部是**图标瓦片**，页面内不含任何 <select>（下拉框在小面板里没法扫读）
     // ============================================================
 
@@ -18516,7 +18546,7 @@ const DIRECTOR_KEY_HELP = [
       travel: ['M12 4l7 4v8l-7 4-7-4V8z', 'M12 8v8M8 14l4 2 4-2'],
       realestate: ['M12 4l7 4v8l-7 4-7-4V8z', 'M8 15v-5l4-2 4 2v5'],
       food: ['M12 4l7 4v8l-7 4-7-4V8z', 'M9 9v6M12 9v6M15 9v6'],
-      // ── L3 类型规格：不再用画幅做底形（画幅由视频生成时选），改用「用法」的符号 ──
+      // ── L3 规格：不再用画幅做底形（画幅由视频生成时选），改用「用法」的符号 ──
       // 短剧：手机轮廓（最常见发行形态，但不代表锁死画幅）
       'short-drama': ['M9 3h6v18H9z', 'M11 6h2M11 18h2'],
       // 电影质感：取景框 + 聚光（强调「每镜都过电影线」，不是「长片」）
@@ -18665,7 +18695,7 @@ const DIRECTOR_KEY_HELP = [
       };
 
       const m = view || { lenses: [], genres: [], industries: [], forms: [], looks: [] };
-      // 类型规格是叙事类还是商业类：决定题材卡显示哪一组
+      // 规格是叙事类还是商业类：决定题材卡显示哪一组
       const formEntry = (m.forms || []).find((x) => x.id === profile.form);
       // 商业类（宣传片/广告片/产品片已合并为 commercial）→ 题材层切到行业题材
       const COMMERCIAL_FORMS = new Set(['commercial']);
@@ -18702,7 +18732,7 @@ const DIRECTOR_KEY_HELP = [
           const names = profile.genres.map((g) => ((m.genres || []).find((x) => x.id === g) || (m.industries || []).find((x) => x.id === g) || {}).name || g);
           bits.push('题材：' + names.join('、'));
         }
-        if (formEntry) bits.push('类型规格：' + formEntry.name);
+        if (formEntry) bits.push('规格：' + formEntry.name);
         if (profile.look) {
           const lo = (m.looks || []).find((x) => x.id === profile.look);
           if (lo) bits.push('影调：' + lo.name);
@@ -18714,7 +18744,7 @@ const DIRECTOR_KEY_HELP = [
         setTick((x) => x + 1);
       };
       const doClear = () => {
-        saveSkillProfile(S.activeId, { lens: '', genres: [], form: '', aspect: '', targetSec: 0, platform: '', look: '', genreMode: 'auto' });
+        saveSkillProfile(S.activeId, { lens: '', genres: [], form: '', look: '', genreMode: 'auto' });
         setPreview(null);
         setTick((x) => x + 1);
       };
@@ -18752,7 +18782,7 @@ const DIRECTOR_KEY_HELP = [
             },
           })),
 
-        // ── L3 类型规格 ──
+        // ── L3 规格 ──
         h(SkillCard, {
           key: 'form', id: 'form', icon: 'film', title: T('skillForm'),
           summary: formEntry ? formEntry.name : T('skillUnselected'),
@@ -18818,7 +18848,7 @@ const DIRECTOR_KEY_HELP = [
 
     function Rightbar() {
       // 资产 / 设定集已合并进统一弹窗（左下图标列打开），右侧面板保留项目 / 技能 / 设置。
-      // 技能页（craft）= 四层创作控制台：导演透镜 / 题材 / 类型规格 / 影调（全图标瓦片，无下拉框）。
+      // 技能页（craft）= 四层创作控制台：导演透镜 / 题材 / 规格 / 影调（全图标瓦片，无下拉框）。
       // 快捷键/帮助反馈/检查更新已回到右上角工具栏（纯图标按钮）——右侧面板不再有动作行。
       const tabs = [
         { id: 'projects', label: T('projects'), icon: 'folder' },
