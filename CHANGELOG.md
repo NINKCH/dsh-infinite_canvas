@@ -6,6 +6,8 @@ GitHub Releases carry the same notes in English; maintainer-facing runbooks live
 
 ## [Unreleased]
 
+## [0.19.6] — 2026-10-26
+
 ### Added
 - **The panel now reads the skill configuration back from the project document.** `canvas_skill_pack({set:true})` from the chat side used to write the document while the panel kept showing its own `localStorage` copy — the "both sides share one source" claim only held in one direction. `mergeHostDoc` now compares `skillUpdatedAt` and writes the newer configuration back to the panel, mirroring how the series bible already syncs.
 - **Asset-sheet nodes get their own slice.** Image nodes whose label ends in 设定图 (created by `assetSheetNodeSpec`) now take the `assets` slice instead of the generic prompt slice — imaging and material only, no storyboard or editing rules. Detection failure falls back to the prompt slice.
