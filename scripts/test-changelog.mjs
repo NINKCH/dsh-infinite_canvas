@@ -119,6 +119,7 @@ const COVERAGE = [
   { sha: '4f92f17', keys: [/spec-only/i, /form-only/i, /two-way/i, /skillProfile/i, /kind whitelist/i, /fight-rhythm/i, /assets slice/i, /renamed/i] },
   { sha: 'dd40849', keys: [/spec/i, /i18n/i, /label/i, /form/i] },
   { sha: 'f6e6941', keys: [/readSkillPack/i, /rpc/i, /unused/i] },
+  { sha: 'ff2a5b8', keys: [/readSkillPack/i, /changelog/i, /rpc/i] },
 ];
 for (const c of COVERAGE) {
   ok(c.keys.some((re) => re.test(coverageText)), '未发版提交 ' + c.sha + ' 在 CHANGELOG（Unreleased 或最新已发布段）里找不到对应记录（补记不全）');
