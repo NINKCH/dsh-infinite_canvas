@@ -117,6 +117,7 @@ const COVERAGE = [
   // 0.19.5 已发布（ca31b53 / v0.19.5）：上面全部提交随该版本进入 main，清单在此清零。
   // 本轮（技能架构体检 + 规格改名）：
   { sha: '4f92f17', keys: [/spec-only/i, /form-only/i, /two-way/i, /skillProfile/i, /kind whitelist/i, /fight-rhythm/i, /assets slice/i, /renamed/i] },
+  { sha: 'dd40849', keys: [/spec/i, /i18n/i, /label/i, /form/i] },
 ];
 for (const c of COVERAGE) {
   ok(c.keys.some((re) => re.test(coverageText)), '未发版提交 ' + c.sha + ' 在 CHANGELOG（Unreleased 或最新已发布段）里找不到对应记录（补记不全）');
