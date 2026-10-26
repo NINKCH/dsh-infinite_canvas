@@ -2215,7 +2215,7 @@ window.__ModuleLoader__.load({
       'skillIndustry': "Sector",
       'skillGenreHint': "Sets pressure mechanics and audience payoff; multi-select",
       'skillIndustryHint': "Switches to sector cards for this spec; multi-select",
-      'skillForm': "Form",
+      'skillForm': "Spec",
       'skillFormHint': "Sets structure, rhythm and quality bar; aspect is chosen at video generation",
       'skillLook': "Look",
       'skillLookHint': "Imaging and material texture; leave empty to follow the director",
