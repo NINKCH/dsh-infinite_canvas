@@ -2,14 +2,6 @@
  "version": 1,
  "lenses": [
   {
-   "id": "bergman",
-   "name": "英格玛·伯格曼",
-   "file": "bergman.md",
-   "glyph": "bergman",
-   "oneliner": "把摄影机放在视线正前方，用长焦让整张脸清晰，然后不切",
-   "group": "欧美"
-  },
-  {
    "id": "bi_gan",
    "name": "毕赣",
    "file": "bi_gan.md",
@@ -18,62 +10,12 @@
    "group": "华语"
   },
   {
-   "id": "coen_brothers",
-   "name": "科恩兄弟",
-   "file": "coen_brothers.md",
-   "glyph": "coen_brothers",
-   "oneliner": "把画面摆得一丝不苟，让演员绝对认真地演，然后比该切的时候多留一秒",
-   "group": "欧美"
-  },
-  {
-   "id": "fellini",
-   "name": "费德里科·费里尼",
-   "file": "fellini.md",
-   "glyph": "fellini",
-   "oneliner": "怪异全部长在真人身上：脸、身体、服装、姿态",
-   "group": "欧美"
-  },
-  {
-   "id": "fincher",
-   "name": "大卫·芬奇",
-   "file": "fincher.md",
-   "glyph": "fincher",
-   "oneliner": "用长焦把人从背景里切下来，再从他不知道的位置上看着他",
-   "group": "欧美",
-   "tier": "A"
-  },
-  {
-   "id": "hitchcock",
-   "name": "阿尔弗雷德·希区柯克",
-   "file": "hitchcock.md",
-   "glyph": "hitchcock",
-   "oneliner": "把秘密先交给观众，再让角色慢慢走进去",
-   "group": "欧美"
-  },
-  {
    "id": "hou_hsiao_hsien",
    "name": "侯孝贤",
    "file": "hou_hsiao_hsien.md",
    "glyph": "hou_hsiao_hsien",
    "oneliner": "摄影机提前到场，坐在门外，不走近也不离开，让一屋子人把时间过完",
    "group": "华语"
-  },
-  {
-   "id": "kubrick",
-   "name": "斯坦利·库布里克",
-   "file": "kubrick.md",
-   "glyph": "kubrick",
-   "oneliner": "让建筑比人更有权力：广角、单点透视、匀速推进，人被压进几何里",
-   "group": "欧美"
-  },
-  {
-   "id": "kurosawa",
-   "name": "黑泽明",
-   "file": "kurosawa.md",
-   "glyph": "kurosawa",
-   "oneliner": "用长焦把队列压成横向的带，让风雨作用在身体上，等待比爆发更长",
-   "group": "日韩",
-   "tier": "A"
   },
   {
    "id": "lu_yang",
@@ -85,71 +27,6 @@
    "tier": "A"
   },
   {
-   "id": "malick",
-   "name": "泰伦斯·马力克",
-   "file": "malick.md",
-   "glyph": "malick",
-   "oneliner": "镜头贴着一只手，太阳在她背后压着地平线，摄影机以步速漂移，不停",
-   "group": "欧美"
-  },
-  {
-   "id": "michael_mann",
-   "name": "迈克尔·曼",
-   "file": "michael_mann.md",
-   "glyph": "michael_mann",
-   "oneliner": "夜里的城市是一块发着冷光的平原，一个懂行的人站在它前面，谁也不认识他",
-   "group": "欧美"
-  },
-  {
-   "id": "nolan",
-   "name": "克里斯托弗·诺兰",
-   "file": "nolan.md",
-   "glyph": "nolan",
-   "oneliner": "先把规则讲清楚，再让三条时间线同时向同一个倒计时收拢",
-   "group": "欧美",
-   "tier": "A"
-  },
-  {
-   "id": "park_chan_wook",
-   "name": "朴赞郁",
-   "file": "park_chan_wook.md",
-   "glyph": "park_chan_wook",
-   "oneliner": "把画面塞满花纹，让摄影机做一件物理上不可能的事，然后礼貌地伤害一个人",
-   "group": "日韩"
-  },
-  {
-   "id": "refn",
-   "name": "尼古拉斯·温丁·雷弗恩",
-   "file": "refn.md",
-   "glyph": "refn",
-   "oneliner": "机位锁死、人在正中、什么都不动，让颜色替所有人做完这场仪式",
-   "group": "欧美"
-  },
-  {
-   "id": "scorsese",
-   "name": "马丁·斯科塞斯",
-   "file": "scorsese.md",
-   "glyph": "scorsese",
-   "oneliner": "让摄影机被欲望拖着走，用音乐把上升拍得好看，再用静默让代价落地",
-   "group": "欧美"
-  },
-  {
-   "id": "spielberg",
-   "name": "史蒂文·斯皮尔伯格",
-   "file": "spielberg.md",
-   "glyph": "spielberg",
-   "oneliner": "先拍看见的人，再拍被看见的东西",
-   "group": "欧美"
-  },
-  {
-   "id": "tarkovsky",
-   "name": "安德烈·塔可夫斯基",
-   "file": "tarkovsky.md",
-   "glyph": "tarkovsky",
-   "oneliner": "镜头站着不动，让水、火和时间在画面里替人物完成表演",
-   "group": "欧美"
-  },
-  {
    "id": "tsui_hark",
    "name": "徐克",
    "file": "tsui_hark.md",
@@ -157,14 +34,6 @@
    "oneliner": "光打硬、雾放厚、机位压到膝盖高、升格拉到 120fps",
    "group": "华语",
    "tier": "A"
-  },
-  {
-   "id": "villeneuve",
-   "name": "丹尼斯·维伦纽瓦",
-   "file": "villeneuve.md",
-   "glyph": "villeneuve",
-   "oneliner": "把人缩到画面高度的百分之五，然后给他二十秒，什么也不解释",
-   "group": "欧美"
   },
   {
    "id": "wong_kar_wai",
@@ -201,176 +70,792 @@
    "oneliner": "先决定这一段是什么颜色，再决定谁站在里面",
    "group": "华语",
    "tier": "A"
+  },
+  {
+   "id": "ang_lee",
+   "name": "李安",
+   "file": "ang_lee.md",
+   "glyph": "ang_lee",
+   "oneliner": "让镜头保持礼貌的距离，然后在一句台词之后多停半秒，那半秒里全是没法说出口的东西",
+   "group": "华语"
+  },
+  {
+   "id": "edward_yang",
+   "name": "杨德昌",
+   "file": "edward_yang.md",
+   "glyph": "edward_yang",
+   "oneliner": "把摄影机架在房间斜角，让每一场都像从门缝里看进来，观众得自己算清谁坐在哪儿",
+   "group": "华语"
+  },
+  {
+   "id": "jia_zhangke",
+   "name": "贾樟柯",
+   "file": "jia_zhangke.md",
+   "glyph": "jia_zhangke",
+   "oneliner": "摄影机退到街对面，等一辆卡车把人挡住再露出来；环境比人吵，人比环境沉默",
+   "group": "华语"
+  },
+  {
+   "id": "jiang_wen",
+   "name": "姜文",
+   "file": "jiang_wen.md",
+   "glyph": "jiang_wen",
+   "oneliner": "把摄影机压在膝盖高度，让太阳正对着人脸，然后等一句台词炸开，炸开的那一刻剪掉",
+   "group": "华语"
+  },
+  {
+   "id": "johnnie_to",
+   "name": "杜琪峰",
+   "file": "johnnie_to.md",
+   "glyph": "johnnie_to",
+   "oneliner": "把摄影机架在五十米外，让人物在画面里像棋子一样站好，然后只让枪声从画外来",
+   "group": "华语"
+  },
+  {
+   "id": "ning_hao",
+   "name": "宁浩",
+   "file": "ning_hao.md",
+   "glyph": "ning_hao",
+   "oneliner": "把一件小事拆成三条线同时出事，用章节字卡盖上章，然后让所有人用方言在小城里跑起来",
+   "group": "华语"
+  },
+  {
+   "id": "stephen_chow",
+   "name": "周星驰",
+   "file": "stephen_chow.md",
+   "glyph": "stephen_chow",
+   "oneliner": "用十八毫米广角把脸拍到变形，让最惨的事发生在一个最不该笑的姿势上，然后真的笑出来",
+   "group": "华语"
+  },
+  {
+   "id": "wong_jing",
+   "name": "王晶",
+   "file": "wong_jing.md",
+   "glyph": "wong_jing",
+   "oneliner": "把镜头推到牌面和脸的正前方，一秒钟给三个信息，然后靠明星的那张脸把观众留在座位上",
+   "group": "华语"
+  },
+  {
+   "id": "kurosawa",
+   "name": "黑泽明",
+   "file": "kurosawa.md",
+   "glyph": "kurosawa",
+   "oneliner": "用长焦把队列压成横向的带，让风雨作用在身体上，等待比爆发更长",
+   "group": "日韩",
+   "tier": "A"
+  },
+  {
+   "id": "park_chan_wook",
+   "name": "朴赞郁",
+   "file": "park_chan_wook.md",
+   "glyph": "park_chan_wook",
+   "oneliner": "把画面塞满花纹，让摄影机做一件物理上不可能的事，然后礼貌地伤害一个人",
+   "group": "日韩"
+  },
+  {
+   "id": "bong_joon_ho",
+   "name": "奉俊昊",
+   "file": "bong_joon_ho.md",
+   "glyph": "bong_joon_ho",
+   "oneliner": "让摄影机老老实实跟着人上下楼梯，因为在这部片里一个人站在多高的地方就是他的阶级",
+   "group": "日韩"
+  },
+  {
+   "id": "koreeda_hirokazu",
+   "name": "是枝裕和",
+   "file": "koreeda_hirokazu.md",
+   "glyph": "koreeda_hirokazu",
+   "oneliner": "把机位放到孩子的高度，让一屋子人在同一个镜头里各自忙自己的事，情绪全部交给环境声去说",
+   "group": "日韩"
+  },
+  {
+   "id": "lee_chang_dong",
+   "name": "李沧东",
+   "file": "lee_chang_dong.md",
+   "glyph": "lee_chang_dong",
+   "oneliner": "把摄影机钉在原地，让人在画面里慢慢走到不能再走，然后留一个空镜，什么都不解释",
+   "group": "日韩"
+  },
+  {
+   "id": "miyazaki_hayao",
+   "name": "宫崎骏",
+   "file": "miyazaki_hayao.md",
+   "glyph": "miyazaki_hayao",
+   "oneliner": "先让风把草压倒，再让人跑起来，然后让机器飞上天，所有奇观都要有一个可画出来的重量",
+   "group": "日韩"
+  },
+  {
+   "id": "shinkai_makoto",
+   "name": "新海诚",
+   "file": "shinkai_makoto.md",
+   "glyph": "shinkai_makoto",
+   "oneliner": "让天空占掉画面上半部，用一枚光斑和一次玻璃反射说完所有的话，人只需要站在那里抬头",
+   "group": "日韩"
+  },
+  {
+   "id": "bergman",
+   "name": "英格玛·伯格曼",
+   "file": "bergman.md",
+   "glyph": "bergman",
+   "oneliner": "把摄影机放在视线正前方，用长焦让整张脸清晰，然后不切",
+   "group": "欧美"
+  },
+  {
+   "id": "coen_brothers",
+   "name": "科恩兄弟",
+   "file": "coen_brothers.md",
+   "glyph": "coen_brothers",
+   "oneliner": "把画面摆得一丝不苟，让演员绝对认真地演，然后比该切的时候多留一秒",
+   "group": "欧美"
+  },
+  {
+   "id": "fellini",
+   "name": "费德里科·费里尼",
+   "file": "fellini.md",
+   "glyph": "fellini",
+   "oneliner": "怪异全部长在真人身上：脸、身体、服装、姿态",
+   "group": "欧美"
+  },
+  {
+   "id": "fincher",
+   "name": "大卫·芬奇",
+   "file": "fincher.md",
+   "glyph": "fincher",
+   "oneliner": "用长焦把人从背景里切下来，再从他不知道的位置上看着他",
+   "group": "欧美",
+   "tier": "A"
+  },
+  {
+   "id": "hitchcock",
+   "name": "阿尔弗雷德·希区柯克",
+   "file": "hitchcock.md",
+   "glyph": "hitchcock",
+   "oneliner": "把秘密先交给观众，再让角色慢慢走进去",
+   "group": "欧美"
+  },
+  {
+   "id": "kubrick",
+   "name": "斯坦利·库布里克",
+   "file": "kubrick.md",
+   "glyph": "kubrick",
+   "oneliner": "让建筑比人更有权力：广角、单点透视、匀速推进，人被压进几何里",
+   "group": "欧美"
+  },
+  {
+   "id": "malick",
+   "name": "泰伦斯·马力克",
+   "file": "malick.md",
+   "glyph": "malick",
+   "oneliner": "镜头贴着一只手，太阳在她背后压着地平线，摄影机以步速漂移，不停",
+   "group": "欧美"
+  },
+  {
+   "id": "michael_mann",
+   "name": "迈克尔·曼",
+   "file": "michael_mann.md",
+   "glyph": "michael_mann",
+   "oneliner": "夜里的城市是一块发着冷光的平原，一个懂行的人站在它前面，谁也不认识他",
+   "group": "欧美"
+  },
+  {
+   "id": "nolan",
+   "name": "克里斯托弗·诺兰",
+   "file": "nolan.md",
+   "glyph": "nolan",
+   "oneliner": "先把规则讲清楚，再让三条时间线同时向同一个倒计时收拢",
+   "group": "欧美",
+   "tier": "A"
+  },
+  {
+   "id": "refn",
+   "name": "尼古拉斯·温丁·雷弗恩",
+   "file": "refn.md",
+   "glyph": "refn",
+   "oneliner": "机位锁死、人在正中、什么都不动，让颜色替所有人做完这场仪式",
+   "group": "欧美"
+  },
+  {
+   "id": "scorsese",
+   "name": "马丁·斯科塞斯",
+   "file": "scorsese.md",
+   "glyph": "scorsese",
+   "oneliner": "让摄影机被欲望拖着走，用音乐把上升拍得好看，再用静默让代价落地",
+   "group": "欧美"
+  },
+  {
+   "id": "spielberg",
+   "name": "史蒂文·斯皮尔伯格",
+   "file": "spielberg.md",
+   "glyph": "spielberg",
+   "oneliner": "先拍看见的人，再拍被看见的东西",
+   "group": "欧美"
+  },
+  {
+   "id": "tarkovsky",
+   "name": "安德烈·塔可夫斯基",
+   "file": "tarkovsky.md",
+   "glyph": "tarkovsky",
+   "oneliner": "镜头站着不动，让水、火和时间在画面里替人物完成表演",
+   "group": "欧美"
+  },
+  {
+   "id": "villeneuve",
+   "name": "丹尼斯·维伦纽瓦",
+   "file": "villeneuve.md",
+   "glyph": "villeneuve",
+   "oneliner": "把人缩到画面高度的百分之五，然后给他二十秒，什么也不解释",
+   "group": "欧美"
+  },
+  {
+   "id": "ridley_scott",
+   "name": "雷德利·斯科特",
+   "file": "ridley_scott.md",
+   "glyph": "ridley_scott",
+   "oneliner": "把烟机和雨机都打开，让光穿过三层空气，再用实景大小的置景把人压在里面，密度就是这个世界",
+   "group": "欧美"
+  },
+  {
+   "id": "david_lynch",
+   "name": "大卫·林奇",
+   "file": "david_lynch.md",
+   "glyph": "david_lynch",
+   "oneliner": "让声音先到，让人物后到，让灯亮在最不该亮的地方，然后让这一切都像一场想不起来的梦",
+   "group": "欧美"
+  },
+  {
+   "id": "alfonso_cuaron",
+   "name": "阿方索·卡隆",
+   "file": "alfonso_cuaron.md",
+   "glyph": "alfonso_cuaron",
+   "oneliner": "把摄影机绑在一件东西上——一辆车、一扇门、一个人的后背——然后跟着它穿过整个社会，不切",
+   "group": "欧美"
+  },
+  {
+   "id": "alejandro_inarritu",
+   "name": "伊纳里图",
+   "file": "alejandro_inarritu.md",
+   "glyph": "alejandro_inarritu",
+   "oneliner": "把摄影机贴在人脸后面三十厘米，让他一直走，走到命运把他撞上；太阳永远在他背后烧着",
+   "group": "欧美"
+  },
+  {
+   "id": "wes_anderson",
+   "name": "韦斯·安德森",
+   "file": "wes_anderson.md",
+   "glyph": "wes_anderson",
+   "oneliner": "把摄影机垂直摆正、对准画面正中央，让所有人像陈列品一样排好，然后让他们极其认真地演一件荒唐事",
+   "group": "欧美"
+  },
+  {
+   "id": "george_miller",
+   "name": "乔治·米勒",
+   "file": "george_miller.md",
+   "glyph": "george_miller",
+   "oneliner": "把最重要的东西永远放在画面正中央，让它在最大焦距下高速飞来，整条街都在橙与青里烧",
+   "group": "欧美"
+  },
+  {
+   "id": "pedro_almodovar",
+   "name": "阿莫多瓦",
+   "file": "pedro_almodovar.md",
+   "glyph": "pedro_almodovar",
+   "oneliner": "把红铺满整个房间，让人物正对着你说一件不能说的家事，说完擦掉眼泪继续做饭",
+   "group": "欧美"
+  },
+  {
+   "id": "guy_ritchie",
+   "name": "盖·里奇",
+   "file": "guy_ritchie.md",
+   "glyph": "guy_ritchie",
+   "oneliner": "让人物对着镜头把前情用旁白讲完，中间插一张定格字卡，然后所有人用最快的话互相骗一遍",
+   "group": "欧美"
   }
  ],
  "genres": [
   {
    "id": "action-mission",
+   "aliases": [
+    "任务",
+    "倒计时",
+    "硬目标",
+    "行动"
+   ],
    "name": "动作任务",
    "file": "action-mission.md",
    "glyph": "action-mission",
-   "oneliner": "观众看的是在条件不断收窄的过程里，把一件必须完成的事做完",
-   "group": "叙事"
+   "oneliner": "观众看的是在条件不断收窄的过程里，把一件必须完成的事做完"
   },
   {
    "id": "adventure",
+   "aliases": [
+    "冒险",
+    "寻宝",
+    "旅途",
+    "探索"
+   ],
    "name": "冒险",
    "file": "adventure.md",
    "glyph": "adventure",
-   "oneliner": "观众看的是一个有钟、有地图、有退路可数的一段路",
-   "group": "叙事"
+   "oneliner": "观众看的是一个有钟、有地图、有退路可数的一段路"
   },
   {
    "id": "broken-mirror-reunion",
+   "aliases": [
+    "破镜重圆",
+    "复合",
+    "重逢",
+    "旧情"
+   ],
    "name": "破镜重圆",
    "file": "broken-mirror-reunion.md",
    "glyph": "broken-mirror-reunion",
-   "oneliner": "观众看的是一段已经断掉的关系，被一件一件重新证明",
-   "group": "叙事"
+   "oneliner": "观众看的是一段已经断掉的关系，被一件一件重新证明"
   },
   {
    "id": "counterattack",
+   "aliases": [
+    "逆袭",
+    "翻身",
+    "当众证明",
+    "地位反转"
+   ],
    "name": "逆袭",
    "file": "counterattack.md",
    "glyph": "counterattack",
-   "oneliner": "观众看的是被看不起的人当众证明自己，看不起他的人被迫改口",
-   "group": "叙事"
+   "oneliner": "观众看的是被看不起的人当众证明自己，看不起他的人被迫改口"
   },
   {
    "id": "crime-police",
+   "aliases": [
+    "警匪",
+    "刑侦",
+    "罪案",
+    "卧底",
+    "缉凶"
+   ],
    "name": "警匪",
    "file": "crime-police.md",
    "glyph": "crime-police",
-   "oneliner": "观众看的是一笔本来该顺利完成的交易怎么烂掉，以及烂掉之后谁还按程序办事",
-   "group": "叙事"
+   "oneliner": "观众看的是一笔本来该顺利完成的交易怎么烂掉，以及烂掉之后谁还按程序办事"
   },
   {
    "id": "family-relation",
+   "aliases": [
+    "家庭",
+    "代际",
+    "亲情",
+    "照料",
+    "原生家庭"
+   ],
    "name": "家庭关系",
    "file": "family-relation.md",
    "glyph": "family-relation",
-   "oneliner": "观众看的是最亲近的人之间，照料与伤害由同一双手完成",
-   "group": "叙事"
+   "oneliner": "观众看的是最亲近的人之间，照料与伤害由同一双手完成"
   },
   {
    "id": "fantasy",
+   "aliases": [
+    "奇幻",
+    "魔法",
+    "异世界",
+    "怪物"
+   ],
    "name": "奇幻",
    "file": "fantasy.md",
    "glyph": "fantasy",
-   "oneliner": "观众看的是一个有价目的世界，每一次动用力量都要付一样能看见的东西",
-   "group": "叙事"
+   "oneliner": "观众看的是一个有价目的世界，每一次动用力量都要付一样能看见的东西"
   },
   {
    "id": "hk-retro",
+   "aliases": [
+    "复古港风",
+    "港风",
+    "九十年代",
+    "霓虹",
+    "怀旧"
+   ],
    "name": "复古港风",
    "file": "hk-retro.md",
    "glyph": "hk-retro",
-   "oneliner": "观众看的是一个按旧规矩算账的人，在一个正在改规矩的城市里怎么把账收回来",
-   "group": "叙事"
+   "oneliner": "观众看的是一个按旧规矩算账的人，在一个正在改规矩的城市里怎么把账收回来"
   },
   {
    "id": "identity-swap",
+   "aliases": [
+    "身份错位",
+    "换身",
+    "冒名",
+    "顶替"
+   ],
    "name": "身份错位",
    "file": "identity-swap.md",
    "glyph": "identity-swap",
-   "oneliner": "观众看的是一个人被迫用不合身的身份、身体或权限去完成一件真实的任务",
-   "group": "叙事"
+   "oneliner": "观众看的是一个人被迫用不合身的身份、身体或权限去完成一件真实的任务"
   },
   {
    "id": "modern-urban",
+   "aliases": [
+    "都市",
+    "职场现实",
+    "城市",
+    "白领"
+   ],
    "name": "现代都市",
    "file": "modern-urban.md",
    "glyph": "modern-urban",
-   "oneliner": "观众看的是一个在当代城市里被规矩和价格同时挤压的人，怎么用很小的动作把自己捞回来",
-   "group": "叙事"
+   "oneliner": "观众看的是一个在当代城市里被规矩和价格同时挤压的人，怎么用很小的动作把自己捞回来"
   },
   {
    "id": "parent-child-secret",
+   "aliases": [
+    "亲子",
+    "隐秘",
+    "身世",
+    "血缘"
+   ],
    "name": "亲子隐秘",
    "file": "parent-child-secret.md",
    "glyph": "parent-child-secret",
-   "oneliner": "观众看的是一个孩子的存在本身就是尚未披露的信息，而这个信息一旦落地，成年人之间",
-   "group": "叙事"
+   "oneliner": "观众看的是一个孩子的存在本身就是尚未披露的信息，而这个信息一旦落地，成年人之间"
   },
   {
    "id": "period-power-struggle",
+   "aliases": [
+    "古装",
+    "权谋",
+    "朝堂",
+    "宫廷"
+   ],
    "name": "古装权谋",
    "file": "period-power-struggle.md",
    "glyph": "period-power-struggle",
-   "oneliner": "观众看的是在一套所有人都承认的规矩里，用规矩本身改变谁能决定事",
-   "group": "叙事"
+   "oneliner": "观众看的是在一套所有人都承认的规矩里，用规矩本身改变谁能决定事"
   },
   {
    "id": "rebirth-transmigration",
+   "aliases": [
+    "重生",
+    "穿越",
+    "金手指"
+   ],
    "name": "重生穿越",
    "file": "rebirth-transmigration.md",
    "glyph": "rebirth-transmigration",
-   "oneliner": "观众看的是主角带着上一世的教训回来，把这一世的第一笔账当场翻过来",
-   "group": "叙事"
+   "oneliner": "观众看的是主角带着上一世的教训回来，把这一世的第一笔账当场翻过来"
   },
   {
    "id": "revenge-face-slap",
+   "aliases": [
+    "复仇",
+    "打脸",
+    "反杀",
+    "清算"
+   ],
    "name": "复仇打脸",
    "file": "revenge-face-slap.md",
    "glyph": "revenge-face-slap",
-   "oneliner": "观众看的是被系统性剥夺的人，一件一件把可执行的权力拿回来",
-   "group": "叙事"
+   "oneliner": "观众看的是被系统性剥夺的人，一件一件把可执行的权力拿回来"
   },
   {
    "id": "slice-of-life",
+   "aliases": [
+    "生活流",
+    "日常",
+    "治愈",
+    "烟火气"
+   ],
    "name": "生活流",
    "file": "slice-of-life.md",
    "glyph": "slice-of-life",
-   "oneliner": "观众看的是一个普通人守住一件小事：修好一样东西、等到一个人、守住摊位、还掉一件借来的物、完成一次照料",
-   "group": "叙事"
+   "oneliner": "观众看的是一个普通人守住一件小事：修好一样东西、等到一个人、守住摊位、还掉一件借来的物、完成一次照料"
   },
   {
    "id": "suspense-rule",
+   "aliases": [
+    "悬疑",
+    "规则",
+    "解谜",
+    "推理"
+   ],
    "name": "悬疑规则",
    "file": "suspense-rule.md",
    "glyph": "suspense-rule",
-   "oneliner": "观众看的是在信息不足的时候下注，并为下注承担后果",
-   "group": "叙事"
+   "oneliner": "观众看的是在信息不足的时候下注，并为下注承担后果"
   },
   {
    "id": "system-flow",
+   "aliases": [
+    "系统流",
+    "签到",
+    "升级",
+    "金手指"
+   ],
    "name": "系统流",
    "file": "system-flow.md",
    "glyph": "system-flow",
-   "oneliner": "观众看的是奖励一笔一笔到账，以及看不起主角的人一个一个被迫改口",
-   "group": "叙事"
+   "oneliner": "观众看的是奖励一笔一笔到账，以及看不起主角的人一个一个被迫改口"
   },
   {
    "id": "wealthy-romance",
+   "aliases": [
+    "豪门",
+    "婚恋",
+    "契约婚姻",
+    "霸总"
+   ],
    "name": "豪门婚恋",
    "file": "wealthy-romance.md",
    "glyph": "wealthy-romance",
-   "oneliner": "观众看的是亲密关系里的权力不对等如何被使用、被反抗、被重新协商",
-   "group": "叙事"
+   "oneliner": "观众看的是亲密关系里的权力不对等如何被使用、被反抗、被重新协商"
   },
   {
    "id": "workplace-comedy",
+   "aliases": [
+    "职场",
+    "轻喜剧",
+    "打工人",
+    "办公室"
+   ],
    "name": "职场喜剧",
    "file": "workplace-comedy.md",
    "glyph": "workplace-comedy",
-   "oneliner": "观众看的是被低估的人用可以当场核对的专业能力改变自己的处境",
-   "group": "叙事"
+   "oneliner": "观众看的是被低估的人用可以当场核对的专业能力改变自己的处境"
   },
   {
    "id": "wuxia",
+   "aliases": [
+    "武侠",
+    "江湖",
+    "侠客",
+    "门派"
+   ],
    "name": "武侠",
    "file": "wuxia.md",
    "glyph": "wuxia",
-   "oneliner": "观众看的是一个人被江湖规矩和官府律法同时夹住，用一身手艺换一个说法",
-   "group": "叙事"
+   "oneliner": "观众看的是一个人被江湖规矩和官府律法同时夹住，用一身手艺换一个说法"
   },
   {
    "id": "xianxia-cultivation",
+   "aliases": [
+    "仙侠",
+    "修真",
+    "筑基",
+    "门派修炼"
+   ],
    "name": "仙侠修真",
    "file": "xianxia-cultivation.md",
    "glyph": "xianxia-cultivation",
-   "oneliner": "观众看的是在一套可以学习的力量规则里，人怎样用规则解决人的问题",
-   "group": "叙事"
+   "oneliner": "观众看的是在一套可以学习的力量规则里，人怎样用规则解决人的问题"
+  },
+  {
+   "id": "gambling-den",
+   "aliases": [
+    "赌片",
+    "赌局",
+    "牌局",
+    "千术",
+    "翻盘"
+   ],
+   "name": "赌局翻盘",
+   "file": "gambling-den.md",
+   "glyph": "gambling-den",
+   "oneliner": "观众看的是一个胜率很低的人用信息差把等式调过来，并在摊牌那一秒交出差价"
+  },
+  {
+   "id": "gunstandoff",
+   "aliases": [
+    "对峙",
+    "谈判",
+    "僵持",
+    "黑帮",
+    "枪战"
+   ],
+   "name": "对峙困局",
+   "file": "gunstandoff.md",
+   "glyph": "gunstandoff",
+   "oneliner": "观众看的是一群人被关在一个空间里谁先动谁先死，全部张力来自站位"
+  },
+  {
+   "id": "multi-thread-caper",
+   "aliases": [
+    "多线",
+    "劫案",
+    "骗局",
+    "黑色喜剧",
+    "笨贼",
+    "交叉叙事"
+   ],
+   "name": "多线劫案",
+   "file": "multi-thread-caper.md",
+   "glyph": "multi-thread-caper",
+   "oneliner": "观众看的是几条各怀心思的线在同一件赃物上撞成一团，而观众比每条线的人都多知道一点"
+  },
+  {
+   "id": "mo-lei-tau",
+   "aliases": [
+    "无厘头",
+    "港式喜剧",
+    "周星驰式",
+    "搞笑",
+    "扮嘢",
+    "反高潮"
+   ],
+   "name": "港式无厘头",
+   "file": "mo-lei-tau.md",
+   "glyph": "mo-lei-tau",
+   "oneliner": "观众看的是被踩到底的人用不合逻辑的方式把自己捞回来，并在笑完之后忽然不笑"
+  },
+  {
+   "id": "absurd-parable",
+   "aliases": [
+    "荒诞",
+    "寓言",
+    "姜文式",
+    "雄性群像"
+   ],
+   "name": "荒诞寓言",
+   "file": "absurd-parable.md",
+   "glyph": "absurd-parable",
+   "oneliner": "观众看的是一群极认真的人在一套自洽但荒唐的规则里做一件惊天动地的小事"
+  },
+  {
+   "id": "county-drift",
+   "aliases": [
+    "县城",
+    "小城",
+    "纪实",
+    "拆迁",
+    "时代"
+   ],
+   "name": "县城漂移",
+   "file": "county-drift.md",
+   "glyph": "county-drift",
+   "oneliner": "观众看的是一个地方正在变成别的样子，而住在里面的人来不及反应"
+  },
+  {
+   "id": "class-vertical",
+   "aliases": [
+    "阶级",
+    "阶层",
+    "半地下",
+    "豪宅",
+    "寄生"
+   ],
+   "name": "阶级困局",
+   "file": "class-vertical.md",
+   "glyph": "class-vertical",
+   "oneliner": "观众看的是两群都在求生的人被同一栋楼装在里面，阶层由高度差写出来"
+  },
+  {
+   "id": "youth-distance",
+   "aliases": [
+    "青春",
+    "错过",
+    "异地",
+    "暗恋",
+    "校园"
+   ],
+   "name": "青春距离",
+   "file": "youth-distance.md",
+   "glyph": "youth-distance",
+   "oneliner": "观众看的是两个人隔着一样有物理形态的东西互相够不到，差一点点"
+  },
+  {
+   "id": "wasteland-chase",
+   "aliases": [
+    "废土",
+    "末世",
+    "公路",
+    "追逐",
+    "沙暴"
+   ],
+   "name": "废土追逐",
+   "file": "wasteland-chase.md",
+   "glyph": "wasteland-chase",
+   "oneliner": "观众看的是一群人为了几样具体的东西在一条没有尽头的路上互相追"
+  },
+  {
+   "id": "smalltown-uncanny",
+   "aliases": [
+    "怪谈",
+    "小镇",
+    "梦境",
+    "不对劲",
+    "悬念"
+   ],
+   "name": "小镇异闻",
+   "file": "smalltown-uncanny.md",
+   "glyph": "smalltown-uncanny",
+   "oneliner": "观众看的是熟悉的东西被放错位置，恐怖来自没看到的而不是看到的"
+  },
+  {
+   "id": "family-melodrama",
+   "aliases": [
+    "情节剧",
+    "家庭秘密",
+    "母女",
+    "姐妹",
+    "原谅"
+   ],
+   "name": "家庭情节剧",
+   "file": "family-melodrama.md",
+   "glyph": "family-melodrama",
+   "oneliner": "观众看的是一家人把一件不能说的事在厨房里说出口，手上动作不停"
+  },
+  {
+   "id": "institutional-eccentric",
+   "aliases": [
+    "古怪机构",
+    "悲喜剧",
+    "老派",
+    "形式感"
+   ],
+   "name": "古怪机构",
+   "file": "institutional-eccentric.md",
+   "glyph": "institutional-eccentric",
+   "oneliner": "观众看的是一个过时的机构里一群人严格遵守没人再需要的规矩，且极其认真"
+  },
+  {
+   "id": "neon-dystopia",
+   "aliases": [
+    "赛博",
+    "霓虹",
+    "未来都市",
+    "异星",
+    "反乌托邦"
+   ],
+   "name": "霓虹废都",
+   "file": "neon-dystopia.md",
+   "glyph": "neon-dystopia",
+   "oneliner": "观众看的是一人在比他大得多的系统里处理一件具体的小麻烦，系统不被推翻只是压着"
+  },
+  {
+   "id": "survival-fate",
+   "aliases": [
+    "生存",
+    "宿命",
+    "极限",
+    "边缘",
+    "荒野"
+   ],
+   "name": "生存宿命",
+   "file": "survival-fate.md",
+   "glyph": "survival-fate",
+   "oneliner": "观众看的是一个人用身体扛住一件本来不该落到他头上的事，靠还有多少力气"
+  },
+  {
+   "id": "social-traverse",
+   "aliases": [
+    "社会阶层",
+    "家佣",
+    "服务者",
+    "城市剖面",
+    "长镜"
+   ],
+   "name": "社会横穿",
+   "file": "social-traverse.md",
+   "glyph": "social-traverse",
+   "oneliner": "观众看的是一个人穿过一整个社会，在每个空间工作但不属于任何一个"
   }
  ],
  "industries": [
@@ -527,63 +1012,120 @@
    "name": "2D厚涂",
    "file": "anime-thick-paint.md",
    "glyph": "anime-thick-paint",
-   "oneliner": "2D 厚涂：不透明颜料逐层覆盖，笔触堆积"
+   "oneliner": "2D 厚涂：不透明颜料逐层覆盖，笔触堆积",
+   "group": "国漫"
   },
   {
    "id": "dark-myth-cg",
    "name": "暗黑系神话游戏CG",
    "file": "dark-myth-cg.md",
    "glyph": "dark-myth-cg",
-   "oneliner": "暗黑系神话游戏CG：高精 PBR + 战损皮革 + 硬光切边"
+   "oneliner": "暗黑系神话游戏CG：高精 PBR + 战损皮革 + 硬光切边",
+   "group": "国漫"
   },
   {
    "id": "east-epic-3d",
    "name": "东方神话3D",
    "file": "east-epic-3d.md",
    "glyph": "east-epic-3d",
-   "oneliner": "东方神话3D：三渲二 + SSS 玉石 + 织金重彩"
+   "oneliner": "东方神话3D：三渲二 + SSS 玉石 + 织金重彩",
+   "group": "国漫"
   },
   {
    "id": "ghibli-watercolor",
    "name": "吉卜力水彩",
    "file": "ghibli-watercolor.md",
    "glyph": "ghibli-watercolor",
-   "oneliner": "吉卜力水彩：纸本水彩背景 + 赛璐璐角色"
+   "oneliner": "吉卜力水彩：纸本水彩背景 + 赛璐璐角色",
+   "group": "日系"
   },
   {
    "id": "guoman-3d-ink",
    "name": "国漫3D水墨",
    "file": "guoman-3d-ink.md",
    "glyph": "guoman-3d-ink",
-   "oneliner": "国漫3D水墨：3D 骨相 + 宣纸肌理与枯笔描边"
+   "oneliner": "国漫3D水墨：3D 骨相 + 宣纸肌理与枯笔描边",
+   "group": "国漫"
   },
   {
    "id": "guoman-3d-xianxia",
    "name": "国漫3D仙侠",
    "file": "guoman-3d-xianxia.md",
    "glyph": "guoman-3d-xianxia",
-   "oneliner": "国漫3D仙侠：PBR 丝绸玉石、丁达尔、体积雾"
+   "oneliner": "国漫3D仙侠：PBR 丝绸玉石、丁达尔、体积雾",
+   "group": "国漫"
   },
   {
    "id": "hk-retro-film",
    "name": "复古港风胶片",
    "file": "hk-retro-film.md",
    "glyph": "hk-retro-film",
-   "oneliner": "复古港风胶片：500T 负片颗粒、霓虹污染、halation"
+   "oneliner": "复古港风胶片：500T 负片颗粒、霓虹污染、halation",
+   "group": "港味"
   },
   {
    "id": "realistic-cinema",
    "name": "写实电影",
    "file": "realistic-cinema.md",
    "glyph": "realistic-cinema",
-   "oneliner": "写实电影：数字采集为主，光比克制，肤质保留"
+   "oneliner": "写实电影：数字采集为主，光比克制，肤质保留",
+   "group": "写实"
   },
   {
    "id": "shinkai-light",
    "name": "新海诚光",
    "file": "shinkai-light.md",
    "glyph": "shinkai-light",
-   "oneliner": "新海诚光：高饱和天空、强光斑、玻璃反射"
+   "oneliner": "新海诚光：高饱和天空、强光斑、玻璃反射",
+   "group": "日系"
+  },
+  {
+   "id": "cold-noir",
+   "name": "冷调悬疑",
+   "file": "cold-noir.md",
+   "glyph": "cold-noir",
+   "oneliner": "冷灰蓝绿打底钠灯橙点缀，黑位下沉纹理可读",
+   "group": "冷调"
+  },
+  {
+   "id": "earth-warmth",
+   "name": "大地暖调",
+   "file": "earth-warmth.md",
+   "glyph": "earth-warmth",
+   "oneliner": "沙麦土砖的大地色系自然光低反差，空气透视柔和",
+   "group": "暖调"
+  },
+  {
+   "id": "minimal-grey",
+   "name": "极简冷灰",
+   "file": "minimal-grey.md",
+   "glyph": "minimal-grey",
+   "oneliner": "灰绿灰褐近亲色低饱和低反差，全画面无彩色事件",
+   "group": "冷调"
+  },
+  {
+   "id": "baroque-rich",
+   "name": "巴洛克浓彩",
+   "file": "baroque-rich.md",
+   "glyph": "baroque-rich",
+   "oneliner": "油画黑打底老金深红焦点，伦勃朗单侧主光",
+   "group": "暖调"
+  },
+  {
+   "id": "saturated-epic",
+   "name": "高饱和史诗",
+   "file": "saturated-epic.md",
+   "glyph": "saturated-epic",
+   "oneliner": "血红橙黄对撞钴蓝，沙尘火光，对比全开",
+   "group": "浓彩"
+  },
+  {
+   "id": "soft-romance",
+   "name": "浪漫柔光",
+   "file": "soft-romance.md",
+   "glyph": "soft-romance",
+   "oneliner": "奶白浅杏打底雾蓝灰粉，halation 渗光浅景深",
+   "group": "柔光"
   }
  ],
  "moves": [

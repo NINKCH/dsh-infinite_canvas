@@ -52,6 +52,11 @@ confidence: high
 
 不要写成吃饭睡觉的流水账；不要让普通人突然获得巨额资源或长期出入顶级场所；不要为了制造冲突把所有熟人写成极品；不要用温馨总结代替细节；不要连续多集没有任何目标变化。
 
+<!-- slice:prompt -->
+## 类型级负向词
+
+nostalgic sepia filter, slow motion falling leaves, everyone smiles gently at nothing, empty beautiful streets, acoustic guitar throughout, cozy cafe commercial look
+
 <!-- slice:story -->
 ## 证据与置信度
 

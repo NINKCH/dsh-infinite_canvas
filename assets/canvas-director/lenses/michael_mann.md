@@ -50,9 +50,9 @@ The night city is a cold luminous plain; one competent professional stands befor
 - 机位眼平 1.6m，光轴保持水平。仰俯角一律不用，除非从车里拍或从高处看城市。人被压小是靠距离和构图，不靠角度。
 - 人物在画幅中的高度目标是 8%–15%——按高度算，不要按宽度：25mm 镜头下 22 米外的人只占画幅宽度约 1.5%，那个数没有可操作性。8%–15% 的高度在 25mm 上对应机位距离 12–22 米（22 米一个站立的人约占画幅高度 8%，12 米约 15%）。背后是发亮的城市：人小、背景亮、地平线在眼平。这是这个风格最容易复制也最容易做错的一条。
 - 允许的运动：锁定长时间凝视、沿玻璃幕墙的恒速横移、行驶车辆上的松弛手持（低频，不是抖）、跟随行走但保持 10 米以上距离。禁止升降揭示、环绕、斜角、无人机英雄镜头。
-- 枪战段落是唯一允许高速摇镜的地方，并且必须保持空间可读：谁在哪、掩体在哪、距离多少，全段不越轴。覆盖几何见 `../cinematic-language.md`（景别/机位/运镜/轴线按电影语言通行口径写（景别：远景·全景·中景·近景·特写·大特写；运镜：固定·推·拉·摇·移·跟·升降·环绕；相邻镜守 180° 轴线与 30° 规则）。）。
+- 枪战段落是唯一允许高速摇镜的地方，并且必须保持空间可读：谁在哪、掩体在哪、距离多少，全段不越轴。覆盖几何：景别/机位/运镜/轴线按电影语言通行口径写（景别：远景·全景·中景·近景·特写·大特写；运镜：固定·推·拉·摇·移·跟·升降·环绕；相邻镜守 180° 轴线与 30° 规则）。
 - 玻璃是主要构图工具：城市倒影叠在人脸上，两层信息一帧完成，替代掉一次切换。
-- 竖幅（9:16）改写：光轴水平这一条与画幅无关，地平线照样落在画面竖向正中，不用改。失效的只有画高百分比——竖幅把长边转到纵向，纵向视场几乎翻倍，同一焦段同一距离人物只剩 16:9 时约一半的画高，8%–15% 在 25mm 上对应的机位距离因此从 12–22 米收到约 7–12 米。但不要靠再退横向距离找补：竖幅里退距只换来天空和地面。改用纵深造"小"——把机位对准一条本身就是竖的主体（坡道、楼梯井、塔楼外挂敞廊、电梯厅、高架柱列），让人退到这条竖轴的深处，再用玻璃倒影把城市叠到画面上半部。竖幅通则见 `../cinematic-language.md`（景别/机位/运镜/轴线按电影语言通行口径写（景别：远景·全景·中景·近景·特写·大特写；运镜：固定·推·拉·摇·移·跟·升降·环绕；相邻镜守 180° 轴线与 30° 规则）。）。
+- 竖幅（9:16）改写：光轴水平这一条与画幅无关，地平线照样落在画面竖向正中，不用改。失效的只有画高百分比——竖幅把长边转到纵向，纵向视场几乎翻倍，同一焦段同一距离人物只剩 16:9 时约一半的画高，8%–15% 在 25mm 上对应的机位距离因此从 12–22 米收到约 7–12 米。但不要靠再退横向距离找补：竖幅里退距只换来天空和地面。改用纵深造"小"——把机位对准一条本身就是竖的主体（坡道、楼梯井、塔楼外挂敞廊、电梯厅、高架柱列），让人退到这条竖轴的深处，再用玻璃倒影把城市叠到画面上半部。竖幅通则：景别/机位/运镜/轴线按电影语言通行口径写（景别：远景·全景·中景·近景·特写·大特写；运镜：固定·推·拉·摇·移·跟·升降·环绕；相邻镜守 180° 轴线与 30° 规则）。
 
 <!-- slice:shot prompt assets -->
 ## 灯光与色彩
@@ -61,7 +61,7 @@ The night city is a cold luminous plain; one competent professional stands befor
 - 同一帧里必须有至少两种不同色温对抗（例如左侧钠灯橙、右侧汞灯青绿），不要统一白平衡把它们调成一个颜色——那正是最常见的失败。
 - 曝光按实用光源给，不按脸给：脸可以低于主光 1.5–2 档，允许看不清，允许出现可见的高感彩噪。夜景整体比 6:1–10:1。
 - 主色：钠灯橙、汞灯蓝绿、LED 青白、黑；重点色：尾灯红、警示橙。饱和中等，对比高。
-- 黑必须是真的黑：不要抬阴影去"救细节"。这个风格的签名就是大面积无信息的黑里浮着几点城市光。调色语言见 `../lighting-and-color.md`（光比与色温写数值（如 8:1、3200K/5600K），光源必须有动机（窗/灯/霓虹/火），暗部保细节不用补光糊平。）。
+- 黑必须是真的黑：不要抬阴影去"救细节"。这个风格的签名就是大面积无信息的黑里浮着几点城市光。调色语言：光比与色温写数值（如 8:1、3200K/5600K），光源必须有动机（窗/灯/霓虹/火），暗部保细节不用补光糊平。
 
 <!-- slice:story -->
 ## 剪辑节奏
@@ -70,7 +70,7 @@ The night city is a cold luminous plain; one competent professional stands befor
 - 切点落在"一步完成"上：螺丝拧紧、灯变绿、门合上、时间到。不切在情绪上。
 - 对白段覆盖简单：正反打各一个，快切，不做花哨调度——把预算留给夜外景。
 - 每个大段落结尾给一颗 6–12 秒的城市空镜（高速路、天际线、空停车场），让噪声铺满，作为呼吸点。
-- 硬切为主，禁止溶解。时间跳跃靠一颗新的地理镜头交代。切点逻辑见 `../editing-and-assembly.md`（剪辑点优先动作匹配与视线匹配；转场默认硬切；ASL 按情绪曲线分配，不许均匀。）。
+- 硬切为主，禁止溶解。时间跳跃靠一颗新的地理镜头交代。切点逻辑：剪辑点优先动作匹配与视线匹配；转场默认硬切；ASL 按情绪曲线分配，不许均匀。
 
 <!-- slice:story -->
 ## 声音与音乐
@@ -79,7 +79,7 @@ The night city is a cold luminous plain; one competent professional stands befor
 - 环境声必须有一条不间断的低频城市底噪（高速车流、空调机组、远处飞机、变压器嗡鸣），全片不断线。
 - 枪声和金属声用真实空间的反射尾巴录制或还原——夜里城市峡谷里的长回声，不用音效库的"whoosh"。
 - 对白短促、技术性、只说名词和名字；一段对白不超过 6 句，不解释背景。
-- 决定发生的那一刻把音乐切掉，让高速路的声音接管 3–5 秒。声音策略见 `../sound-and-dialogue.md`（声音五层：环境底噪·氛围·拟音·点效·配乐；对白一镜一人；沉默是最响的提示。）。
+- 决定发生的那一刻把音乐切掉，让高速路的声音接管 3–5 秒。声音策略：声音五层：环境底噪·氛围·拟音·点效·配乐；对白一镜一人；沉默是最响的提示。
 
 <!-- slice:story shot -->
 ## 人物与表演
@@ -193,10 +193,13 @@ Night exterior, 25mm-equivalent wide, camera at eye level, lens axis level, subj
 - 弱写法：`lonely man at night in the city, neon, moody, cinematic`——模型会给你一条下着雨、打满体积光、白平衡统一的赛博走廊。
 - 强写法：逐一命名光源、写清各自的方位与颜色、把人压到画幅高度 8%、并显式禁止雾、雨和统一调色。
 
-三颗镜头分别生成，每条 4–6 秒，落在本风格的单条预算里；段尾那 8 秒空镜再单独生成一条（画面里只剩车流与灯在动），在剪辑里接在 C 后面。A 与 C 是同一机位，所以 C 用 A 的末帧当首帧（工具若提供首帧/尾帧接口，见 `../ai-video-tool-adapters.md`（每镜只给一个主动作 + 一种运镜；模型没有的控制面不要许愿（如精细运镜数值）。）），天际线和光源位置就不会漂。下面是 C：
+三颗镜头分别生成，每条 4–6 秒，落在本风格的单条预算里；段尾那 8 秒空镜再单独生成一条（画面里只剩车流与灯在动），在剪辑里接在 C 后面。A 与 C 是同一机位，所以 C 用 A 的末帧当首帧（工具若提供首帧/尾帧接口，：每镜只给一个主动作 + 一种运镜；模型没有的控制面不要许愿（如精细运镜数值）），天际线和光源位置就不会漂。下面是 C：
 
 ```text
 Locked wide, 25mm equivalent, camera at eye level with a level lens axis, twenty-two metres down an open-air walkway on the fourteenth floor of a residential tower; the walkway's open side reveals a city skyline at eye height filling the right half of the frame. Night. A person in a dark jacket is crouched at a closed apartment door, his full height occupying only about eight percent of the frame height when he stands. He finishes setting a flat wrapped package squarely on the doorsill, stands, turns, and walks three metres further away from camera to a stairwell opening at the far end of the walkway, and out of frame, without knocking and without looking at the lens. The camera does not move and holds afterwards on the empty walkway, the closed door, the package, and the city. Light comes only from real municipal sources with no unified white balance: blue-green mercury-vapour fixtures overhead on the walkway, warm sodium street light rising from below on the right, white LED office floors several hundred metres out, one red aircraft warning light. His face is about two stops under the city and largely unreadable. Ratio 8:1, shadows true black with visible high-ISO noise, dry concrete. Keep the same jacket, package, walkway geometry and skyline. Avoid: fog, volumetric light beams, rain, unified colour grade, lens flare, warm cozy lighting, other people, slow motion, text, watermark.
 ```
 
-配套参考：广角与距离的心理学见 `../cinematic-language.md`（景别/机位/运镜/轴线按电影语言通行口径写（景别：远景·全景·中景·近景·特写·大特写；运镜：固定·推·拉·摇·移·跟·升降·环绕；相邻镜守 180° 轴线与 30° 规则）。）；混色温与实用光源的处理见 `../lighting-and-color.md`（光比与色温写数值（如 8:1、3200K/5600K），光源必须有动机（窗/灯/霓虹/火），暗部保细节不用补光糊平。）；"夜景被模型自动提亮 / 加雨"的修复路径见 `../failure-modes.md`（失败按症状定位（漂移/PPT 感/运镜乱/接缝/物理错/风格跳），先改提示词再重生成。）。
+配套参考要点：
+- 广角与距离的心理学：景别/机位/运镜/轴线按电影语言通行口径写（景别：远景·全景·中景·近景·特写·大特写；运镜：固定·推·拉·摇·移·跟·升降·环绕；相邻镜守 180° 轴线与 30° 规则）
+- 混色温与实用光源的处理：光比与色温写数值（如 8:1、3200K/5600K），光源必须有动机（窗/灯/霓虹/火），暗部保细节不用补光糊平
+- "夜景被模型自动提亮 / 加雨"的修复路径：失败按症状定位（漂移/PPT 感/运镜乱/接缝/物理错/风格跳），先改提示词再重生成

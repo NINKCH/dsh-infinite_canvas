@@ -53,7 +53,7 @@ Decide the sequence's color first, then who stands inside it; the color speaks, 
 - 群体调度按"网格 + 单点破格"：30–200 个单元排成可数的行列，全员同动作同节拍；把戏剧信息全部交给那个不同步的人，观众会自己找到他。
 - 色块必须由材料承担，不由打灯滤色实现。这是与霓虹类风格最根本的分界，也是唯一保证颜色在白天成立的方法。
 - 覆盖率极低：一场戏 4–8 个镜头，特写只给"破格"的那一个人或那一件东西，其余全部是全景与顶俯。
-- 竖幅（9:16）改写：单一色块占画幅 60%–80% 与顶俯图形镜头不受画幅影响，顶俯甚至更好——它本来就没有横竖之分。失效的是横向排布的队列：9:16 只装得下两三个横向单元，"可数的行列"立刻读不出来。让重复单元沿纵深排（长廊、层层门洞、天井的进深、梯田的纵向切片），单点透视本来就是往纵深收拢的，竖幅比横幅更压迫；与一排单元平行的横移改成沿中轴的恒速推进，破格的那个人放在纵深的某一层，而不是横排的某一位。竖幅通则见 `../cinematic-language.md`（景别/机位/运镜/轴线按电影语言通行口径写（景别：远景·全景·中景·近景·特写·大特写；运镜：固定·推·拉·摇·移·跟·升降·环绕；相邻镜守 180° 轴线与 30° 规则）。）。
+- 竖幅（9:16）改写：单一色块占画幅 60%–80% 与顶俯图形镜头不受画幅影响，顶俯甚至更好——它本来就没有横竖之分。失效的是横向排布的队列：9:16 只装得下两三个横向单元，"可数的行列"立刻读不出来。让重复单元沿纵深排（长廊、层层门洞、天井的进深、梯田的纵向切片），单点透视本来就是往纵深收拢的，竖幅比横幅更压迫；与一排单元平行的横移改成沿中轴的恒速推进，破格的那个人放在纵深的某一层，而不是横排的某一位。竖幅通则：景别/机位/运镜/轴线按电影语言通行口径写（景别：远景·全景·中景·近景·特写·大特写；运镜：固定·推·拉·摇·移·跟·升降·环绕；相邻镜守 180° 轴线与 30° 规则）。
 
 <!-- slice:shot prompt assets -->
 ## 灯光与色彩
@@ -62,7 +62,7 @@ Decide the sequence's color first, then who stands inside it; the color speaks, 
 - 外景用高照度硬光，比 3:1，让材料的织纹和颗粒被看见。3:1 是靠地面和同色墙面的大面积反射把暗部托起来的，不是靠加灯；没有这层反射的空旷外景，硬太阳自然会跑到 6:1 以上，那就不是这个风格了——所以选景时先看有没有能反光的大面积同色表面。夜内景由可见实用光源（灯笼阵、油灯、烛列）主导，比 6:1–8:1，阴影里保留色相而不是死黑。
 - 唯一允许与主色对抗的是肤色、黑发，以及一处纯白或纯黑——那就是破格点，全场只留一个。
 - 饱和度靠美术（染料、材质本色、大面积同色道具）拿到，后期只做色相收敛，把杂色赶出画面，不靠拉曲线硬提。
-- 每个颜色在剧作里有名字：写下"红＝规矩认可的身份 / 黄＝欠下的债 / 青＝墙外"，一句话，全片不改。颜色的含义要为这个故事现写，不要沿用别人已经用成标志的那套对应。光比与调色术语见 `../lighting-and-color.md`（光比与色温写数值（如 8:1、3200K/5600K），光源必须有动机（窗/灯/霓虹/火），暗部保细节不用补光糊平。）。
+- 每个颜色在剧作里有名字：写下"红＝规矩认可的身份 / 黄＝欠下的债 / 青＝墙外"，一句话，全片不改。颜色的含义要为这个故事现写，不要沿用别人已经用成标志的那套对应。光比与调色术语：光比与色温写数值（如 8:1、3200K/5600K），光源必须有动机（窗/灯/霓虹/火），暗部保细节不用补光糊平。
 
 <!-- slice:story -->
 ## 剪辑节奏
@@ -71,7 +71,7 @@ Decide the sequence's color first, then who stands inside it; the color speaks, 
 - 硬切为主。溶解只用在两个色段之间，全片不超过两次。
 - 图形镜头（顶俯的网格）与破格镜头（唯一那个人的中近景）之间做直接对切，中间不放过渡尺寸——尺寸落差本身就是重音。
 - 段落结束时回到第一颗图形镜头的同一机位，让观众自己比对少了什么。
-- 剪辑逻辑与转场工程见 `../editing-and-assembly.md`（剪辑点优先动作匹配与视线匹配；转场默认硬切；ASL 按情绪曲线分配，不许均匀。）。
+- 剪辑逻辑与转场工程：剪辑点优先动作匹配与视线匹配；转场默认硬切；ASL 按情绪曲线分配，不许均匀。
 
 <!-- slice:story -->
 ## 声音与音乐
@@ -193,10 +193,13 @@ Symmetrical one-point-perspective wide frame, 35mm equivalent, camera eye level,
 - 弱写法：`red corridor, dramatic Chinese aesthetic, emotional, cinematic`——模型会给你一条打了红灯的普通走廊。
 - 强写法：指定红色由什么材料承担、单元数量与间距、以及唯一那个非红色的东西在哪。
 
-整颗镜头的动作约 16 秒，超过本风格 3–6 秒的单条预算；硬塞进一条只会得到加速和橡皮人。按动作切成三条依次生成——(1) 他走进、停在第七扇门前；(2) 抬手至门前 15 厘米并停住不动；(3) 手落下、放下包裹、离开——用前一条的末帧作为下一条的首帧（工具若提供首帧/尾帧接口，见 `../ai-video-tool-adapters.md`（每镜只给一个主动作 + 一种运镜；模型没有的控制面不要许愿（如精细运镜数值）。））。三条共用同一段描述，只换掉动作句。下面是第 (3) 条：
+整颗镜头的动作约 16 秒，超过本风格 3–6 秒的单条预算；硬塞进一条只会得到加速和橡皮人。按动作切成三条依次生成——(1) 他走进、停在第七扇门前；(2) 抬手至门前 15 厘米并停住不动；(3) 手落下、放下包裹、离开——用前一条的末帧作为下一条的首帧（工具若提供首帧/尾帧接口，：每镜只给一个主动作 + 一种运镜；模型没有的控制面不要许愿（如精细运镜数值））。三条共用同一段描述，只换掉动作句。下面是第 (3) 条：
 
 ```text
 Locked symmetrical wide, 35mm equivalent, camera at eye level, one-point perspective straight down an open-air apartment gallery. Twenty identical doors with identical red-painted frames recede evenly to a vanishing point at frame centre; the red occupies about 70% of the image. A person in a dark grey coat — the only non-red element — stands at the seventh door with one hand already raised, the knuckles about fifteen centimetres from the door, a white cloth-wrapped bundle in the other hand. The raised hand lowers, he crouches, sets the white bundle on the doorsill, stands, and walks back toward camera and out past it. The camera does not move and does not reframe; it ends holding on the empty red gallery with the single white bundle at the seventh door. Hard low afternoon sunlight running down the length of the gallery, the sun roughly aligned with the corridor axis and low behind camera, 3:1 with the shadow side lifted by bounce off the red walls; brush marks in the red paint and wood grain clearly visible, shadows dark red rather than black. Keep the same coat, bundle, door spacing and saturated single-hue palette. Avoid: desaturated color, mixed color temperature, neon, handheld shake, lens flare, other people, text, watermark, shallow depth of field.
 ```
 
-配套参考：景别、焦段与覆盖几何见 `../cinematic-language.md`（景别/机位/运镜/轴线按电影语言通行口径写（景别：远景·全景·中景·近景·特写·大特写；运镜：固定·推·拉·摇·移·跟·升降·环绕；相邻镜守 180° 轴线与 30° 规则）。）；调色与光比语言见 `../lighting-and-color.md`（光比与色温写数值（如 8:1、3200K/5600K），光源必须有动机（窗/灯/霓虹/火），暗部保细节不用补光糊平。）；"人群糊成一团"的修复路径见 `../failure-modes.md`（失败按症状定位（漂移/PPT 感/运镜乱/接缝/物理错/风格跳），先改提示词再重生成。）。
+配套参考要点：
+- 景别、焦段与覆盖几何：景别/机位/运镜/轴线按电影语言通行口径写（景别：远景·全景·中景·近景·特写·大特写；运镜：固定·推·拉·摇·移·跟·升降·环绕；相邻镜守 180° 轴线与 30° 规则）
+- 调色与光比语言：光比与色温写数值（如 8:1、3200K/5600K），光源必须有动机（窗/灯/霓虹/火），暗部保细节不用补光糊平
+- "人群糊成一团"的修复路径：失败按症状定位（漂移/PPT 感/运镜乱/接缝/物理错/风格跳），先改提示词再重生成

@@ -52,6 +52,11 @@ confidence: high
 
 不要堆古风辞藻代替权力变化；不要让所有人低智争吵；不要忽略规矩成本让主角随意越界；不要用"突然有人报出头衔"替代此前的行为与证据；不要把礼制细节写成与故事无关的展示。
 
+<!-- slice:prompt -->
+## 类型级负向词
+
+golden throne room wide shot, everyone in elaborate costume walking slow, cgi palace, dramatic sword unsheathe, court intrigue whisper close-up, ornate everything
+
 <!-- slice:story -->
 ## 证据与置信度
 

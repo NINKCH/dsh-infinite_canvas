@@ -72,6 +72,11 @@ confidence: medium
 
 不要动作更大而任务状态不变；不要让主角的能力上限随剧情浮动；不要让队友只负责牺牲；不要用快剪代替可追踪的空间关系；不要让"人数变多"充当升级。
 
+<!-- slice:prompt -->
+## 类型级负向词
+
+postcard travel montage, drone tourism shot, exotic natives as decoration, treasure cgi glow, epic orchestral swell, everyone looks heroic, map animation gimmick
+
 <!-- slice:story -->
 ## 证据与置信度
 

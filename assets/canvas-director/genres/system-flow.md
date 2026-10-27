@@ -52,6 +52,11 @@ confidence: medium
 
 不要把奖励换成一条焦虑条款；不要删掉主角对系统的吐槽与喜剧反应；不要让对手只会嘴上看不起而没有当众做过的事；不要让系统替主角做决定；不要为救场临时给系统加能力。
 
+<!-- slice:prompt -->
+## 类型级负向词
+
+floating holographic interface, glowing level up effect, stat panel overlay, anime power aura, everyone shocked at the numbers, cgi digital particles, video game ui popups
+
 <!-- slice:story -->
 ## 证据与置信度
 

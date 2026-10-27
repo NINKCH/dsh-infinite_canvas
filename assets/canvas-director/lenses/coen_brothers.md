@@ -52,7 +52,7 @@ Compose with total precision, play it with total sincerity, then hold one second
 - 广角低机位跑动镜头的规格：镜头高度 0.4–0.6 米，上仰 10–15 度，速度与被摄体一致；14mm 距被摄体 1.2–1.5 米，或 21mm 距 1.8–2 米。这一组数字下，天花板/天空与地面同时在画面里，上半身占画幅高度 30%–35%——想再大就必须切掉天花板，两者不可兼得，别写"上半身占 60% 且看得见天花板"。
 - 正面对称镜头的规格：人物在正中，背后是一扇门、一扇窗或一块牌子，位置正好在头后像光环；反打保持完全相同的构图与轴距，只换人。
 - 允许两种"重音镜头"：对一件物品（钱、表格、工具）的快推，以及一颗 90 度顶俯拍"正在被收拾的一摊东西"。两者都不加音效强调。
-- 尺寸落差当标点用：一颗大全景直接切到一颗极特写，中间不放过渡尺寸——这就是这个风格的句号。景别与运动术语见 `../cinematic-language.md`（景别/机位/运镜/轴线按电影语言通行口径写（景别：远景·全景·中景·近景·特写·大特写；运镜：固定·推·拉·摇·移·跟·升降·环绕；相邻镜守 180° 轴线与 30° 规则）。）。
+- 尺寸落差当标点用：一颗大全景直接切到一颗极特写，中间不放过渡尺寸——这就是这个风格的句号。景别与运动术语：景别/机位/运镜/轴线按电影语言通行口径写（景别：远景·全景·中景·近景·特写·大特写；运镜：固定·推·拉·摇·移·跟·升降·环绕；相邻镜守 180° 轴线与 30° 规则）。
 
 <!-- slice:shot prompt assets -->
 ## 灯光与色彩
@@ -61,7 +61,7 @@ Compose with total precision, play it with total sincerity, then hold one second
 - 室内比 3:1，夜外景 8:1；不用柔光箱美化人脸，不用发丝逆光。
 - 每个空间有一个统一的、廉价的色偏：办公室是荧光管的绿白，汽车旅馆是钨丝的橙棕，雪地是无色的高亮，警局是日光灯的青白。
 - 主色：机构米色、旅馆棕、雪白、荧光绿白；重点色：血红、芥末黄、警灯蓝。饱和中等，对比中等：光源是硬的，但阴影不深——荧光管照亮的机构空间四壁都在反光，暗部是脏灰的，不是黑的（正好与 19 迈克尔·曼（此处的通用判据按本透镜自身的小节执行，不引外部文件。） 的真黑相反，别把两者的调色套用混）。
-- 血是道具，不是特效：量少、位置尴尬、在错误的表面上（浅色地毯、白衬衫、文件），并且必须出现在下一颗善后镜头里。调色语言见 `../lighting-and-color.md`（光比与色温写数值（如 8:1、3200K/5600K），光源必须有动机（窗/灯/霓虹/火），暗部保细节不用补光糊平。）。
+- 血是道具，不是特效：量少、位置尴尬、在错误的表面上（浅色地毯、白衬衫、文件），并且必须出现在下一颗善后镜头里。调色语言：光比与色温写数值（如 8:1、3200K/5600K），光源必须有动机（窗/灯/霓虹/火），暗部保细节不用补光糊平。
 
 <!-- slice:story -->
 ## 剪辑节奏
@@ -70,7 +70,7 @@ Compose with total precision, play it with total sincerity, then hold one second
 - 一个问题之后允许 2–3 秒完全无人说话，两人都不动。不要用反应镜头填补这段死寂。
 - 反应镜头是被克扣的资源：观众想看另一个人的反应时，偏偏不给，把镜头留在说话的人脸上。全场只在最不该给的时候给一次。
 - 硬切为主。转场重音是尺寸的暴力落差（全景 → 极特写），不是溶解，也不是甩镜。
-- 场景以"没有人退场"结束：戏演完了，人还站在那儿，镜头再停 1 秒才切。切点逻辑见 `../editing-and-assembly.md`（剪辑点优先动作匹配与视线匹配；转场默认硬切；ASL 按情绪曲线分配，不许均匀。）。
+- 场景以"没有人退场"结束：戏演完了，人还站在那儿，镜头再停 1 秒才切。切点逻辑：剪辑点优先动作匹配与视线匹配；转场默认硬切；ASL 按情绪曲线分配，不许均匀。
 
 <!-- slice:story -->
 ## 声音与音乐
@@ -78,7 +78,7 @@ Compose with total precision, play it with total sincerity, then hold one second
 - 配乐稀少，且只有两种合法形态：一段地域性的源音乐（车里的电台、店里的广播），或者一段与内容完全不匹配的庄严正经的曲子，端正地演奏。禁止喜剧音效、禁止 stinger、禁止滑稽配器。
 - 环境声必须地域具体：某种风穿过平地的声音、某台特定机器、某种鸟、雪被踩下去的声音、荧光镇流器的嗡鸣。观众要能凭声音说出这是哪儿。
 - 对白慢、过分客气、口音明确，人物会把对方刚说的话原样复述一遍再回答。信息密度低，礼节密度高。
-- 静默是主要喜剧乐器：2–3 秒的死寂，环境声不减，谁都不动。声音策略见 `../sound-and-dialogue.md`（声音五层：环境底噪·氛围·拟音·点效·配乐；对白一镜一人；沉默是最响的提示。）。
+- 静默是主要喜剧乐器：2–3 秒的死寂，环境声不减，谁都不动。声音策略：声音五层：环境底噪·氛围·拟音·点效·配乐；对白一镜一人；沉默是最响的提示。
 
 <!-- slice:story shot -->
 ## 人物与表演
@@ -195,10 +195,13 @@ Dead-frontal symmetrical frame, 27mm equivalent, camera at eye level, subject ex
 - 弱写法：`awkward funny moment, deadpan comedy, quirky character`——模型会给你一个挤眉弄眼的人。
 - 强写法：把笑点写成物件的物理行为和构图的严格对称，并显式规定表情中性。
 
-整段动作约 28 秒——这颗镜头在剪辑里是一整颗，但生成时必须拆：本风格单条 3–6 秒，硬塞进去只会得到加速和橡皮人。按四条生成，机位完全相同：(1) 抬手、停住、放下；(2) 蹲下摆正包裹、起身、包裹倒了；(3) 他扶正、它又倒、他盯着它看；(4) 他捡起来抱在怀里，沿走廊中线走远，镜头留在空走廊上。用前一条末帧作为下一条首帧（工具若提供首帧/尾帧接口，见 `../ai-video-tool-adapters.md`（每镜只给一个主动作 + 一种运镜；模型没有的控制面不要许愿（如精细运镜数值）。））；四条共用下面这段描述，只换动作句。下面是第 (3) 条，也就是笑点那一条：
+整段动作约 28 秒——这颗镜头在剪辑里是一整颗，但生成时必须拆：本风格单条 3–6 秒，硬塞进去只会得到加速和橡皮人。按四条生成，机位完全相同：(1) 抬手、停住、放下；(2) 蹲下摆正包裹、起身、包裹倒了；(3) 他扶正、它又倒、他盯着它看；(4) 他捡起来抱在怀里，沿走廊中线走远，镜头留在空走廊上。用前一条末帧作为下一条首帧（工具若提供首帧/尾帧接口，：每镜只给一个主动作 + 一种运镜；模型没有的控制面不要许愿（如精细运镜数值））；四条共用下面这段描述，只换动作句。下面是第 (3) 条，也就是笑点那一条：
 
 ```text
 Dead-frontal locked camera, no movement of any kind, 27mm equivalent, eye level at 1.6 metres, one-point perspective straight down an apartment corridor with a closed door exactly centred in frame and its number plate directly behind the man's head. Both ceiling and floor visible. A man in a heavy coat stands centred, looking down at a square wrapped parcel that has just fallen over on the doorsill. He crouches, rights the parcel, carefully squaring it to the centre line of the doorframe, and stands. It tips over again. He looks down at it without expression and does not move for the rest of the clip. His expression is completely neutral throughout — no smile, no eyebrow movement, no reaction. Overhead fluorescent tubes are the only light source, hard top light with shadow in both eye sockets, ratio 3:1, unflattering, no fill, shadows grey and open rather than black. A small puddle of melted snow on the floor where he is standing. Palette institutional beige and fluorescent green-white. Keep the same coat, parcel, corridor and framing. Avoid: smiling, exaggerated expression, comic reaction face, handheld shake, shallow depth of field, warm romantic light, slow motion, dynamic pose, text, watermark.
 ```
 
-配套参考：尺寸落差与构图术语见 `../cinematic-language.md`（景别/机位/运镜/轴线按电影语言通行口径写（景别：远景·全景·中景·近景·特写·大特写；运镜：固定·推·拉·摇·移·跟·升降·环绕；相邻镜守 180° 轴线与 30° 规则）。）；死寂时长与对白节奏见 `../sound-and-dialogue.md`（声音五层：环境底噪·氛围·拟音·点效·配乐；对白一镜一人；沉默是最响的提示。）；喜剧类型的通用默认值见 `../genre-playbooks.md`（题材默认值（压力机制、观众回报、ASL、光比）按题材卡取，导演透镜在同名轴上压过题材。）。
+配套参考要点：
+- 尺寸落差与构图术语：景别/机位/运镜/轴线按电影语言通行口径写（景别：远景·全景·中景·近景·特写·大特写；运镜：固定·推·拉·摇·移·跟·升降·环绕；相邻镜守 180° 轴线与 30° 规则）
+- 死寂时长与对白节奏：声音五层：环境底噪·氛围·拟音·点效·配乐；对白一镜一人；沉默是最响的提示
+- 喜剧类型的通用默认值：题材默认值（压力机制、观众回报、ASL、光比）按题材卡取，导演透镜在同名轴上压过题材

@@ -52,6 +52,11 @@ confidence: medium
 
 不要动作更大而任务状态不变；不要让主角的能力上限随剧情浮动；不要让队友只负责牺牲；不要用剪辑加速代替可追踪的空间关系；不要让对手的人数增加充当升级。
 
+<!-- slice:prompt -->
+## 类型级负向词
+
+heroic slow motion walk, endless bullet dodging, explosion behind without consequence, cgi stunt double, everyone survives, cool one-liner pose, shaky cam chaos
+
 <!-- slice:story -->
 ## 证据与置信度
 

@@ -10,6 +10,14 @@ window.__ModuleLoader__.load({
     // ============================================================
     const NS = 'infinite-canvas';
     const PANEL_ID = 'infinite-canvas';
+
+// 对话触发画布时的展开方式：优先右侧栏页签（左边对话、右边画布对照，不跳走会话），
+// 旧 runner 无 sidebarRight 服务时回退全屏面板。multiple:false 的 kind 重复 open = 聚焦已有页签。
+// openTab 的 kind 内联字符串而非引用 CANVAS_TAB_KIND：本函数调用点早于该 const 声明行（TDZ）。
+function revealCanvasInRight() {
+  try { if (CTX && CTX.sidebarRight && typeof CTX.sidebarRight.openTab === 'function') { CTX.sidebarRight.openTab('infinite-canvas'); return; } } catch { /* 落到全屏 */ }
+  try { if (CTX && CTX.layout && CTX.layout.selectPanel) CTX.layout.selectPanel(PANEL_ID); } catch { /* 忽略 */ }
+}
     const LS_PROJECTS = 'dsh-ic:projects';
     const LS_ACTIVE = 'dsh-ic:active';
     const LS_GRAPH = 'dsh-ic:graph:';
@@ -8035,7 +8043,7 @@ function queueThumb(assetId) {
             if (!pid || S.projects.some((p) => p.id === pid)) {
               if (pid && pid !== S.activeId) switchProject(pid);
               if (pid && wantCanvas && wantCanvas !== activeCanvasId()) switchCanvas(wantCanvas);
-              try { if (CTX && CTX.layout && CTX.layout.selectPanel) CTX.layout.selectPanel(PANEL_ID); } catch { /* 忽略 */ }
+              revealCanvasInRight();
             }
           }
         } catch { /* 打开失败不阻断后续同步 */ }
@@ -8052,7 +8060,7 @@ function queueThumb(assetId) {
       const wantCanvas = (runRequest.canvasId === undefined || runRequest.canvasId === null) ? null : String(runRequest.canvasId);
       if (pid && pid !== S.activeId && S.projects.some((p) => p.id === pid)) {
         switchProject(pid);
-        try { if (CTX && CTX.layout && CTX.layout.selectPanel) CTX.layout.selectPanel(PANEL_ID); } catch { /* 忽略 */ }
+        revealCanvasInRight();
       }
       // 多画布：对话侧指定了子画布 → 先切到那个画布再找节点（否则会找不到节点/跑错画布）
       if (pid && pid === S.activeId && wantCanvas && wantCanvas !== activeCanvasId()) {
@@ -13601,7 +13609,7 @@ function queueThumb(assetId) {
 
     // ============================================================
     // 技能包（canvas-director）：四层配置 + 按生成能力切片
-    //   L1 导演透镜 24 / L2 题材（叙事 21 + 行业 10）/ L3 规格 9 / L4 影调 9
+    //   L1 导演透镜 45 / L2 题材（叙事 21 + 行业 10）/ L3 规格 9 / L4 影调 9
     //   配置是**项目级**：本地 localStorage 缓存 + 随项目文档同步到 Host（对话侧可读）
     //   切片用 assets/canvas-director/pack.js 的纯函数（与 Host 同源，保证口径一致）
     // ============================================================
@@ -13856,6 +13864,13 @@ function queueThumb(assetId) {
         if (!md) continue;
         const granules = P.sectionText(md, '常见场面颗粒') || P.sectionText(md, '参考镜头') || P.sectionText(md, '视觉母题');
         if (granules) push((ge ? '题材的场面颗粒' : '行业视觉母题') + '（' + entry.name + '）：', granules);
+        // 题材的「禁止漂移」是画面层约束（能出现什么物件、不能出现什么年代错误、不许用什么代替故事），
+        // 以前只在 script 切片里出现、进不了 prompt，等于题材对成片没有约束力。这里补上。
+        const forbid = P.sectionText(md, '禁止漂移');
+        if (forbid) push('本题材的画面禁项（' + entry.name + '，必须排除）：', forbid);
+        // 题材级负向词（与规格/透镜/影调同一机制）：题材卡若写了「类型级负向词」小节就一并注入。
+        const genreNeg = P.negativePhrases(md);
+        if (genreNeg.length) push('本题材负向词（' + entry.name + '，必须排除）：', genreNeg.join(', '));
       }
 
       // ④ 规格：节奏与负向词（画幅不在这里定，由视频节点选）
@@ -18482,13 +18497,13 @@ const DIRECTOR_KEY_HELP = [
 
     // ============================================================
     // 技能页（craft）：四层创作控制台
-    //   L1 导演透镜（24）/ L2 题材（叙事21 + 行业10）/ L3 规格（9）/ L4 影调（9）+ 专家
+    //   L1 导演透镜（45）/ L2 题材（叙事21 + 行业10）/ L3 规格（9）/ L4 影调（9）+ 专家
     //   全部是**图标瓦片**，页面内不含任何 <select>（下拉框在小面板里没法扫读）
     // ============================================================
 
     /** 瓦片图标：分层族徽。每层一个底形，内部用不同几何标记区分具体项。 */
     const SKILL_GLYPHS = {
-      // ── L1 导演：取景框（四角框）+ 24 种镜头标记 ──
+      // ── L1 导演：取景框（四角框）+ 45 种镜头标记 ──
       spielberg: ['M4 8V5h3M17 5h3v3M20 16v3h-3M7 19H4v-3', 'M9 12h6'],
       hitchcock: ['M4 8V5h3M17 5h3v3M20 16v3h-3M7 19H4v-3', 'M15 12a3 3 0 11-6 0 3 3 0 016 0'],
       kubrick: ['M4 8V5h3M17 5h3v3M20 16v3h-3M7 19H4v-3', 'M12 5v14M5 12h14'],
@@ -18523,6 +18538,21 @@ const DIRECTOR_KEY_HELP = [
       'family-relation': ['M4 9l3-4h10l3 4v6l-3 4H7l-3-4z', 'M8 15a2 2 0 104 0 2 2 0 00-4 0M12 15a2 2 0 104 0 2 2 0 00-4 0'],
       'parent-child-secret': ['M4 9l3-4h10l3 4v6l-3 4H7l-3-4z', 'M9 9v6M9 9h4a2 2 0 010 4H9'],
       'workplace-comedy': ['M4 9l3-4h10l3 4v6l-3 4H7l-3-4z', 'M8 14h8M10 10h4'],
+      'gambling-den': ['M4 9l3-4h10l3 4v6l-3 4H7l-3-4z', 'M8 12h8M10 9v6M14 9v6'],
+      'gunstandoff': ['M4 9l3-4h10l3 4v6l-3 4H7l-3-4z', 'M7 7h4v4H7zM13 13h4v4h-4z'],
+      'multi-thread-caper': ['M4 9l3-4h10l3 4v6l-3 4H7l-3-4z', 'M5 8h6M5 12h10M5 16h4'],
+      'mo-lei-tau': ['M4 9l3-4h10l3 4v6l-3 4H7l-3-4z', 'M9 10a3 3 0 016 0M8 16c1.5-2 4.5-2 6 0'],
+      'absurd-parable': ['M4 9l3-4h10l3 4v6l-3 4H7l-3-4z', 'M9 12h6M12 9v6M7 17l10-10'],
+      'county-drift': ['M4 9l3-4h10l3 4v6l-3 4H7l-3-4z', 'M4 17h16M7 17V9h3v8M14 17v-5h3v5'],
+      'class-vertical': ['M4 9l3-4h10l3 4v6l-3 4H7l-3-4z', 'M12 4v16M7 9h10M9 15h6'],
+      'youth-distance': ['M4 9l3-4h10l3 4v6l-3 4H7l-3-4z', 'M4 12h4M16 12h4M9 9l6 6'],
+      'wasteland-chase': ['M4 9l3-4h10l3 4v6l-3 4H7l-3-4z', 'M4 16h16M8 16l2-6 2 6M14 16l2-5 2 5'],
+      'smalltown-uncanny': ['M4 9l3-4h10l3 4v6l-3 4H7l-3-4z', 'M12 6a5 5 0 100 10 5 5 0 000-10M9 11h6'],
+      'family-melodrama': ['M4 9l3-4h10l3 4v6l-3 4H7l-3-4z', 'M7 8h10v9H7zM9 12h6M12 8V5'],
+      'institutional-eccentric': ['M4 9l3-4h10l3 4v6l-3 4H7l-3-4z', 'M12 4v16M6 9h12M8 15h8'],
+      'neon-dystopia': ['M4 9l3-4h10l3 4v6l-3 4H7l-3-4z', 'M6 15l3-7 3 7M14 15l2-5 2 5M4 18h16'],
+      'survival-fate': ['M4 9l3-4h10l3 4v6l-3 4H7l-3-4z', 'M5 16c2-5 4-8 7-8s5 3 7 8M5 16h14'],
+      'social-traverse': ['M4 9l3-4h10l3 4v6l-3 4H7l-3-4z', 'M4 7h5v4H4zM15 7h5v4h-5zM9 15h6v4H9z'],
       'identity-swap': ['M4 9l3-4h10l3 4v6l-3 4H7l-3-4z', 'M8 10h8l-2-2M16 14H8l2 2'],
       'slice-of-life': ['M4 9l3-4h10l3 4v6l-3 4H7l-3-4z', 'M7 15c2-3 8-3 10 0'],
       'xianxia-cultivation': ['M4 9l3-4h10l3 4v6l-3 4H7l-3-4z', 'M12 7v10M9 10l3-3 3 3M9 14l3 3 3-3'],
@@ -18573,6 +18603,33 @@ const DIRECTOR_KEY_HELP = [
       'guoman-3d-ink': ['M4 7h6v10H4z', 'M11 7h6v10h-6zM13 14c1-4 3-4 4 0'],
       'dark-myth-cg': ['M4 7h6v10H4z', 'M11 7h6v10h-6zM14 8v6M12 11h4'],
       'east-epic-3d': ['M4 7h6v10H4z', 'M11 7h6v10h-6zM13 15l2-7 2 7'],
+      'cold-noir': ['M4 7h6v10H4z', 'M8 9h4v6H8zM14 9h2v6h-2zM12 8v8'],
+      'earth-warmth': ['M4 7h6v10H4z', 'M4 16c3-4 6-4 9 0M9 8h6v8H9z'],
+      'minimal-grey': ['M4 7h6v10H4z', 'M5 7h14M5 12h14M5 17h10'],
+      'baroque-rich': ['M4 7h6v10H4z', 'M8 6h8v12H8zM10 10h4M12 6V4'],
+      'saturated-epic': ['M4 7h6v10H4z', 'M5 17c2-6 4-9 7-9s5 3 7 9M5 17h14'],
+      'soft-romance': ['M4 7h6v10H4z', 'M12 5a6 6 0 016 6M12 5a6 6 0 00-6 6M12 13v6'],
+      'ang_lee': ['M4 8V5h3M17 5h3v3M20 16v3h-3M7 19H4v-3', 'M9 12h6M12 9v6'],
+      'edward_yang': ['M4 8V5h3M17 5h3v3M20 16v3h-3M7 19H4v-3', 'M5 5h14M5 5v14M19 5v14M8 10h8M8 14h5'],
+      'jia_zhangke': ['M4 8V5h3M17 5h3v3M20 16v3h-3M7 19H4v-3', 'M4 18h16M6 18V9l6-4 6 4v9'],
+      'jiang_wen': ['M4 8V5h3M17 5h3v3M20 16v3h-3M7 19H4v-3', 'M12 4v3M12 17v3M4 12h3M17 12h3M12 9a3 3 0 100 6 3 3 0 000-6'],
+      'johnnie_to': ['M4 8V5h3M17 5h3v3M20 16v3h-3M7 19H4v-3', 'M6 6h3v3H6zM15 6h3v3h-3zM6 15h3v3H6zM15 15h3v3h-3z'],
+      'ning_hao': ['M4 8V5h3M17 5h3v3M20 16v3h-3M7 19H4v-3', 'M4 7h6v4H4zM14 7h6v4h-6zM4 15h6v4H4zM14 15h6v4h-6z'],
+      'stephen_chow': ['M4 8V5h3M17 5h3v3M20 16v3h-3M7 19H4v-3', 'M7 9c1-2 3-3 5-3s4 1 5 3M8 16c1 2 3 3 4 3s3-1 4-3'],
+      'wong_jing': ['M4 8V5h3M17 5h3v3M20 16v3h-3M7 19H4v-3', 'M7 6h10v12H7zM10 9h4M10 13h4'],
+      'bong_joon_ho': ['M4 8V5h3M17 5h3v3M20 16v3h-3M7 19H4v-3', 'M4 18h5v-5h5V8h5M4 18V8'],
+      'koreeda_hirokazu': ['M4 8V5h3M17 5h3v3M20 16v3h-3M7 19H4v-3', 'M4 16h16M8 16V9h8v7M10 9V6h4v3'],
+      'lee_chang_dong': ['M4 8V5h3M17 5h3v3M20 16v3h-3M7 19H4v-3', 'M4 17h16M7 17V9h3v8M14 17V6h3v11'],
+      'miyazaki_hayao': ['M4 8V5h3M17 5h3v3M20 16v3h-3M7 19H4v-3', 'M3 15c3-4 6-4 9 0s6 4 9 0M12 5l4 5h-8z'],
+      'shinkai_makoto': ['M4 8V5h3M17 5h3v3M20 16v3h-3M7 19H4v-3', 'M12 4v4M12 16v4M4 12h4M16 12h4M9 9l6 6M15 9l-6 6'],
+      'ridley_scott': ['M4 8V5h3M17 5h3v3M20 16v3h-3M7 19H4v-3', 'M4 18h16M6 18V8h5v10M13 18V5h5v13'],
+      'david_lynch': ['M4 8V5h3M17 5h3v3M20 16v3h-3M7 19H4v-3', 'M12 5a7 7 0 100 14 7 7 0 000-14M9 12h6'],
+      'alfonso_cuaron': ['M4 8V5h3M17 5h3v3M20 16v3h-3M7 19H4v-3', 'M4 12h4V8h4v8h4V8h4'],
+      'alejandro_inarritu': ['M4 8V5h3M17 5h3v3M20 16v3h-3M7 19H4v-3', 'M5 17c3-6 5-9 7-9s4 3 7 9M5 17h14'],
+      'wes_anderson': ['M4 8V5h3M17 5h3v3M20 16v3h-3M7 19H4v-3', 'M12 4v16M6 10h12M8 16h8'],
+      'george_miller': ['M4 8V5h3M17 5h3v3M20 16v3h-3M7 19H4v-3', 'M4 18h16M9 18l3-10 3 10M12 8V5'],
+      'pedro_almodovar': ['M4 8V5h3M17 5h3v3M20 16v3h-3M7 19H4v-3', 'M8 7h8v10H8zM10 12h4M12 7V4'],
+      'guy_ritchie': ['M4 8V5h3M17 5h3v3M20 16v3h-3M7 19H4v-3', 'M4 8h16M4 12h11M4 16h16M17 11v4'],
     };
 
     /** 渲染一个瓦片图标（24 网格，currentColor 描边）。 */
@@ -19270,7 +19327,7 @@ const DIRECTOR_KEY_HELP = [
     ];
     const SKILL_SHORTCUT_ID = 'infinite-canvas.skill';
     function openSkillPalette() {
-      try { if (CTX && CTX.layout && CTX.layout.selectPanel) CTX.layout.selectPanel(PANEL_ID); } catch { /* 旧 runner 无 layout 服务 */ }
+      revealCanvasInRight();
       update((s) => { s.skillPalette = true; s.keysOpen = false; });
     }
     function closeSkillPalette() { update((s) => { s.skillPalette = false; }); }
@@ -19419,7 +19476,7 @@ const DIRECTOR_KEY_HELP = [
     // 插件入口
     // ============================================================
     return {
-      inject: ['slots', 'locale', 'layout', 'sidebarRightTabs', 'shortcuts'],
+      inject: ['slots', 'locale', 'layout', 'sidebarRightTabs', 'shortcuts', 'sidebarRight'],
       apply(ctx) {
         CTX = ctx;
         // 创作技能快捷键（Ctrl/⌘ + Shift + K）：命令进入 ctx.shortcuts 目录 → Harness 快捷键面板可见

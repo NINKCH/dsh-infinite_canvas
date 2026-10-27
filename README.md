@@ -79,6 +79,7 @@ The canvas is not a separate window you have to switch to. It opens as a **tab i
 
 A blocking & previz workspace that lives inside the same project: place real glTF characters and set dressing, frame them with real cameras, and send the result back to the canvas as an image or video node.
 
+- **Built-in "Media Studio" preset mode** — director-first guided creation (pick lens → genre/spec/look → one-sentence story → storyboard → generation → ArtCraft finishing), selectable from the mode picker; the bundled **director-workshop** skill walks a newcomer one question at a time.
 - **Three modes** — **Static previz** (studio look, paused), **Dynamic previz** (studio look + timeline playback), **Live render** (final look: daylight, shadows, materials, no guides).
 - **Asset library** — characters, trees, furniture, buildings, primitives, and ancient-street set pieces (pitched roofs, stalls, stone steps) in one searchable rail.
 - **Direct manipulation** — local-axis move/rotate/scale gizmo, box select, **Alt-drag a scale handle = uniform scale**, **W/A/S/D + Q/E fly navigation** (hold Shift for 4x speed).
@@ -104,12 +105,12 @@ The third tab of the right sidebar decides **how the whole piece is shot**. It i
 
 | Layer | Count | Decides | Why it needs its own layer |
 |---|---|---|---|
-| **Director** | 24 | Camera language, lighting, cutting rhythm, style parameters | It constrains the shot's camera fields, the keyframe, and the video's camera move at once — the least replaceable decision in the whole piece |
-| **Genre** | 21 narrative / 10 sector | Pressure mechanics, audience payoff, scene granules, episode hooks | The same "revenge" premise is fragmented neon under Wong Kar-wai and hard-lit slow motion under Tsui Hark; folding them together poisons both |
+| **Director** | 45 | Camera language, lighting, cutting rhythm, style parameters | It constrains the shot's camera fields, the keyframe, and the video's camera move at once — the least replaceable decision in the whole piece |
+| **Genre** | 36 narrative / 10 sector | Pressure mechanics, audience payoff, scene granules, episode hooks | The same "revenge" premise is fragmented neon under Wong Kar-wai and hard-lit slow motion under Tsui Hark; folding them together poisons both |
 | **Spec** | 8 | Structure blocks, ASL floor, rhythm, quality bar | It decides "short drama vs cinematic texture vs commercial", which is orthogonal to genre |
 | **Look** | 9 | Imaging base, material, render texture | 2D thick paint / guoman 3D / game CG are imaging domains, not directors; mixing them into the director layer makes "how to cut" fight "what it looks like" |
 
-**Directors (24)**: Chinese 8 (Wong Kar-wai, Zhang Yimou, Hou Hsiao-hsien, Bi Gan, Tsui Hark, Lu Yang, Yuen Woo-ping, Wu Ershan) · Japan/Korea 2 (Kurosawa, Park Chan-wook) · Western 14 (Spielberg, Hitchcock, Kubrick, Scorsese, Fellini, Bergman, Tarkovsky, Nolan, Villeneuve, Fincher, Refn, Malick, Michael Mann, Coen Brothers).
+**Directors (45)**: Chinese 16 (Wong Kar-wai, Zhang Yimou, Hou Hsiao-hsien, Bi Gan, Tsui Hark, Lu Yang, Yuen Woo-ping, Wu Ershan, Ang Lee, Edward Yang, Jia Zhangke, Jiang Wen, Johnnie To, Ning Hao, Stephen Chow, Wong Jing) · Japan/Korea 7 (Kurosawa, Park Chan-wook, Bong Joon-ho, Kore-eda Hirokazu, Lee Chang-dong, Miyazaki Hayao, Shinkai Makoto) · Western 22 (Spielberg, Hitchcock, Kubrick, Scorsese, Fellini, Bergman, Tarkovsky, Nolan, Villeneuve, Fincher, Refn, Malick, Michael Mann, Coen Brothers, Ridley Scott, David Lynch, Alfonso Cuarón, Iñárritu, Wes Anderson, George Miller, Almodóvar, Guy Ritchie).
 
 **Specs (8)**: Short drama · Cinematic texture · Commercial · Documentary · Music video · Trailer · Explainer · Interview.
 

@@ -52,6 +52,11 @@ confidence: medium
 
 不要用设定名词堆代替冲突；不要让境界数字自动等于胜负；不要为救场临时改写规则；不要把"突破/渡劫"变成不需要选择的万能解法；不要让凡人角色只作为衬托境界的背景。
 
+<!-- slice:prompt -->
+## 类型级负向词
+
+glowing cultivation aura, floating mountain palace cgi, magic circle formation, everyone flying on swords, jade and gold ornate costume, energy beam collision, anime transformation sequence
+
 <!-- slice:story -->
 ## 证据与置信度
 

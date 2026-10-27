@@ -52,6 +52,11 @@ confidence: high
 
 不要只加黑暗与音效充当升级；不要让规则随剧情需要临时改写；不要用旁白替代可见的验证；不要让怪异一次讲满；不要让人物做出连观众都知道不该做的事来推进剧情。
 
+<!-- slice:prompt -->
+## 类型级负向词
+
+jump scare sting, mysterious stranger warning, rain soaked neon alley, dramatic zoom on clue, everyone whispers ominously, ticking clock montage, villain monologue reveal
+
 <!-- slice:story -->
 ## 证据与置信度
 

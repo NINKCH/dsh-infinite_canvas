@@ -52,6 +52,11 @@ confidence: medium
 
 不要把第一次打脸拖到很多集之后；不要让对手只会嘴上看不起；不要把喜剧反应和吐槽删成一脸凝重；不要用一条焦虑条款替代赢的痛快；不要用「报出头衔」代替当众可核对的结果。
 
+<!-- slice:prompt -->
+## 类型级负向词
+
+glowing power aura, slow motion punch, everyone claps for the hero, cartoonish villain sneer, wealth montage with luxury cars, dramatic face close-up with tears, cheap triumphant music
+
 <!-- slice:story -->
 ## 证据与置信度
 

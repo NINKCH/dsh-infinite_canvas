@@ -195,4 +195,8 @@ Keyframe / still prompt（英文，用于 Step 8，接图像模型）：
 One continuous gimbal shot, no cuts. 25mm equivalent at f/3.5, shoulder height with a slight breathing rise and fall, drifting forward at about 0.9 metres per second and following the subject from roughly one and a half seconds behind, never catching up. The subject, carrying a plastic bag, turns away from a window at the end of a damp apartment corridor and walks back to a closed door he already passed once; he hangs the bag on the handle so lightly that it swings twice, then turns and goes down the stairs. The camera does not follow him — it keeps drifting forward past the door toward the window and ends holding on the rain running down the glass. Three uncorrected colour temperatures coexist in frame: a bare incandescent bulb behind, one fluorescent tube mid-corridor, pink sign light from across the street through the window. Wet footprints on the floor reflect all of them. Key ratio 3:1, soft misty diffusion, no hard shadow edges. Maintain the humid teal-green and dim-purple low-saturation palette, the same face, jacket and plastic bag. No cut, no text, no watermark, no other people, no dry clean surfaces, no hard shadows, no drone-smooth flight, no corrected white balance.
 ```
 
-配套参考：穿越式转场与长镜头的段落设计见 `../editing-and-assembly.md`（剪辑点优先动作匹配与视线匹配；转场默认硬切；ASL 按情绪曲线分配，不许均匀。），混合色温与湿反光的布光执行见 `../lighting-and-color.md`（光比与色温写数值（如 8:1、3200K/5600K），光源必须有动机（窗/灯/霓虹/火），暗部保细节不用补光糊平。），把超长镜头切成首尾帧链条的具体做法见 `../ai-video-tool-adapters.md`（每镜只给一个主动作 + 一种运镜；模型没有的控制面不要许愿（如精细运镜数值）。） 与 `../continuity-bible.md`（不一致项写成可原样粘贴的短语：身份/服装/光向/年代/地理，逐镜逐字重复。）。
+配套参考要点：
+- 穿越式转场与长镜头的段落设计：剪辑点优先动作匹配与视线匹配；转场默认硬切；ASL 按情绪曲线分配，不许均匀
+- 混合色温与湿反光的布光执行：光比与色温写数值（如 8:1、3200K/5600K），光源必须有动机（窗/灯/霓虹/火），暗部保细节不用补光糊平
+- 把超长镜头切成首尾帧链条的具体做法：每镜只给一个主动作 + 一种运镜；模型没有的控制面不要许愿（如精细运镜数值）
+- 多条线分开生成后的一致性锁定：不一致项写成可原样粘贴的短语：身份/服装/光向/年代/地理，逐镜逐字重复

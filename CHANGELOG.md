@@ -6,6 +6,44 @@ GitHub Releases carry the same notes in English; maintainer-facing runbooks live
 
 ## [Unreleased]
 
+## [0.19.7] — 2026-10-27
+
+### Added
+- **The director lens set grows from 24 to 45.** Twenty-one lenses were added, each written to the same depth as the original twenty-four rather than as a colour swatch: fourteen sections, a thirteen-key machine-readable style block, three prompt templates (Chinese brief / EN image-to-video / EN keyframe) and a worked example on the shared control scene, so all forty-five can be read side by side.
+  - **Chinese 8 → 16**: Ang Lee, Edward Yang, Jia Zhangke, Jiang Wen, Johnnie To, Ning Hao, Stephen Chow, Wong Jing.
+  - **Japan/Korea 2 → 7**: Bong Joon-ho, Kore-eda Hirokazu, Lee Chang-dong, Miyazaki Hayao, Shinkai Makoto.
+  - **Western 14 → 22**: Ridley Scott, David Lynch, Alfonso Cuarón, Iñárritu, Wes Anderson, George Miller, Almodóvar, Guy Ritchie.
+  - Group counts are enforced by the panel filter, so the three groups stay usable: 16 / 7 / 22.
+- **Two of the new lenses close a gap that was already visible in the look layer**: `looks/ghibli-watercolor` and `looks/shinkai-light` existed with no director to drive them. Miyazaki and Shinkai now say explicitly that the texture follows those look cards and the lens only owns how it is shot.
+- **The craft layer is now machine-checked for every new lens**, not just described in prose. The panel gate asserts, per lens: at least three contrast entries each naming the adjacent director and the mechanical difference; an ASL range in seconds, a transition bias and an anchor-shot plan in the cutting section; the four sound layers (music / ambience / dialogue / silence) plus which one carries the scene; and a worked example carrying both a weak and a strong prompt. The original twenty-four predate this bar and are exempted explicitly in the test rather than silently passing.
+- **The genre layer grows from 21 to 36**, so the new directors have something to actually tell. A lens only owns *how it is shot*; the genre owns *what it is about* and *why anyone watches*. Three of the twenty-one new lenses had no genre that could carry them at all — Wong Jing's card game, Stephen Chow's mo-lei-tau, Guy Ritchie's multi-thread caper — and the rest were borrowing cards written for other things.
+  - **New narrative genres (15)**: 赌局翻盘, 对峙困局, 多线劫案, 港式无厘头, 荒诞寓言, 县城漂移, 阶级困局, 青春距离, 废土追逐, 小镇异闻, 家庭情节剧, 古怪机构, 霓虹废都, 生存宿命, 社会横穿.
+  - **Grouping attempt reverted; the genre layer is a flat wall.** A first cut at three universal categories (故事/情感/视效, multi-membership) was taken out again: too many of the thirty-six cards span eras and looks, so the assignment was arguable everywhere and an arguable filter is worse than none. The tiles render flat; discovery runs on the per-card `aliases` (`mo-lei-tau=港式无厘头（无厘头/港式喜剧/周星驰式/搞笑/扮嘢/反高潮）`) shown by `canvas_list_skills`, and on the chat side matching the user's own words to a card id.
+  - Each carries the same ten sections the existing cards use (dramatic engine, pressure source, character strategy, audience payoff, scene granules, episode hooks, act structure, production difficulty, anti-drift, confidence) plus a **类型级负向词** block, and each names the genre it is commonly confused with and the mechanical difference.
+
+### Added
+- **The "Media Studio" preset mode now ships with this plugin.** Installing the canvas bundle mounts the mode in the picker (`order: 5`, director-first persona with runtime self-checks, guided workshop flow) plus the bundled **director-workshop** skill — previously a separate package `@ninkch/dsh-media-studio-preset`, now merged. The patch deliberately mounts neither the canvas nor ArtCraft plugin rows (double registration breaks the webserver); discovery of both still runs at runtime via `canvas_list_skills` / `artcraft_status`.
+- **Conversation-triggered canvas now opens as a right-pane tab instead of hijacking the session.** `canvas_open` and node-run requests used to call `layout.selectPanel` (full-screen). All three trigger points now prefer `ctx.sidebarRight.openTab` — chat on the left, canvas on the right, no jump — falling back to full-screen on old runners; the left-rail full-screen entry is untouched.
+
+### Changed
+- **The look layer grows from 9 to 15 and is decoupled from directors — it is now a palette library, not a fandom annex.** The reference pack had its 200 directors organised into ten colour families, so the six families the look layer could not previously express were mined from those palette.json files: for each family every director's six primary colours (each with a ratio) were aggregated into a weighted cluster, and the top eight cluster HEX values became the card's colour block. Every HEX on the six new cards is that measured aggregate, not an invented palette — cold-noir's #1A232D is what twenty cold-thriller directors actually average.
+  - **New looks (6)**: 冷调悬疑 cold-noir · 大地暖调 earth-warmth · 极简冷灰 minimal-grey · 巴洛克浓彩 aroque-rich · 高饱和史诗 saturated-epic · 浪漫柔光 soft-romance. All legacy looks got semantic groups (国漫/日系/港味/写实) alongside the new families (冷调/暖调/浓彩/柔光), shown flat in the panel.
+  - **Decoupling verified end to end**: the same lens (ng_lee) composed with cold-noir versus earth-warmth produces prompt slices whose HEX sets do not intersect — the look layer genuinely constrains colour independently of who is holding the camera.
+### Fixed
+- **Genre cards had no grip on the finished picture.** Two separate holes, both closed:
+  - **The genre's negative constraints never reached the video prompt.** `buildShotLockText` — the function that actually attaches skill text to image and video generation — only pulled one section out of a genre card, `常见场面颗粒`, because that is the only section tagged `prompt`. So `禁止漂移` (the "don't show this, don't let that stand in for story" list) was sliced as `story shot` and could never arrive, and no genre card carried a negative-word block at all, while `forms`, `lenses` and `looks` all did. The genre layer was therefore decorative on the generation side: it could shape a script, and had no say in what a clip looked like.
+  - **The panel gate now requires both.** Every genre card must carry ≥4 negative phrases plus a `禁止漂移` and a `常见场面颗粒` section, and `buildShotLockText` pushes `本题材的画面禁项` and `本题材负向词` alongside the granules. Verified end to end: a `stephen_chow` + `mo-lei-tau` + `short-drama` pack now emits the mo-lei-tau granules *and* its seven negative phrases into the prompt slice.
+
+### Fixed
+- **Seventy-two dead `../xxx.md` references are gone from the lens pack.** Thirteen of the original twenty-four lenses ended every section with «见 `../cinematic-language.md`（要点）» — but `assets/canvas-director/` has no such sibling files, so a reader following the pointer found nothing. They were backtick text rather than markdown links, which is exactly why the gate never saw them. The references predated this release and were carried forward by copy-paste; they are fixed here rather than filed as a known issue.
+  - **The annotation text is kept, only the path is dropped.** The parenthesised clause after each pointer was a distilled rule ("切点逻辑：剪辑点优先动作匹配与视线匹配；转场默认硬切；ASL 按情绪曲线分配，不许均匀"), not a restatement of the linking sentence — a check across all 72 references confirmed each target file's clause was globally unique. So the rule now lives inline where it was read, and nothing the reader needed is lost.
+  - **The trailing «配套参考：» line became a bulleted «配套参考要点：» list** in the thirteen affected lenses (33 items), because a run-on single line of three to four stacked pointers reads as one sentence in Chinese and is unreadable once the filenames are removed.
+- **The gate now catches this class of defect.** `test-skill-panel.mjs` gets a `!`-assertion for backtick `../` pointers alongside the existing markdown-link check — verified by planting one in `ang_lee.md` and watching it go red before reverting. The old assertion only matched `](../`, so a bare backtick reference was structurally invisible to it.
+
+### Notes
+- Ten of the new directors had no prior module in any local reference (Ang Lee, Edward Yang, Jia Zhangke, Jiang Wen, Johnnie To, Ning Hao, Stephen Chow, Wong Jing and Guy Ritchie); their lenses were written from scratch, the same way 徐克 / 路阳 / 袁和平 / 乌尔善 were originally. Every ASL band, key ratio, light-source convention and sound-layer assignment is stated as a number so two people filling a shot list arrive at compatible results.
+- `test-changelog.mjs`'s hand-maintained `COVERAGE` list is cleared: 0.19.6 shipped (33eec44), so `main..dev` is empty and those four shas now live in the released section. The list has to be cleared at each release, otherwise the next time `Unreleased` gains content the coverage check stops falling back to the released section and reports shipped commits as missing.
+
 ## [0.19.6] — 2026-10-26
 
 ### Added

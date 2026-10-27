@@ -52,6 +52,11 @@ confidence: high
 
 不要让同事先夸"天才"；不要用"复杂代码飞速滚动"代替可核对的操作链；不要让笑点数量代替因果；不要让能力揭示之后没有任何权限变化；不要把每个上司都写成没有诉求的反派。
 
+<!-- slice:prompt -->
+## 类型级负向词
+
+sitcom laugh track energy, everyone rolls eyes at camera, fluorescent office wide shot cliche, coffee mug close-up, quirky coworker montage, boss yelling cartoonishly, cubicle maze drone shot
+
 <!-- slice:story -->
 ## 证据与置信度
 

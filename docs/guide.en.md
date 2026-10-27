@@ -12,10 +12,10 @@ Infinite Canvas is a DeepSeek Harness plugin that turns the sidebar into a node-
 
 Two ways to drive it, best combined:
 
-| Mode | Best for |
-|---|---|
-| **Harness chat (recommended primary)** | Batch & pipeline work: world view, full episode scripts, storyboard breakdowns, batches of reference images, per-scene videos — one sentence, the agent drives the canvas tools |
-| **Manual canvas editing** (fine-tuning) | When a specific result isn't right: edit the prompt on the node and regenerate, tweak duration/ratio, reorder references, roll back history |
+  Mode   Best for  
+ --- --- 
+  **Harness chat (recommended primary)**   Batch & pipeline work: world view, full episode scripts, storyboard breakdowns, batches of reference images, per-scene videos — one sentence, the agent drives the canvas tools  
+  **Manual canvas editing** (fine-tuning)   When a specific result isn't right: edit the prompt on the node and regenerate, tweak duration/ratio, reorder references, roll back history  
 
 ---
 
@@ -237,24 +237,24 @@ Open it from the left icon rail → **3D Director Stage**.
 
 ### 8.1 Workspace map
 
-| Area | What it does |
-|---|---|
-| **Left tool rail** | Select (0) / Move (1) / Rotate (2) / Scale (3) / Drop to ground (G) / Focus / Upload |
-| **Asset library** | Tabbed and searchable: characters · trees · furniture · buildings · primitives |
-| **Viewport** | Studio or final look, object labels, move/rotate/scale gizmo, shortcut overlay |
-| **Camera PiP** (top right) | Live view of the active camera; switch cameras from here |
-| **Right panel** | Context-sensitive: object properties when something is selected, lens/shot settings when nothing is selected, render settings in Live render |
-| **Timeline** (Dynamic previz / Live render) | Scrub, shot rail, per-shot start/end, keyframe tools, zoom |
+  Area   What it does  
+ --- --- 
+  **Left tool rail**   Select (0) / Move (1) / Rotate (2) / Scale (3) / Drop to ground (G) / Focus / Upload  
+  **Asset library**   Tabbed and searchable: characters · trees · furniture · buildings · primitives  
+  **Viewport**   Studio or final look, object labels, move/rotate/scale gizmo, shortcut overlay  
+  **Camera PiP** (top right)   Live view of the active camera; switch cameras from here  
+  **Right panel**   Context-sensitive: object properties when something is selected, lens/shot settings when nothing is selected, render settings in Live render  
+  **Timeline** (Dynamic previz / Live render)   Scrub, shot rail, per-shot start/end, keyframe tools, zoom  
 
 ![Static previz — studio viewport, object properties and shortcut list](./images/director-static-en.png)
 
 ### 8.2 Three viewing modes
 
-| Mode | Look | Playback |
-|---|---|---|
-| **Static previz** | Studio: dark backdrop, grid, neutral two-light rig | Paused — for blocking |
-| **Dynamic previz** | Same fixed studio look | Timeline playback |
-| **Live render** | Final look: daylight, shadows, materials, no guides | Plays the shot sequence |
+  Mode   Look   Playback  
+ --- --- --- 
+  **Static previz**   Studio: dark backdrop, grid, neutral two-light rig   Paused — for blocking  
+  **Dynamic previz**   Same fixed studio look   Timeline playback  
+  **Live render**   Final look: daylight, shadows, materials, no guides   Plays the shot sequence  
 
 Static and Dynamic deliberately keep a **fixed studio look**, so placement does not drift when you tune the sun, ground or exposure. Those render settings apply only to **Live render** and the exported clip.
 
@@ -305,12 +305,12 @@ There are **no dropdowns** on the page. Every option is an icon tile: click to s
 
 ### 9.1 What each layer owns
 
-| Layer | Count | Decides | Why it needs its own layer |
-|---|---|---|---|
-| **Director** | 24 | Camera language, lighting, cutting rhythm, style parameters | It constrains the shot's camera fields, the keyframe and the video's camera move at once — the least replaceable decision in the whole piece |
-| **Genre** | 21 narrative / 10 sector | Pressure mechanics, audience payoff, scene granules, episode hooks | The same "revenge" premise is fragmented neon under Wong Kar-wai and hard-lit slow motion under Tsui Hark; folding them together poisons both |
-| **Spec** | 8 | Structure blocks, ASL floor, rhythm, quality bar | It decides "short drama vs cinematic texture vs commercial", which is orthogonal to genre |
-| **Look** | 9 | Imaging base, material, render texture | 2D thick paint / guoman 3D / game CG are imaging domains, not directors |
+  Layer   Count   Decides   Why it needs its own layer  
+ --- --- --- --- 
+  **Director**   45   Camera language, lighting, cutting rhythm, style parameters   It constrains the shot's camera fields, the keyframe and the video's camera move at once — the least replaceable decision in the whole piece  
+  **Genre**   36 narrative / 10 sector   Pressure mechanics, audience payoff, scene granules, episode hooks   The same "revenge" premise is fragmented neon under Wong Kar-wai and hard-lit slow motion under Tsui Hark; folding them together poisons both  
+  **Spec**   8   Structure blocks, ASL floor, rhythm, quality bar   It decides "short drama vs cinematic texture vs commercial", which is orthogonal to genre  
+  **Look**   9   Imaging base, material, render texture   2D thick paint / guoman 3D / game CG are imaging domains, not directors  
 
 **Eight specs**: Short drama · Cinematic texture · Commercial · Documentary · Music video · Trailer · Explainer · Interview.
 
@@ -348,14 +348,14 @@ You can also have the agent change the configuration in chat (it passes `set: tr
 
 ### 9.6 Where it is injected
 
-| Node / capability | What it receives |
-|---|---|
-| Script node | Genre cards + the lens's narrative/rhythm/performance sections + the form's structure blocks |
-| Storyboard node | The lens's camera language, lighting, style parameters and shot checklist + the form + the camera-move dictionary |
-| Image node | A style lock: style parameters + look imaging/material + genre granules + three negative lists |
-| Video node | Same (also appended when an upstream storyboard feeds it, without breaking the structured format) |
-| Character/scene/prop sheets | The lens's lighting and colour + the look card |
-| Bible AI draft | Same as script |
+  Node / capability   What it receives  
+ --- --- 
+  Script node   Genre cards + the lens's narrative/rhythm/performance sections + the form's structure blocks  
+  Storyboard node   The lens's camera language, lighting, style parameters and shot checklist + the form + the camera-move dictionary  
+  Image node   A style lock: style parameters + look imaging/material + genre granules + three negative lists  
+  Video node   Same (also appended when an upstream storyboard feeds it, without breaking the structured format)  
+  Character/scene/prop sheets   The lens's lighting and colour + the look card  
+  Bible AI draft   Same as script  
 
 **With all four layers empty nothing is injected.**
 
@@ -364,14 +364,14 @@ You can also have the agent change the configuration in chat (it passes `set: tr
 ## 10. Troubleshooting
 
 
-| Symptom | Cause & fix |
-|---|---|
-| Video fails with HTTP 413 | References too large — fixed since 0.17.11 (auto 1024px JPEG downscale); upgrade |
-| Video 404 / "Unsupported model type" | The gateway endpoint doesn't serve that model's channel: verify the endpoint URL and model ID (copy from the platform's model list); some platforms also need the right **token group**; the canvas automatically falls back to Seedance-native `content[]` and `/v1/videos` |
-| Video 503 supply unavailable | The platform's model supply is temporarily down — retry later |
-| Deleted nodes come back | Old sync race — upgrade to 0.17.11+ |
-| Storyboards always have exactly 6 shots | Old anchoring issue — since 0.17.11 shot counts follow the content beats |
-| Demo-mode images | No model configured, or the node has no pick and no starred default — see section 5 |
+  Symptom   Cause & fix  
+ --- --- 
+  Video fails with HTTP 413   References too large — fixed since 0.17.11 (auto 1024px JPEG downscale); upgrade  
+  Video 404 / "Unsupported model type"   The gateway endpoint doesn't serve that model's channel: verify the endpoint URL and model ID (copy from the platform's model list); some platforms also need the right **token group**; the canvas automatically falls back to Seedance-native `content[]` and `/v1/videos`  
+  Video 503 supply unavailable   The platform's model supply is temporarily down — retry later  
+  Deleted nodes come back   Old sync race — upgrade to 0.17.11+  
+  Storyboards always have exactly 6 shots   Old anchoring issue — since 0.17.11 shot counts follow the content beats  
+  Demo-mode images   No model configured, or the node has no pick and no starred default — see section 5  
 
 Stuck? Open **Help & feedback** from the right panel to join the group or file an issue:
 

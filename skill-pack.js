@@ -148,7 +148,7 @@ export function renderInventory(inv, profile, zh) {
       byGroup.get(g).push(it);
     }
     for (const [g, arr] of byGroup) {
-      lines.push((g ? g + '：' : '') + arr.map((x) => x.id + '=' + x.name + (x.available ? '' : '（缺文件）')).join('　'));
+      lines.push((g ? g + '：' : '') + arr.map((x) => x.id + '=' + x.name + ((x.aliases && x.aliases.length) ? '（' + x.aliases.join('/') + '）' : '') + (x.available ? '' : '（缺文件）')).join('　'));
     }
   }
   const mv = (inv && inv.moves) || [];

@@ -104,6 +104,11 @@ confidence: medium
 功能件；不要用失忆同时取消动机与代价，把它当成免费的延迟手段；不要让"当年"的时空
 数量随剧情需要无限增长。
 
+<!-- slice:prompt -->
+## 类型级负向词
+
+rainy reunion embrace, slow motion running toward each other, romantic violin score, everyone cries beautifully, sunset silhouette kiss, airport chase, pastel nostalgia filter
+
 <!-- slice:story -->
 ## 证据与置信度
 

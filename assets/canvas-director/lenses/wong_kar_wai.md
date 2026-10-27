@@ -196,4 +196,7 @@ SH2 单镜规格：中近景 / 25mm / 机位胸高、隔栏杆、偏左 30 度 /
 Small handheld reframing, not shake. 25mm equivalent, chest height, shot from a stairwell corner through a metal railing whose two vertical bars stay fixed in the left third and crop the man's face and the box he is holding. He stands in front of the wrong door, 1.2 metres short of the one he came for, and moves a small wrapped box from his right hand to his left; on this exchange he stops halfway and holds. The exchange is step-printed: long-shutter trails behind his hands and a repeated-frame stutter, not smooth slow motion, while the background — a neighbour's television flickering through a doorway behind him — stays at normal speed. Warm tungsten from a stairwell bulb keys his right cheek; green neon from a sign outside the window falls on the wall and the back of his neck; key ratio 8:1, cooking smoke makes the beams visible. His face is never fully frontal and the railing never leaves the left third. Maintain the same face, coat, box, the green-and-amber palette, the wet corridor floor. No text, no watermark, no other people, no symmetric framing, no even fill light, no clean wide shot.
 ```
 
-配套参考：焦段心理学与运动术语见 `../cinematic-language.md`（景别/机位/运镜/轴线按电影语言通行口径写（景别：远景·全景·中景·近景·特写·大特写；运镜：固定·推·拉·摇·移·跟·升降·环绕；相邻镜守 180° 轴线与 30° 规则）。），实用光光比与霓虹调色见 `../lighting-and-color.md`（光比与色温写数值（如 8:1、3200K/5600K），光源必须有动机（窗/灯/霓虹/火），暗部保细节不用补光糊平。），慢动作与音乐段落的剪辑处理见 `../editing-and-assembly.md`（剪辑点优先动作匹配与视线匹配；转场默认硬切；ASL 按情绪曲线分配，不许均匀。）。
+配套参考要点：
+- 焦段心理学与运动术语：景别/机位/运镜/轴线按电影语言通行口径写（景别：远景·全景·中景·近景·特写·大特写；运镜：固定·推·拉·摇·移·跟·升降·环绕；相邻镜守 180° 轴线与 30° 规则）
+- 实用光光比与霓虹调色：光比与色温写数值（如 8:1、3200K/5600K），光源必须有动机（窗/灯/霓虹/火），暗部保细节不用补光糊平
+- 慢动作与音乐段落的剪辑处理：剪辑点优先动作匹配与视线匹配；转场默认硬切；ASL 按情绪曲线分配，不许均匀

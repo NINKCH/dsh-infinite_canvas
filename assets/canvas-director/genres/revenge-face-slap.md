@@ -52,6 +52,11 @@ confidence: high
 
 不要让对手只会辱骂而没有可执行手段；不要用"报出头衔"代替此前建立的证据与选择；不要连续多段只受辱、不产生任何可核对的变化；不要把被保护者写成奖品；不要把反转建立在观众此前完全无从看见的新事实上。
 
+<!-- slice:prompt -->
+## 类型级负向词
+
+slow motion slap with impact frame, glowing eyes of revenge, luxury car arrival montage, everyone gasps in unison, dramatic identity reveal with wind, cheap triumphant fanfare
+
 <!-- slice:story -->
 ## 证据与置信度
 

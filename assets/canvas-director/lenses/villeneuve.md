@@ -51,7 +51,7 @@ Shrink the human to five percent of frame height, then give them twenty seconds 
 - 构图靠中心对称或单一水平线；把地平线放在画面的 1/8 或 7/8，不要放中间。
 - 雾／沙／雨是纵深梯度，不是滤镜：明确写出它在第几米开始起作用，让远处比近处淡 2–3 档。
 - 高空俯拍与极远全景交代尺度；近景只在人物已经失败之后给。
-- 竖幅（9:16）改写：地平线放 1/8 或 7/8 这一条竖幅里照样成立，而且更有效——多出来的画幅正是给天或地的。失效的有两条：一是人占画高 5%–15%，那是按 2.39:1 的画高算的，竖幅纵向视场几乎翻倍，同一焦段同一距离只剩约一半，要守住这一档就得把机位距离收到约六成，或者干脆把"小"交给单一垂直结构（塔、井、阶、幕墙）的纵深；二是"像丈量墙面一样"的恒速横移——竖幅里没有墙面可丈量，改成对准灭点的恒速推进。竖幅通则见 `../cinematic-language.md`（景别/机位/运镜/轴线按电影语言通行口径写（景别：远景·全景·中景·近景·特写·大特写；运镜：固定·推·拉·摇·移·跟·升降·环绕；相邻镜守 180° 轴线与 30° 规则）。）。
+- 竖幅（9:16）改写：地平线放 1/8 或 7/8 这一条竖幅里照样成立，而且更有效——多出来的画幅正是给天或地的。失效的有两条：一是人占画高 5%–15%，那是按 2.39:1 的画高算的，竖幅纵向视场几乎翻倍，同一焦段同一距离只剩约一半，要守住这一档就得把机位距离收到约六成，或者干脆把"小"交给单一垂直结构（塔、井、阶、幕墙）的纵深；二是"像丈量墙面一样"的恒速横移——竖幅里没有墙面可丈量，改成对准灭点的恒速推进。竖幅通则：景别/机位/运镜/轴线按电影语言通行口径写（景别：远景·全景·中景·近景·特写·大特写；运镜：固定·推·拉·摇·移·跟·升降·环绕；相邻镜守 180° 轴线与 30° 规则）。
 
 <!-- slice:shot prompt assets -->
 ## 灯光与色彩
@@ -195,4 +195,8 @@ Keyframe / still prompt（英文，用于 Step 8，接图像模型）：
 Locked camera, 21mm equivalent, eye level, dead-centre one-point perspective down a forty-metre concrete apartment corridor with identical doors on both sides and one tall backlit window at the far end. A figure about eleven percent of frame height already stands motionless twenty-two metres away, two metres short of one door, holding a cloth-wrapped parcel; he never raises a hand toward the door. He crouches, sets the parcel down on the centre line of the corridor floor rather than at the door, stands, turns, and walks back along the centre line toward the far window, shrinking to about six percent of frame height before he disappears into the lit plane. The camera holds on the empty corridor and the parcel for the final four seconds. Thin fog fills the corridor as a depth gradient, the far end reading two stops lighter than the foreground. Backlight from the far window only, backlight-to-frontfill ratio 6:1, soft, no hard shadow edges; the figure stays a half-silhouette throughout. Single dominant hue, cold teal-grey, low saturation, with one small warm ceiling lamp mid-corridor as the only accent. Maintain the bare concrete texture, the same coat and parcel. No text, no watermark, no other people, no neon, no holographic interface, no handheld shake, no lens flare.
 ```
 
-配套参考：尺度与画幅的构图逻辑见 `../cinematic-language.md`（景别/机位/运镜/轴线按电影语言通行口径写（景别：远景·全景·中景·近景·特写·大特写；运镜：固定·推·拉·摇·移·跟·升降·环绕；相邻镜守 180° 轴线与 30° 规则）。），单一主导色相与逆光光比的执行见 `../lighting-and-color.md`（光比与色温写数值（如 8:1、3200K/5600K），光源必须有动机（窗/灯/霓虹/火），暗部保细节不用补光糊平。），低频先行与静默配比见 `../sound-and-dialogue.md`（声音五层：环境底噪·氛围·拟音·点效·配乐；对白一镜一人；沉默是最响的提示。），把超长单镜拆成首尾帧链条的具体做法见 `../ai-video-tool-adapters.md`（每镜只给一个主动作 + 一种运镜；模型没有的控制面不要许愿（如精细运镜数值）。）。
+配套参考要点：
+- 尺度与画幅的构图逻辑：景别/机位/运镜/轴线按电影语言通行口径写（景别：远景·全景·中景·近景·特写·大特写；运镜：固定·推·拉·摇·移·跟·升降·环绕；相邻镜守 180° 轴线与 30° 规则）
+- 单一主导色相与逆光光比的执行：光比与色温写数值（如 8:1、3200K/5600K），光源必须有动机（窗/灯/霓虹/火），暗部保细节不用补光糊平
+- 低频先行与静默配比：声音五层：环境底噪·氛围·拟音·点效·配乐；对白一镜一人；沉默是最响的提示
+- 把超长单镜拆成首尾帧链条的具体做法：每镜只给一个主动作 + 一种运镜；模型没有的控制面不要许愿（如精细运镜数值）

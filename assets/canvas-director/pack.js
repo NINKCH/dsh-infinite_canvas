@@ -254,6 +254,7 @@ export function parseManifest(json) {
         glyph: String(it.glyph || id).trim(),
         oneliner: String(it.oneliner || '').trim(),
         tier: String(it.tier || '').trim(),
+        aliases: Array.isArray(it.aliases) ? it.aliases.map(String) : [],
       });
     }
   }

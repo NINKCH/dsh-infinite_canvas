@@ -82,7 +82,7 @@ const SUITE = [
   { name: 'test-director-panels.mjs', desc: '导演台 IK·约束·动作层面板：按钮入口 / 字段写回 / 引擎接线 / 中英 i18n / spec 往返' },
   { name: 'test-body-variants.mjs', desc: '体型变体：男性挂 Explorer 资产 + 形变幅度(storyai 量级) + 姿势库 41 条(awplanet 复刻 19) + 姿势选择器/引擎过期横幅' },
   { name: 'test-action-library.mjs', desc: '内置动作库：成熟动作 clip 可加载、真实播放、连续无跳变、覆盖内置片段' },
-  { name: 'test-skill-panel.mjs', desc: '技能页：四层数据(24/21/10/8/9) + 切片反向断言 + 项目隔离 + 三页签零下拉 + 72 图标闭环 + 注入矩阵' },
+  { name: 'test-skill-panel.mjs', desc: '技能页：四层数据(45/36/10/8/15) + 切片反向断言 + 项目隔离 + 三页签零下拉 + 123 图标闭环 + 注入矩阵' },
   { name: 'test-skill-pack.mjs', desc: '技能包 Host 侧：readSkillPack 边界 / 4 份技能注册 / canvas_list_skills / canvas_skill_pack 四档切片' },
   { name: 'test-rig-map.mjs', desc: '通用人形骨架映射：xbot 100% / Mixamo·VRM·Blender·Daz ≥85% / 左右不串 / 非人形低覆盖' },
   { name: 'test-bvh.mjs', desc: 'Phase D 动捕接入：BVH 解析 / rest-delta 重定向 / 动作层 replace·add·loop·influence / 规格透传' },
@@ -130,6 +130,7 @@ const SUITE = [
   { name: 'test-real-project-graph.mjs', desc: '真实项目图结构验证', conditional: '需要 D:/data/canvas-data/canvas.db 且含目标项目' },
   // --- 打包 ---
   { name: 'check-pack.mjs', desc: '打包清单 + 元数据核对（npm pack --dry-run）' },
+  { name: 'test-mode-preset.mjs', desc: '媒体创作模式预设：patch 结构/挂载数量/旧包名清零/persona 完整性 + 工作坊技能 + skills.js 快照可达' },
 ];
 
 const SKIP_MARKERS = [/跳过/, /\bSKIP\b/i, /缺前置/, /未找到.*canvas\.db/];

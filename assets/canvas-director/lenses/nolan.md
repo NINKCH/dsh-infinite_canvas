@@ -192,4 +192,7 @@ Keyframe / still prompt（英文，用于 Step 8，接图像模型）：
 Controlled handheld, 21mm equivalent, eye level, camera about 80cm from the subject and 30 degrees off his shoulder, following him as he takes two steps backward from a closed apartment door toward the edge of a concrete stair landing; the camera stops when he stops. One mechanism fact only: the ceiling timer lamp above him visibly dims by about two stops across the four seconds as it runs out. He is still holding a plain paper bag in his left hand and does not look at the door. Naturalistic light, key ratio 3.5:1, the timer lamp is the only key; a sodium street lamp outside the stairwell window is the only warm note. Real materials: poured concrete, steel handrail, painted metal door. End on him stopped at the edge of the landing with the light down two stops. Maintain the concrete-grey and steel-blue low-saturation palette, fine grain, the same face, coat, watch, and bag. No text, no watermark, no other people, no holographic interface, no neon, no slow motion, no lens flare.
 ```
 
-配套参考：交叉剪辑的节拍数学与轮转设计见 `../editing-and-assembly.md`（剪辑点优先动作匹配与视线匹配；转场默认硬切；ASL 按情绪曲线分配，不许均匀。），低频报时音乐与规则台词的混音策略见 `../sound-and-dialogue.md`（声音五层：环境底噪·氛围·拟音·点效·配乐；对白一镜一人；沉默是最响的提示。），多条线分开生成后的一致性锁定见 `../continuity-bible.md`（不一致项写成可原样粘贴的短语：身份/服装/光向/年代/地理，逐镜逐字重复。）。
+配套参考要点：
+- 交叉剪辑的节拍数学与轮转设计：剪辑点优先动作匹配与视线匹配；转场默认硬切；ASL 按情绪曲线分配，不许均匀
+- 低频报时音乐与规则台词的混音策略：声音五层：环境底噪·氛围·拟音·点效·配乐；对白一镜一人；沉默是最响的提示
+- 多条线分开生成后的一致性锁定：不一致项写成可原样粘贴的短语：身份/服装/光向/年代/地理，逐镜逐字重复

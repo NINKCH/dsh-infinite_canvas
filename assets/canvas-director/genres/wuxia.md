@@ -72,6 +72,11 @@ confidence: medium
 
 不要用慢镜和飞身代替可追踪的空间关系；不要让主角的武力随剧情需要忽然变强或变弱；不要让配角只负责送死和喝彩；不要让年代道具混进现代材质（拉链、塑料扣、印刷标签）；不要把江湖拍成只有风景和酒的MV。
 
+<!-- slice:prompt -->
+## 类型级负向词
+
+wire fu flying duel, glowing sword aura, petals and leaves in slow motion, bamboo forest cliche, cgi qi blast, everyone in white robes flowing, dramatic robe billow slow motion
+
 <!-- slice:story -->
 ## 证据与置信度
 

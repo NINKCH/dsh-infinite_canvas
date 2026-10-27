@@ -72,6 +72,11 @@ confidence: medium
 
 不要用雨、霓虹和一件长风衣代替一个有金额的故事；不要让旁白复述画面已经说清的事；不要让主角的能力上限随剧情浮动（他能查到的和查不到的必须前后一致）；不要连续两集只受压而不产生任何可核对的状态变化；不要让对手只会加人加狠，却从不改自己的做法。
 
+<!-- slice:prompt -->
+## 类型级负向词
+
+rain and neon trench coat, one cop against the system speech, endless interrogation screaming, gun fight with no procedure, corrupt boss reveal in act three, cool smoking silhouette
+
 <!-- slice:story -->
 ## 证据与置信度
 

@@ -52,6 +52,11 @@ confidence: high
 
 不要让设定梗的重复本身充当情节；不要让误认永远没有代价；不要靠对白反复解释谁是谁；不要在任务毫无进展时反复消费错认；删去身份设定后若该段没有欲望、阻力和结果，说明设定正在代替故事。
 
+<!-- slice:prompt -->
+## 类型级负向词
+
+comedy double take to camera, wacky mistaken identity music sting, cartoonish disguise with fake moustache, everyone confused at once, laugh track energy, split screen comparison
+
 <!-- slice:story -->
 ## 证据与置信度
 

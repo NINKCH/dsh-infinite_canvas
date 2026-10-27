@@ -191,4 +191,8 @@ Keyframe / still prompt（英文，用于 Step 8，接图像模型）：
 Extremely slow constant lateral dolly to the left, about 0.4 metres across the clip, no acceleration; chest-height framing, tilted up 3 degrees, 35mm equivalent at f/8, deep focus so the standing water in the foreground and the far door are both sharp. A person stands motionless 1.2 metres short of a closed apartment door at the end of a damp corridor, holding a paper-wrapped bundle at waist height; the paper is already dark where it has soaked through. Water drips from a leaking skylight above, one drop every three seconds throughout. After the second drop he crouches, places the bundle on the doorsill, stands, and steps backward out of frame without turning around; the camera does not follow him and holds for the last third of the clip on the door and the wet bundle, the water still dripping. Overcast skylight as key, 2.5:1, no hard shadows; a thin warm line of light under the door is the only warm note; the pool of standing water in the foreground reflects the skylight. Maintain the mud-brown and wet-stone palette, low saturation, peeling plaster texture, the same coat and bundle. No text, no watermark, no other people, no camera shake, no music cue, no saturated color.
 ```
 
-配套参考：镜头功能与运动术语见 `../cinematic-language.md`（景别/机位/运镜/轴线按电影语言通行口径写（景别：远景·全景·中景·近景·特写·大特写；运镜：固定·推·拉·摇·移·跟·升降·环绕；相邻镜守 180° 轴线与 30° 规则）。），光比与调色语言见 `../lighting-and-color.md`（光比与色温写数值（如 8:1、3200K/5600K），光源必须有动机（窗/灯/霓虹/火），暗部保细节不用补光糊平。），"生成结果像静止照片"的修复路径见 `../failure-modes.md`（失败按症状定位（漂移/PPT 感/运镜乱/接缝/物理错/风格跳），先改提示词再重生成。），把一个长镜头拆成首尾帧链条的具体做法见 `../ai-video-tool-adapters.md`（每镜只给一个主动作 + 一种运镜；模型没有的控制面不要许愿（如精细运镜数值）。）。
+配套参考要点：
+- 镜头功能与运动术语：景别/机位/运镜/轴线按电影语言通行口径写（景别：远景·全景·中景·近景·特写·大特写；运镜：固定·推·拉·摇·移·跟·升降·环绕；相邻镜守 180° 轴线与 30° 规则）
+- 光比与调色语言：光比与色温写数值（如 8:1、3200K/5600K），光源必须有动机（窗/灯/霓虹/火），暗部保细节不用补光糊平
+- "生成结果像静止照片"的修复路径：失败按症状定位（漂移/PPT 感/运镜乱/接缝/物理错/风格跳），先改提示词再重生成
+- 把一个长镜头拆成首尾帧链条的具体做法：每镜只给一个主动作 + 一种运镜；模型没有的控制面不要许愿（如精细运镜数值）

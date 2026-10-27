@@ -30,11 +30,11 @@ const parsed = P.parseManifest(manifestRaw);
 ok(parsed.ok, 'manifest 校验失败：' + parsed.errors.join('；'));
 const M = parsed.manifest || { lenses: [], genres: [], industries: [], forms: [], looks: [] };
 
-eq(M.lenses.length, 24, '导演透镜数量不对');
-eq(M.genres.length, 21, '叙事题材数量不对');
+eq(M.lenses.length, 45, '导演透镜数量不对');
+eq(M.genres.length, 36, '叙事题材数量不对');
 eq(M.industries.length, 10, '行业题材数量不对');
 eq(M.forms.length, 8, '规格数量不对');
-eq(M.looks.length, 9, '影调数量不对');
+eq(M.looks.length, 15, '影调数量不对');
 
 const NEED = {
   lenses: ['一句话镜头 / Lens in one line', '适用场景', '反例：这不是什么 / What this lens is NOT', '核心风格关键词',
@@ -59,12 +59,26 @@ for (const layer of Object.keys(DIRS)) {
     ok((md.match(/<!--\s*slice:/g) || []).length >= (NEED[layer] || []).length,
       layer + '/' + it.id + ': slice 标记数量少于小节数');
     ok(!/\]\(\.\.\//.test(md), layer + '/' + it.id + ': 含相对路径外链');
+    // 反引号形式的 ../xxx.md 同样是死指针：包里没有 assets/canvas-director/*.md 这些同级文件，
+    // 读者照着找不到东西。历史上有 13 份透镜靠「反引号不算链接」躲过了上面那条断言，
+    // 2026-10 统一清理时补上这条，防止再长出来。
+    ok(!/`\.\.\/[^`]+`/.test(md), layer + '/' + it.id + ': 含反引号形式的 ../ 死指针');
     ok(!/https?:\/\//i.test(md), layer + '/' + it.id + ': 含外链');
     ok(!/DirectorSKILL|drama-skills|zenstory|manju-laoli|shotcraft|github\.com/i.test(md),
       layer + '/' + it.id + ': 含第三方来源标识');
     ok(Buffer.from(md, 'utf8')[0] !== 0xef, layer + '/' + it.id + ': 带 BOM');
   }
 }
+// 2026-10 新增的 21 位导演透镜：工艺层按「完整能力」标准校验（反例点名 / 剪辑含 ASL+转场+锚点 /
+// 声音四层+主导层 / 落地示例含弱强写法对照 / 三套提示词模板标签齐全）。
+// 既有 24 位是更早一批写的，达不到这套更严的标准，故不在本节断言范围内（避免把「未写作」当成「已通过」）。
+const EXTENDED_LENSES = new Set([
+  'ang_lee', 'edward_yang', 'jia_zhangke', 'jiang_wen', 'johnnie_to', 'ning_hao', 'stephen_chow', 'wong_jing',
+  'bong_joon_ho', 'koreeda_hirokazu', 'lee_chang_dong', 'miyazaki_hayao', 'shinkai_makoto',
+  'ridley_scott', 'david_lynch', 'alfonso_cuaron', 'alejandro_inarritu', 'wes_anderson', 'george_miller',
+  'pedro_almodovar', 'guy_ritchie',
+]);
+
 for (const it of M.lenses) {
   const md = fs.readFileSync(path.join(PACK, 'lenses', it.file), 'utf8');
   const y = P.yamlBlock(md);
@@ -72,6 +86,42 @@ for (const it of M.lenses) {
   ok(/style_id/.test(y), 'lens/' + it.id + ': YAML 缺 style_id');
   ok(/lens_kit_mm/.test(y), 'lens/' + it.id + ': YAML 缺 lens_kit_mm');
   ok(/negative_prompt_adds/.test(y), 'lens/' + it.id + ': YAML 缺 negative_prompt_adds');
+  // YAML 十三键完整性（所有透镜同构，缺一即视为参数块不齐）
+  for (const k of ['style_id', 'lens_kit_mm', 'camera', 'shot_size_bias', 'composition', 'lighting',
+    'palette', 'editing', 'sound', 'performance', 'aspect_bias', 'ai_video', 'negative_prompt_adds']) {
+    ok(new RegExp('(^|\\n)' + k + ':').test(y), 'lens/' + it.id + ': YAML 缺 ' + k);
+  }
+  if (!EXTENDED_LENSES.has(it.id)) continue;
+
+  // 以下为新增 21 位的完整能力校验
+  const sec = (t) => P.sectionText(md, t);
+  const contra = sec('反例：这不是什么 / What this lens is NOT');
+  const contraLines = contra.split('\n').filter((l) => /^\s*-\s/.test(l));
+  ok(contraLines.length >= 3, 'lens/' + it.id + ': 反例少于 3 条（' + contraLines.length + '）');
+  ok(/不是[^：:\n]{2,24}[：:]/.test(contra), 'lens/' + it.id + ': 反例未点名对比对象并说明差异轴');
+  const edit = sec('剪辑节奏');
+  ok(/\d+(\.\d+)?\s*[–\-~]\s*\d+(\.\d+)?\s*秒/.test(edit), 'lens/' + it.id + ': 剪辑节奏缺 ASL 数值区间');
+  ok(/转场/.test(edit), 'lens/' + it.id + ': 剪辑节奏缺转场偏好');
+  ok(/锚点/.test(edit), 'lens/' + it.id + ': 剪辑节奏缺锚点镜安排');
+  const snd = sec('声音与音乐');
+  for (const k of ['音乐', '环境', '对白', '静默']) ok(snd.includes(k), 'lens/' + it.id + ': 声音与音乐缺「' + k + '」');
+  ok(/主导/.test(snd), 'lens/' + it.id + ': 声音与音乐未标明主导层');
+  const worked = sec('落地示例 / Worked example');
+  for (const k of ['弱写法', '强写法', '调度']) ok(worked.includes(k), 'lens/' + it.id + ': 落地示例缺「' + k + '」');
+  ok(/```text/.test(worked), 'lens/' + it.id + ': 落地示例缺成品提示词代码块');
+  const tpl = sec('提示词模板 / Prompt templates');
+  ok(tpl.includes('镜头设计简报（中文，用于 Step 5 导演本与 Step 7 分镜）：'), 'lens/' + it.id + ': 缺中文简报模板标签');
+  ok(tpl.includes('Image-to-video motion prompt（英文，用于 Step 10，接关键帧）：'), 'lens/' + it.id + ': 缺 I2V 模板标签');
+  ok(tpl.includes('Keyframe / still prompt（英文，用于 Step 8，接图像模型）：'), 'lens/' + it.id + ': 缺 Keyframe 模板标签');
+}
+// 题材卡：每题必须带「类型级负向词」，否则题材对成片只剩"场面颗粒"一层约束，
+// 而画面禁项（不许出现什么、不许拿什么代替故事）完全进不到视频提示词。
+for (const it of M.genres) {
+  const md = fs.readFileSync(path.join(PACK, 'genres', it.file), 'utf8');
+  const neg = P.negativePhrases(md);
+  ok(neg.length >= 4, 'genre/' + it.id + ': 类型级负向词少于 4 条（题材对成片没有约束力）');
+  ok(!!P.sectionText(md, '禁止漂移'), 'genre/' + it.id + ': 缺「禁止漂移」小节');
+  ok(!!P.sectionText(md, '常见场面颗粒'), 'genre/' + it.id + ': 缺「常见场面颗粒」小节');
 }
 for (const it of M.forms) {
   const md = fs.readFileSync(path.join(PACK, 'forms', it.file), 'utf8');
@@ -296,7 +346,7 @@ if (TABS && CRAFT) {
     }
     const ids = new Set(allIds.map(([, it]) => it.id));
     for (const k of Object.keys(GLYPHS)) ok(ids.has(k), 'GLYPHS 有孤儿键（没有对应卡）：' + k);
-    eq(Object.keys(GLYPHS).length, 24 + 21 + 10 + 8 + 9, '图标总数应等于四层卡数之和');
+    eq(Object.keys(GLYPHS).length, 45 + 36 + 10 + 8 + 15, '图标总数应等于四层卡数之和');
   }
   for (const layer of ['lenses', 'genres', 'industries', 'forms', 'looks']) {
     for (const it of M[layer]) ok(!!it.oneliner, layer + '/' + it.id + ': manifest 缺 oneliner（会显示成空标题）');
@@ -365,7 +415,7 @@ console.log(`  · 数据层：导演 ${M.lenses.length} / 叙事题材 ${M.genre
 console.log('  · 每份卡：必备小节齐全、slice 标记齐全、无外链与第三方来源、无 BOM');
 console.log('  · 切片反向断言：script 不含风格参数 / prompt 不含叙事方法 / assets 不含剪辑节奏；四类切片均 < 全文 80%');
 console.log('  · 技能配置：项目隔离、非法值回落、无记录回落默认、写后读一致');
-console.log('  · UI：三页签（项目/技能/设置）、技能页 0 个 <select>、五层卡片与瓦片数据齐全、72 个图标闭环且无孤儿');
+console.log('  · UI：三页签（项目/技能/设置）、技能页 0 个 <select>、五层卡片与瓦片数据齐全、123 个图标闭环且无孤儿');
 console.log('  · 注入矩阵：剧本/分镜/设定集草稿带 packText；图片与视频分支各带一次镜头语言锁；四层全空时不注入');
 // 显式退出：client.js 的 apply 会注册 setInterval（宿主轮询），沙箱里不会自动清，否则进程永不退出
 process.exit(0);

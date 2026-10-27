@@ -105,6 +105,11 @@ confidence: 中
 未成年角色的处境与身体细节按已接受的创作者尺度书写，不为强化冲突加码；这条不由本卡
 放宽。
 
+<!-- slice:prompt -->
+## 类型级负向词
+
+dramatic reveal in the rain, slow motion tear rolling, everyone shouts at once, family portrait in soft light, courtroom confrontation, sad child looking out window
+
 <!-- slice:story -->
 ## 证据与置信度
 

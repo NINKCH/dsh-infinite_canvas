@@ -1,70 +1,82 @@
 {
-    "name": "@ninkch/dsh-infinite-canvas",
-    "version": "0.19.6",
-    "description": "Node-based short-drama studio for DeepSeek Harness: script → storyboard → assets → shots → voiced, subtitled final cut on an infinite canvas.",
-    "keywords": [
-        "dsh",
-        "deepseek-harness",
-        "plugin",
-        "infinite-canvas",
-        "storyboard",
-        "short-drama",
-        "ai-video",
-        "image-generation",
-        "video-generation",
-        "seedance",
-        "photocraft",
-        "filmcraft"
-    ],
-    "license": "Apache-2.0",
-    "author": "NINKCH",
-    "publishConfig": {
-        "registry": "https://registry.npmjs.org/"
+  "name": "@ninkch/dsh-infinite-canvas",
+  "version": "0.19.7",
+  "description": "无限画布（Infinite Canvas）for DeepSeek Harness：节点式创作工作室（剧本/分镜/生成/成片），内置「媒体创作」预设模式（导演第一视角 + 引导工作坊）。Version-agnostic: reads the live catalog from the installed package at load time.",
+  "keywords": [
+    "dsh",
+    "deepseek-harness",
+    "plugin",
+    "infinite-canvas",
+    "storyboard",
+    "short-drama",
+    "ai-video",
+    "image-generation",
+    "video-generation",
+    "seedance",
+    "photocraft",
+    "filmcraft"
+  ],
+  "license": "Apache-2.0",
+  "author": "NINKCH",
+  "publishConfig": {
+    "registry": "https://registry.npmjs.org/"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/NINKCH/dsh-infinite_canvas.git"
+  },
+  "type": "module",
+  "icon": "./icon.svg",
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js",
+    "./package.json": "./package.json",
+    "./locale/*.json": "./locale/*.json",
+    "./assets/director/*.js": "./assets/director/*.js",
+    "./assets/canvas-director/*.js": "./assets/canvas-director/*.js",
+    "./skills": "./skills.js"
+  },
+  "files": [
+    "index.js",
+    "client.js",
+    "icon.svg",
+    "cordis.patch.yml",
+    "locale/*.json",
+    "assets/*/SKILL.md",
+    "assets/support/*",
+    "assets/director/*.js",
+    "assets/director/models/*.json",
+    "assets/director/clips/*.json",
+    "NOTICE",
+    "README.md",
+    "README.zh-CN.md",
+    "docs/*.md",
+    "docs/images/*",
+    "skill-pack.js",
+    "skill-pack-loader.js",
+    "index-core-skill-profile.js",
+    "assets/canvas-director/**",
+    "skills.js",
+    "skills/**"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
     },
-    "repository": {
-        "type": "git",
-        "url": "git+https://github.com/NINKCH/dsh-infinite_canvas.git"
-    },
-    "type": "module",
-    "icon": "./icon.svg",
-    "exports": {
-        ".": "./index.js",
-        "./client": "./client.js",
-        "./package.json": "./package.json",
-        "./locale/*.json": "./locale/*.json",
-        "./assets/director/*.js": "./assets/director/*.js",
-        "./assets/canvas-director/*.js": "./assets/canvas-director/*.js"
-    },
-    "files": [
-        "index.js",
-        "client.js",
-        "icon.svg",
-        "cordis.patch.yml",
-        "locale/*.json",
-        "assets/*/SKILL.md",
-        "assets/support/*",
-        "assets/director/*.js",
-        "assets/director/models/*.json",
-        "assets/director/clips/*.json",
-        "README.md",
-        "README.zh-CN.md",
-        "docs/*.md",
-        "docs/images/*",
-        "skill-pack.js",
-        "skill-pack-loader.js",
-        "index-core-skill-profile.js",
-        "assets/canvas-director/**"
-    ],
-    "dsh": {
-        "bundle": {
-            "patch": "./cordis.patch.yml"
-        },
-        "client": {
-            "platform": "web",
-            "immediately": true
-        }
-    },
-    "devDependencies": {
-        "fbx2gltf": "^0.9.7-p1"
+    "client": {
+      "platform": "web",
+      "immediately": true
     }
+  },
+  "devDependencies": {
+    "fbx2gltf": "^0.9.7-p1"
+  },
+  "peerDependencies": {
+    "@ninkch/dsh-artcraft": ">=0.3.0"
+  },
+  "peerDependenciesMeta": {
+    "@ninkch/dsh-artcraft": {
+      "optional": true
+    }
+  }
 }

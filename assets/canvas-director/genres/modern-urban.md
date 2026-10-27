@@ -72,6 +72,11 @@ confidence: medium
 
 不要把城市写成景观空镜集；不要让压力只以喊叫形式出现；不要连续多段只受压而不产生任何可核对的变化；不要把主角写成纯粹受害者（他必须每次都做出选择）；不要在写字楼里拍出网红咖啡馆的光。
 
+<!-- slice:prompt -->
+## 类型级负向词
+
+glossy city skyline drone shot, luxury apartment showroom, everyone slim and stylish, blue hour corporate grade, empty streets, coffee shop lifestyle montage
+
 <!-- slice:story -->
 ## 证据与置信度
 

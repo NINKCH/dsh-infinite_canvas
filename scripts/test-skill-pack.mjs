@@ -64,11 +64,11 @@ const run = async (name, args) => {
   const loader = await import(pathToFileURL(path.join(ROOT, 'skill-pack-loader.js')).href);
   loader.initPackBase(ROOT);
   const inv = loader.packInventory(ROOT);
-  eq(inv.lenses.length, 24, 'loader.packInventory: 导演数量不对');
-  eq(inv.genres.length, 21, 'loader.packInventory: 叙事题材数量不对');
+  eq(inv.lenses.length, 45, 'loader.packInventory: 导演数量不对');
+  eq(inv.genres.length, 36, 'loader.packInventory: 叙事题材数量不对');
   eq(inv.industries.length, 10, 'loader.packInventory: 行业题材数量不对');
   eq(inv.forms.length, 8, 'loader.packInventory: 规格数量不对');
-  eq(inv.looks.length, 9, 'loader.packInventory: 影调数量不对');
+  eq(inv.looks.length, 15, 'loader.packInventory: 影调数量不对');
   // 所有条目都可用（文件都在）
   for (const layer of ['lenses', 'genres', 'industries', 'forms', 'looks']) {
     for (const it of inv[layer]) ok(it.available, layer + '/' + it.id + ': 文件缺失');
@@ -280,7 +280,7 @@ console.log('✓ 技能包 Host 侧回归通过：');
 console.log('  · 技能注册：4 份（含 canvas-director），可枚举 / 可加载 / 正文含四层关键词 / rank 与 locator 已剥离');
 console.log('  · canvas-studio 正文已列出「本插件技能清单」并指向 canvas_list_skills 与 canvas_skill_pack');
 console.log('  · 路径边界：readCard / readMove 拦住 ../、非法层名、不存在的文件');
-console.log('  · canvas_list_skills：4 份技能 + 五层清单（24/21/10/8/9）+ 运镜两条 + 项目配置 + 下一步指引');
+console.log('  · canvas_list_skills：4 份技能 + 五层清单（45/36/10/8/15）+ 运镜两条 + 项目配置 + 下一步指引');
 console.log('  · canvas_skill_pack：未配置不注入；set 写项目并可读回；四档切片均有效；运镜只随分镜与提示词；非法 id 回落；临时覆盖不污染项目');
 console.log('  · 行业题材可作为题材 id 参与切片');
 process.exit(0);

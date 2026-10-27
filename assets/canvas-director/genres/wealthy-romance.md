@@ -52,6 +52,11 @@ confidence: medium
 
 断供、改密码、换掉司机、清点未接来电这类手段既可以被写成关切，也可以被写成控制；两种解释可以同时成立，但不能只留下关切那一种。不要用羞辱升级代替权力变化；不要让财富自动等于人格高下；不要让一方只负责被拯救或被折磨；不要用"其实他一直爱你"抹掉已经发生的伤害；不要让误会的解除不需要任何人付出代价。
 
+<!-- slice:prompt -->
+## 类型级负向词
+
+luxury mansion showcase, yacht and helicopter montage, everyone in evening gowns, slow motion champagne pour, dramatic boardroom power play, chandelier wide shot, designer brand close-ups
+
 <!-- slice:story -->
 ## 证据与置信度
 

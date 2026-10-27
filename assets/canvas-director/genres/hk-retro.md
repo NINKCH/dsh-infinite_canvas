@@ -74,6 +74,11 @@ confidence: medium
 
 不要把年代感做成滤镜和慢镜MV；不要让霓虹和雨代替一个有金额的故事；不要让主角的能力上限随剧情浮动；不要出现不属于那个年代的物件（拉链、塑料扣、印刷标签、现代眼镜）；不要让配角只负责挨打和喝彩。
 
+<!-- slice:prompt -->
+## 类型级负向词
+
+neon rain music video, retro sepia filter, everyone in qipao and suits posing, slow motion cigarette smoke, synthwave sunset, modern objects in period scenes, instagram hong kong rooftop
+
 <!-- slice:story -->
 ## 证据与置信度
 

@@ -113,6 +113,7 @@ export function packInventory(hereDir) {
       group: String(it.group || ''),
       oneliner: String(it.oneliner || ''),
       tier: String(it.tier || ''),
+      aliases: Array.isArray(it.aliases) ? it.aliases.map(String) : [],
       glyph: String(it.glyph || it.id || ''),
       file: String(it.file || ''),
       available: !!readCard(base, layer, it.file),

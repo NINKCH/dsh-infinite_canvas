@@ -52,7 +52,7 @@ Lens close to a hand, the sun on the horizon behind her, camera drifting at walk
 - 机位高度持续变化，0.3–1.8 米之间来回，从不停在某一档；仰拍穿过身体看树冠与天空是常规动作。
 - 每 3–5 颗镜头里必须有一颗把镜头从人脸移开：移到手、草、水面、窗帘、逆光的头发。这是"看别处"的纪律，不是失误。
 - 不做覆盖率，不拍反打。同一情境连续拍 5–10 分钟不停机，事后在里面找那 3 秒。
-- 焦点允许失手：短暂的跑焦和重新找焦被保留，它证明这是一次不可复现的观看。景深与焦点术语见 `../cinematic-language.md`（景别/机位/运镜/轴线按电影语言通行口径写（景别：远景·全景·中景·近景·特写·大特写；运镜：固定·推·拉·摇·移·跟·升降·环绕；相邻镜守 180° 轴线与 30° 规则）。）。
+- 焦点允许失手：短暂的跑焦和重新找焦被保留，它证明这是一次不可复现的观看。景深与焦点术语：景别/机位/运镜/轴线按电影语言通行口径写（景别：远景·全景·中景·近景·特写·大特写；运镜：固定·推·拉·摇·移·跟·升降·环绕；相邻镜守 180° 轴线与 30° 规则）。
 
 <!-- slice:shot prompt assets -->
 ## 灯光与色彩
@@ -61,7 +61,7 @@ Lens close to a hand, the sun on the horizon behind her, camera drifting at walk
 - 拍摄窗口：日出后 20–35 分钟或日落前 20–35 分钟，太阳高度 2–10 度。太阳每小时最多爬升约 15 度（纬度越高越慢），所以这个高度带只能对应半小时上下的窗口，别按"一整个金色小时"排通告。阴天全天可用，晴天正午不可用。
 - 太阳放在人物后方 150–210 度范围内，直接进镜头产生耀斑与低反差雾感；脸只靠天光和地面反射抬起来，比 2:1–3:1。
 - 室内只拍窗边：人物贴窗 1 米内，房间深处允许全黑。
-- 主色：草绿、麦金、天空蓝白、皮肤；重点色：低角度太阳的琥珀、阴影里的深蓝。饱和中等，对比低——胶片式的抬黑，不要浓郁的数码高对比。光比与调色语言见 `../lighting-and-color.md`（光比与色温写数值（如 8:1、3200K/5600K），光源必须有动机（窗/灯/霓虹/火），暗部保细节不用补光糊平。）。
+- 主色：草绿、麦金、天空蓝白、皮肤；重点色：低角度太阳的琥珀、阴影里的深蓝。饱和中等，对比低——胶片式的抬黑，不要浓郁的数码高对比。光比与调色语言：光比与色温写数值（如 8:1、3200K/5600K），光源必须有动机（窗/灯/霓虹/火），暗部保细节不用补光糊平。
 
 <!-- slice:story -->
 ## 剪辑节奏
@@ -70,7 +70,7 @@ Lens close to a hand, the sun on the horizon behind her, camera drifting at walk
 - 允许在动作中途切走（手举到一半就切），这是这个风格最重要的剪辑习惯，它让每个片段像记忆而不是像场景。
 - 音乐是连续的，剪辑在音乐上滑动；不要卡点，不要让切点落在重拍上。
 - 段落之间用光的溶解或直接硬切；同一序列里可以混用不同时间、不同地点的素材，只要光的方向一致。
-- 每 60–90 秒给一次完整的呼吸：一颗 6–10 秒不切的镜头，通常是风景或背影。切点逻辑见 `../editing-and-assembly.md`（剪辑点优先动作匹配与视线匹配；转场默认硬切；ASL 按情绪曲线分配，不许均匀。）。
+- 每 60–90 秒给一次完整的呼吸：一颗 6–10 秒不切的镜头，通常是风景或背影。切点逻辑：剪辑点优先动作匹配与视线匹配；转场默认硬切；ASL 按情绪曲线分配，不许均匀。
 
 <!-- slice:story -->
 ## 声音与音乐
@@ -78,7 +78,7 @@ Lens close to a hand, the sun on the horizon behind her, camera drifting at walk
 - 音乐是古典、合唱或极简弦乐，成段铺陈而不是按情绪点入场；常在最重要的那个手势处突然抽掉，让环境声接管 2–4 秒。
 - 环境声是主音轨的另一半：风穿过草、虫鸣、水、远处的鸟、衣料摩擦、脚步落在土上。
 - 现场对白重叠、轻声、经常被风盖住，一半听不清；重要的话交给旁白。
-- 旁白用耳语式录制，贴近话筒，气声可闻，与画面不同步——旁白说的常是这一刻之前或之后的事。声音策略见 `../sound-and-dialogue.md`（声音五层：环境底噪·氛围·拟音·点效·配乐；对白一镜一人；沉默是最响的提示。）。
+- 旁白用耳语式录制，贴近话筒，气声可闻，与画面不同步——旁白说的常是这一刻之前或之后的事。声音策略：声音五层：环境底噪·氛围·拟音·点效·配乐；对白一镜一人；沉默是最响的提示。
 
 <!-- slice:story shot -->
 ## 人物与表演
@@ -198,4 +198,7 @@ Image-to-video prompt：
 Handheld camera drifting continuously to the right and rising slightly, as if carried by someone walking at about one metre per second; low-frequency float, no jitter, no stop, never locked. 21mm equivalent, lens about forty centimetres from the hands, so the wrapped bundle is very large in the foreground and the corridor recedes behind it. A person holds a cloth-wrapped bundle at chest height in front of a closed apartment door; he raises one hand and lets the fingertips enter a shaft of low sunlight without touching the door, then the hand begins to lower — the gesture is not finished when the clip ends. Dust drifts through the light. The sun sits about six degrees above the horizon at the far end of the corridor, directly behind him, flaring straight into the lens; his hands and face are lit only by that flare and by bounce off the wall, ratio 2.5:1, lifted blacks, low contrast, no hard shadows. Nothing is symmetrical, he is never centred, he never faces camera. Keep the same hands, coat, bundle, and the washed low-contrast palette. Avoid: locked tripod, symmetrical composition, orange filter grade, hard shadows, studio lighting, camera jitter, slow motion, drone shot, text, watermark.
 ```
 
-配套参考：焦段与贴近距离的心理学见 `../cinematic-language.md`（景别/机位/运镜/轴线按电影语言通行口径写（景别：远景·全景·中景·近景·特写·大特写；运镜：固定·推·拉·摇·移·跟·升降·环绕；相邻镜守 180° 轴线与 30° 规则）。）；旁白写法与音乐抽离见 `../sound-and-dialogue.md`（声音五层：环境底噪·氛围·拟音·点效·配乐；对白一镜一人；沉默是最响的提示。）；"抖动 / 橙色滤镜"的修复路径见 `../failure-modes.md`（失败按症状定位（漂移/PPT 感/运镜乱/接缝/物理错/风格跳），先改提示词再重生成。）。
+配套参考要点：
+- 焦段与贴近距离的心理学：景别/机位/运镜/轴线按电影语言通行口径写（景别：远景·全景·中景·近景·特写·大特写；运镜：固定·推·拉·摇·移·跟·升降·环绕；相邻镜守 180° 轴线与 30° 规则）
+- 旁白写法与音乐抽离：声音五层：环境底噪·氛围·拟音·点效·配乐；对白一镜一人；沉默是最响的提示
+- "抖动 / 橙色滤镜"的修复路径：失败按症状定位（漂移/PPT 感/运镜乱/接缝/物理错/风格跳），先改提示词再重生成

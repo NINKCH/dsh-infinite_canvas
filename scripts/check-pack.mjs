@@ -16,6 +16,8 @@ import { fileURLToPath } from 'node:url';
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 const REQUIRED = [
+  'skills.js',
+  'skills/director-workshop/SKILL.md',
   'package.json',
   'index.js',
   'client.js',
@@ -41,7 +43,7 @@ const REQUIRED = [
 // 包内允许出现的路径形态（package.json 与 LICENSE 由 npm 恒定收入，无需列 files 白名单）
 // assets/support/*：帮助与反馈用的微信二维码等界面静态资源（必须随包分发，否则用户看不到）
 // docs/images/*：README/用户手册引用的截图（文档里的相对路径必须能解析，否则 npm/GitHub 上裂图）
-const ALLOWED = /^(package\.json|LICENSE|LICENCE|NOTICE|index\.js|client\.js|skill-pack\.js|skill-pack-loader\.js|index-core-skill-profile\.js|icon\.svg|cordis\.patch\.yml|README(\.zh-CN)?\.md|locale\/[a-zA-Z-]+\.json|assets\/[a-z0-9-]+\/SKILL\.md|assets\/canvas-director\/(?:pack\.js|manifest\.json)|assets\/canvas-director\/(?:lenses|genres|industries|forms|looks|moves)\/[a-z0-9_-]+\.md|assets\/support\/[A-Za-z0-9._-]+|assets\/director\/[a-zA-Z0-9._-]+\.js|assets\/director\/models\/[A-Za-z0-9._-]+\.json|assets\/director\/clips\/[A-Za-z0-9._-]+\.json|docs\/[a-zA-Z0-9._-]+\.md|docs\/images\/[a-zA-Z0-9._-]+\.(png|svg|jpe?g|webp))$/;
+const ALLOWED = /^(package\.json|LICENSE|LICENCE|NOTICE|index\.js|client\.js|skill-pack\.js|skill-pack-loader\.js|index-core-skill-profile\.js|icon\.svg|cordis\.patch\.yml|README(\.zh-CN)?\.md|locale\/[a-zA-Z-]+\.json|assets\/[a-z0-9-]+\/SKILL\.md|assets\/canvas-director\/(?:pack\.js|manifest\.json)|assets\/canvas-director\/(?:lenses|genres|industries|forms|looks|moves)\/[a-z0-9_-]+\.md|assets\/support\/[A-Za-z0-9._-]+|assets\/director\/[a-zA-Z0-9._-]+\.js|assets\/director\/models\/[A-Za-z0-9._-]+\.json|assets\/director\/clips\/[A-Za-z0-9._-]+\.json|skills\.js|skills\/[a-z0-9-]+\/SKILL\.md|docs\/[a-zA-Z0-9._-]+\.md|docs\/images\/[a-zA-Z0-9._-]+\.(png|svg|jpe?g|webp))$/;
 
 const errors = [];
 const ok = (msg) => console.log('  ✓ ' + msg);
@@ -76,6 +78,17 @@ pkg.exports && pkg.exports['./client'] === './client.js' && pkg.exports['.'] ===
   : fail('exports 缺少 . 或 ./client');
 
 // ---------- 2) 打包清单 ----------
+console.log('— cordis.patch.yml 检查');
+let patchYml = '';
+try { patchYml = readFileSync(path.join(ROOT, 'cordis.patch.yml'), 'utf8'); } catch (e) { fail('cordis.patch.yml 不可读: ' + (e.message || e)); }
+if (patchYml) {
+  patchYml.includes('preset-media-studio') ? ok('patch 含 preset-media-studio（媒体创作模式）') : fail('patch 缺 preset-media-studio');
+  patchYml.includes("name: '@ninkch/dsh-infinite-canvas/skills'") ? ok('patch 含 media-studio-skills（画布包 skills 提供者）') : fail('patch 缺 media-studio-skills 或包名未随合并更新');
+  (patchYml.match(/name: '@ninkch\/dsh-infinite-canvas'\s*$/gm) || []).length === 1 ? ok('patch 挂载画布插件行恰好 1 条（本包自身）') : fail('patch 画布插件行数量异常（0 = 忘挂自身，≥2 = 重复挂载导致路由冲突）');
+  /name: '@ninkch\/dsh-artcraft'\s*$/m.test(patchYml) ? fail('patch 挂载了 ArtCraft（重复挂载）') : ok('patch 未挂载 ArtCraft');
+  patchYml.includes('order: 5') ? ok('模式 order = 5') : fail('patch 缺 order: 5');
+}
+
 console.log('— npm pack --dry-run 清单核对');
 let out;
 try {

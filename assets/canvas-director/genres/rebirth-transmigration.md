@@ -52,6 +52,11 @@ confidence: medium
 
 不要从日常开篇、把第一次打脸拖到很多集之后；不要用大段内心独白代替动作；不要让对手不学习、每集都按上一世的老剧本出手；不要让记忆每次都精确命中，那会抽空阻力。
 
+<!-- slice:prompt -->
+## 类型级负向词
+
+glowing soul particles, time reversal cgi spiral, dramatic eye opening in white void, anime power aura, everyone shocked face, system notification floating text
+
 <!-- slice:story -->
 ## 证据与置信度
 

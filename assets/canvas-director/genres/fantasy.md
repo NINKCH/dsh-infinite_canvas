@@ -76,6 +76,11 @@ confidence: medium
 
 不要让每一样东西都令人惊叹（惊叹用光了就没有惊叹）；不要给服装干净的干洗感，也不要不给天气；不要让魔法规则按剧情需要临时改；不要让非人元素在镜头之间改尺寸改结构；不要用旁白讲解世界观来代替一次可见的代价。
 
+<!-- slice:prompt -->
+## 类型级负向词
+
+generic tolkien elves, glowing magic circle, floating runes, epic battle cgi army, everyone in capes, dragon flying past moon, video game skill effect
+
 <!-- slice:story -->
 ## 证据与置信度
 

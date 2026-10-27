@@ -63,7 +63,7 @@ Fill the frame with pattern, make the camera do one physically impossible thing,
 - 常规光比 3:1；暴力发生的那一颗拉到 8:1，方法是关掉补光而不是加硬光，让阴影自己吃掉一半的花纹。
 - 冷色只从窗外进来，作为暖室内的对位，占画幅不超过 20%。
 - 主色：酒红、橄榄绿、芥末金、胡桃木褐；重点色：血红、玉绿、象牙白。饱和度高、对比中等——浓，但不是高反差黑色电影：暗部要留住颜色，不许压成黑。
-- 血是颜色系统的一部分，不是特效：它必须和画面里已有的某一种红形成对应（同一块织物、同一朵花、同一件外套）。系统性调色语言见 `../lighting-and-color.md`（光比与色温写数值（如 8:1、3200K/5600K），光源必须有动机（窗/灯/霓虹/火），暗部保细节不用补光糊平。）。
+- 血是颜色系统的一部分，不是特效：它必须和画面里已有的某一种红形成对应（同一块织物、同一朵花、同一件外套）。系统性调色语言：光比与色温写数值（如 8:1、3200K/5600K），光源必须有动机（窗/灯/霓虹/火），暗部保细节不用补光糊平。
 
 <!-- slice:story -->
 ## 剪辑节奏
@@ -72,7 +72,7 @@ Fill the frame with pattern, make the camera do one physically impossible thing,
 - 转场偏好形状匹配：上一颗的花纹与下一颗的花纹在同一位置对上（一朵墙纸上的花接一处伤口，一格地砖接一格窗棂）。这是这个风格最省钱的高级感来源。
 - 暴力前留 1–2 秒绝对静音的定格式停顿，然后一次性给足拟音。
 - 允许突然插入一颗与当前场景无关的装饰性插入（一只手、一件器物、一处纹样），长度 0.5–1 秒，用来打断礼节的连续性。
-- 转场工程与匹配剪辑见 `../editing-and-assembly.md`（剪辑点优先动作匹配与视线匹配；转场默认硬切；ASL 按情绪曲线分配，不许均匀。）。
+- 转场工程与匹配剪辑：剪辑点优先动作匹配与视线匹配；转场默认硬切；ASL 按情绪曲线分配，不许均匀。
 
 <!-- slice:story -->
 ## 声音与音乐
@@ -80,7 +80,7 @@ Fill the frame with pattern, make the camera do one physically impossible thing,
 - 音乐用室内乐、圆舞曲、巴洛克弦乐，端正地演奏，不做惊悚化处理；音乐与画面内容的落差就是反讽本身。禁止 stinger、禁止低频轰击。
 - 拟音极其精确且被放大：织物摩擦、瓷器、剪刀、钥匙、咀嚼、呼吸、指甲刮过木头。暴力段落里拟音比音乐响。
 - 对白是过度礼貌的、书面的、称谓完整的；威胁用敬语说出。台词密度中等，句子完整。
-- 静默只用一次一场：暴力发生前 1–2 秒，把音乐和环境声一起切掉，再一次性推回。声音策略见 `../sound-and-dialogue.md`（声音五层：环境底噪·氛围·拟音·点效·配乐；对白一镜一人；沉默是最响的提示。）。
+- 静默只用一次一场：暴力发生前 1–2 秒，把音乐和环境声一起切掉，再一次性推回。声音策略：声音五层：环境底噪·氛围·拟音·点效·配乐；对白一镜一人；沉默是最响的提示。
 
 <!-- slice:story shot -->
 ## 人物与表演
@@ -193,10 +193,13 @@ Frontal, perfectly symmetrical medium frame, 40mm equivalent, camera at chest he
 - 弱写法：`ornate hallway, beautiful and cruel, baroque, stylish revenge`——模型会给一条装饰性走廊，摄影机随便乱推。
 - 强写法：点名三种图案与母题尺度，把运动写成"起点 → 路径 → 终点"，并把那个影子写成一次确定的遮挡事件。
 
-整段动作约 22 秒，远超本风格 4–8 秒的单条预算。按三条生成：(1) 那次运动本身，落幅时他的手刚开始抬起；(2) 手停在门前 2 厘米、表情多维持两拍、手落下；(3) 蹲下摆放、起身离开，镜头继续降到门槛高度，门缝的光被影子切断。用前一条末帧作为下一条首帧（工具若提供首帧/尾帧接口，见 `../ai-video-tool-adapters.md`（每镜只给一个主动作 + 一种运镜；模型没有的控制面不要许愿（如精细运镜数值）。））；运动只在第 (1) 条里发生，另外两条锁定，这样图案也不会在移动中蠕动。下面是第 (1) 条：
+整段动作约 22 秒，远超本风格 4–8 秒的单条预算。按三条生成：(1) 那次运动本身，落幅时他的手刚开始抬起；(2) 手停在门前 2 厘米、表情多维持两拍、手落下；(3) 蹲下摆放、起身离开，镜头继续降到门槛高度，门缝的光被影子切断。用前一条末帧作为下一条首帧（工具若提供首帧/尾帧接口，：每镜只给一个主动作 + 一种运镜；模型没有的控制面不要许愿（如精细运镜数值））；运动只在第 (1) 条里发生，另外两条锁定，这样图案也不会在移动中蠕动。下面是第 (1) 条：
 
 ```text
 One continuous choreographed move, one constant speed, no handheld texture: begin as a 90-degree overhead about eighty-five centimetres above a mustard-yellow patterned cloth bundle held in two hands, then descend seventy centimetres, pull back to about two point two metres from the figure, and rotate ninety degrees — all three at once — ending frontal and perfectly symmetrical on a person standing before a closed dark walnut door at the centre of the frame. 40mm equivalent throughout, no zoom, f/5.6, medium depth of field. The corridor walls carry a large dark green floral wallpaper motif; the floor is old hexagonal tile; the bundle's cloth pattern competes with the wallpaper — three distinct large-scale patterns visible throughout. The only human action inside this clip: as the camera settles, he begins to raise one hand toward the door; the hand is still rising when the clip ends. His expression stays composed and courteous the whole time and never changes. Warm wall sconce raking across the wallpaper so the motif reads in relief, 3:1; a thin warm line of light under the door is the only second source. Keep the same face, coat, bundle, patterns and light. Avoid: handheld shake, flat grey walls, minimalist set, moire, micro-pattern, gore, lens flare, modern office lighting, shallow depth of field, text, watermark.
 ```
 
-配套参考：运动与构图术语见 `../cinematic-language.md`（景别/机位/运镜/轴线按电影语言通行口径写（景别：远景·全景·中景·近景·特写·大特写；运镜：固定·推·拉·摇·移·跟·升降·环绕；相邻镜守 180° 轴线与 30° 规则）。）；匹配剪辑与转场工程见 `../editing-and-assembly.md`（剪辑点优先动作匹配与视线匹配；转场默认硬切；ASL 按情绪曲线分配，不许均匀。）；"图案蠕动 / 摩尔纹"的修复路径见 `../failure-modes.md`（失败按症状定位（漂移/PPT 感/运镜乱/接缝/物理错/风格跳），先改提示词再重生成。）。
+配套参考要点：
+- 运动与构图术语：景别/机位/运镜/轴线按电影语言通行口径写（景别：远景·全景·中景·近景·特写·大特写；运镜：固定·推·拉·摇·移·跟·升降·环绕；相邻镜守 180° 轴线与 30° 规则）
+- 匹配剪辑与转场工程：剪辑点优先动作匹配与视线匹配；转场默认硬切；ASL 按情绪曲线分配，不许均匀
+- "图案蠕动 / 摩尔纹"的修复路径：失败按症状定位（漂移/PPT 感/运镜乱/接缝/物理错/风格跳），先改提示词再重生成

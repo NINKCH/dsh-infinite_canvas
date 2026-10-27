@@ -53,7 +53,7 @@ The camera arrives early, sits outside the doorway, never approaches, and lets a
 - 门框、窗框、廊柱、纱门是主要构图工具：从一个房间拍另一个房间，前景的门框吃掉画幅左右各 1/4，观众被明确地放在门外。
 - 三层纵深必须同时有内容：前景（门框、桌角、正在做的事）／中景（这场戏的主体）／远景（另一个房间、庭院、街上走过的人）。深焦的边界要先算：50mm f/8 超焦距约 10 米，焦点放在那里，5 米到无限远全清楚，正好罩住中景的人和远景的门口；换成 85mm f/5.6、焦点 8 米，清晰范围只剩 6.8–9.8 米，远景立刻散掉。2 米处的门框前景在哪一档都是虚的——它本来就该是一块暗剪影，不承担细节，别在提示词里要求它锐。
 - 不拍反打，不拍特写。一场戏 1–3 个镜头。覆盖率概念在这里不成立——你不是在攒素材，你是在确定唯一那个位置。
-- 竖幅（9:16）改写：门框吃掉画幅左右各 1/4 这条几何在 9:16 上没有横向余量可吃。改成上下吃：用门楣与门槛（或屋檐与桌沿、纱门的上下横档）各吃掉画幅上下 1/4，观众照样被明确地放在门外。三层纵深不受影响——它本来就是前中后而不是左中右——但同框并置的三处活动要改成竖向错位：近景低、中景居中、远景高，靠地面而不是靠头顶给距离线索。整体景别按竖幅规则收紧一级，6–12 米的静止全景通常要走到 4–8 米。竖幅通则见 `../cinematic-language.md`（景别/机位/运镜/轴线按电影语言通行口径写（景别：远景·全景·中景·近景·特写·大特写；运镜：固定·推·拉·摇·移·跟·升降·环绕；相邻镜守 180° 轴线与 30° 规则）。）。
+- 竖幅（9:16）改写：门框吃掉画幅左右各 1/4 这条几何在 9:16 上没有横向余量可吃。改成上下吃：用门楣与门槛（或屋檐与桌沿、纱门的上下横档）各吃掉画幅上下 1/4，观众照样被明确地放在门外。三层纵深不受影响——它本来就是前中后而不是左中右——但同框并置的三处活动要改成竖向错位：近景低、中景居中、远景高，靠地面而不是靠头顶给距离线索。整体景别按竖幅规则收紧一级，6–12 米的静止全景通常要走到 4–8 米。竖幅通则：景别/机位/运镜/轴线按电影语言通行口径写（景别：远景·全景·中景·近景·特写·大特写；运镜：固定·推·拉·摇·移·跟·升降·环绕；相邻镜守 180° 轴线与 30° 规则）。
 
 <!-- slice:shot prompt assets -->
 ## 灯光与色彩
@@ -62,7 +62,7 @@ The camera arrives early, sits outside the doorway, never approaches, and lets a
 - 光比 2:1–4:1，柔，没有硬边阴影；夜戏由一盏真实的顶灯或日光灯管完成，比 4:1，灯本身可以入画。
 - 不给演员补光。人走到窗边就亮，走进屋里就暗——曝光变化本身是场面调度的一部分。
 - 色调来自实景材料：旧木头的褐、灰泥墙的白、门外的植物绿、洗旧的蓝布衣服。饱和度中偏低，对比中等。
-- 全片只允许一处高饱和色出现（一件红衣、一个塑料桶、一支日光灯的绿），用来在扫描画面时给眼睛一个锚点。系统性调色语言见 `../lighting-and-color.md`（光比与色温写数值（如 8:1、3200K/5600K），光源必须有动机（窗/灯/霓虹/火），暗部保细节不用补光糊平。）。
+- 全片只允许一处高饱和色出现（一件红衣、一个塑料桶、一支日光灯的绿），用来在扫描画面时给眼睛一个锚点。系统性调色语言：光比与色温写数值（如 8:1、3200K/5600K），光源必须有动机（窗/灯/霓虹/火），暗部保细节不用补光糊平。
 
 <!-- slice:story -->
 ## 剪辑节奏
@@ -71,7 +71,7 @@ The camera arrives early, sits outside the doorway, never approaches, and lets a
 - 每一次切点同时跳时间：从今天下午切到几个月后的同一张桌子。切点是省略号，不是连接词。
 - 人物走出画面后继续停留 8–20 秒。这段空镜不是抒情，是让观众意识到房间比人先在这里、也会比人后在这里。
 - 不用溶解。段落之间用黑场（0.5–1 秒）分章，一部短片不超过 3 次。
-- 切点逻辑与转场工程见 `../editing-and-assembly.md`（剪辑点优先动作匹配与视线匹配；转场默认硬切；ASL 按情绪曲线分配，不许均匀。）。
+- 切点逻辑与转场工程：剪辑点优先动作匹配与视线匹配；转场默认硬切；ASL 按情绪曲线分配，不许均匀。
 
 <!-- slice:story -->
 ## 声音与音乐
@@ -80,7 +80,7 @@ The camera arrives early, sits outside the doorway, never approaches, and lets a
 - 环境声是主音轨，而且必须是完整的现场声床：蝉、车流、厨房、电风扇、隔壁电视、远处施工。全片不允许出现真正的静音——房间的本底噪声一直在。
 - 对白重叠、含混、带方言，人物边做事边说，一半听不清是正常的。关键信息不要放在最清楚的那句里。
 - 音量差就是距离：说话的人在 9 米外，声音就该像 9 米外，不做近距离拾音的干净人声。
-- 最重要的一次情绪转折可以完全没有声音标记——只是有人放下筷子。声音策略见 `../sound-and-dialogue.md`（声音五层：环境底噪·氛围·拟音·点效·配乐；对白一镜一人；沉默是最响的提示。）。
+- 最重要的一次情绪转折可以完全没有声音标记——只是有人放下筷子。声音策略：声音五层：环境底噪·氛围·拟音·点效·配乐；对白一镜一人；沉默是最响的提示。
 
 <!-- slice:story shot -->
 ## 人物与表演
@@ -193,10 +193,13 @@ Static wide frame photographed from inside an adjacent room, 50mm equivalent, ca
 - 弱写法：`static long take, contemplative, natural light, slice of life`——模型会给你一张会呼吸的照片，或者偷偷推一个镜。
 - 强写法：写清机位在哪个房间、门框吃掉多少画幅、三层各有什么在动，并显式禁止任何镜头运动。
 
-95 秒长于任何单条生成，这颗长镜要按 8–12 秒一条依次生成再首尾相接（工具若提供首帧/尾帧接口，见 `../ai-video-tool-adapters.md`（每镜只给一个主动作 + 一种运镜；模型没有的控制面不要许愿（如精细运镜数值）。）），每条只装一个主动作——站着不动／蹲下放置并离开／空走廊——背景那些持续的小动作（电视、风扇、楼梯口走过的人）每条都照常保留，否则接起来会像卡顿。所有条共用下面这段描述，只换动作句。下面是"蹲下放置并离开"的那一条：
+95 秒长于任何单条生成，这颗长镜要按 8–12 秒一条依次生成再首尾相接（工具若提供首帧/尾帧接口，：每镜只给一个主动作 + 一种运镜；模型没有的控制面不要许愿（如精细运镜数值）），每条只装一个主动作——站着不动／蹲下放置并离开／空走廊——背景那些持续的小动作（电视、风扇、楼梯口走过的人）每条都照常保留，否则接起来会像卡顿。所有条共用下面这段描述，只换动作句。下面是"蹲下放置并离开"的那一条：
 
 ```text
 Locked tripod camera, absolutely no movement: no push-in, no zoom, no pan, no reframe. 50mm equivalent, camera about nine metres back, at seated eye height, positioned inside an apartment across the landing so that its own doorframe and the corner of a dining table crop the outer quarter of the frame on both sides. Focused deep at the f/8 hyperfocal distance: the standing figure at nine metres and the stairwell at fourteen metres are both sharp, while the doorframe and table edge in the near foreground are a dark, slightly soft mask. In the middle distance a person stands facing a closed apartment door, holding a cloth-wrapped parcel at waist height, small in frame, back three-quarters to camera. He stands without moving for the first few seconds. Then he crouches, sets the parcel on the doorsill, straightens, and walks out of frame to the left without knocking; the camera does not follow and ends holding on the empty landing and the parcel. In the far background a stairwell is visible; a neighbour climbs into view, glances over, and continues up out of sight. Daylight from a window at the end of the corridor is the only key, ratio 3:1, his face one and a half stops under and partly unreadable, nobody relit. Continuous location sound: a television in the foreground apartment, traffic outside, a ceiling fan. Keep the same coat, parcel, doorframe and light. Avoid: camera movement of any kind, zoom, close-up, shallow depth of field, dramatic lighting, music, slow motion, text, watermark.
 ```
 
-配套参考：景别、焦段与景深算术见 `../cinematic-language.md`（景别/机位/运镜/轴线按电影语言通行口径写（景别：远景·全景·中景·近景·特写·大特写；运镜：固定·推·拉·摇·移·跟·升降·环绕；相邻镜守 180° 轴线与 30° 规则）。）；进出画与门框调度见 `../blocking-and-staging.md`（调度先定身体在空间里的位置再定机位；距离用厘米/米写清，权力关系靠高低与门位表达。）；"结果像静止照片"的修复路径见 `../failure-modes.md`（失败按症状定位（漂移/PPT 感/运镜乱/接缝/物理错/风格跳），先改提示词再重生成。）。
+配套参考要点：
+- 景别、焦段与景深算术：景别/机位/运镜/轴线按电影语言通行口径写（景别：远景·全景·中景·近景·特写·大特写；运镜：固定·推·拉·摇·移·跟·升降·环绕；相邻镜守 180° 轴线与 30° 规则）
+- 进出画与门框调度：调度先定身体在空间里的位置再定机位；距离用厘米/米写清，权力关系靠高低与门位表达
+- "结果像静止照片"的修复路径：失败按症状定位（漂移/PPT 感/运镜乱/接缝/物理错/风格跳），先改提示词再重生成

@@ -52,6 +52,11 @@ confidence: high
 
 不要用更响的责骂代替后果；不要让全家人合唱同一种谴责；不要把长辈写成没有诉求的功能人物；不要预设原谅或反击才是正确结局；不要让一次哭戏替代一次选择。
 
+<!-- slice:prompt -->
+## 类型级负向词
+
+warm commercial family glow, everyone hugs at dinner, sad piano under every line, spotless showroom kitchen, three generations smiling at camera, melodramatic shouting match
+
 <!-- slice:story -->
 ## 证据与置信度
 
