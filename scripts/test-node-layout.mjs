@@ -64,11 +64,14 @@ const REF_EDGES = [
   { id: 'e_ref1', fromNode: 'n_ref_a', fromPort: 'out', toNode: 'n_img', toPort: 'ref' },
   { id: 'e_ref2', fromNode: 'n_ref_b', fromPort: 'out', toNode: 'n_img', toPort: 'ref' },
   { id: 'e_ref3', fromNode: 'n_ref_c', fromPort: 'out', toNode: 'n_img', toPort: 'ref' },
+  { id: 'e_vid_sb', fromNode: 'n_sb', fromPort: 'out', toNode: 'n_vid_sb', toPort: 'prompt' },
 ];
 const SEED_NODES = {
   // 媒体节点：文档里是旧的 360×360 盒子（标题栏/操作栏吃掉画面高度），加载时必须按记录比例重算外框
   n_img: { id: 'n_img', type: 'image', x: 0, y: 0, w: 360, h: 360, data: { label: '角色-林晚 多视图', prompt: 'x', assetId: 'a_img', ratio: '16:9', size: '2K', status: 'done', refOrder: ['e_ref3', 'e_ref1', 'e_ref2'] } },
   n_vid: { id: 'n_vid', type: 'video', x: 700, y: 0, w: 360, h: 360, data: { label: '视频', prompt: 'x', assetId: 'a_vid', ratio: '9:16', resolution: '720P', status: 'done' } },
+  // 已连分镜表的独立视频段：时长控件必须禁用（分镜镜头自带 duration，节点秒数无效）
+  n_vid_sb: { id: 'n_vid_sb', type: 'video', x: 1300, y: 1100, w: 360, h: 360, data: { label: '分镜视频段', prompt: '', assetId: null, ratio: '16:9', resolution: '720P', duration: 5, status: 'idle' } },
   // 旧资产节点：没有 ratio，只有实测尺寸 → 从尺寸推断比例
   n_square: { id: 'n_square', type: 'image', x: 0, y: 700, w: 360, h: 360, data: { label: '方图', assetId: 'a_sq', assetW: 1024, assetH: 1024, status: 'done' } },
   n_legacy: { id: 'n_legacy', type: 'image', x: 400, y: 700, w: 360, h: 360, data: { label: '旧资产', assetId: 'a_legacy', status: 'done' } },
@@ -508,6 +511,106 @@ const barsOn = () => HDR() + FOOT();
       }
     }
   }
+}
+
+// ============================================================
+// 5b) 分镜数 / 单段上限支持自定义：下拉预设 + 数值夹取（用户指定 1–100 镜、1–300s 小数）
+// ============================================================
+{
+  // 纯函数：自定义输入必须夹取到范围；整数/一位小数口径固定；非法输入回退 fallback
+  const cn = LAYOUT.clampCustomNumber;
+  ok(typeof cn === 'function', 'PopupSelect 缺少 clampCustomNumber 测试缝隙（自定义输入无法回归）');
+  if (typeof cn === 'function') {
+    eq(cn('5', { min: 1, max: 100, integer: true, fallback: 0 }), { ok: true, value: 5 }, '分镜自定义 5 应接受');
+    eq(cn('100', { min: 1, max: 100, integer: true, fallback: 8 }), { ok: true, value: 100 }, '分镜自定义上限应为 100');
+    eq(cn('101', { min: 1, max: 100, integer: true, fallback: 8 }), { ok: true, value: 100 }, '分镜 101 应夹到 100');
+    eq(cn('0', { min: 1, max: 100, integer: true, fallback: 8 }), { ok: false, value: 8 }, '分镜 0 是自动档，不是自定义值');
+    eq(cn('abc', { min: 1, max: 100, integer: true, fallback: 8 }), { ok: false, value: 8 }, '非数字自定义输入应拒绝');
+    eq(cn('18.5', { min: 1, max: 300, integer: false, decimals: 1, fallback: 15 }), { ok: true, value: 18.5 }, '单段上限应支持一位小数');
+    eq(cn('300.4', { min: 1, max: 300, integer: false, decimals: 1, fallback: 15 }), { ok: true, value: 300 }, '单段上限 300.4 应夹到 300');
+    eq(cn('0.25', { min: 1, max: 300, integer: false, decimals: 1, fallback: 15 }), { ok: false, value: 15 }, '低于 1 秒的自定义上限应拒绝');
+  }
+
+  // 分镜面板两个控件必须真的接上自定义输入与范围
+  const n = nodeOf('n_sb');
+  const tree = NODES.GenComposer({ nodeId: 'n_sb', node: n });
+  const els = findAll(tree);
+  const row = els.find((e) => hasClass(e, 'dshic-composer-controls'));
+  ok(!!row, '分镜生成面板没有控件行');
+  if (row) {
+    const kids = flatten(row.props.children);
+    const countSel = kids.find((e) => Array.isArray(e.props && e.props.options) && e.props.options.some((o) => String(o && o.value) === '0'));
+    ok(!!countSel, '分镜面板缺少镜头数下拉');
+    if (countSel) {
+      ok(countSel.props.editable === true, '镜头数下拉未开启自定义输入');
+      eq({ min: countSel.props.min, max: countSel.props.max, integer: countSel.props.integer }, { min: 1, max: 100, integer: true }, '镜头数自定义范围必须为 1–100 整数');
+      ok(typeof countSel.props.customLabel === 'function', '镜头数下拉缺少自定义值展示格式');
+    }
+    const segSel = kids.find((e) => hasClass(e, 'is-segmax'));
+    ok(!!segSel, '分镜面板缺少单段上限下拉');
+    if (segSel) {
+      ok(segSel.props.editable === true, '单段上限下拉未开启自定义输入');
+      eq({ min: segSel.props.min, max: segSel.props.max, integer: segSel.props.integer }, { min: 1, max: 300, integer: false }, '单段上限自定义范围必须为 1–300');
+      ok(Number(segSel.props.decimals) === 1, '单段上限自定义小数必须固定一位');
+      ok(typeof segSel.props.customLabel === 'function', '单段上限下拉缺少自定义值展示格式');
+    }
+  }
+  // 自定义值不在预设里时，触发按钮必须显示该值，不能错显第一个预设
+  ok(/customLabel\s*\? customLabel\(value\)/.test(src), 'PopupSelect 未按自定义值渲染触发按钮文案');
+  // 生成端硬上限与 UI 自定义上限一致：100 镜（旧的 24 截断会吃掉用户自定义镜头）
+  ok(src.includes('return shots.slice(0, MAX_STORYBOARD_SHOTS)'), '分镜生成仍使用旧的 24 镜截断（应使用 100 上限常量）');
+  ok(/const MAX_STORYBOARD_SHOTS = 100;/.test(src), '缺少分镜硬上限常量 MAX_STORYBOARD_SHOTS=100');
+  ok(/segments\.length < 128/.test(src), '切段循环上限过低，无法覆盖 100 镜自定义分镜');
+}
+
+// ============================================================
+// 5c) 视频时长：未连分镜可选/自定义；已连分镜禁用并按镜头节拍计算
+// ============================================================
+{
+  const vd = LAYOUT.videoDurationFor;
+  ok(typeof vd === 'function', '缺少 videoDurationFor 测试缝隙（视频时长策略无法回归）');
+  if (typeof vd === 'function') {
+    // 未连分镜：节点秒数是唯一事实源，支持一位小数；缺省回退 5s
+    eq(vd({ data: { duration: 7.2 } }, [], false), { controlled: false, value: 7.2 }, '未连分镜时应使用节点时长');
+    eq(vd({ data: { duration: 0 } }, [], false), { controlled: false, value: 5 }, '未连分镜且无有效时长应回退 5s');
+    // 已连分镜：分镜镜头 duration 求和；空分镜回退 0，由调用方补告警与 5s
+    eq(vd({ data: { duration: 8 } }, [{ duration: 2 }, { duration: 3.2 }], true), { controlled: true, value: 5.2 }, '已连分镜应按镜头节拍求和');
+    eq(vd({ data: { duration: 8 } }, [], true), { controlled: true, value: 0 }, '已连空分镜应标记为无时长');
+  }
+
+  // 独立视频：时长下拉可自定义
+  const vidTree = NODES.GenComposer({ nodeId: 'n_vid', node: nodeOf('n_vid') });
+  const vidRow = findAll(vidTree).find((e) => hasClass(e, 'dshic-composer-controls'));
+  ok(!!vidRow, '视频生成面板没有控件行');
+  if (vidRow) {
+    const kids = flatten(vidRow.props.children);
+    const durSel = kids.find((e) => Array.isArray(e.props && e.props.options) && e.props.options.some((o) => String(o && o.value) === '4'));
+    ok(!!durSel, '独立视频面板缺少时长下拉');
+    if (durSel) {
+      ok(durSel.props.disabled !== true, '未连分镜的视频时长控件不应禁用');
+      ok(durSel.props.editable === true, '未连分镜的视频时长未开启自定义输入');
+      eq({ min: durSel.props.min, max: durSel.props.max, integer: durSel.props.integer }, { min: 1, max: 300, integer: false }, '视频时长自定义范围必须为 1–300');
+      ok(Number(durSel.props.decimals) === 1, '视频时长自定义小数必须固定一位');
+    }
+  }
+
+  // 已连分镜：时长下拉禁用；提示词/请求时长由分镜镜头节拍决定
+  const sbVidTree = NODES.GenComposer({ nodeId: 'n_vid_sb', node: nodeOf('n_vid_sb') });
+  const sbVidRow = findAll(sbVidTree).find((e) => hasClass(e, 'dshic-composer-controls'));
+  ok(!!sbVidRow, '已连分镜的视频生成面板没有控件行');
+  if (sbVidRow) {
+    const kids = flatten(sbVidRow.props.children);
+    const durSel = kids.find((e) => Array.isArray(e.props && e.props.options) && e.props.options.some((o) => String(o && o.value) === '4'));
+    ok(!!durSel, '已连分镜的视频面板缺少时长下拉');
+    if (durSel) {
+      ok(durSel.props.disabled === true, '已连分镜的视频时长控件必须禁用');
+      ok(typeof durSel.props.disabledLabel === 'function' || typeof durSel.props.disabledLabel === 'string', '禁用态缺少“分镜时长”文案');
+    }
+  }
+  // 生成请求必须改用 durationPlan 的值，不能再把节点 duration 原样传给已连分镜的视频
+  ok(/const durationPlan = videoDurationFor\(n, shotList, !!sbUp\)/.test(src), '视频生成未按“是否连接分镜”计算时长策略');
+  ok(/duration: autoDuration,/.test(src), '视频请求仍直接传节点 duration（已连分镜时设置会污染请求）');
+  ok(/\.dshic-pick:disabled\{/.test(src), '下拉缺少禁用态样式（时长栏不会变灰）');
 }
 
 // ============================================================

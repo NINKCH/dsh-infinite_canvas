@@ -254,6 +254,13 @@ try {
   const st1 = await byName.get('canvas_node_status').execute({ projectId, nodeId: n.nodeId }, {});
   if (!st1 || !(st1.prompt || '').includes('陈拾')) errs.push('canvas_node_status 未返回生成节点的对话框提示词（prompt）');
   if (!st1 || st1.type !== 'image') errs.push('canvas_node_status 未按合并类型显示节点（期望 image，实际 ' + (st1 && st1.type) + '）');
+  // 坐标必须可读：对话侧要能回答/判断节点位置与重叠（此前 x/y 只存在于文档，工具全部不透出）
+  if (!st1 || !Number.isFinite(st1.x) || !Number.isFinite(st1.y)) errs.push('canvas_node_status 未返回节点坐标 x/y');
+  if (!st1 || !Number.isFinite(st1.w) || !Number.isFinite(st1.h)) errs.push('canvas_node_status 未返回节点尺寸 w/h');
+  if (!st1 || !/x=\d/.test(String(st1.text)) || !/y=\d/.test(String(st1.text))) errs.push('canvas_node_status 文本未渲染节点坐标');
+  const lstAfterNode = await byName.get('canvas_list_projects').execute({}, {});
+  const nodeLine = String(lstAfterNode && lstAfterNode.text || '').split(/\r?\n/).find((line) => line.includes(n.nodeId)) || '';
+  if (!/x=\d/.test(nodeLine) || !/y=\d/.test(nodeLine)) errs.push('canvas_list_projects 节点摘要未透出坐标 x/y：' + nodeLine);
   const up = await byName.get('canvas_update_node').execute({
     projectId, nodeId: n.nodeId,
     patch: { prompt: '特写，陈拾，雨夜，旧邮差制服', ratio: '9:16', size: '2K', duration: 5, resolution: '1080P', id: '不可改' },

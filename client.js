@@ -46,6 +46,8 @@ function revealCanvasInRight() {
     const COMPOSER_MAX_W = 720;
     const COMPOSER_VIEWPORT_GAP = 24; // 面板宽度上限 = 视口宽 - 24（两侧各留 12）
     const CRAFT_SKILL = 'canvas-craft'; // 内置创作方法论技能（未选技能时默认注入）
+    // 分镜镜头硬上限：生成端解析/UI 自定义输入/切段循环都必须对齐这个值（100 镜足够覆盖单场/单集实验）。
+    const MAX_STORYBOARD_SHOTS = 100;
 
     // 节点类型的唯一事实源是 TYPE_LABEL / TYPE_KIND / PORTS（见下方）：历史上这里还有一个
     // 写死的类型清单常量，既不完整（缺 script/storyboard/finalcut/group）又无人引用，
@@ -435,6 +437,11 @@ function revealCanvasInRight() {
       'segPlanHint': '按真实镜头边界把分镜切成若干次生成：切点只在换场/特写插入/新角色入场处；同一段连续动作不拆开。',
       'segMaxLabel': '单段上限',
       'segMaxHint': '单次生成的最大秒数（按厂商上限填，MiniMax 这类弱衔接模型建议 6–10 秒）',
+      'customValuePh': '自定义后回车',
+      'customCountPh': '自定义 1–100 镜',
+      'customSegMaxPh': '自定义 1–300 秒',
+      'durationByStoryboard': '分镜时长',
+      'durationByStoryboardTip': '已连接分镜：时长由本段镜头的节拍决定，节点秒数不参与请求',
       'segClean': '切点整齐：每一段都从换镜头处开始',
       'segForced': '存在硬切点：有段从动作中间开始，建议先拆镜',
       'segSummary': '{m} 段 · 共 {n} 镜 · 总 {t} 秒 · 单段最长 {s} 秒',
@@ -1045,7 +1052,7 @@ function revealCanvasInRight() {
       'shotsUnit': '镜',
       'savedOk': '已存为资产',
       'warnUnregistered': '未在设定集/资产中登记',
-      'warnScriptTooLong': '剧本较长（{n} 字）≈ 超过单个分镜的镜头容量（24 镜）：请按场景拆分为多个场景剧本节点（每个分镜只连一个场景剧本）',
+      'warnScriptTooLong': '剧本较长（{n} 字）≈ 超过单个分镜的镜头容量（100 镜）：请按场景拆分为多个场景剧本节点（每个分镜只连一个场景剧本）',
       'warnEmptyDesc': '已登记但描述为空（待补全）',
       'catMention': '提及',
       'assetCategoriesFixed': '已按命名规范纠正 {n} 个资产的分类',
@@ -1359,6 +1366,11 @@ function revealCanvasInRight() {
       'segPlanHint': 'Split the storyboard into several generations at real shot boundaries: cuts only land on scene change / insert / new character; one continuous action is never split.',
       'segMaxLabel': 'Per-segment max',
       'segMaxHint': 'Max seconds per generation (match the vendor limit; for weak-continuity models like MiniMax use 6-10s)',
+      'customValuePh': 'Custom, press Enter',
+      'customCountPh': 'Custom 1-100 shots',
+      'customSegMaxPh': 'Custom 1-300 seconds',
+      'durationByStoryboard': 'Storyboard duration',
+      'durationByStoryboardTip': 'Storyboard connected: duration follows this segment\'s shot beats; the node duration is not sent',
       'segClean': 'Clean cuts: every segment starts on a new shot',
       'segForced': 'Forced cuts: some segments start mid-action — split those shots first',
       'segSummary': '{m} segments · {n} shots · {t}s total · longest segment {s}s',
@@ -1970,7 +1982,7 @@ function revealCanvasInRight() {
       'shotsUnit': 'shots',
       'savedOk': 'Saved as asset',
       'warnUnregistered': 'not in bible/assets',
-      'warnScriptTooLong': 'Script is long ({n} chars) ≈ beyond one storyboard\'s shot capacity (24 shots): split the script into multiple scene script nodes (each storyboard takes ONE scene)',
+      'warnScriptTooLong': 'Script is long ({n} chars) ≈ beyond one storyboard\'s shot capacity (100 shots): split the script into multiple scene script nodes (each storyboard takes ONE scene)',
       'warnEmptyDesc': 'registered but description is empty (fill it in)',
       'catMention': 'Mention',
       'assetCategoriesFixed': 'Re-categorized {n} assets by naming convention',
@@ -3309,6 +3321,9 @@ body[data-ds-dark-theme] .dshic-storage-details{border-color:var(--dsw-alias-bor
   border-radius:var(--dshic-pick-r);border:1px solid var(--dshic-line2);background:var(--dshic-card);color:var(--dshic-ink);
   font:inherit;font-size:var(--dshic-pick-size);cursor:pointer;box-sizing:border-box;justify-content:space-between;}
 .dshic-pick:hover,.dshic-pick.is-open{background:#f6f7f9;}
+.dshic-pick:disabled{opacity:.45;cursor:not-allowed;background:transparent;color:var(--dsw-alias-label-secondary);}
+.dshic-pick.is-disabled{opacity:.45;cursor:not-allowed;background:transparent;color:var(--dsw-alias-label-secondary);}
+.dshic-pick:disabled:hover,.dshic-pick.is-disabled:hover{background:transparent;}
 .dshic-pick-val{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;}
 .dshic-pick-car{color:var(--dshic-field-hint);font-size:9px;flex:none;}
 /* 模型/比例等下拉：实底容器（浅色白 / 深色跟随）+ 线框 + 14px 圆角 + --dshic-shadow-lg */
@@ -3317,6 +3332,9 @@ body[data-ds-dark-theme] .dshic-pick-menu{border-color:var(--dsw-alias-border-l2
 .dshic-pick-search{padding:7px;border-bottom:1px solid var(--dshic-line);flex:none;}
 .dshic-pick-search .dshic-input{height:26px;font-size:12px;}
 .dshic-pick-list{overflow-y:auto;padding:5px;flex:1;}
+/* 自定义数值输入：下拉底部的固定行；不参与列表滚动，Enter/失焦提交 */
+.dshic-pick-custom{padding:7px;border-top:1px solid var(--dshic-line);flex:none;}
+.dshic-pick-custom .dshic-input{width:100%;height:26px;font-size:12px;box-sizing:border-box;}
 /* 弹层内部统一主题色（不出现固定色字面量）；当前项浅色 accent-soft、深色 brand 轻混合 */
 .dshic-pick-item{display:flex;align-items:center;gap:8px;width:100%;padding:6px 8px;border:0;border-radius:7px;background:transparent;color:var(--dsw-alias-label-primary);font:inherit;font-size:12px;cursor:pointer;text-align:left;box-sizing:border-box;}
 .dshic-pick-item:hover{background:var(--dsw-alias-interactive-bg-hover,color-mix(in srgb,var(--dsw-alias-label-primary) 8%,transparent));}
@@ -4170,7 +4188,7 @@ body[data-ds-dark-theme] .dshic-pick-item.is-on{background:color-mix(in srgb,var
       const segments = [];
       let i = 0;
       let warnMark = warnings.length;
-      while (i < list.length && segments.length < 64) {
+      while (i < list.length && segments.length < 128) {
         // 段首必须是切点；若不是（说明上一段是被 forced 断开的），本镜保持原 seg
         warnMark = warnings.length;
         const brk = findBreak(i);
@@ -7101,6 +7119,12 @@ function queueThumb(assetId) {
      *  ③ **沿分镜表的 prev 承接链向上游找**：上游分镜表所连的视频节点。
      *     标准短剧布局是「一场一个分镜表 + 一场一个视频」，此时每个视频节点的上游分镜表都不同，
      *     ①②永远找不到——这是主用法，必须支持。逐级向上并防环。 */
+    /** 视频节点的分镜表输入：prompt 口连到 storyboard。存在即表示“时长由分镜节拍决定”。 */
+    function storyboardInputOf(n) {
+      const e = S.graph.edges.find((x) => x.toNode === n.id && x.toPort === 'prompt');
+      const src = e && S.graph.nodes[e.fromNode];
+      return src && src.type === 'storyboard' ? src : null;
+    }
     function autoPrevVideoNode(n) {
       // 自包含的"视频节点"判定（函数会被 scripts/test-real-project-graph.mjs 单独抽取执行，
       // 且真实旧项目数据里可能仍是 video-gen / video-asset 类型名）
@@ -8519,16 +8543,26 @@ function queueThumb(assetId) {
       const ctxSb = await buildExpertContext('storyboard', settings, zh);
       const methodology = ctxSb.rules
         || await loadSkillRules(CRAFT_SKILL, zh); // 未选技能时默认注入内置创作方法论
+      // 用户在生成面板手动设置镜头数（count>0）时，必须**覆盖**系统契约里的
+      //「数量由内容自然决定/绝不固定」默认口径——否则模型永远偏向系统契约，手动值不生效。
+      // count=0 仍是自动档：不加任何数量覆盖，行为与旧版一致。
+      const countNum = Number(count) > 0 ? Math.max(1, Math.round(Number(count))) : 0;
+      const countOverride = countNum ? (zh
+        ? `【镜头数量·用户硬性指定】本请求的用户已手动设置镜头数为 ${countNum} 镜。本条是用户参数，覆盖系统契约中「数量由内容自然决定」与「绝不凑数、绝不使用固定数量」的默认规则：必须输出恰好 ${countNum} 镜（不得更多、不得更少）。为在 ${countNum} 镜内容纳全部内容，可把相邻的连续动作合并为一镜、压缩每镜信息密度，但不得丢弃台词与关键动作；若确实装不下，优先保台词完整并仍输出 ${countNum} 镜。`
+        : `[SHOT COUNT - USER OVERRIDE] The user has manually set this storyboard to ${countNum} shots. This user parameter overrides the contract defaults "count follows content" and "never use a fixed count": output EXACTLY ${countNum} shots (no more, no fewer). To fit everything, merge adjacent continuous actions and compress per-shot density, but never drop dialogue or key actions; if it truly cannot fit, keep dialogue complete and still output ${countNum} shots.`) : '';
       const system = [
         ctxSb.persona,
         ctxSb.packText,
         methodology || '',
         jsonContract,
+        countOverride,
         bible ? (zh ? '项目设定集（名称必须与之一致）：\n' : 'Series bible (names must match):\n') + bible : '',
         outLangLine(),
       ].filter(Boolean).join('\n');
-      const countLine = (Number(count) > 0)
-        ? `${zh ? '参考镜头数量' : 'Reference shot count'}：约 ${count} 镜（**仅作参考**——必须按实际动作节拍切分，内容需要更多就更多，绝不凑数）`
+      const countLine = countNum
+        ? (zh
+          ? `镜头数量：必须输出恰好 ${countNum} 镜（用户手动设置；硬性参数，不是参考值）。`
+          : `Shot count: output EXACTLY ${countNum} shots (set by the user; hard parameter, not a reference).`)
         : `${zh ? '镜头数量' : 'Shot count'}：**不固定**——按实际动作节拍切分，由内容自然决定`;
       // 承接约束：由连线指定（分镜表「衔接上一镜」输入口 ← 上游分镜表「尾镜」输出口）。
       // 只承接尾镜的**结尾瞬间**（≤0.2s 重叠），不重演上一镜——视频模型按秒计费，重演等于白花钱。
@@ -8604,7 +8638,7 @@ function queueThumb(assetId) {
       }
       // 不做时长压缩：镜头时长由内容决定（各视频厂商单次上限不同，超限时由视频接口明确报错，
       // 比系统静默砍戏更好——用户要求「不要强行截断」）。仅做数据合法性兜底（≥1 的整数）。
-      return shots.slice(0, 24).map((s, i) => ({
+      return shots.slice(0, MAX_STORYBOARD_SHOTS).map((s, i) => ({
         title: String(s.title || (T('shotPrefix') + (i + 1))).slice(0, 24),
         visual: String(s.visual || ''),
         motion: String(s.motion || ''),
@@ -9580,7 +9614,7 @@ function queueThumb(assetId) {
       flushSave();
       try {
         const prev = prevSceneTail(n); // 场 N-1 的尾镜 → 作为本场第 1 镜的硬性承接约束
-        const shots = await aiStoryboardShots(st, n.data.requirement, n.data.count || 6, n.data.model, (kind, d) => aiStreamAppend(n.id, kind, d), prev, { cont: n.data.cont !== false });
+        const shots = await aiStoryboardShots(st, n.data.requirement, Number(n.data.count) || 0, n.data.model, (kind, d) => aiStreamAppend(n.id, kind, d), prev, { cont: n.data.cont !== false });
         // 未闭合引用自愈：句尾丢闭合 @ 的引用按设定集名补全（否则参考图静默丢失）
         const _known = bibleNames(loadBible(S.activeId));
         for (const sh of shots) {
@@ -9591,8 +9625,8 @@ function queueThumb(assetId) {
         // 先自动补录缺失条目（空描述），再算一致性告警：否则告警标志的条目其实马上就被自动补录了，"未登记"语义会误导用户与对话侧
         try { await autoRegisterBibleEntries(shots); } catch { /* 补录失败不影响分镜 */ }
         const warnings = await checkShotConsistency(shots);
-        // 容量告警：镜头数上限 24（UI/数据上限）。剧本过长说明应该按场景拆分成多个场景剧本节点，
-        // 而不是让一个分镜表硬吃全集（shots 上限 24 会截断覆盖面）。时长本身不设上限，不做压缩。
+        // 容量告警：镜头数硬上限 100（与生成端解析/UI 自定义输入一致）。剧本过长说明应该按场景
+        // 拆分成多个场景剧本节点，而不是让一个分镜表硬吃全集。时长本身不设上限，不做压缩。
         const stLen = st.length;
         if (stLen > 600) {
           warnings.push(T('warnScriptTooLong').replace('{n}', String(stLen)));
@@ -9770,11 +9804,7 @@ function queueThumb(assetId) {
           const { refs, entities, audioBlobs } = await collectRefs(n, prompt, bible);
           // 上游是分镜表 → 走厂商「参考生成」结构化提示词（主体/分镜/台词/声音显式绑定，音画同步；
           // 机械拼装会让模型把台词与场景判错）；节点上已手写结构化提示词则原样尊重。
-          const sbUp = (() => {
-            const e2 = S.graph.edges.find((x) => x.toNode === n.id && x.toPort === 'prompt');
-            const src = e2 && S.graph.nodes[e2.fromNode];
-            return src && src.type === 'storyboard' ? src : null;
-          })();
+          const sbUp = storyboardInputOf(n);
           const shotListAll = sbUp && Array.isArray(sbUp.data.shots) ? sbUp.data.shots : [];
           // 按镜头切段：上游分镜表被"按镜头切段"铺开过时，每个视频节点只负责自己那一段镜头。
           // 只取本段的镜头去组提示词——绝不把整表的镜头都塞进一次请求（那正是"动作被压成平移"的根因）。
@@ -9787,6 +9817,9 @@ function queueThumb(assetId) {
             return { from: Math.max(0, Math.floor(from)), to: Math.min(shotListAll.length - 1, Math.floor(to)), index: Number(d.segIndex) || 0, count: Number(d.segCount) || 1, needsTailChain: d.needsTailChain === true, seamRisk: String(d.seamRisk || 'none') };
           })();
           const shotList = segMeta ? shotListAll.slice(segMeta.from, segMeta.to + 1) : shotListAll;
+          // 时长策略：未连分镜用节点秒数；已连分镜按本段镜头节拍求和（节点秒数不进请求）
+          const durationPlan = videoDurationFor(n, shotList, !!sbUp);
+          const autoDuration = durationPlan.value || 5;
           const handWritten = String(n.data.prompt || '').trim();
           // 分镜衔接规划：段落类型（续帧/换场/新角色/特写插入）+ 首镜承接口 + 是否接力尾帧
           const zh = effLang() !== 'en';
@@ -9893,8 +9926,9 @@ function queueThumb(assetId) {
           } catch { /* 技能包不可用时不影响生成 */ }
           const mcfg = resolveVideoModelCfg(settings, nodeVideoModelRef(n));
           if (!mcfg) throw new Error(T('errNoVideoModel'));
+          if (sbUp && !durationPlan.value) addWarn('已连接分镜但暂无镜头时长：视频时长回退 5s（先生成分镜镜头后重跑）');
           const blob = await apiVideo(p, useFrame ? frameBlob : null, mcfg, {
-            duration: n.data.duration, resolution: n.data.resolution, ratio: n.data.ratio,
+            duration: autoDuration, resolution: n.data.resolution, ratio: n.data.ratio,
             frameMode, // auto=尾帧降级为参考图（保留实体参考图）/ hard=硬首帧（放弃参考图）/ off=忽略首帧
             hardFrame,
             refs: refs.map((r) => r.blob),
@@ -9934,7 +9968,7 @@ function queueThumb(assetId) {
               const notes = [];
               if (wantRatio === '16:9' && !gotLandscape) notes.push('厂商返回 ' + meta.w + '×' + meta.h + '（竖屏），与设置的 16:9 不符：该厂商可能忽略 size 参数，可在供应商「扩展参数」里覆盖（如 {"parameters":{"size":"1920*1080"}}）');
               else if (wantRatio === '9:16' && gotLandscape) notes.push('厂商返回 ' + meta.w + '×' + meta.h + '（横屏），与设置的 9:16 不符');
-              const wantDur = Number(n.data && n.data.duration) || 0;
+              const wantDur = autoDuration;
               if (wantDur && meta.d && Math.abs(meta.d - wantDur) > 1.5) notes.push('实际时长 ' + meta.d.toFixed(1) + 's ≠ 设置 ' + wantDur + 's（厂商单次上限或已钳制）');
               if (notes.length) addWarn(notes.join('；')); // 追加而非覆盖：本轮更早的告警（自动续帧/参考图超限/厂商降级）不能被抹掉
             }
@@ -11237,19 +11271,54 @@ function queueThumb(assetId) {
         ));
     }
 
+    /** 视频请求时长策略：
+     *  · 未连分镜 = 手动档：节点 duration 是唯一事实源（1–300s，一位小数），缺省 5s；
+     *  · 已连分镜 = 分镜档：按本段镜头 duration 求和，节点秒数不进请求（避免两套时长打架）。
+     *  value=0 表示“分镜档但暂时没有可用镜头时长”，由调用方回退 5s 并提示。 */
+    function videoDurationFor(node, shots, storyboardConnected) {
+      const round1 = (x) => Math.round(Number(x) * 10) / 10;
+      if (storyboardConnected) {
+        const total = (Array.isArray(shots) ? shots : []).reduce((a, s) => a + (Number(s && s.duration) || 0), 0);
+        return { controlled: true, value: total > 0 ? Math.max(0.3, round1(total)) : 0 };
+      }
+      const cfg = Number(node && node.data && node.data.duration);
+      return { controlled: false, value: cfg > 0 ? round1(cfg) : 5 };
+    }
+
+    /** 自定义数值的统一夹取：低于下限视为无效（0 是“自动”等保留值，不能悄悄变成 1）；
+     *  超上限夹回上限；整数/一位小数口径固定；非法输入回退当前值。 */
+    function clampCustomNumber(raw, opts) {
+      const o = opts || {};
+      const min = Number(o.min);
+      const max = Number(o.max);
+      const fallback = Number.isFinite(Number(o.fallback)) ? Number(o.fallback) : 0;
+      const cleaned = String(raw ?? '').trim().replace('，', '.');
+      let n = Number(cleaned);
+      if (!cleaned || !Number.isFinite(n) || !Number.isFinite(min) || !Number.isFinite(max) || n < min) {
+        return { ok: false, value: fallback };
+      }
+      if (o.integer) n = Math.round(n);
+      else n = Math.round(n * Math.pow(10, Number(o.decimals) || 1)) / Math.pow(10, Number(o.decimals) || 1);
+      if (n > max) n = max;
+      return { ok: true, value: n };
+    }
+
     // ============================================================
     // 生成面板（GenComposer，浮层单例）：紧贴选中节点下方弹出
     // ============================================================
     /** 通用下拉：固定宽度触发按钮 + 可搜索浮层列表（几十个模型也能快速定位）。
      *  shrink=true 时宽度作为 flex 基准：控件行空间不足可以先收缩（模型名走省略号），
-     *  保证发送按钮永远留在同一行。 */
-    function PopupSelect({ value, options, onChange, width, title, className, searchable, shrink }) {
+     *  保证发送按钮永远留在同一行。
+     *  editable=true 时浮层底部带自定义输入：用于分镜数（1–100 整数）和单段上限（1–300s 一位小数）。 */
+    function PopupSelect({ value, options, onChange, width, title, className, searchable, shrink, editable, min, max, integer, decimals, customLabel, customPlaceholder, disabled, disabledLabel, disabledTitle }) {
       const [open, setOpen] = useState(false);
       const [q, setQ] = useState('');
+      const [custom, setCustom] = useState('');
       const [pos, setPos] = useState({ left: 0, top: 0, width: width || 160 });
       const btnRef = useRef(null);
       const menuRef = useRef(null);
       const openMenu = () => {
+        if (disabled) return;
         const btn = btnRef.current;
         if (btn && btn.getBoundingClientRect) {
           const r = btn.getBoundingClientRect();
@@ -11262,7 +11331,18 @@ function queueThumb(assetId) {
           setPos({ left, top, width: mw });
         }
         setQ('');
+        setCustom('');
         setOpen(true);
+      };
+      /** 提交自定义值：Enter/失焦都走这里；非法输入只清空草稿，不改当前值。 */
+      const submitCustom = () => {
+        if (!editable) return;
+        if (!String(custom).trim()) return;
+        const r = clampCustomNumber(custom, { min, max, integer, decimals, fallback: value });
+        setCustom('');
+        if (!r.ok) return;
+        if (String(value) !== String(r.value)) onChange(r.value);
+        setOpen(false);
       };
       useEffect(() => {
         if (!open) return undefined;
@@ -11276,7 +11356,10 @@ function queueThumb(assetId) {
         return () => document.removeEventListener('pointerdown', onDown, true);
       }, [open]);
       const cur = options.find((o) => String(o.value) === String(value));
-      const label = cur ? cur.label : (options[0] ? options[0].label : '');
+      // 自定义值不在预设里时，按钮显示真实当前值（绝不能错显第一项，否则用户以为没生效）
+      const label = disabled && disabledLabel ? (typeof disabledLabel === 'function' ? disabledLabel() : disabledLabel)
+        : cur ? cur.label
+        : (editable && customLabel ? customLabel(value) : (options[0] ? options[0].label : ''));
       const query = q.trim().toLowerCase();
       const shown = (searchable && query)
         ? options.filter((o) => (String(o.label) + ' ' + String(o.sub || '') + ' ' + String(o.value)).toLowerCase().includes(query))
@@ -11287,11 +11370,14 @@ function queueThumb(assetId) {
         style: shrink ? { flex: '0 1 ' + (Number(width) || 160) + 'px', minWidth: 0 } : undefined,
       },
         h('button', {
-          type: 'button', ref: btnRef, className: cls('dshic-pick', open && 'is-open'),
+          type: 'button', ref: btnRef, className: cls('dshic-pick', open && 'is-open', disabled && 'is-disabled'),
           style: shrink ? { width: '100%', minWidth: 0 } : (width ? { width: width + 'px' } : undefined),
-          title: (cur && (cur.title || cur.sub ? ((cur.sub ? cur.sub + ' · ' : '') + cur.label) : '')) || title || '',
+          disabled: !!disabled,
+          title: disabled
+            ? (typeof disabledTitle === 'function' ? disabledTitle() : (disabledTitle || ''))
+            : ((cur && (cur.title || cur.sub ? ((cur.sub ? cur.sub + ' · ' : '') + cur.label) : '')) || title || ''),
           onPointerDown: (e) => e.stopPropagation(),
-          onClick: (e) => { e.stopPropagation(); if (open) setOpen(false); else openMenu(); },
+          onClick: (e) => { e.stopPropagation(); if (disabled) return; if (open) setOpen(false); else openMenu(); },
         },
           h('span', { className: 'dshic-pick-val' }, label),
           h('span', { className: 'dshic-pick-car' }, '▾')),
@@ -11314,12 +11400,27 @@ function queueThumb(assetId) {
                       key: String(o.value), type: 'button',
                       className: cls('dshic-pick-item', String(o.value) === String(value) && 'is-on'),
                       title: o.title || o.label,
-                      onPointerDown: (e) => e.stopPropagation(),
+                      // editable 菜单里有自定义输入：preventDefault 避免点预设时输入框先 blur、把草稿值误提交
+                      onPointerDown: (e) => { e.stopPropagation(); if (editable) e.preventDefault(); },
                       onClick: () => { onChange(o.value); setOpen(false); },
                     },
                       h('span', { className: 'dshic-pick-name' }, o.label),
                       o.sub ? h('span', { className: 'dshic-pick-sub' }, o.sub) : null))
-                  : h('div', { className: 'dshic-pick-empty' }, T('noModelMatch'))))
+                  : h('div', { className: 'dshic-pick-empty' }, T('noModelMatch'))),
+              editable
+                ? h('div', { className: 'dshic-pick-custom' },
+                    h('input', {
+                      className: 'dshic-input', type: 'text',
+                      inputMode: integer ? 'numeric' : 'decimal',
+                      placeholder: customPlaceholder || T('customValuePh'),
+                      title: customPlaceholder || T('customValuePh'),
+                      value: custom,
+                      onChange: (e) => setCustom(e.target.value),
+                      onKeyDown: (e) => { if (e && e.key === 'Enter') { e.preventDefault(); submitCustom(); } },
+                      onBlur: submitCustom,
+                      onPointerDown: (e) => e.stopPropagation(),
+                    }))
+                : null)
           : null,
       );
     }
@@ -11403,6 +11504,8 @@ function queueThumb(assetId) {
       const isFinalCut = kind === 'finalcut';
       const isTextLike = kind === 'text' || kind === 'script' || kind === 'storyboard';
       const running = isTextLike ? n.data.aiStatus === 'running' : n.data.status === 'running';
+      // 视频已连分镜表 = 时长由分镜节拍决定：UI 禁用手动秒数，请求也不再传节点 duration
+      const sbDurationLocked = isVideo && !!storyboardInputOf(n);
 
       // —— 模型选项：只列已配置的模型（文本取 Harness 会话可用模型；图片/视频取插件设置里的供应商+模型）——
       const modelOptions = (() => {
@@ -11559,10 +11662,9 @@ function queueThumb(assetId) {
         ? baseRes
         : baseRes.concat([String(n.data.resolution || '720P')]);
       const resOpts = resList.map((x) => ({ value: x, label: x }));
-      const durOpts = (VIDEO_DURATIONS.includes(Number(n.data.duration))
-        ? VIDEO_DURATIONS
-        : [...VIDEO_DURATIONS, Math.round(Number(n.data.duration) || 5)].sort((a, b) => a - b))
-        .map((x) => ({ value: String(x), label: x + 's' }));
+      // 视频时长预设；未连分镜时还能自定义（1–300s，一位小数）。自定义值不在预设里也由
+      // PopupSelect 的 customLabel 正常显示；已连分镜时控件禁用，时长改由镜头节拍决定。
+      const durOpts = VIDEO_DURATIONS.map((x) => ({ value: String(x), label: x + 's' }));
       const canRun = kind !== 'text';
       // 是否还有高级项可折叠：没有就不渲染「更多」开关（文本类节点默认只剩提示词 + 控件行）
       const hasAdvanced = isImage || isVideo || !!(
@@ -11681,9 +11783,11 @@ function queueThumb(assetId) {
             : null,
           isStoryboard
             ? h(PopupSelect, {
-                value: String(n.data.count || 0), width: 70, title: T('storyboardCountLabel'),
+                value: String(n.data.count || 0), width: 84, title: T('storyboardCountLabel'),
                 options: [{ value: '0', label: T('autoShots') }].concat([3, 4, 6, 8, 10, 12, 16].map((x) => ({ value: String(x), label: x + ' ' + T('shotsUnit') }))),
                 onChange: (v) => setData('count', Number(v)),
+                editable: true, min: 1, max: MAX_STORYBOARD_SHOTS, integer: true,
+                customLabel: (v) => String(v) + ' ' + T('shotsUnit'), customPlaceholder: T('customCountPh'),
               })
             : null,
           isStoryboard
@@ -11700,6 +11804,8 @@ function queueThumb(assetId) {
                 value: String(Number(n.data.segMaxSeconds) || 15), width: 84, title: T('segMaxLabel'), className: 'is-segmax',
                 options: [6, 8, 10, 12, 15, 20, 30].map((x) => ({ value: String(x), label: x + 's' })),
                 onChange: (v) => setData('segMaxSeconds', Number(v)),
+                editable: true, min: 1, max: 300, integer: false, decimals: 1,
+                customLabel: (v) => String(v) + 's', customPlaceholder: T('customSegMaxPh'),
               })
             : null,
           (isImage || isVideo || isFinalCut)
@@ -11715,7 +11821,12 @@ function queueThumb(assetId) {
             ? h(PopupSelect, { value: String(n.data.imageCount || 1), options: countOpts, onChange: (v) => setData('imageCount', Number(v)), width: 54, title: T('countLabel') })
             : null,
           isVideo
-            ? h(PopupSelect, { value: String(n.data.duration || 5), options: durOpts, onChange: (v) => setData('duration', Number(v)), width: 62, title: T('durationLabel') })
+            ? h(PopupSelect, {
+                value: String(Number(n.data.duration) || 5), options: durOpts, onChange: (v) => setData('duration', Number(v)), width: 76, title: T('durationLabel'),
+                editable: !sbDurationLocked, min: 1, max: 300, integer: false, decimals: 1,
+                customLabel: (v) => String(v) + 's', customPlaceholder: T('customSegMaxPh'),
+                disabled: sbDurationLocked, disabledLabel: T('durationByStoryboard'), disabledTitle: T('durationByStoryboardTip'),
+              })
             : null,
           h('button', {
             type: 'button', ref: atBtnRef, className: 'dshic-pick dshic-at', title: T('atInsertTip'),
@@ -19797,6 +19908,10 @@ const DIRECTOR_KEY_HELP = [
             sizeForRatio, nodeSizeForRatio, mediaBarsHeight, mediaHasFooter,
             ratioIsValid, ratioAspect, ratioFromDims, mediaRatioOf, mediaAspectOf, mediaRatioForDims,
             normalizeMediaNodeSize, normalizeGraphDoc, resizeBoxFor, composerWidthFor,
+            // 下拉自定义数值的纯函数：范围夹取 / 整数与小数口径（分镜数、单段上限共用）
+            clampCustomNumber,
+            // 视频请求时长策略：手动秒数 vs 分镜节拍（供面板禁用态与请求侧共用）
+            videoDurationFor,
             // 参考图顺序 / 拖拽排序 / 视频控件显隐状态机（纯函数，供面板与测试共用）
             orderedRefEdgeIds, reorderRefOrder, videoUiMode,
             NODE_INTERACTIVE_SELECTOR, NODE_CONTENT_SELECTOR, NODE_NON_OPEN_SELECTOR,

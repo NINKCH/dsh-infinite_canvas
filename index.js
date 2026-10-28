@@ -280,10 +280,12 @@ function ensureSchema(db, root) {
   }
 }
 
-/** 项目文档摘要（列表页用，避免每次列表都解析全量 doc）。类型按合并类型输出。 */
+/** 项目文档摘要（列表页用，避免每次列表都解析全量 doc）。类型按合并类型输出。
+ *  坐标/尺寸是布局的最小事实源：对话侧只有读到 x/y/w/h，才能回答"节点在哪/是否重叠"。 */
 function docSummary(d) {
   const nodes = Object.values(d.nodes || {}).map((n) => ({
     id: n.id, type: normalizeNodeType(n.type), label: (n.data && n.data.label) || '', status: (n.data && n.data.status) || 'idle',
+    x: Number(n.x) || 0, y: Number(n.y) || 0, w: Number(n.w) || 0, h: Number(n.h) || 0,
   }));
   return {
     nodeIds: Object.keys(d.nodes || {}), nodes, source: d.source || 'app', canvases: canvasRegistry(d),
@@ -1157,6 +1159,7 @@ function projectsList() {
       const nodes = Object.values(d.nodes || {}).map((n) => ({
         id: n.id, type: normalizeNodeType(n.type), label: (n.data && n.data.label) || '',
         status: (n.data && n.data.status) || 'idle',
+        x: Number(n.x) || 0, y: Number(n.y) || 0, w: Number(n.w) || 0, h: Number(n.h) || 0,
       }));
       list.push({ id: d.id || id, name: d.name || id, createdAt: d.createdAt || 0, updatedAt: d.updatedAt || 0, source: d.source || 'app', nodeIds: Object.keys(d.nodes || {}), nodes, tombstones: d.tombstones || [], bibleUpdatedAt: d.bibleUpdatedAt || 0, canvases: canvasRegistry(d), defaultCanvasName: defaultCanvasNameForApi(d), defaultCanvasDeleted: !defaultCanvasExists(d) });
     } catch { /* 单文件损坏跳过 */ }
@@ -2328,6 +2331,11 @@ async function canvasNodeStatus(args) {
     projectId: pid, ...(canvasId ? { canvasId } : {}), nodeId, type: n.type, label: d.label || '',
     status: d.status || 'idle',
     aiStatus: d.aiStatus || 'idle',
+    // 布局事实：坐标与外框尺寸只读透出（改布局走 canvas_relayout；canvas_update_node 仍禁改结构字段）
+    x: Number(n.x) || 0,
+    y: Number(n.y) || 0,
+    w: Number(n.w) || 0,
+    h: Number(n.h) || 0,
     // 文档级时间戳：canvas_generate_node 的等待循环用它区分「本轮真的跑过」与「上一次的残留终态」
     docUpdatedAt: Number(doc.updatedAt) || 0,
     error: d.error || d.aiError || null,
@@ -3324,7 +3332,7 @@ export function apply(ctx) {
                 ? '默认画布已删除'
                 : '默认画布「' + (p.defaultCanvasName || '默认画布') + '」canvasId=null';
               lines.push('- 「' + p.name + '」 id=' + p.id + ' · ' + defTxt + ' · ' + canvases.length + ' 个子画布 · ' + p.nodes.length + ' 节点 · 更新于 ' + new Date(p.updatedAt).toLocaleString());
-              for (const n of p.nodes) lines.push('    · [' + n.type + '] ' + (n.label || '(未命名)') + ' id=' + n.id + ' status=' + n.status);
+              for (const n of p.nodes) lines.push('    · [' + n.type + '] ' + (n.label || '(未命名)') + ' id=' + n.id + ' status=' + n.status + ' x=' + (Number(n.x) || 0) + ' y=' + (Number(n.y) || 0) + ' · ' + (Number(n.w) || 0) + '×' + (Number(n.h) || 0));
               for (const c of canvases) lines.push('    ▸ 画布「' + (c.name || c.id) + '」 canvasId=' + c.id + '（用 canvasId 参数指定；资产与设定集按项目共享）');
             }
             const text = lines.length ? ('共 ' + list.length + ' 个项目：\n' + lines.join('\n')) : '画布上还没有项目。可调用 canvas_create_project 创建。';
@@ -3416,13 +3424,15 @@ export function apply(ctx) {
             additionalProperties: false,
           },
           output: {
-            schema: { type: 'object', properties: { ok: { type: 'boolean' }, text: { type: 'string' }, type: { type: 'string' }, status: { type: 'string' }, assetId: { type: 'string' }, prompt: { type: 'string' }, ratio: { type: 'string' }, size: { type: 'string' }, duration: { type: 'number' }, resolution: { type: 'string' }, frameMode: { type: 'string' }, imageModel: { type: 'string' }, videoModel: { type: 'string' }, genWarn: { type: 'string' }, chainFrom: { type: 'string' }, seam: { type: 'object', properties: { ok: { type: 'boolean' }, sim: { type: 'number' }, thr: { type: 'number' }, note: { type: 'string' } } }, tailPickAssetId: { type: 'string' }, historyAssetIds: { type: 'array', items: { type: 'string' } }, warnings: { type: 'array', items: { type: 'string' } }, shots: { type: 'array', items: { type: 'object', properties: { index: { type: 'number' }, title: { type: 'string' }, duration: { type: 'number' }, visual: { type: 'string' }, motion: { type: 'string' }, tail: { type: 'string' }, cam: { type: 'string' }, start: { type: 'string' }, seg: { type: 'string' }, characters: { type: 'array', items: { type: 'string' } }, scene: { type: 'string' }, props: { type: 'array', items: { type: 'string' } } } } } }, required: ['ok', 'text'] },
+            schema: { type: 'object', properties: { ok: { type: 'boolean' }, text: { type: 'string' }, type: { type: 'string' }, status: { type: 'string' }, x: { type: 'number' }, y: { type: 'number' }, w: { type: 'number' }, h: { type: 'number' }, assetId: { type: 'string' }, prompt: { type: 'string' }, ratio: { type: 'string' }, size: { type: 'string' }, duration: { type: 'number' }, resolution: { type: 'string' }, frameMode: { type: 'string' }, imageModel: { type: 'string' }, videoModel: { type: 'string' }, genWarn: { type: 'string' }, chainFrom: { type: 'string' }, seam: { type: 'object', properties: { ok: { type: 'boolean' }, sim: { type: 'number' }, thr: { type: 'number' }, note: { type: 'string' } } }, tailPickAssetId: { type: 'string' }, historyAssetIds: { type: 'array', items: { type: 'string' } }, warnings: { type: 'array', items: { type: 'string' } }, shots: { type: 'array', items: { type: 'object', properties: { index: { type: 'number' }, title: { type: 'string' }, duration: { type: 'number' }, visual: { type: 'string' }, motion: { type: 'string' }, tail: { type: 'string' }, cam: { type: 'string' }, start: { type: 'string' }, seg: { type: 'string' }, characters: { type: 'array', items: { type: 'string' } }, scene: { type: 'string' }, props: { type: 'array', items: { type: 'string' } } } } } }, required: ['ok', 'text'] },
             render: (args, value) => [{ type: 'text', text: String(value.text || '') }],
           },
           timeoutMs: 30000,
           async execute(args) {
             const s = await canvasNodeStatus(args);
             const lines = ['节点[' + s.type + ']「' + (s.label || s.nodeId) + '」', '状态: ' + s.status + (s.aiStatus && s.aiStatus !== 'idle' ? ' / ' + s.aiStatus : '')];
+            // 画布坐标与外框尺寸：对话侧回答"节点在哪/是否重叠"的最小布局事实（只读；改坐标仍走 canvas_relayout）
+            lines.push('位置: x=' + Number(s.x) + ' y=' + Number(s.y) + ' · 尺寸 ' + Number(s.w) + '×' + Number(s.h));
             if (s.error) lines.push('错误: ' + s.error);
             if (s.assetId) lines.push('产物资产: ' + s.assetId);
             if (s.taskId) lines.push('任务凭据: ' + s.taskId + (s.taskQueryUrl ? '（查询: ' + s.taskQueryUrl + '）' : ''));
@@ -3469,6 +3479,7 @@ export function apply(ctx) {
             if (s.tailPick && s.tailPickAssetId) lines.push('尾帧最佳选帧: ' + Number(s.tailPick.t || 0).toFixed(2) + 's 处（得分 ' + s.tailPick.score + '）资产 ' + s.tailPickAssetId);
             return {
               ok: true, type: s.type, status: s.status, assetId: s.assetId || undefined,
+              x: Number(s.x) || 0, y: Number(s.y) || 0, w: Number(s.w) || 0, h: Number(s.h) || 0,
               prompt: s.prompt || undefined, ratio: s.ratio || undefined, size: s.size || undefined,
               duration: s.duration == null ? undefined : s.duration, resolution: s.resolution || undefined,
               frameMode: s.frameMode || undefined, imageModel: s.imageModel || undefined, videoModel: s.videoModel || undefined,
