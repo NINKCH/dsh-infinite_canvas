@@ -47,13 +47,13 @@
                 阶段 C 生成：canvas_generate_node / canvas_run_node 触发；canvas_node_status 返回一致性 warnings 时逐条 canvas_update_bible 补全后重跑；批量建点先读 canvas-layout，乱了一键 canvas_relayout。
                 ## 节点生命周期（复用优先，禁止删了重建）
                 这是画布工作的核心纪律——用户不满意的图/视频，改提示词重生成，不是删节点再建一个。
-- **先查后建**：动手任何节点前，先 canvas_list_projects / canvas_node_status 看它是否已存在。同一角色、同一场景、同一镜的节点永远只有一个。
-- **已存在 → 改，不建**：canvas_node_status 读到当前内容 → canvas_update_node 只传要改的字段（prompt / ratio / size / duration / resolution / model…）→ canvas_generate_node 重新生成。这条链路适用于图片节点、视频节点、分镜表（shots 整表替换，必须先把原表取全）与剧本节点。
-- **只有在真的没有时**才 canvas_create_node 新建：新角色、新场景、新一集、新一镜。同一个角色第二次出镜，是复用它的参考图节点+连线，不是再建一个同名节点。
-- **不该删的连接**：canvas_delete_node 会连带删掉它的连线。除非用户明确要求删除，绝不用删除来「重置」一个节点——update_node 就能改。
-- **连线承载内容**：图片/视频节点有上游连线时，提示词里不复制上游全文（canvas_connect 让内容从连线来）；只有没有上游时，才在 prompt 里写完整描述。
-- **打开画布看结果**：需要用户确认画面时调 canvas_open（右侧栏展开，左边对话右边画布对照）；3D 预演场景用 canvas_director_stage。
-- **设定集是只读源**：跨镜一致性以 canvas_get_bible / canvas_update_bible 的设定集为准，角色外观关键词逐字复用，不即兴改描述。
+                - **先查后建**：动手任何节点前，先 canvas_list_projects / canvas_node_status 看它是否已存在。同一角色、同一场景、同一镜的节点永远只有一个。
+                - **已存在 → 改，不建**：canvas_node_status 读到当前内容 → canvas_update_node 只传要改的字段（prompt / ratio / size / duration / resolution / model…）→ canvas_generate_node 重新生成。这条链路适用于图片节点、视频节点、分镜表（shots 整表替换，必须先把原表取全）与剧本节点。
+                - **只有在真的没有时**才 canvas_create_node 新建：新角色、新场景、新一集、新一镜。同一个角色第二次出镜，是复用它的参考图节点+连线，不是再建一个同名节点。
+                - **不该删的连接**：canvas_delete_node 会连带删掉它的连线。除非用户明确要求删除，绝不用删除来「重置」一个节点——update_node 就能改。
+                - **连线承载内容**：图片/视频节点有上游连线时，提示词里不复制上游全文（canvas_connect 让内容从连线来）；只有没有上游时，才在 prompt 里写完整描述。
+                - **打开画布看结果**：需要用户确认画面时调 canvas_open（右侧栏展开，左边对话右边画布对照）；3D 预演场景用 canvas_director_stage。
+                - **设定集是只读源**：跨镜一致性以 canvas_get_bible / canvas_update_bible 的设定集为准，角色外观关键词逐字复用，不即兴改描述。
                 阶段 D 汇入后期：ArtCraft 家族接管——先 artcraft_status / artcraft_live 探活；任何媒体操作先 artcraft_recipes(action=chain) 取编排链，**以返回的 steps 为准逐步执行，不预设步骤数、不背步骤清单**（竖屏短剧成片链当前 id 为 short-drama-episode，链 id 与步骤都会随 ArtCraft 版本变化——先用 artcraft_recipes(action=chains) 确认当期 id 再取链）；遵循「先探测、后修改、再验证」纪律；长渲染走 POST /artcraft/api/job 后台任务并追踪 job id。用户点名某位导演风格或要"XX 风"时加载 artcraft-director-lens，把透镜参数翻译成 FilmCraft Lumetri / LightCraft develop / SoundCraft 混音的可执行配置，一次只挂一个透镜。
                 阶段 E 交付：对白优先的声音设计、跨镜调色一致、字幕安全区；最后 artcraft_qc 按目标平台核对画幅/帧率/响度——QC 结果 PASS 之前不宣称"已完成"，只报事实与实测值，判定留给用户。
 

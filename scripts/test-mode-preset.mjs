@@ -93,6 +93,40 @@ ok(Array.isArray(skillsJs.inject) && skillsJs.inject.includes('skills'), "skills
   ok(cl.includes("const medium = (opts && opts.medium) || 'video'"), 'buildShotLockText 未取 medium 参数');
 }
 
+// ---------- 6.8) patch YAML 结构校验（块标量缩进） ----------
+// 0.19.8/0.19.9 事故：persona 块标量里插入了 0 缩进的要点行，把块截断成顶层序列，
+// `*先查后建*` 被解析成 YAML 别名 → profile 直接加载失败（插件装不上）。
+// 此前的字符串断言全部通过——结构错误必须用结构校验拦。
+{
+  const plines = patch.split(/\r?\n/);
+  const perrs = [];
+  let blockKeyIndent = -1;
+  let blockStartLine = 0;
+  for (let i = 0; i < plines.length; i++) {
+    const ln = plines[i];
+    if (/^\s*[^#\s][^:]*:\s*\|\s*(-?\+?)\s*$/.test(ln) || /^\s*[^#\s][^:]*:\s*>\s*(-?\+?)\s*$/.test(ln)) {
+      blockKeyIndent = ln.match(/^\s*/)[0].length;
+      blockStartLine = i + 1;
+      continue;
+    }
+    if (blockKeyIndent >= 0) {
+      const t = ln.trim();
+      if (t === '') continue;
+      const ind = ln.match(/^ */)[0].length;
+      // 结构行 = 缩进 ≤ 键缩进，且形似新键/列表项/闭合符 → 块结束
+      const isStructure = ind <= blockKeyIndent && ( /^\s*- (id|name):/.test(ln) || /^\s*\}/.test(ln) || /^\s*\]/.test(ln) || /^\s*- insert:/.test(ln) || /^\s*[A-Za-z_"][^:]*:\s*/.test(ln) );
+      if (isStructure) { blockKeyIndent = -1; continue; }
+      if (ind < blockKeyIndent + 1) {
+        perrs.push('第 ' + (i + 1) + ' 行缩进 ' + ind + ' 落在 persona 块（始于 ' + blockStartLine + ' 行，键缩进 ' + blockKeyIndent + '）之外——块标量被截断');
+        blockKeyIndent = -1;
+      }
+    }
+  }
+  // 双保险：任何 0 缩进的 `- **` 行都是块标量截断的典型残骸
+  plines.forEach((ln, i) => { if (/^- \*\*/.test(ln)) perrs.push('第 ' + (i + 1) + ' 行是 0 缩进的 "- **" 行（块标量被截断的典型症状）'); });
+  ok(perrs.length === 0, 'patch 块标量缩进校验失败: ' + perrs.slice(0, 3).join(' | '));
+}
+
 // ---------- 7) 当期清单快照可达（本包 manifest） ----------
 const manifest = JSON.parse(readFileSync(path.join(ROOT, 'assets', 'canvas-director', 'manifest.json'), 'utf8'));
 ok(manifest.lenses.length === 45, 'manifest 透镜应为 45，实际 ' + manifest.lenses.length);
