@@ -274,6 +274,25 @@ function revealCanvasInRight() {
     function isNodeNonOpenTarget(t) {
       return !!(t && typeof t.closest === 'function' && t.closest(NODE_NON_OPEN_SELECTOR));
     }
+    // 画布滚轮分流：输入区/整个下拉浮层总是保留原生行为；正文与清单只在真正溢出时放行。
+    // 否则画布根上的非 passive wheel 会抢先 preventDefault，文本/剧本节点没法滚。
+    const NATIVE_WHEEL_DIRECT_SELECTORS = ['textarea', 'input', 'select', '.dshic-composer', '.dshic-pick-menu'];
+    const NATIVE_WHEEL_SCROLL_SELECTORS = ['.dshic-scroll-preview', '.dshic-shot-list', '.dshic-pick-list'];
+    function wheelScrollTarget(t) {
+      if (!t || typeof t.closest !== 'function') return null;
+      for (const s of NATIVE_WHEEL_DIRECT_SELECTORS) {
+        const hit = t.closest(s);
+        if (hit) return hit;
+      }
+      for (const s of NATIVE_WHEEL_SCROLL_SELECTORS) {
+        const hit = t.closest(s);
+        if (!hit) continue;
+        const dy = Number(hit.scrollHeight) - Number(hit.clientHeight);
+        const dx = Number(hit.scrollWidth) - Number(hit.clientWidth);
+        return (dy > 1 || dx > 1) ? hit : null;
+      }
+      return null;
+    }
     // 允许多条入线的输入端口（参考图类），其余输入端口保持单线
     const MULTI_INPUT_PORTS = new Set(['ref', 'char', 'scene', 'prop']);
     // 分镜端口期望的资产分类（仅用于连接时的非阻断提示）
@@ -3332,6 +3351,15 @@ body[data-ds-dark-theme] .dshic-pick-menu{border-color:var(--dsw-alias-border-l2
 .dshic-pick-search{padding:7px;border-bottom:1px solid var(--dshic-line);flex:none;}
 .dshic-pick-search .dshic-input{height:26px;font-size:12px;}
 .dshic-pick-list{overflow-y:auto;padding:5px;flex:1;}
+/* 下拉 / 文本正文 / 分镜清单：滚动条必须可见且可命中；不能用系统默认的淡细条。
+   12px 命中宽 + 3px 透明内边 + 32px 最短 thumb：视觉约 6px，命中区域明显更大。 */
+.dshic-pick-list,.dshic-scroll-preview,.dshic-shot-list{scrollbar-width:thin;scrollbar-color:var(--dsw-alias-border-l2) transparent;}
+.dshic-pick-list::-webkit-scrollbar,.dshic-scroll-preview::-webkit-scrollbar,.dshic-shot-list::-webkit-scrollbar{width:12px;height:12px;}
+.dshic-pick-list::-webkit-scrollbar-track,.dshic-scroll-preview::-webkit-scrollbar-track,.dshic-shot-list::-webkit-scrollbar-track{background:color-mix(in srgb,var(--dsw-alias-label-primary) 6%,transparent);border-radius:999px;}
+.dshic-pick-list::-webkit-scrollbar-thumb,.dshic-scroll-preview::-webkit-scrollbar-thumb,.dshic-shot-list::-webkit-scrollbar-thumb{background:var(--dsw-alias-border-l2);border:3px solid transparent;background-clip:padding-box;border-radius:999px;min-height:32px;min-width:32px;}
+.dshic-pick-list::-webkit-scrollbar-thumb:hover,.dshic-scroll-preview::-webkit-scrollbar-thumb:hover,.dshic-shot-list::-webkit-scrollbar-thumb:hover{background:var(--dsw-alias-brand-primary);border:3px solid transparent;background-clip:padding-box;}
+/* 下拉打开期间只暂停节点尺寸把手：防止菜单/滚动条边缘误触发底层拉宽箭头。 */
+body[data-dshic-pick-open] .dshic-rs{pointer-events:none;}
 /* 自定义数值输入：下拉底部的固定行；不参与列表滚动，Enter/失焦提交 */
 .dshic-pick-custom{padding:7px;border-top:1px solid var(--dshic-line);flex:none;}
 .dshic-pick-custom .dshic-input{width:100%;height:26px;font-size:12px;box-sizing:border-box;}
@@ -11350,6 +11378,9 @@ function queueThumb(assetId) {
       };
       useEffect(() => {
         if (!open) return undefined;
+        // 下拉打开期间挂 body 标记：只禁用节点尺寸把手，不禁用节点本体，
+        // 否则滚动条/菜单边缘的鼠标会先命中底层“拉宽箭头”。
+        document.body.dataset.dshicPickOpen = '1';
         const onDown = (e) => {
           const t = e && e.target;
           if (menuRef.current && t && menuRef.current.contains && menuRef.current.contains(t)) return;
@@ -11357,7 +11388,10 @@ function queueThumb(assetId) {
           setOpen(false);
         };
         document.addEventListener('pointerdown', onDown, true);
-        return () => document.removeEventListener('pointerdown', onDown, true);
+        return () => {
+          delete document.body.dataset.dshicPickOpen;
+          document.removeEventListener('pointerdown', onDown, true);
+        };
       }, [open]);
       const cur = options.find((o) => String(o.value) === String(value));
       // 自定义值不在预设里时，按钮显示真实当前值（绝不能错显第一项，否则用户以为没生效）
@@ -19325,9 +19359,9 @@ const DIRECTOR_KEY_HELP = [
         const el = rootRef.current;
         if (!el) return;
         const fn = (e) => {
-          // 文本/下拉等交互区域与生成面板保持原生滚动，不缩放画布
-          const t = e.target;
-          if (t && t.closest && t.closest('textarea, input, select, .dshic-shot-list, .dshic-composer')) return;
+          // 输入区/生成面板/下拉菜单保持原生行为；正文与清单只在确实可滚时放行。
+          // 这样短文本不会把滚轮抢走，画布仍可在节点空白/短内容上缩放。
+          if (wheelScrollTarget(e.target)) return;
           e.preventDefault();
           const rect = el.getBoundingClientRect();
           const sx = e.clientX - rect.left, sy = e.clientY - rect.top;
@@ -19933,6 +19967,7 @@ const DIRECTOR_KEY_HELP = [
             sizeForRatio, nodeSizeForRatio, mediaBarsHeight, mediaHasFooter,
             ratioIsValid, ratioAspect, ratioFromDims, mediaRatioOf, mediaAspectOf, mediaRatioForDims,
             normalizeMediaNodeSize, normalizeGraphDoc, resizeBoxFor, composerWidthFor,
+            wheelScrollTarget,
             // 下拉自定义数值的纯函数：范围夹取 / 整数与小数口径（分镜数、单段上限共用）
             clampCustomNumber,
             // 视频请求时长策略：手动秒数 vs 分镜节拍（供面板禁用态与请求侧共用）

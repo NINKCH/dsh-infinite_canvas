@@ -614,6 +614,56 @@ const barsOn = () => HDR() + FOOT();
 }
 
 // ============================================================
+// 5d) 下拉滚动条可命中；下拉打开时暂停节点缩放热区；文本/剧本正文支持滚轮
+// ============================================================
+{
+  // 纯函数：画布滚轮只在“确实可滚”的正文/列表上放行；输入区与整个下拉菜单始终放行。
+  const wheelTarget = LAYOUT.wheelScrollTarget;
+  ok(typeof wheelTarget === 'function', '缺少 wheelScrollTarget 测试缝隙（节点滚轮策略无法回归）');
+  if (typeof wheelTarget === 'function') {
+    const fake = (selector, hit, metrics = {}) => ({
+      closest: (s) => (s === selector ? hit : null),
+      scrollHeight: metrics.scrollHeight || 0,
+      clientHeight: metrics.clientHeight || 0,
+      scrollWidth: metrics.scrollWidth || 0,
+      clientWidth: metrics.clientWidth || 0,
+    });
+    const input = { tagName: 'INPUT', closest: (s) => (s.includes('input') ? { type: 'input' } : null) };
+    ok(wheelTarget(input) != null, '输入区滚轮必须放行原生行为');
+    const menu = { closest: (s) => (s.includes('.dshic-pick-menu') ? { id: 'menu' } : null) };
+    ok(wheelTarget(menu) != null, '下拉菜单内滚轮必须放行原生行为');
+    const scroller = { id: 'preview', scrollHeight: 500, clientHeight: 300 };
+    const preview = fake('.dshic-scroll-preview', scroller, { scrollHeight: 500, clientHeight: 300 });
+    ok(wheelTarget(preview) === scroller, '文本/剧本正文可滚动时必须放行滚轮');
+    const short = { id: 'preview-short', scrollHeight: 200, clientHeight: 300 };
+    const shortNode = fake('.dshic-scroll-preview', short, { scrollHeight: 200, clientHeight: 300 });
+    ok(wheelTarget(shortNode) === null, '正文没有溢出时不应霸占滚轮（应保留画布缩放）');
+    const list = { id: 'shots', scrollHeight: 800, clientHeight: 300 };
+    const shotNode = fake('.dshic-shot-list', list, { scrollHeight: 800, clientHeight: 300 });
+    ok(wheelTarget(shotNode) === list, '分镜清单可滚动时必须放行滚轮');
+    const plain = { closest: () => null };
+    ok(wheelTarget(plain) === null, '画布空白区滚轮仍应用于缩放');
+  }
+
+  // 滚动条必须可见且有足够命中宽度；不能只靠系统默认的淡色细条
+  ok(/\.dshic-pick-list,\.dshic-scroll-preview,\.dshic-shot-list\{[^}]*scrollbar-width:thin/.test(src),
+    '下拉/正文/分镜滚动容器缺少 Firefox thin scrollbar');
+  ok(/\.dshic-pick-list::-webkit-scrollbar,\.dshic-scroll-preview::-webkit-scrollbar,\.dshic-shot-list::-webkit-scrollbar\{[^}]*width:12px/.test(src),
+    '滚动条宽度必须 ≥12px（当前过窄难命中）');
+  ok(/::-webkit-scrollbar-thumb\{[^}]*min-height:32px/.test(src), '滚动条 thumb 缺少最小高度（太短难选中）');
+  ok(/::-webkit-scrollbar-thumb:hover\{[^}]*var\(--dsw-alias-brand-primary\)/.test(src), '滚动条 thumb 悬停态不明显');
+
+  // 下拉打开期间禁用节点缩放热区，但不禁用节点本体/内容交互
+  ok(/useEffect\(\(\) => \{\s*if \(!open\) return undefined;[\s\S]*?document\.body\.dataset\.dshicPickOpen = '1';/.test(src),
+    'PopupSelect 打开时未标记 body（无法暂停节点缩放热区）');
+  ok(/body\[data-dshic-pick-open\] \.dshic-rs\{pointer-events:none;\}/.test(src),
+    '下拉打开时未禁用节点缩放热区（鼠标会先变拉宽箭头）');
+  ok(!/body\[data-dshic-pick-open\] \.dshic-node\{pointer-events:none/.test(src),
+    '不能在下拉打开时禁用整个节点（会破坏内容交互）');
+  ok(/delete document\.body\.dataset\.dshicPickOpen;/.test(src), 'PopupSelect 关闭后未清理 body 标记');
+}
+
+// ============================================================
 // 6) 文本/剧本/分镜：body 内容区 flex 撑满剩余高度（拉长不留白带），操作行固定高度
 // ============================================================
 {
