@@ -381,7 +381,7 @@ if (TABS && CRAFT) {
   const runGen = fnSlice('runGenNode');
   ok(!!runGen, '未能定位 runGenNode');
   // 图片分支按节点类型选切片（设定图走 assets），视频分支固定 prompt
-  const lockCount = (runGen.match(/buildShotLockText\((?:'prompt'|lockKind)\)/g) || []).length;
+  const lockCount = (runGen.match(/buildShotLockText\((?:'prompt'|lockKind)(?:,\s*\{[^}]*\})?\)/g) || []).length;
   ok(lockCount >= 2, 'buildShotLockText 应同时接在图片分支与视频分支（实际出现 ' + lockCount + ' 次）');
   ok(/设定图/.test(runGen), '图片分支缺少「设定图 → assets 切片」判定');
   const lockFn = fnSlice('buildShotLockText');

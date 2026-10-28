@@ -85,6 +85,14 @@ ok(Array.isArray(skillsJs.inject) && skillsJs.inject.includes('skills'), "skills
   }
 }
 
+// ---------- 6.6) 图片提示词必须走紧凑锁（防"注入长文被画进图里"） ----------
+{
+  const cl = readFileSync(path.join(ROOT, 'client.js'), 'utf8');
+  ok(cl.includes('buildImageLockText'), 'client.js 缺 buildImageLockText（图片紧凑风格锁）');
+  ok(cl.includes("medium: 'image'"), "图片生成调用点未传 medium: 'image'（会退回视频版长文注入）");
+  ok(cl.includes("const medium = (opts && opts.medium) || 'video'"), 'buildShotLockText 未取 medium 参数');
+}
+
 // ---------- 7) 当期清单快照可达（本包 manifest） ----------
 const manifest = JSON.parse(readFileSync(path.join(ROOT, 'assets', 'canvas-director', 'manifest.json'), 'utf8'));
 ok(manifest.lenses.length === 45, 'manifest 透镜应为 45，实际 ' + manifest.lenses.length);

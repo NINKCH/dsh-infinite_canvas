@@ -266,6 +266,30 @@ function assertSegments(label, shots, opts, check) {
   ok(!/const videoGen = mk\('video', baseX \+ 540, baseY \+ 20/.test(src), 'expandStoryboard 又退回"一个分镜表 = 一个视频节点"');
 }
 
+
+// ---------------- 用户实测回归（2026-10-28）----------------
+// 症状：20s 场次被切成「19.8 + 1.0」，且第二段从镜中开始 → UI 报"存在硬切点"。
+// 两处根因：① 切点镜被留在上一段末尾（应开新段）；② 1 秒尾段没有并回上一段。
+{
+  const mk = (o) => Object.assign({ title: '镜', visual: '中景，平视，人物站在雨里', motion: '起 → 止', duration: 1.5, characters: ['甲'], scene: '天桥', props: [], seg: 'continuation' }, o);
+
+  // 切点镜归属：换场镜必须成为下一段首镜，本段不得把它当尾镜
+  const s = [];
+  for (let i = 0; i < 11; i++) s.push(mk({ duration: 2.1, seg: i === 0 ? 'opening' : i === 5 ? 'scene_change' : 'continuation' }));
+  s.push(mk({ duration: 2.6, seg: 'closeup' }));
+  const r = SEG.planShotSegments(s, { maxSeconds: 20 });
+  ok(r.cutMode === 'clean', '切点镜必须开新段：含换场镜的分镜应切成干净段，实际 cutMode=' + r.cutMode);
+  ok(r.segments.length >= 2 && r.segments[1].firstSeg === 'scene_change', '第二段首个镜头应是换场镜（切点归属修正），实际 ' + (r.segments[1] && r.segments[1].firstSeg));
+
+  // 尾段合并：1 秒尾镜不该单独成段
+  const s2 = [];
+  for (let i = 0; i < 12; i++) s2.push(mk({ seg: i === 0 ? 'opening' : i === 3 ? 'closeup' : 'continuation' }));
+  s2.push(mk({ duration: 1.0, visual: '黑屏闷响，画面全黑', seg: 'closeup' }));
+  const r2 = SEG.planShotSegments(s2, { maxSeconds: 20 });
+  ok(r2.segments.length === 1, '1 秒尾镜应并回上一段，实际切成 ' + r2.segments.length + ' 段');
+  ok(r2.cutMode === 'clean', '尾段合并后不应报硬切，实际 ' + r2.cutMode);
+}
+
 if (errs.length) {
   console.error('✗ 按镜头切段测试未通过（' + errs.length + ' 项）：');
   for (const e of errs) console.error('  - ' + e);

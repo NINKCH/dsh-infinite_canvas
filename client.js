@@ -437,7 +437,7 @@ function revealCanvasInRight() {
       'segMaxHint': '单次生成的最大秒数（按厂商上限填，MiniMax 这类弱衔接模型建议 6–10 秒）',
       'segClean': '切点整齐：每一段都从换镜头处开始',
       'segForced': '存在硬切点：有段从动作中间开始，建议先拆镜',
-      'segSummary': '{m} 段 / 共 {n} 镜 / 最长 {s} 秒',
+      'segSummary': '{m} 段 · 共 {n} 镜 · 总 {t} 秒 · 单段最长 {s} 秒',
       'segTailChain': '尾帧接力',
       'segNoChain': '硬切（不接力）',
       // ---- 3D 导演台 ----
@@ -1361,7 +1361,7 @@ function revealCanvasInRight() {
       'segMaxHint': 'Max seconds per generation (match the vendor limit; for weak-continuity models like MiniMax use 6-10s)',
       'segClean': 'Clean cuts: every segment starts on a new shot',
       'segForced': 'Forced cuts: some segments start mid-action — split those shots first',
-      'segSummary': '{m} segments / {n} shots / longest {s}s',
+      'segSummary': '{m} segments · {n} shots · {t}s total · longest segment {s}s',
       'segTailChain': 'tail chained',
       'segNoChain': 'hard cut (no chain)',
       // ---- 3D director stage ----
@@ -4153,7 +4153,12 @@ body[data-ds-dark-theme] .dshic-pick-item.is-on{background:color-mix(in srgb,var
           // 判断"i 之后可以断开"：下一镜是切点，或本镜本身就是换镜头（切在它之后）
           const nextIsCut = i + 1 < list.length && isCutPoint(plans[i + 1] && plans[i + 1].seg);
           const thisIsCut = isCutPoint(plans[i] && plans[i].seg);
-          if (nextIsCut || thisIsCut || i === list.length - 1) bestCut = i;
+          // 切点镜的正确归属：**下一段的首镜**。
+          // 旧写法 thisIsCut → bestCut = i，把换场/特写镜留在本段末尾，下一段只能从它后面那一镜（多半是
+          // continuation）开始 → 必然报"从镜中开始"的硬切。修好后：i>from 时断在 i-1，让切点镜去开新段。
+          if (nextIsCut) bestCut = i;
+          else if (thisIsCut) bestCut = i > from ? i - 1 : i;
+          if (i === list.length - 1) bestCut = i;
         }
         if (bestCut < from) {
           // 连一镜都塞不进上限：退化为"只取这一镜"，交给下面标记 forced
@@ -4164,8 +4169,10 @@ body[data-ds-dark-theme] .dshic-pick-item.is-on{background:color-mix(in srgb,var
 
       const segments = [];
       let i = 0;
+      let warnMark = warnings.length;
       while (i < list.length && segments.length < 64) {
         // 段首必须是切点；若不是（说明上一段是被 forced 断开的），本镜保持原 seg
+        warnMark = warnings.length;
         const brk = findBreak(i);
         let end = brk.end;
         let seamRisk = 'none';
@@ -4206,12 +4213,34 @@ body[data-ds-dark-theme] .dshic-pick-item.is-on{background:color-mix(in srgb,var
           seamRisk,
           needsTailChain,
           reason,
+          warnMark,
         });
         if (end === i && brk.forced) {
           warnings.push(`第 ${i + 1} 镜单镜时长 ${durOf(list[i])}s 已超单次生成上限 ${maxSeconds}s：这一段只能单独生成，并期望厂商钳制或报错`);
         }
         i = end + 1;
       }
+      // 尾部碎段并回上一段：把 20.8s 切成「19.8 + 1.0」既没意义又必然误报硬切（1 秒那段一定从镜中开始）。
+      // 只有"末段很短且并回去只超上限一点点"才合并；中段碎块不动，避免掩盖真正的切点问题。
+      if (segments.length > 1) {
+        const last = segments[segments.length - 1];
+        const prev = segments[segments.length - 2];
+        const tol = Math.max(0.6, maxSeconds * 0.1);
+        const tinyTail = last.duration <= Math.max(2.5, maxSeconds * 0.2);
+        const fits = (prev.duration + last.duration) <= maxSeconds + tol;
+        if (tinyTail && fits) {
+          warnings.length = last.warnMark; // 丢弃为这一段产生的告警（它已不存在）
+          prev.shots = prev.shots.concat(last.shots);
+          prev.endIndex = last.endIndex;
+          prev.shotIds = prev.shots.map((x, k) => prev.startIndex + k);
+          prev.duration = Math.round((prev.duration + last.duration) * 10) / 10;
+          prev.lastSeg = last.lastSeg;
+          prev.closesOnCut = last.closesOnCut;
+          segments.pop();
+          warnings.push(`末段只有 ${last.duration}s，已并回上一段（合并后 ${prev.duration}s，超出单次上限 ${Math.round((prev.duration - maxSeconds) * 10) / 10}s 以内）：比切出一个 1 秒的碎片更好生成`);
+        }
+      }
+
       // cutMode：整表能不能被整齐切成"每次都是换镜头"的段——决定要不要提示用户重拆分镜
       const cleanCuts = segments.every((s) => s.opensOnCut);
       const cutMode = cleanCuts ? 'clean' : 'forced';
@@ -5046,7 +5075,6 @@ body[data-ds-dark-theme] .dshic-pick-item.is-on{background:color-mix(in srgb,var
       rec.rel = rel;
       rec.size = blob.size;
       rec.stored = 'disk';
-  if (kind === 'image') { try { queueThumb(rec.id); } catch { /* 忽略 */ } }
       const proj = S.projects.find((p) => p.id === projectId);
       if (S.store === 'sqlite') {
         // 主路径：文件落项目文件夹 + 元数据进 canvas.db（任意浏览器/远程立即可见）
@@ -5054,8 +5082,12 @@ body[data-ds-dark-theme] .dshic-pick-item.is-on{background:color-mix(in srgb,var
         const out = (saved && saved.asset) || rec;
         assetMem.set(out.id, out);
         assetNameCache.set(out.id, out.name);
+        // 图片资产保存后排队生成缩略图（这行原先被误粘进 saveTextAssetRecord，那里没有 kind，
+        // 每次文本资产保存都抛 ReferenceError「kind is not defined」，剧本/分镜资产因此从未真正入库）
+        if (kind === 'image') { try { queueThumb(out.id); } catch { /* 忽略 */ } }
         return out;
       }
+      if (kind === 'image') { try { queueThumb(rec.id); } catch { /* 忽略 */ } }
       await idbPut(rec); // JSON 降级模式（宿主缺 node:sqlite）：本机元数据缓存
       assetNameCache.set(rec.id, rec.name);
       mirrorAssetIndex(rec); // 元数据镜像进 assets.json
@@ -8688,7 +8720,6 @@ function queueThumb(assetId) {
       rec.rel = rel;
       rec.size = blob.size;
       rec.stored = 'disk';
-  if (kind === 'image') { try { queueThumb(rec.id); } catch { /* 忽略 */ } }
       const proj = S.projects.find((p) => p.id === projectId);
       if (S.store === 'sqlite') {
         const saved = await hostRpc('assetCreate', { asset: assetIndexRecord(rec), projectName: (proj && proj.name) || '' });
@@ -9708,7 +9739,7 @@ function queueThumb(assetId) {
           // 只要成像与材质，不要分镜/剪辑；普通图片仍走 prompt 切片。判定失败自动退化为 prompt。
           const lockKind = /设定图\s*$/.test(String((n.data && n.data.label) || '')) ? 'assets' : 'prompt';
           try {
-            const lock = await buildShotLockText(lockKind);
+            const lock = await buildShotLockText(lockKind, { medium: 'image' });
             if (lock) p = p + '\n' + lock;
           } catch { /* 技能包不可用时不影响生成 */ }
           // 模型解析：节点选择优先，未指定路由到星标默认模型；都没有 = 明确报错（不再静默走演示模式）
@@ -12586,6 +12617,7 @@ function queueThumb(assetId) {
                 (segPlan.cutMode === 'clean' ? '✂ ' : '⚠ ') + T('segSummary')
                   .replace('{m}', String(segPlan.segments.length))
                   .replace('{n}', String(shots.length))
+                  .replace('{t}', String(segPlan.total))
                   .replace('{s}', String(Math.max(...segPlan.segments.map((sg) => sg.duration))))),
               h('span', { style: { opacity: 0.75 } }, ' · ' + (segPlan.cutMode === 'clean' ? T('segClean') : T('segForced'))))
           : null,
@@ -13815,7 +13847,117 @@ function queueThumb(assetId) {
      *
      * 不内联：叙事方法、剪辑节奏、人物表演（这些只对剧本/分镜有意义）。
      */
-    async function buildShotLockText(kind) {
+    /**
+     * 图片生成专用的紧凑风格锁。
+     *
+     * 为什么单独一套：buildShotLockText 本来是给**视频**模型写的——它把透镜 YAML、影调全文、
+     * 题材颗粒、禁项说明整块塞进提示词，视频模型能消化。但同一个函数被图片生成复用后，
+     * 一次图片请求的提示词会被撑到 1.6 万字节中文长文——文生图模型会把结构化文字当成
+     * "要渲染的内容"，于是画面里出现大段乱码文字块（实测症状：角色设定图右侧整栏文字）。
+     * 图片只需要三件事：镜头与光比、主色与饱和度、要排除的东西。其余一律不注入。
+     */
+    async function buildImageLockText(P, manifest, profile, k) {
+      const parts = [];
+      const push = (label, body) => { const b = String(body || '').trim(); if (b) parts.push(label + '\n' + b); };
+      /** 按句末标点截断，避免切出半句。 */
+      const cap = (text, maxBytes) => {
+        const t = String(text || '').replace(/\s+/g, ' ').trim();
+        if (!t) return '';
+        const enc = new TextEncoder();
+        if (enc.encode(t).length <= maxBytes) return t;
+        const heads = t.split(/(?<=[。；;!?])/);
+        let out = '';
+        for (const h of heads) {
+          if (enc.encode(out + h).length > maxBytes) break;
+          out += h;
+        }
+        return (out || t.slice(0, maxBytes)).trim();
+      };
+
+      // ① 透镜：只抽画面相关的几个键，绝不整块塞 YAML（里面的剪辑/声音对静帧无用）
+      const lensEntry = profile.lens ? (manifest.lenses || []).find((x) => x.id === profile.lens) : null;
+      if (lensEntry) {
+        const md = await readPackCard('lens', lensEntry.file);
+        if (md) {
+          const y = P.yamlBlock(md) || '';
+          const bits = [];
+          const mm = /lens_kit_mm:\s*\[([^\]]+)\]/.exec(y);
+          if (mm) {
+            const nums = mm[1].replace(/#.*$/, '').split(',').map((x) => x.trim()).filter(Boolean);
+            if (nums.length) bits.push('焦距 ' + nums.join('/') + 'mm');
+          }
+          const kr = /key_ratio:\s*"?([^"\n]+)"?/.exec(y);
+          if (kr) bits.push('光比 ' + kr[1].trim());
+          const dom = /\n\s*dominant:\s*([^\n]+)/.exec(y);
+          if (dom) bits.push('主色 ' + dom[1].trim());
+          const acc = /\n\s*accent:\s*([^\n]+)/.exec(y);
+          if (acc) bits.push('点缀 ' + acc[1].trim());
+          const sat = /\n\s*saturation:\s*([^\n]+)/.exec(y);
+          if (sat) bits.push('饱和 ' + sat[1].trim());
+          const con = /\n\s*contrast:\s*([^\n]+)/.exec(y);
+          if (con) bits.push('对比 ' + con[1].trim());
+          if (bits.length) push('画面风格：', bits.join('；') + '。');
+        }
+      }
+
+      // ② 影调：色彩命题 + 影调与光比（截断）；设定图额外要材质，普通图片不要
+      const lookEntry = profile.look ? (manifest.looks || []).find((x) => x.id === profile.look) : null;
+      if (lookEntry) {
+        const md = await readPackCard('look', lookEntry.file);
+        if (md) {
+          const color = cap(P.sectionText(md, '色彩命题'), 420);
+          if (color) push('色彩：', color);
+          const tone = cap(P.sectionText(md, '影调与光比'), 320);
+          if (tone) push('影调：', tone);
+          if (k === 'assets') {
+            const mat = cap(P.sectionText(md, '材质响应'), 300);
+            if (mat) push('材质：', mat);
+          }
+        }
+      }
+
+      // ③ 题材：只要可拍的场面材料（物件/动作/空间），禁项说明句对图无用
+      for (const gid of (profile.genres || [])) {
+        const ge = (manifest.genres || []).find((x) => x.id === gid) || null;
+        const ie = ge ? null : (manifest.industries || []).find((x) => x.id === gid);
+        const entry = ge || ie;
+        if (!entry) continue;
+        const md = await readPackCard(ge ? 'genre' : 'industry', entry.file);
+        if (!md) continue;
+        const gr = P.sectionText(md, '常见场面颗粒') || P.sectionText(md, '视觉母题');
+        if (gr) push('场面材料：', cap(gr, 260));
+      }
+
+      // ④ 负向词：四层合并，总预算 700 字节（图片模型对负向词敏感，太多会互相稀释）
+      const negs = [];
+      for (const [layer, id] of [['lens', profile.lens], ['look', profile.look], ['form', profile.form]]) {
+        if (!id) continue;
+        const entry = (manifest[layer === 'lens' ? 'lenses' : layer === 'look' ? 'looks' : 'forms'] || []).find((x) => x.id === id);
+        if (!entry) continue;
+        const md = await readPackCard(layer, entry.file);
+        if (!md) continue;
+        const neg = P.negativePhrases(md);
+        if (neg.length) negs.push(...neg);
+      }
+      for (const gid of (profile.genres || [])) {
+        const ge = (manifest.genres || []).find((x) => x.id === gid);
+        if (!ge) continue;
+        const md = await readPackCard('genre', ge.file);
+        if (!md) continue;
+        const neg = P.negativePhrases(md);
+        if (neg.length) negs.push(...neg);
+      }
+      if (negs.length) {
+        const uniq = [...new Set(negs.map((x) => String(x).trim()).filter(Boolean))];
+        push('必须排除：', cap(uniq.join(', '), 700));
+      }
+
+      if (!parts.length) return '';
+      return '[画面风格锁] 以下决定画面成色（与正文冲突时以本块为准）：' + EOL + parts.join(EOL);
+    }
+
+    async function buildShotLockText(kind, opts) {
+      const medium = (opts && opts.medium) || 'video';
       const pid = S.activeId;
       if (!pid) return '';
       const manifest = await loadPackManifest();
@@ -13826,6 +13968,8 @@ function queueThumb(assetId) {
       let P;
       try { P = await loadPackModule(); } catch { return ''; }
       const k = kind === 'assets' ? 'assets' : 'prompt';
+      // 图片与视频共用一个函数，但注入体积必须分开：图片模型会把长文当画面内容渲染。
+      if (medium === 'image') return buildImageLockText(P, manifest, profile, k);
       const parts = [];
       const push = (label, body) => {
         const b = String(body || '').trim();
