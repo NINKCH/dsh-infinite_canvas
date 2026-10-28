@@ -117,6 +117,7 @@ const COVERAGE = [
   // 0.19.10 后首个未发版修复：视频风格锁按能力切片、跨层负向词合并限预算、
   // 手写厂商结构化提示词直通不追加锁。发版时随常规流程清零。
   { sha: '0b4fe3e', keys: [/Video style-lock/i, /Handwritten vendor-structured/i, /negative/i] },
+  { sha: 'eb72c8b', keys: [/Text and script node bodies scroll/i, /Dropdown scrollbars/i, /resize arrows/i] },
 ];
 for (const c of COVERAGE) {
   ok(c.keys.some((re) => re.test(coverageText)), '未发版提交 ' + c.sha + ' 在 CHANGELOG（Unreleased 或最新已发布段）里找不到对应记录（补记不全）');

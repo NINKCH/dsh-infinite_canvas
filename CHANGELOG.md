@@ -10,13 +10,17 @@ GitHub Releases carry the same notes in English; maintainer-facing runbooks live
 - **Video style-lock regression harness.** A direct build of the four-layer video lock now verifies that director, genre, spec and look each inject only their prompt capability slices, script/storyboard-only sections stay out, an empty configuration injects nothing, and `buildShotLockText` can be addressed by project id for panel/chat parity tests.
 
 ### Changed
+- **Text and script node bodies scroll with the mouse wheel.** The canvas wheel handler now distinguishes genuinely scrollable content from short previews: text, script, shot lists and dropdown lists scroll natively when they overflow; short content and empty canvas keep wheel zoom.
+- **Dropdown scrollbars are easier to see and hit.** Dropdowns, text/script previews and shot lists share a themed 12px scrollbar with a 32px minimum thumb and a hover state.
 - **Handwritten vendor-structured video prompts are now treated as a direct path.** A prompt containing `subject_definitions` keeps its user-authored structure and receives only the series-bible entity text; the canvas no longer appends the style lock or continuity preamble that could pollute a vendor protocol payload.
 - **Cross-layer negative prompts are merged before injection.** Director, genre, spec and look negatives are globally de-duplicated into one bounded block instead of repeating overlapping prohibitions card by card.
 
 ### Fixed
+- **Open dropdowns no longer expose node resize arrows underneath.** While a dropdown is open, node resize hit zones are suspended; normal node interaction resumes when it closes.
 - **Video prompts no longer risk a negative-prompt wall.** The merged negative block is capped at 2,400 UTF-8 bytes; overflow is dropped at phrase boundaries rather than cut mid-phrase.
 
 ### Internal
+- `test-node-layout.mjs` covers the wheel routing matrix, visible scrollbar contract and dropdown-open resize-handle suspension.
 - `test-skill-panel.mjs` covers the real video lock output, reverse slicing assertions, negative de-duplication/budget behaviour, empty-profile short-circuiting and the handwritten structured-prompt exemption.
 
 ## [0.19.10] — 2026-10-28
