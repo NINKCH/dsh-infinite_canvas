@@ -6,6 +6,8 @@ GitHub Releases carry the same notes in English; maintainer-facing runbooks live
 
 ## [Unreleased]
 
+## [0.19.11] — 2026-10-28
+
 ### Added
 - **Video style-lock regression harness.** A direct build of the four-layer video lock now verifies that director, genre, spec and look each inject only their prompt capability slices, script/storyboard-only sections stay out, an empty configuration injects nothing, and `buildShotLockText` can be addressed by project id for panel/chat parity tests.
 
