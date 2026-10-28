@@ -6,7 +6,7 @@ GitHub Releases carry the same notes in English; maintainer-facing runbooks live
 
 ## [Unreleased]
 
-## [0.19.8] — 2026-10-28
+## [0.19.10] — 2026-10-28
 
 ### Added
 - **Carries the three fixes that were briefly shipped in the withdrawn 0.19.9** (that build loaded on nothing — see below): the image-generation compact style lock (`buildImageLockText`, 16.6 KB of prose per image request → 2.4 KB, text no longer painted into the frame), the `kind is not defined` crash in `saveTextAssetRecord` (text assets now actually reach the library, thumbnails restored to `saveAssetRecord`), and the segmenter fixes (cut-point shots open the next segment; tiny tails merge back — the reported scenes now segment clean instead of forced).
