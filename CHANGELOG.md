@@ -6,6 +6,19 @@ GitHub Releases carry the same notes in English; maintainer-facing runbooks live
 
 ## [Unreleased]
 
+### Added
+- **Video style-lock regression harness.** A direct build of the four-layer video lock now verifies that director, genre, spec and look each inject only their prompt capability slices, script/storyboard-only sections stay out, an empty configuration injects nothing, and `buildShotLockText` can be addressed by project id for panel/chat parity tests.
+
+### Changed
+- **Handwritten vendor-structured video prompts are now treated as a direct path.** A prompt containing `subject_definitions` keeps its user-authored structure and receives only the series-bible entity text; the canvas no longer appends the style lock or continuity preamble that could pollute a vendor protocol payload.
+- **Cross-layer negative prompts are merged before injection.** Director, genre, spec and look negatives are globally de-duplicated into one bounded block instead of repeating overlapping prohibitions card by card.
+
+### Fixed
+- **Video prompts no longer risk a negative-prompt wall.** The merged negative block is capped at 2,400 UTF-8 bytes; overflow is dropped at phrase boundaries rather than cut mid-phrase.
+
+### Internal
+- `test-skill-panel.mjs` covers the real video lock output, reverse slicing assertions, negative de-duplication/budget behaviour, empty-profile short-circuiting and the handwritten structured-prompt exemption.
+
 ## [0.19.10] — 2026-10-28
 
 ### Added
