@@ -9821,6 +9821,9 @@ function queueThumb(assetId) {
           const durationPlan = videoDurationFor(n, shotList, !!sbUp);
           const autoDuration = durationPlan.value || 5;
           const handWritten = String(n.data.prompt || '').trim();
+          // 手写厂商结构化提示词 = 高级直通路径：保留用户的 subject/shot 结构，
+          // 只补实体设定文字；风格锁与承接前置块都不再追加，避免污染厂商协议格式。
+          const handStructured = handWritten.includes('subject_definitions');
           // 分镜衔接规划：段落类型（续帧/换场/新角色/特写插入）+ 首镜承接口 + 是否接力尾帧
           const zh = effLang() !== 'en';
           const plan = (() => {
@@ -9896,10 +9899,9 @@ function queueThumb(assetId) {
           let p;
           // 图1=尾帧（降级模式）时实体参考图为图2..N+1：两条提示词组装路径都要同步偏移
           const effOpts = { picOffset: (useFrame && anchorRole === 'reference_image') ? 1 : 0 };
-          if (handWritten.includes('subject_definitions')) {
-            p = handWritten; // 高级用法：手写结构化提示词，原样发送
-            // 手写结构化提示词也要注入 @实体@ 的设定文字（外观/声音）——缺陷 3 的第三条路径。
-            // 只追加 series_bible 文字块：不动用户写好的主体/镜头结构，也不追加任何参考图。
+          if (handStructured) {
+            p = handWritten; // 高级用法：手写结构化提示词，结构原样保留
+            // 只追加 series_bible 文字块：不动用户写好的主体/镜头结构，也不追加任何参考图与风格锁。
             if (!/series_bible/i.test(p)) {
               const bb = entityBibleBlock(entities, bible, zh);
               if (bb) p = p + '\n' + bb;
@@ -9915,15 +9917,17 @@ function queueThumb(assetId) {
             p = buildEffectivePrompt(prompt, refs, entities, bible, false, effOpts);
           }
           // 非结构化路径（无参考图/手写提示词）也要有首帧锚定与承接说明
-          if (!shotList.length || !p.includes('subject_definitions')) {
+          if ((!shotList.length || !p.includes('subject_definitions')) && !handStructured) {
             const pre = [frameAnchorText({ hasFrame: useFrame, role: anchorRole, zh }), continuity].filter(Boolean).join(zh ? '；' : '; ');
             if (pre) p = pre + '\n' + p;
           }
-          // 技能包的「镜头语言锁」：附在末尾（结构化提示词也能拿到风格参数与负向词，且不打断它的字段顺序）
-          try {
-            const lock = await buildShotLockText('prompt');
-            if (lock) p = p + '\n' + lock;
-          } catch { /* 技能包不可用时不影响生成 */ }
+          // 自动组装路径才追加技能包风格锁；手写厂商结构化提示词保持用户协议结构
+          if (!handStructured) {
+            try {
+              const lock = await buildShotLockText('prompt');
+              if (lock) p = p + '\n' + lock;
+            } catch { /* 技能包不可用时不影响生成 */ }
+          }
           const mcfg = resolveVideoModelCfg(settings, nodeVideoModelRef(n));
           if (!mcfg) throw new Error(T('errNoVideoModel'));
           if (sbUp && !durationPlan.value) addWarn('已连接分镜但暂无镜头时长：视频时长回退 5s（先生成分镜镜头后重跑）');
@@ -14069,7 +14073,7 @@ function queueThumb(assetId) {
 
     async function buildShotLockText(kind, opts) {
       const medium = (opts && opts.medium) || 'video';
-      const pid = S.activeId;
+      const pid = (opts && opts.pid) || S.activeId;
       if (!pid) return '';
       const manifest = await loadPackManifest();
       if (!manifest) return '';
@@ -14085,6 +14089,16 @@ function queueThumb(assetId) {
       const push = (label, body) => {
         const b = String(body || '').trim();
         if (b) parts.push(label + '\n' + b);
+      };
+      // 负向词跨四层全局收集：单卡内去重不够——导演/题材/规格/影调经常重复同类禁令，
+      // 重复注入会稀释权重。统一去重后再给总预算，防止异常卡把视频请求撑成负向词文本墙。
+      const negs = [];
+      const seenNeg = new Set();
+      const addNegs = (phrases) => {
+        for (const raw of (phrases || [])) {
+          const s = String(raw || '').trim();
+          if (s && !seenNeg.has(s.toLowerCase())) { seenNeg.add(s.toLowerCase()); negs.push(s); }
+        }
       };
 
       // ① 导演透镜：风格参数 YAML（机读、可核对）+ 灯光与色彩（成型规则）
@@ -14123,9 +14137,8 @@ function queueThumb(assetId) {
         // 以前只在 script 切片里出现、进不了 prompt，等于题材对成片没有约束力。这里补上。
         const forbid = P.sectionText(md, '禁止漂移');
         if (forbid) push('本题材的画面禁项（' + entry.name + '，必须排除）：', forbid);
-        // 题材级负向词（与规格/透镜/影调同一机制）：题材卡若写了「类型级负向词」小节就一并注入。
-        const genreNeg = P.negativePhrases(md);
-        if (genreNeg.length) push('本题材负向词（' + entry.name + '，必须排除）：', genreNeg.join(', '));
+        // 题材级负向词与其它层合并，统一去重后在块尾注入
+        addNegs(P.negativePhrases(md));
       }
 
       // ④ 规格：节奏与负向词（画幅不在这里定，由视频节点选）
@@ -14138,24 +14151,36 @@ function queueThumb(assetId) {
           if (spec.asl_floor_s) bits.push('单镜不短于 ' + spec.asl_floor_s + 's');
           if (spec.asl_target_s) bits.push('平均镜长 ' + spec.asl_target_s + 's');
           if (bits.length) push('交付规格（' + formEntry.name + '）：', bits.join('；'));
-          const neg = P.negativePhrases(md);
-          if (neg.length) push('本类型负向词（必须排除）：', neg.join(', '));
+          addNegs(P.negativePhrases(md));
         }
       }
 
-      // ⑤ 透镜与影调各自的负向词（两处规格不同，都要）
-      for (const [layer, label] of [['lens', '镜头负向词'], ['look', '画质负向词']]) {
+      // ⑤ 透镜与影调负向词：和题材/规格合并，块尾统一注入
+      for (const layer of ['lens', 'look']) {
         const id = layer === 'lens' ? profile.lens : profile.look;
         const entry = id ? (manifest[layer === 'lens' ? 'lenses' : 'looks'] || []).find((x) => x.id === id) : null;
         if (!entry) continue;
         const md = await readPackCard(layer, entry.file);
         if (!md) continue;
-        const neg = P.negativePhrases(md);
-        if (neg.length) push(label + '（必须排除）：', neg.join(', '));
+        addNegs(P.negativePhrases(md));
+      }
+
+      if (negs.length) {
+        // 预算按 UTF-8 字节计算（pack.js 的 utf8Bytes 与浏览器/Node 同口径）；逗号分隔符也计入。
+        // 超过预算的尾部短语直接截掉，不做半句截断——截半条负向词可能反转语义。
+        const kept = [];
+        let bytes = 0;
+        for (const s of negs) {
+          const need = P.utf8Bytes(s) + (kept.length ? 2 : 0);
+          if (!need || bytes + need > 2400) continue;
+          kept.push(s);
+          bytes += need;
+        }
+        if (kept.length) push('全局负向词（必须排除）：', kept.join(', '));
       }
 
       if (!parts.length) return '';
-      const head = '[风格增强锁] 以下三块直接决定画面成败，与提示词正文冲突时以本块为准：';
+      const head = '[风格增强锁] 以下分块直接决定画面成败，与提示词正文冲突时以本块为准：';
       return head + '\n' + parts.join('\n\n');
     }
 

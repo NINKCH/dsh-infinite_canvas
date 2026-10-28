@@ -403,6 +403,68 @@ if (TABS && CRAFT) {
 }
 
 // ============================================================
+// F) 视频风格锁实注回归：四层各取所需，不是整卡倾倒；负向词全局去重；
+//    手写厂商结构化提示词尊重用户结构，不追加风格锁。
+// ============================================================
+{
+  ok(typeof CRAFT.buildShotLockText === 'function', '__DSH_IC_SKILLPACK__ 缺少 buildShotLockText');
+  if (typeof CRAFT.buildShotLockText === 'function') {
+    // buildShotLockText 必须支持显式 pid：否则测试只能依赖 S.activeId，真实调用与对话侧难以同口径回归
+    ok(/const pid = \(opts && opts\.pid\) \|\| S\.activeId;/.test(src), 'buildShotLockText 未支持 opts.pid');
+    CRAFT.saveSkillProfile('pVideoLock', { lens: 'fincher', genres: ['crime-police'], form: 'trailer', look: 'dark-myth-cg' });
+    const lock = await CRAFT.buildShotLockText('prompt', { pid: 'pVideoLock' });
+    ok(lock.startsWith('[风格增强锁]'), '视频风格锁缺少标准头');
+    ok(lock.includes('本片风格参数'), '视频锁未注入导演透镜的风格参数');
+    ok(lock.includes('导演的光线与色彩规则'), '视频锁未注入导演的 prompt 切片');
+    ok(lock.includes('题材的场面颗粒'), '视频锁未注入题材的场面颗粒');
+    ok(lock.includes('本题材的画面禁项'), '视频锁未注入题材的画面禁项');
+    ok(lock.includes('交付规格'), '视频锁未注入规格的节奏约束');
+    ok(lock.includes('影调与材质'), '视频锁未注入影调的成像与材质');
+    ok(lock.includes('全局负向词'), '视频锁未把四层负向词合并注入');
+    // 反向断言：prompt 能力不拿剧本/分镜专属小节，防止又退回“整卡倾倒”
+    ok(!lock.includes('## 叙事方法'), '视频锁注入了剧本专属「叙事方法」');
+    ok(!lock.includes('## 剪辑节奏'), '视频锁注入了分镜专属「剪辑节奏」');
+    ok(!lock.includes('## 人物与表演'), '视频锁注入了分镜/剧本专属「人物与表演」');
+    ok(P.utf8Bytes(lock) < 24000, '视频锁体积过大（' + P.utf8Bytes(lock) + 'B），疑似整卡注入');
+
+    // 四层负向词必须在合并后全局去重；用可替换的 pack 模块桩让每张卡返回同一短语，若有重复会立刻红
+    const realPack = P;
+    try {
+      const dupPack = { ...P, negativePhrases: () => ['no duplicate negative', 'no flicker'] };
+      TABS.__setPackForTest(M, dupPack);
+      const dup = await CRAFT.buildShotLockText('prompt', { pid: 'pVideoLock' });
+      eq((dup.match(/no duplicate negative/g) || []).length, 1, '跨层负向词未全局去重');
+      ok((dup.match(/no flicker/g) || []).length === 1, '负向词合并后仍有重复');
+
+      // 预算：异常庞大的负向词集合必须截断，不允许把请求撑成负向词文本墙
+      const many = Array.from({ length: 80 }, (_, i) => 'negative-phrase-' + String(i).padStart(3, '0') + '-' + 'x'.repeat(48));
+      const capPack = { ...P, negativePhrases: () => many };
+      TABS.__setPackForTest(M, capPack);
+      const capped = await CRAFT.buildShotLockText('prompt', { pid: 'pVideoLock' });
+      const negBlock = capped.split('\n全局负向词（必须排除）：\n')[1] || '';
+      const negBody = negBlock.split('\n\n')[0] || '';
+      ok(P.utf8Bytes(negBody) <= 2400, '负向词预算未生效（' + P.utf8Bytes(negBody) + 'B）');
+      ok(negBody.includes('negative-phrase-000'), '负向词截断把高优先级短语也丢了');
+      ok(!negBody.includes('negative-phrase-079'), '负向词预算未截断尾部短语');
+    } finally {
+      TABS.__setPackForTest(M, realPack);
+    }
+
+    // 空配置 = 完全不注入（老项目行为不变）
+    CRAFT.saveSkillProfile('pVideoEmpty', { lens: '', genres: [], form: '', look: '' });
+    eq(await CRAFT.buildShotLockText('prompt', { pid: 'pVideoEmpty' }), '', '空技能配置仍生成视频风格锁');
+  }
+
+  // 手写厂商结构化提示词是高级直通路径：保留其结构并补实体设定，但不追加风格锁
+  ok(/const handStructured = handWritten\.includes\('subject_definitions'\);/.test(src),
+    '视频分支未显式识别手写厂商结构化提示词');
+  ok(/if \(!handStructured\) \{\s*try \{\s*const lock = await buildShotLockText\('prompt'\);/.test(src),
+    '手写结构化提示词仍会被追加视频风格锁（应尊重用户结构）');
+  ok(/if \(\(!shotList\.length \|\| !p\.includes\('subject_definitions'\)\) && !handStructured\) \{/.test(src),
+    '手写结构化提示词的承接/锚定前置块未被豁免');
+}
+
+// ============================================================
 // 输出
 // ============================================================
 if (errs.length) {
@@ -417,5 +479,6 @@ console.log('  · 切片反向断言：script 不含风格参数 / prompt 不含
 console.log('  · 技能配置：项目隔离、非法值回落、无记录回落默认、写后读一致');
 console.log('  · UI：三页签（项目/技能/设置）、技能页 0 个 <select>、五层卡片与瓦片数据齐全、123 个图标闭环且无孤儿');
 console.log('  · 注入矩阵：剧本/分镜/设定集草稿带 packText；图片与视频分支各带一次镜头语言锁；四层全空时不注入');
+console.log('  · 视频风格锁：四层按 prompt 切片实注、负向词全局去重限预算、手写厂商结构化提示词不追加锁');
 // 显式退出：client.js 的 apply 会注册 setInterval（宿主轮询），沙箱里不会自动清，否则进程永不退出
 process.exit(0);
