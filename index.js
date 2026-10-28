@@ -3483,7 +3483,7 @@ export function apply(ctx) {
         });
         reg({
           name: 'canvas_update_node',
-          description: '修改无限画布上**已有节点**的字段（改提示词、改比例/清晰度/时长/分辨率等参数）——"改节点"的唯一入口，改完不必删节点重建。可改字段：prompt（图片/视频节点的对话框提示词）、idea/output（剧本节点）、text（文本节点的正文）、script/requirement（分镜表的剧本来源与额外要求）、shots（分镜镜头清单，JSON 数组）、label（节点名）、ratio、size、duration、resolution、frameMode、count、imageModel、videoModel、model、cont（分镜表「分镜衔接」开关，默认 true；关掉后拆镜不写衔接字段、视频不自动续帧）。结构字段（id/type/坐标/宽高）不可改。改完用 canvas_generate_node 触发生成。**前提**：先用 canvas_node_status 读到当前内容，再只传要改的字段。**注意 shots 是整表替换**：只改一镜也要先把 canvas_node_status 返回的全部 shots 取回、改完再整体传回；否则其它镜的 tail/cam/seg 会被冲掉（服务端会按镜序兜底保留，但不要依赖它）。',
+          description: '修改无限画布上**已有节点**的字段（改提示词、改比例/清晰度/时长/分辨率等参数）——"改节点"的唯一入口，改完不必删节点重建。可改字段：prompt（图片/视频节点的对话框提示词）、idea/output（剧本节点）、text（文本节点的正文）、script/requirement（分镜表的剧本来源与额外要求）、shots（分镜镜头清单，JSON 数组）、label（节点名）、ratio、size、duration、resolution、frameMode、count、imageModel、videoModel、model、cont（分镜表「分镜衔接」开关，默认 true；关掉后拆镜不写衔接字段、视频不自动续帧）。结构字段（id/type/坐标/宽高）不可改。改完用 canvas_generate_node 触发生成。**这是迭代生成的主路径**：用户对某张图/某段视频不满意（"重来/换一版/不像"）时，改 prompt 后重生成即可，**绝不删掉节点再新建一个**——同一角色/场景/镜的节点永远只有一个，删了重建会丢连线、位置与历史。**前提**：先用 canvas_node_status 读到当前内容，再只传要改的字段。**注意 shots 是整表替换**：只改一镜也要先把 canvas_node_status 返回的全部 shots 取回、改完再整体传回；否则其它镜的 tail/cam/seg 会被冲掉（服务端会按镜序兜底保留，但不要依赖它）。',
           parameters: {
             type: 'object',
             properties: {

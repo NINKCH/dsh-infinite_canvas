@@ -6,7 +6,7 @@ GitHub Releases carry the same notes in English; maintainer-facing runbooks live
 
 ## [Unreleased]
 
-## [0.19.7] — 2026-10-27
+## [0.19.8] — 2026-10-27
 
 ### Added
 - **The director lens set grows from 24 to 45.** Twenty-one lenses were added, each written to the same depth as the original twenty-four rather than as a colour swatch: fourteen sections, a thirteen-key machine-readable style block, three prompt templates (Chinese brief / EN image-to-video / EN keyframe) and a worked example on the shared control scene, so all forty-five can be read side by side.
@@ -30,6 +30,12 @@ GitHub Releases carry the same notes in English; maintainer-facing runbooks live
   - **New looks (6)**: 冷调悬疑 cold-noir · 大地暖调 earth-warmth · 极简冷灰 minimal-grey · 巴洛克浓彩 aroque-rich · 高饱和史诗 saturated-epic · 浪漫柔光 soft-romance. All legacy looks got semantic groups (国漫/日系/港味/写实) alongside the new families (冷调/暖调/浓彩/柔光), shown flat in the panel.
   - **Decoupling verified end to end**: the same lens (ng_lee) composed with cold-noir versus earth-warmth produces prompt slices whose HEX sets do not intersect — the look layer genuinely constrains colour independently of who is holding the camera.
 ### Fixed
+- **The preset knew how to create nodes but not how to iterate on them.** The persona and the workshop skill both described only the first-build path (write → storyboard → generate); nothing told the agent that an existing node should be *edited* rather than replaced, so a failed roll of a character portrait invited `canvas_create_node` again — the canvas accumulated duplicate nodes for the same character, each with its own connections and history. Added:
+  - A **节点生命周期（复用优先，禁止删了重建）** section in the persona: check first, edit in place (`canvas_node_status` → `canvas_update_node` → `canvas_generate_node`), create only for genuinely new subjects, never delete as a "reset", let connections carry content, and use `canvas_get_bible` as the read-only source for character appearance.
+  - A **重生成** branch in the workshop's generation stage plus a duplicate-node check in its exit checklist.
+  - `canvas_update_node`'s own description now states it is the iteration path — the agent reads tool descriptions more reliably than persona prose.
+  - Five previously unmentioned tools are now routed: `canvas_update_node`, `canvas_create_node`, `canvas_connect`, `canvas_open` (right-pane reveal), `canvas_get_bible`, `canvas_director_stage`.
+- **`director-workshop` failed to load on strict DSH builds: "loaded skill name must be a string".** The bundled `skills.js` provider returned `{ summary, content }` from `get()`, but the Host contract expects a **flat** skill object — `validateDefinition` reads `definition.name` at the top level, got `undefined`, and threw. The original two-package preset predates the strict validator and slipped through; the merge carried the bug into this package, where the panel gate caught nothing because it never exercised `provider.get()`. Fixed to return the flat shape (`name/description/invocation/provider/source/rank/resourceBase/content`), and `test-mode-preset.mjs` now runs the provider through the same field checks the Host applies — verified by sabotage: reverting the shape turns the gate red on six assertions.
 - **Genre cards had no grip on the finished picture.** Two separate holes, both closed:
   - **The genre's negative constraints never reached the video prompt.** `buildShotLockText` — the function that actually attaches skill text to image and video generation — only pulled one section out of a genre card, `常见场面颗粒`, because that is the only section tagged `prompt`. So `禁止漂移` (the "don't show this, don't let that stand in for story" list) was sliced as `story shot` and could never arrive, and no genre card carried a negative-word block at all, while `forms`, `lenses` and `looks` all did. The genre layer was therefore decorative on the generation side: it could shape a script, and had no say in what a clip looked like.
   - **The panel gate now requires both.** Every genre card must carry ≥4 negative phrases plus a `禁止漂移` and a `常见场面颗粒` section, and `buildShotLockText` pushes `本题材的画面禁项` and `本题材负向词` alongside the granules. Verified end to end: a `stephen_chow` + `mo-lei-tau` + `short-drama` pack now emits the mo-lei-tau granules *and* its seven negative phrases into the prompt slice.

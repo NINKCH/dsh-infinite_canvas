@@ -42,7 +42,7 @@ ok(!/name: '@ninkch\/dsh-artcraft'\s*$/m.test(patch), 'patch 不得挂载 @ninkc
 ok(!patch.includes('@ninkch/dsh-media-studio-preset'), 'patch 残留旧包名 @ninkch/dsh-media-studio-preset');
 
 // ---------- 4) persona 关键节仍在（防合并时被截断） ----------
-for (const k of ['开工前自检', '引导式创作', '端到端流水线', '导演工作纪律']) {
+for (const k of ['开工前自检', '引导式创作', '端到端流水线', '导演工作纪律', '节点生命周期']) {
   ok(patch.includes(k), 'patch persona 缺关键节「' + k + '」');
 }
 
@@ -57,11 +57,33 @@ if (fm) {
 }
 ok(!skill.includes('@ninkch/dsh-media-studio-preset'), 'director-workshop 正文残留旧包名');
 ok(skill.includes('canvas_list_skills'), 'director-workshop 正文缺 canvas_list_skills 探活口径');
+ok(skill.includes('canvas_update_node'), 'director-workshop 缺 canvas_update_node 重生成链路（改提示词重生成，不许删节点重建）');
 
 // ---------- 6) skills.js 可加载 ----------
 const skillsJs = await import('file:///' + path.join(ROOT, 'skills.js').replace(/\\/g, '/'));
 ok(skillsJs.name === 'media-studio-skills', "skills.js name 应为 media-studio-skills，实际 " + skillsJs.name);
 ok(Array.isArray(skillsJs.inject) && skillsJs.inject.includes('skills'), "skills.js inject 缺 'skills'");
+
+// provider.get() 合同：Host 的 validateDefinition 直接读返回值顶层字段。此前返回
+// { summary, content }，Host 读 name 得 undefined → "loaded skill name must be a string"，
+// 技能加载失败（0.19.7 测试机实证）。此断言保证返回形状永远符合合同。
+{
+  const providerMod = await import('file:///' + path.join(ROOT, 'skills.js').replace(/\\/g, '/'));
+  const registered = [];
+  providerMod.apply({ skills: { registerProvider: (fn) => registered.push(fn) } }, { includeLiveSnapshot: false });
+  ok(registered.length === 1, 'skills.js apply 未注册 provider');
+  const provider = registered[0]();
+  const cands = await provider.list();
+  ok(cands.length >= 1, 'provider.list() 返回空');
+  for (const cand of cands) {
+    const def = await provider.get(cand, {});
+    for (const k of ['name', 'description', 'provider', 'source', 'content']) {
+      ok(typeof def[k] === 'string' && def[k].length > 0, 'get() 返回缺 ' + k + ' 或非字符串（Host 合同违规）');
+    }
+    ok(def.invocation && typeof def.invocation === 'object', 'get() 返回缺 invocation');
+    ok(def.name === 'director-workshop', 'get() name 应为 director-workshop，实际 ' + def.name);
+  }
+}
 
 // ---------- 7) 当期清单快照可达（本包 manifest） ----------
 const manifest = JSON.parse(readFileSync(path.join(ROOT, 'assets', 'canvas-director', 'manifest.json'), 'utf8'));

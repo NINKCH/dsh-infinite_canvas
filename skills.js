@@ -335,7 +335,19 @@ export function apply(ctx, config = {}) {
       }
 
       // 每次加载都重读文件：改技能正文无需版本号或缓存失效
-      return { summary, content };
+      // Host 合同：get() 必须返回**扁平的 skill 对象**（name/description/invocation/provider/source
+      // /resourceBase/content 直接在顶层）。此前返回 { summary, content }，Host 读 definition.name
+      // 得到 undefined → "loaded skill name must be a string"，director-workshop 技能加载失败。
+      return {
+        name: summary.name,
+        description: summary.description,
+        invocation: summary.invocation,
+        provider: summary.provider,
+        source: summary.source,
+        rank: summary.rank,
+        resourceBase: summary.resourceBase,
+        content,
+      };
     },
   };
   ctx.skills.registerProvider(() => provider);
