@@ -14933,7 +14933,9 @@ const DIRECTOR_KEY_HELP = [
       const curKeysRef = () => {
         const cam2 = (scene.cameras || []).find((c) => c.id === scene.activeCameraId);
         const ob2 = (scene.objects || []).find((x) => x.id === S.directorSel);
-        if (ob2 && Array.isArray(ob2.keys) && ob2.keys.length) return ob2.keys.concat(Array.isArray(ob2.poseAnim) ? ob2.poseAnim : []);
+        if (ob2) return (Array.isArray(ob2.keys) ? ob2.keys : [])
+          .concat(Array.isArray(ob2.poseKeys) ? ob2.poseKeys.map((k) => ({ ...k, _poseKey: true })) : [])
+          .concat(Array.isArray(ob2.poseAnim) ? ob2.poseAnim.map((k) => ({ ...k, _poseAnim: true })) : []);
         if (cam2 && Array.isArray(cam2.keys)) return cam2.keys;
         return [];
       };
@@ -14960,8 +14962,10 @@ const DIRECTOR_KEY_HELP = [
               patch((n) => {
                 const cam2 = (n.cameras || []).find((c) => c.id === n.activeCameraId);
                 if (cam2 && Array.isArray(cam2.keys)) { const idx = E.keyIndexAt(cam2.keys, playT); if (idx >= 0) cam2.keys.splice(idx, 1); }
-                const ob2 = (n.objects || []).find((x) => x.id === S.directorSel);
-                if (ob2 && Array.isArray(ob2.keys)) { const idx = E.keyIndexAt(ob2.keys, playT); if (idx >= 0) ob2.keys.splice(idx, 1); }
+                 const ob2 = (n.objects || []).find((x) => x.id === S.directorSel);
+                 if (ob2 && Array.isArray(ob2.keys)) { const idx = E.keyIndexAt(ob2.keys, playT); if (idx >= 0) ob2.keys.splice(idx, 1); }
+                 if (ob2 && Array.isArray(ob2.poseKeys)) { const idx = E.keyIndexAt(ob2.poseKeys, playT); if (idx >= 0) ob2.poseKeys.splice(idx, 1); }
+                 if (ob2 && Array.isArray(ob2.poseAnim)) { const idx = E.keyIndexAt(ob2.poseAnim, playT); if (idx >= 0) ob2.poseAnim.splice(idx, 1); }
               });
               setMsg({ kind: 'ok', text: T('dirKeyDeleted') });
             } }, '✖|'),
@@ -14973,9 +14977,11 @@ const DIRECTOR_KEY_HELP = [
               patch((n) => {
                 const cam2 = (n.cameras || []).find((c) => c.id === n.activeCameraId);
                 if (cam2 && Array.isArray(cam2.keys)) { const idx = E.keyIndexAt(cam2.keys, playT); if (idx >= 0) cam2.keys[idx].ease = mode; }
-                const ob2 = (n.objects || []).find((x) => x.id === S.directorSel);
-                if (ob2 && Array.isArray(ob2.keys)) { const idx = E.keyIndexAt(ob2.keys, playT); if (idx >= 0) ob2.keys[idx].ease = mode; }
-              });
+                 const ob2 = (n.objects || []).find((x) => x.id === S.directorSel);
+                 if (ob2 && Array.isArray(ob2.keys)) { const idx = E.keyIndexAt(ob2.keys, playT); if (idx >= 0) ob2.keys[idx].ease = mode; }
+                 if (ob2 && Array.isArray(ob2.poseKeys)) { const idx = E.keyIndexAt(ob2.poseKeys, playT); if (idx >= 0) ob2.poseKeys[idx].ease = mode; }
+                 if (ob2 && Array.isArray(ob2.poseAnim)) { const idx = E.keyIndexAt(ob2.poseAnim, playT); if (idx >= 0) ob2.poseAnim[idx].ease = mode; }
+               });
               bumpView();
             },
           }, [
@@ -16573,7 +16579,9 @@ const DIRECTOR_KEY_HELP = [
                           if (!nm) { setMsg({ kind: 'err', text: T('dirActionNeedName') }); return; }
                           const rec = E.saveUserAction(S.activeId, {
                             name: nm, poseId: sel.poseId, bonePose: sel.bonePose,
-                            poseAnim: sel.poseAnim, duration: Number((scene.shot || {}).duration) || 0,
+                            poseAnim: sel.poseAnim, poseKeys: sel.poseKeys, clips: sel.clips,
+                            loop: sel.loop === true, loopPeriod: sel.poseLoop,
+                            duration: Number((scene.shot || {}).duration) || 0,
                           });
                           if (rec) {
                             markDirty();

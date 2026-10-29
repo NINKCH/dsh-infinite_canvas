@@ -3023,7 +3023,11 @@ export function buildStageFromSpec(spec) {
     if (Array.isArray(c.poseKeys)) ob.poseKeys = c.poseKeys.map((k) => ({ t: num(k.t, 0), bonePose: JSON.parse(JSON.stringify(k.bonePose || {})), ease: String(k.ease || 'auto') })).sort((a, b) => a.t - b.t);
     if (Array.isArray(c.poseAnim)) {
       ob.poseAnim = c.poseAnim.map((k) => ({ t: num(k.t, 0), poseId: poseOf(k.pose || k.poseId) || 'none' })).sort((a, b) => a.t - b.t);
-      if (c.loop) { ob.poseLoop = num(c.loopPeriod, ob.poseAnim[ob.poseAnim.length - 1].t); }
+      if (c.loop) { ob.loop = true; ob.poseLoop = num(c.loopPeriod, ob.poseAnim[ob.poseAnim.length - 1].t); }
+    }
+    if (c.loop && !ob.loop) {
+      ob.loop = true;
+      ob.poseLoop = num(c.loopPeriod, 0);
     }
     if (Array.isArray(c.keys)) {
       ob.keys = c.keys.map((k) => ({ t: num(k.t, 0), pos: v3of(k.pos, 0), rotY: num(k.rotY, 0), rx: num(k.rx, 0), rz: num(k.rz, 0), ease: String(k.ease || 'auto') })).sort((a, b) => a.t - b.t);
@@ -3168,6 +3172,10 @@ export function compileStageSpec(scene) {
       }
       if (ob.locomotion) c.locomotion = { ...ob.locomotion };
       if (Array.isArray(ob.poseAnim) && ob.poseAnim.length) c.poseAnim = ob.poseAnim.map((k) => ({ t: round3(k.t), pose: k.poseId }));
+      if (ob.loop === true || Number(ob.poseLoop) > 0) {
+        c.loop = true;
+        c.loopPeriod = round3(Number(ob.poseLoop) || Number((ob.poseAnim || []).at(-1)?.t) || 0);
+      }
       if (Array.isArray(ob.poseKeys) && ob.poseKeys.length) c.poseKeys = ob.poseKeys.map((k) => ({ t: round3(k.t), bonePose: JSON.parse(JSON.stringify(k.bonePose || {})), ease: k.ease || 'auto' }));
       if (Array.isArray(ob.keys) && ob.keys.length) c.keys = ob.keys.map((k) => ({ t: round3(k.t), pos: arr(k.pos), rotY: round3(k.rotY || 0), rx: round3(k.rx || 0), rz: round3(k.rz || 0), ease: k.ease || 'auto' }));
       characters.push(c);
@@ -3444,7 +3452,12 @@ export function applyPlayhead(scene, t) {
       if (locoSrc === 'clip') next.animTime = motion.animTime;
       else if (locoSrc === 'action') next.poseTime = motion.poseTime;
     }
-    const poseSampleTime = next.poseTime !== undefined && next.poseTime !== null ? next.poseTime : time;
+    let poseSampleTime = next.poseTime !== undefined && next.poseTime !== null ? next.poseTime : time;
+    // 用户动作循环：poseLoop 是姿态序列周期；只作用于 poseAnim/自定义姿态，不改变对象/镜头时间轴。
+    if (o.loop === true && Number(o.poseLoop) > 1e-6) {
+      const period = Number(o.poseLoop);
+      poseSampleTime = ((poseSampleTime % period) + period) % period;
+    }
     // 姿态动画：poseAnim=[{t,poseId}] → 混合权重（在蒙皮时按权重 slerp）
     if (Array.isArray(o.poseAnim) && o.poseAnim.length) {
       const bl = poseBlendAt(BONE_POSES, o.poseAnim, poseSampleTime);
@@ -3574,6 +3587,23 @@ export function applyPlayhead(scene, t) {
   });
   out.__time = time;
   return out;
+}
+
+/**
+ * 蒙皮缓存的统一姿态键：静态姿态、poseAnim、poseKeys、NLA clips 都会改变顶点，
+ * 任一字段漏进缓存键都会让时间轴播放命中旧网格，表现为“关键帧没动”。
+ */
+export function directorPoseCacheKey(ob) {
+  if (!ob) return '';
+  return [
+    ob.poseId || '',
+    ob.bonePose ? JSON.stringify(ob.bonePose) : '',
+    Array.isArray(ob.poseAnim) ? JSON.stringify(ob.poseAnim) : '',
+    Array.isArray(ob.poseKeys) ? JSON.stringify(ob.poseKeys) : '',
+    Array.isArray(ob.clips) ? JSON.stringify(ob.clips) : '',
+    ob.poseBlend ? JSON.stringify(ob.poseBlend) : '',
+    ob.loop === true ? 'loop:' + (Number(ob.poseLoop) || 0) : '',
+  ].join('|');
 }
 
 /** 复位到默认（新建布景时）的机位视角。 */
@@ -4548,6 +4578,10 @@ export function saveUserAction(pid, action) {
       poseId: action.poseId || null,
       bonePose: action.bonePose && Object.keys(action.bonePose).length ? action.bonePose : null,
       poseAnim: Array.isArray(action.poseAnim) && action.poseAnim.length ? action.poseAnim : null,
+      poseKeys: Array.isArray(action.poseKeys) && action.poseKeys.length ? JSON.parse(JSON.stringify(action.poseKeys)) : null,
+      clips: Array.isArray(action.clips) && action.clips.length ? JSON.parse(JSON.stringify(action.clips)) : null,
+      loop: action.loop === true,
+      loopPeriod: Number(action.loopPeriod) > 0 ? Number(action.loopPeriod) : 0,
       duration: Number(action.duration) || 0,
       createdAt: Date.now(),
     };
@@ -4570,6 +4604,14 @@ export function applyUserAction(ob, action) {
   ob.poseId = action.poseId || null;
   ob.bonePose = action.bonePose ? JSON.parse(JSON.stringify(action.bonePose)) : {};
   ob.poseAnim = Array.isArray(action.poseAnim) ? JSON.parse(JSON.stringify(action.poseAnim)) : [];
+  ob.poseKeys = Array.isArray(action.poseKeys) ? JSON.parse(JSON.stringify(action.poseKeys)) : [];
+  ob.clips = Array.isArray(action.clips) ? JSON.parse(JSON.stringify(action.clips)) : [];
+  ob.loop = action.loop === true;
+  ob.poseLoop = Number(action.loopPeriod) > 0 ? Number(action.loopPeriod) : 0;
+  if (!ob.poseKeys.length) delete ob.poseKeys;
+  if (!ob.clips.length) delete ob.clips;
+  if (!ob.loop) delete ob.loop;
+  if (!ob.poseLoop) delete ob.poseLoop;
   return ob;
 }
 export function saveStageDoc(pid, scene) {
@@ -5142,7 +5184,7 @@ export function createDirectorGlRenderer(canvas) {
       if (ob.kind === "model" || ob.kind === "gltf") {
         const asset = gltfAssetOf(ob.assetId);
         if (!asset) continue;
-        const poseKey = (ob.poseId || '') + '|' + (Array.isArray(ob.poseAnim) ? ob.poseAnim.map((p) => p.poseId + '@' + p.t).join(',') + '#' + (Number(ob.animTime) || 0).toFixed(3) : '') + '|' + (ob.bonePose ? Object.keys(ob.bonePose).sort().map((bi) => bi + '=' + (ob.bonePose[bi] || []).map((v) => Number(v).toFixed(3)).join(',')).join(';') : '');
+        const poseKey = directorPoseCacheKey(ob);
         const kk = ob.id + ":" + (ob.clip || "") + ":" + (Number(ob.animTime) || 0).toFixed(3) + ":" + (ob.typeId || "") + ":" + (ob.skinning || "lbs") + ":" + (ob.ik ? JSON.stringify(ob.ik) : "") + ":" + (ob.constraints ? JSON.stringify(ob.constraints) : "") + ":" + poseKey + ":shadowV2";
         let sk = skCache.get(kk);
         if (!sk) {
@@ -5616,7 +5658,7 @@ export function createDirectorGlRenderer(canvas) {
           const asset = gltfAssetOf(ob.assetId);
           if (asset) {
             // 缓存键必须包含「体型 + 骨骼姿态」：姿态一改就得重新蒙皮，否则永远命中旧网格
-            const poseKey = (ob.poseId || '') + '|' + (ob.bonePose ? Object.keys(ob.bonePose).sort().map((bi) => bi + '=' + (ob.bonePose[bi] || []).map((v) => Number(v).toFixed(3)).join(',')).join(';') : '');
+            const poseKey = directorPoseCacheKey(ob);
             const k = ob.id + ':' + (ob.clip || '') + ':' + (Number(ob.animTime) || 0).toFixed(3) + ':' + (ob.typeId || '') + ':' + (ob.skinning || 'lbs') + ':' + (ob.ik ? JSON.stringify(ob.ik) : '') + ':' + (ob.constraints ? JSON.stringify(ob.constraints) : '') + ':' + poseKey;
             let sk = skCache.get(k);
             if (!sk) {

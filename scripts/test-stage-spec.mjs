@@ -86,6 +86,34 @@ const spec = {
   ok(typeof E.saveUserAction === 'function' && typeof E.loadUserActions === 'function', '缺少用户动作存取');
   ok(typeof E.deleteUserAction === 'function', '缺少删除用户动作');
   ok(typeof E.applyUserAction === 'function', '缺少套用用户动作');
+
+  // 自定义动作必须是完整可复用的动作资产：不能只保存静态姿态而丢掉 poseKeys/clips/loop。
+  const actionName = '__pose-key-action-' + Date.now();
+  const actionStore = new Map();
+  globalThis.localStorage = {
+    getItem: (k) => actionStore.has(k) ? actionStore.get(k) : null,
+    setItem: (k, v) => actionStore.set(k, String(v)),
+    removeItem: (k) => actionStore.delete(k),
+  };
+  const poseKeys = [
+    { t: 0, bonePose: { 3: [0, 0, 0] }, ease: 'linear' },
+    { t: 1.5, bonePose: { 3: [0, 0, 0.8] }, ease: 'auto' },
+  ];
+  const clips = [{ name: 'upper', keys: [{ t: 0, bonePose: { 4: [0, 0, 0, 1] } }], blend: 'add', influence: 0.5, loop: true }];
+  const saved = E.saveUserAction('stage-spec-test', {
+    name: actionName, poseId: 'stand', bonePose: { 3: [0, 0, 0] }, poseAnim: [],
+    poseKeys, clips, loop: true, loopPeriod: 1.5, duration: 1.5,
+  });
+  ok(saved && Array.isArray(saved.poseKeys) && saved.poseKeys.length === 2, '用户动作保存应保留 poseKeys');
+  ok(saved && Array.isArray(saved.clips) && saved.clips.length === 1, '用户动作保存应保留 clips');
+  ok(saved && saved.loop === true && saved.loopPeriod === 1.5, '用户动作保存应保留 loop/loopPeriod');
+  const loaded = (E.loadUserActions('stage-spec-test') || []).find((a) => a.name === actionName);
+  ok(loaded && JSON.stringify(loaded.poseKeys) === JSON.stringify(poseKeys), '用户动作加载后的 poseKeys 与保存值不一致');
+  const applied = E.applyUserAction({ id: 'target' }, loaded);
+  ok(applied && JSON.stringify(applied.poseKeys) === JSON.stringify(poseKeys), '套用用户动作应恢复 poseKeys');
+  ok(applied && Array.isArray(applied.clips) && applied.clips.length === 1, '套用用户动作应恢复 clips');
+  ok(applied && applied.loop === true && applied.poseLoop === 1.5, '套用用户动作应恢复 loop/loopPeriod');
+  E.deleteUserAction('stage-spec-test', saved && saved.id);
 }
 
 // ── ⑤ Host 工具 / 客户端接线 ──
@@ -126,6 +154,23 @@ const spec = {
   const rodBack = E.compileStageSpec(rodScene);
   const backKeys = (rodBack.props.find((p) => p.id === 'shaft') || {}).keys;
   ok(Array.isArray(backKeys) && backKeys.length === 4, '道具 keys 往返后应保留（实际 ' + (backKeys ? backKeys.length : 0) + '）');
+}
+
+// ── ⑨ 角色动作字段往返：poseKeys/clips/loop 不能在 spec→scene→spec 时丢失 ──
+{
+  const actionSpec = {
+    duration: 2,
+    characters: [{ id: 'hero', name: 'Hero', pose: 'stand', poseKeys: [
+      { t: 0, bonePose: { 3: [0, 0, 0] }, ease: 'linear' },
+      { t: 2, bonePose: { 3: [0, 0, 1] }, ease: 'auto' },
+    ], clips: [{ keys: [{ t: 0, bonePose: { 4: [0, 0, 0, 1] } }], blend: 'replace', influence: 1, loop: true, t0: 0, t1: 1 }], loop: true, loopPeriod: 2 }],
+  };
+  const actionScene = E.buildStageFromSpec(actionSpec);
+  const actionBack = E.compileStageSpec(actionScene);
+  const heroBack = (actionBack.characters || []).find((c) => c.id === 'hero') || {};
+  ok(Array.isArray(heroBack.poseKeys) && heroBack.poseKeys.length === 2, '角色 poseKeys spec 往返丢失');
+  ok(Array.isArray(heroBack.clips) && heroBack.clips.length === 1, '角色 clips spec 往返丢失');
+  ok(heroBack.loop === true && heroBack.loopPeriod === 2, '角色 loop spec 往返丢失');
 }
 
 if (errs.length) {

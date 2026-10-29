@@ -6,6 +6,7 @@ import fs from 'node:fs';
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const E = await import(pathToFileURL(path.join(ROOT, 'assets/director/engine.js')).href);
 const src = fs.readFileSync(path.join(ROOT, 'client.js'), 'utf8');
+const engineSrc = fs.readFileSync(path.join(ROOT, 'assets/director/engine.js'), 'utf8');
 const errs = [];
 const ok = (c, m) => { if (!c) errs.push(m); };
 
@@ -79,6 +80,14 @@ ok(src.includes('dirAxisLocked'), 'UI 缺少轴约束');
 // ⑦ 轴约束：拖拽中按 X/Y/Z 会改 axis
 ok(/'xyz'\.includes\(String\(e\.key\)\.toLowerCase\(\)\)/.test(src), '轴约束未监听 x/y/z');
 ok(/d\.mode = 'axis';/.test(src), '轴约束未切换到移动模式');
+
+// ⑧ 渲染缓存与时间轴操作不能漏掉 poseKeys/clips
+ok(/poseKeys/.test(engineSrc) && /clips/.test(engineSrc), '引擎源文件缺少 poseKeys/clips 关键字段');
+const cacheBlocks = [...engineSrc.matchAll(/const (?:kk|k) = [^\n]+/g)].map((m) => m[0]).join('\n');
+ok(/poseKey/.test(cacheBlocks) && /directorPoseCacheKey/.test(engineSrc) && /poseKeys/.test(engineSrc), '渲染缓存键未包含 poseKeys（姿态关键帧变化会命中旧蒙皮）');
+ok(/poseKey/.test(cacheBlocks) && /directorPoseCacheKey/.test(engineSrc) && /clips/.test(engineSrc), '渲染缓存键未包含 clips（动作层变化会命中旧蒙皮）');
+ok(/curKeysRef[\s\S]{0,500}poseKeys/.test(src), '时间轴当前关键帧集合未包含 poseKeys');
+ok(/poseKeys[\s\S]{0,800}(splice|filter)/.test(src), '时间轴删除逻辑未处理 poseKeys');
 
 if (errs.length) {
   console.error('✗ 姿态关键帧/轴约束测试未通过（' + errs.length + ' 项）：');

@@ -20,10 +20,12 @@ GitHub Releases carry the same notes in English; maintainer-facing runbooks live
 ### Fixed
 - **Open dropdowns no longer expose node resize arrows underneath.** While a dropdown is open, node resize hit zones are suspended; normal node interaction resumes when it closes.
 - **Video prompts no longer risk a negative-prompt wall.** The merged negative block is capped at 2,400 UTF-8 bytes; overflow is dropped at phrase boundaries rather than cut mid-phrase.
+- **Custom director actions now survive save/apply and playback.** User actions retain `poseKeys`, action clips and loop metadata; applying an action restores those fields, pose loops actually wrap during playback, and the skinning cache invalidates when pose keys or clips change.
 
 ### Internal
 - `test-node-layout.mjs` covers the wheel routing matrix, visible scrollbar contract and dropdown-open resize-handle suspension.
 - `test-skill-panel.mjs` covers the real video lock output, reverse slicing assertions, negative de-duplication/budget behaviour, empty-profile short-circuiting and the handwritten structured-prompt exemption.
+- `test-stage-spec.mjs`, `test-pose-anim.mjs` and `test-pose-keys.mjs` cover action persistence, pose-key interpolation, looping, cache invalidation and timeline editing.
 
 ## [0.19.10] — 2026-10-28
 

@@ -69,9 +69,24 @@ const asset = E.decodeModelPack(JSON.parse(fs.readFileSync(packPath, 'utf8')));
   ok(Math.abs(midH - h0) > 0.1 && Math.abs(midH - h15) > 0.1, '过渡中应有中间形态（实际 ' + midH.toFixed(2) + '）');
 }
 
+// ②b 自定义 poseAnim loop：超过循环周期后必须回到周期内的姿态，而不是停在尾帧
+{
+  const scene = {
+    version: 2,
+    objects: [{ id: 'loop', kind: 'model', assetId: 'xbot', pos: { x: 0, y: 0, z: 0 }, h: 1.78, clip: 'idle', visible: true,
+      poseAnim: [{ t: 0, poseId: 'arms_up' }, { t: 2, poseId: 'flip' }], loop: true, poseLoop: 2 }],
+    cameras: [{ id: 'c', pos: { x: 0, y: 1.4, z: 3.6 }, target: { x: 0, y: 1, z: 0 }, fov: 40, keys: [] }],
+    lights: [], env: {}, activeCameraId: 'c', shot: { duration: 4 },
+  };
+  const at = (t) => E.applyPlayhead(scene, t).objects[0].poseBlend;
+  const a = at(0.5);
+  const b = at(2.5);
+  ok(JSON.stringify(a) === JSON.stringify(b), 'poseAnim loop=2 时 t=2.5 应等价于 t=0.5');
+}
+
 // ③ UI 入口（预设动作片段已按用户要求移除；姿态关键帧在时间轴，面板只保留基础姿态+保存为动作）
 {
-  const cli = fs.readFileSync(path.join(ROOT, 'client.js'), 'utf8');
+const cli = fs.readFileSync(path.join(ROOT, 'client.js'), 'utf8');
   ok(cli.includes("'dir-pose-anim-add'") || cli.includes('dir-pose-key'), '缺少姿态关键帧入口（时间轴）');
   ok(cli.includes("'dir-action-save'"), '缺少「保存为动作」按钮');
   ok(cli.includes("'dir-pose-clear'"), '缺少「清除姿态」按钮');
