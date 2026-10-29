@@ -131,6 +131,7 @@ const SUITE = [
   // --- 打包 ---
   { name: 'check-pack.mjs', desc: '打包清单 + 元数据核对（npm pack --dry-run）' },
   { name: 'test-mode-preset.mjs', desc: '媒体创作模式预设：patch 结构/挂载数量/旧包名清零/persona 完整性 + 工作坊技能 + skills.js 快照可达' },
+  { name: 'test-image-field-retry.mjs', desc: '图片 API 字段校验型 400 自愈：识别函数口径（中英文 11 例+负例）+ generations 主路径已接入' },
 ];
 
 const SKIP_MARKERS = [/跳过/, /\bSKIP\b/i, /缺前置/, /未找到.*canvas\.db/];

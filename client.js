@@ -5646,6 +5646,24 @@ function queueThumb(assetId) {
       if (!v || typeof v !== 'object' || Array.isArray(v)) throw new Error('扩展参数必须是 JSON 对象（如 {"watermark":false}）');
       return v;
     }
+    /**
+     * 厂商字段校验型 400 的自愈：报错文案指出某字段不被支持（如「watermark 不是文生图队列支持的字段」），
+     * 返回该字段名；不匹配则返回 null。识别规则（大小写不敏感，覆盖中英文两种文案习惯）：
+     *   ① 「X 不是 … 支持的字段/参数」（中文，X 与"不是"之间可有限定词）
+     *   ② "X is not (a )?supported (field|parameter)" / "unknown (field|parameter) X" / "unsupported field X"（英文）
+     * 只在 HTTP 400（invalid_request 类）时调用——4xx 之外不剥字段，避免掩盖真实错误。
+     */
+    function unsupportedFieldName(errText) {
+      const t = String(errText || '');
+      const zh = /([A-Za-z_][A-Za-z0-9_]*)\s*不是[^。\n]{0,24}?(支持的字段|支持的参数|有效参数|合法参数|有效字段|合法字段)/.exec(t);
+      if (zh) return zh[1];
+      const en1 = /(?:unsupported|unknown|invalid)\s+(?:field|parameter)\s*["']?([A-Za-z_][A-Za-z0-9_]*)/.exec(t);
+      if (en1) return en1[1];
+      const en2 = /["']?([A-Za-z_][A-Za-z0-9_]*)["']?\s+is not (?:a )?supported (?:field|parameter)/.exec(t);
+      if (en2) return en2[1];
+      return null;
+    }
+
     async function apiImage(prompt, refBlobs, s, opts) {
       if (!s.baseUrl) throw new Error('未配置图片 API');
       // URL 归一化：裸域 → /v1；粘贴完整端点也不会被二次拼接
@@ -5715,11 +5733,27 @@ function queueThumb(assetId) {
       else { const dims = imageDimsFor(opts); body.size = `${dims.w}x${dims.h}`; }
       // 厂商专属扩展参数最后合并（可覆盖以上任何字段）：换厂商不需要改代码
       if (extra) Object.assign(body, extra);
-      const res = await fetchViaProxy(base + '/images/generations', {
+      // 发送（含一次字段校验型 400 的自愈重试）：有些厂商把 /images/generations 转成自己的
+      // 队列式文生图接口，字段表严格（实测某厂商拒绝 watermark 字段）。收到「X 不是…支持的
+      // 字段」类 400 时，剥掉 X 重试一次；仍失败则带上下文抛出。
+      const send = (b, label) => fetchViaProxy(base + '/images/generations', {
         headers: { 'Content-Type': 'application/json', ...auth },
-        body, timeoutMs: upstreamTimeout, label: '图片 API',
+        body: b, timeoutMs: upstreamTimeout, label,
       });
-      if (!res.ok) throw new Error('图片 API HTTP ' + res.status + '：' + res.text.slice(0, 300));
+      let res = await send(body, '图片 API');
+      if (!res.ok && res.status === 400) {
+        const bad = unsupportedFieldName(res.text);
+        if (bad && Object.prototype.hasOwnProperty.call(body, bad)) {
+          const retried = { ...body };
+          delete retried[bad];
+          res = await send(retried, '图片 API(剥字段重试)');
+          if (!res.ok) throw new Error('图片 API HTTP ' + res.status + '（已剥离 ' + bad + ' 重试）：' + res.text.slice(0, 300));
+        } else {
+          throw new Error('图片 API HTTP 400：' + res.text.slice(0, 300));
+        }
+      } else if (!res.ok) {
+        throw new Error('图片 API HTTP ' + res.status + '：' + res.text.slice(0, 300));
+      }
       let j = null;
       try { j = JSON.parse(res.text); } catch { j = null; }
       const d = j && j.data && j.data[0];

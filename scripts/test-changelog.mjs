@@ -114,10 +114,9 @@ if (unrelHasEntries) {
 // OBS-1 硬要求（QA 判据）：清单**手工维护**，绝不从 `git log` 动态生成——动态清单会自证
 // （脚本生成的清单当然自己全中，"缺一必红"退化成摆设）。数量相等 + 逐 sha 关键词命中，两条都拦。
 const COVERAGE = [
-  // 0.19.10 后首个未发版修复：视频风格锁按能力切片、跨层负向词合并限预算、
-  // 手写厂商结构化提示词直通不追加锁。发版时随常规流程清零。
-  { sha: '0b4fe3e', keys: [/Video style-lock/i, /Handwritten vendor-structured/i, /negative/i] },
-  { sha: 'eb72c8b', keys: [/Text and script node bodies scroll/i, /Dropdown scrollbars/i, /resize arrows/i] },
+  // 0.19.11 后首个未发版修复：导演自定义动作的保存/应用/回放（poseKeys 保留）。
+  // 发版时随常规流程清零。
+  { sha: 'e1dec3d', keys: [/Custom director actions now survive/i, /poseKeys/i] },
 ];
 for (const c of COVERAGE) {
   ok(c.keys.some((re) => re.test(coverageText)), '未发版提交 ' + c.sha + ' 在 CHANGELOG（Unreleased 或最新已发布段）里找不到对应记录（补记不全）');
