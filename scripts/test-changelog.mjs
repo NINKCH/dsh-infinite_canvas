@@ -117,6 +117,8 @@ const COVERAGE = [
   // 0.19.11 后首个未发版修复：导演自定义动作的保存/应用/回放（poseKeys 保留）。
   // 发版时随常规流程清零。
   { sha: 'e1dec3d', keys: [/Custom director actions now survive/i, /poseKeys/i] },
+  { sha: '9120f70', keys: [/Image generation recovers/i, /unsupported-field/i, /watermark/i] },
+  { sha: 'c250f7f', keys: [/Cross-rig action clips/i, /双手抱头/i] },
 ];
 for (const c of COVERAGE) {
   ok(c.keys.some((re) => re.test(coverageText)), '未发版提交 ' + c.sha + ' 在 CHANGELOG（Unreleased 或最新已发布段）里找不到对应记录（补记不全）');
