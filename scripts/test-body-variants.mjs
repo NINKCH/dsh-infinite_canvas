@@ -108,7 +108,7 @@ const E = await import(pathToFileURL(path.join(ROOT, 'assets/director/engine.js'
   ok(ap.length === 19, 'awplanet 姿势复刻应 19 套，实际 ' + ap.length);
   for (const p of ap) {
     ok(p.zh && p.en, p.id + ' 缺中英文名');
-    const keys = Object.keys(p.base || {});
+    const keys = [...new Set(Object.keys(p.base || {}).concat((p.dirs || []).map((d) => String(d.bone || ''))))];
     ok(keys.length >= 2, p.id + ' base 骨数过少');
     for (const k of keys) ok(/^(Spine|Spine1|Spine2|Neck|Head|Hips|Left|Right)/.test(k), p.id + ' 骨名不合 Mixamo 规范：' + k);
   }

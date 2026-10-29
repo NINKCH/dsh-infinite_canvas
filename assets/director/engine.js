@@ -958,14 +958,16 @@ export const BONE_POSES = [
       RightForeArm: [-0.24, -0.05, 0.22]
     } },
   { id: 'ap_hands_head', zh: '双手抱头', en: 'Hands on head', rootY: 0,
-    // 来源：awplanet DIRECTOR_POSE_RECIPES（加法欧拉）→ 本表 base 四元数（同语义）
+    // 方向约束替代旧的固定欧拉：肘向上抬，前臂向头顶收拢，手落在头附近而不是髋外侧。
     base: {
-      Spine: [-0.08, 0, 0],
-      LeftArm: [-0.84, 0.18, 0.82],
-      RightArm: [-0.84, -0.18, -0.82],
-      LeftForeArm: [-0.54, 0, -1.12],
-      RightForeArm: [-0.54, 0, 1.12]
-    } },
+      Spine: [-0.04, 0, 0]
+    },
+    dirs: [
+      { bone: 'LeftArm', to: [0.15, 1.0, 0.10] },
+      { bone: 'RightArm', to: [-0.15, 1.0, 0.10] },
+      { bone: 'LeftForeArm', to: [-0.10, -0.05, 0.25] },
+      { bone: 'RightForeArm', to: [0.10, -0.05, 0.25] }
+    ] },
   { id: 'ap_talk_open', zh: '说话 · 张开', en: 'Talk open', rootY: 0,
     // 来源：awplanet DIRECTOR_POSE_RECIPES（加法欧拉）→ 本表 base 四元数（同语义）
     base: {
@@ -1585,14 +1587,20 @@ export function decodeModelPack(pack, actionClips) {
     rawHeight: pack.rawHeight,
     verts: pack.verts, tris: pack.tris,
   };
+  // 骨架来源：动作轨道的 node 索引与局部轴向只在同源骨架上成立。
+  // 旧包没有 rig 字段时按资产 id 兜底；Explorer 是 awplanet 动作库的源骨架。
+  asset.rig = String(pack.rig || pack.sourceRig || (pack.id === 'explorer' ? 'awplanet-explorer' : pack.id || 'default'));
   // 动作库（内置成熟动作：three.js AnimationClip 转 tracks，base64 Float32）
   if (Array.isArray(actionClips)) {
     for (const c of actionClips) {
       if (!c || !c.name || !Array.isArray(c.tracks)) continue;
+      // 异骨架动作绝不能盲加：node 索引不同、局部轴向不同，套错骨架会整身扭曲。
+      if (c.sourceRig && c.sourceRig !== asset.rig) continue;
       // 只追加同名不存在的动作：内置片段（待机/行走/奔跑/潜行）保持原样，绝不被覆盖
       if (asset.animations.some((a) => a.name === c.name)) continue;
       asset.animations.push({
         name: c.name, duration: Number(c.duration) || 0, label: c.label || c.name, loop: !!c.loop,
+        sourceRig: c.sourceRig || '',
         tracks: c.tracks.map((t) => ({ node: t.node, path: t.path, times: b64ToF32(t.times), vals: b64ToF32(t.vals) })),
       });
     }
@@ -1608,6 +1616,7 @@ export function decodeActionClips(list) {
     label: c.label || c.name || '',
     duration: Number(c.duration) || 0,
     loop: !!c.loop,
+    sourceRig: c.sourceRig ? String(c.sourceRig) : '',
     tracks: (c.tracks || []).map((t) => ({ node: t.node, path: t.path, times: t.times, vals: t.vals })),
   }));
 }

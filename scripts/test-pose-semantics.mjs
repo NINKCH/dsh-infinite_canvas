@@ -100,6 +100,25 @@ console.log('静止: 高=' + rest.h.toFixed(2) + ' maxY=' + rest.maxY.toFixed(2)
   ok(b.maxZ - b.minZ > 0.45, '格斗架势应有前后脚站架（Z 跨度 ' + (b.maxZ - b.minZ).toFixed(2) + '）');
 }
 
+// ⑥b 双手抱头：双手应收拢到头部上方/附近，而不是停在骨盆外侧
+{
+  const sk = skin('ap_hands_head');
+  const joints = {};
+  for (const [kw, names2] of [['LeftHand', /:LeftHand$/i], ['RightHand', /:RightHand$/i], ['Head', /:Head$/i]]) {
+    const b = asset.bones.find((x) => names2.test(x.name));
+    if (!b) continue;
+    const m = E.applyBonePoseToLocal(asset, 0, E.resolveBonePose(asset, 'ap_hands_head'), null, null, 0, null);
+    const wm = E.localWorldMatrices(asset, m);
+    const mm = wm[b.nodeIdx];
+    joints[kw] = [mm[12], mm[13], mm[14]];
+  }
+  ok(joints.LeftHand && joints.RightHand, '双手抱头缺少 Hand 骨骼位置');
+  ok(joints.LeftHand[1] > 1.45 && joints.RightHand[1] > 1.45,
+    '双手抱头的手应抬到头部高度（y ' + joints.LeftHand[1].toFixed(2) + '/' + joints.RightHand[1].toFixed(2) + '）');
+  ok(Math.abs(joints.LeftHand[0]) < 0.25 && Math.abs(joints.RightHand[0]) < 0.25,
+    '双手抱头的手应收拢到头部附近（x ' + joints.LeftHand[0].toFixed(2) + '/' + joints.RightHand[0].toFixed(2) + '）');
+}
+
 // ⑦ 关键回归：姿态在「有动画」与「无动画」下都成立（之前 bug：动画一开姿态失效）
 for (const id of ['arms_up', 'crouch', 'flip', 'fly']) {
   const withAnim = bounds(skin(id, 'idle'));

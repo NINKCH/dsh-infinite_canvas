@@ -31,16 +31,37 @@ for (const it of manifest.clips) {
   clips.push(j);
 }
 
-// ② 资产加载动作库后，clipByName 能找到
+// ② 资产加载动作库后，只能加载骨架兼容的动作。
+// awplanet-explorer 动作的局部坐标与 xbot 不同；直接套到 xbot 会整身扭曲。
+// 这类动作必须只出现在同源骨架上（Explorer），不能因为名字不重复就盲加进 xbot。
 const pack = JSON.parse(fs.readFileSync(path.join(ROOT, 'assets/director/models/xbot.json'), 'utf8'));
 const asset = E.decodeModelPack(pack, E.decodeActionClips(clips));
+const compatibleWith = (targetRig, clip) => !clip.sourceRig || clip.sourceRig === targetRig;
 for (const it of manifest.clips) {
   const c = asset.clipByName(it.name);
-  ok(!!c, '资产缺少动作 ' + it.name);
-  if (c) ok(c.tracks.length >= 40 && c.duration > 0.1, it.name + ' 加载后轨道/时长异常');
+  const compatible = compatibleWith('xbot', it);
+  if (compatible) {
+    ok(!!c, '兼容动作缺失：' + it.name);
+    if (c) ok(c.tracks.length >= 40 && c.duration > 0.1, it.name + ' 加载后轨道/时长异常');
+  } else {
+    const c2 = asset.clipByName(it.name);
+    ok(!(c2 && c2.sourceRig === it.sourceRig), '异骨架动作库版本被错误加载到 xbot：' + it.name + '（sourceRig=' + (it.sourceRig || '-') + '）');
+  }
 }
 
-// ③ 真实播放：skinModel 逐帧采样，必须有运动且无跳变
+// Explorer 同源骨架必须能加载全部 awplanet-explorer 动作
+const explorerPackPath = path.join(ROOT, 'assets/director/models/explorer.json');
+if (fs.existsSync(explorerPackPath)) {
+  const explorerPack = JSON.parse(fs.readFileSync(explorerPackPath, 'utf8'));
+  const explorer = E.decodeModelPack(explorerPack, E.decodeActionClips(clips));
+  for (const it of manifest.clips.filter((x) => x.sourceRig === 'awplanet-explorer')) {
+    const c = explorer.clipByName(it.name);
+    ok(!!c, 'Explorer 缺少同源动作 ' + it.name);
+    if (c) ok(c.tracks.length >= 40 && c.duration > 0.1, it.name + ' 在 Explorer 上加载后轨道/时长异常');
+  }
+}
+
+// ③ 真实播放：只测 xbot 骨架兼容动作；异骨架动作已在上面拒绝
 for (const it of manifest.clips) {
   const c = asset.clipByName(it.name);
   if (!c) continue;
