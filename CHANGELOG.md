@@ -8,6 +8,7 @@ GitHub Releases carry the same notes in English; maintainer-facing runbooks live
 
 ### Fixed
 - **Rolls back the unverified moyu image-field experiment from 0.19.14** (live-tested: the generic path was already accepted; see 0.19.14 notes for evidence).
+- **Relay video requests retry with simple image fields when only the image-proxy URL shape is rejected.** The generic OpenAI-compatible path keeps its original request first; if the response explicitly says the image proxy needs an http(s) URL, it retries once with `input_reference` for a lone frame or `images` string data-URLs for reference images, without adding a vendor adapter.
 
 ### Added
 - (从 0.19.14 顺延) 建点布局代码级强控制与 moyu 实验回滚说明见 0.19.14 段。
