@@ -6760,6 +6760,13 @@ function queueThumb(assetId) {
       // moyu 类中转站：OpenAI 风格但图片字段用 input_reference / images:string[]（dataURL 直接放），
       // 不收 [{url,role}] 对象数组；resolution 用大写枚举；无 generate_audio/output_format 参数。
       const isMoyuFlavor = /moyu\.info/i.test(base);
+      // moyu 的图片代理接受「裸 base64」或「http(s) URL」，但【不认 data: 前缀】——
+      // dataURL 的前缀会让它的 URL 校验失败（0.19.13 实测 502「需要 http(s) 接口 url」）。
+      const moyuImagePayload = (dataUrl) => {
+        const t = String(dataUrl || '');
+        const m = /^data:[^;]+;base64,(.+)$/.exec(t);
+        return m ? m[1] : t;
+      };
       const headers = { 'Content-Type': 'application/json', ...(s.apiKey ? { Authorization: 'Bearer ' + s.apiKey } : {}) };
       // 尾帧+参考图同连（跨镜衔接）→ 尾帧降级为第一张衔接参考图（first_frame/reference_image 互斥），标注写在提示词里
       const vRefs = o.hardFrame ? [] : (o.refs || []).slice(0, 8);
@@ -6777,12 +6784,12 @@ function queueThumb(assetId) {
       // 首帧图生视频：构图以首帧为准——Seedance 系要求首帧模式必须 ratio=adaptive（仅纯首帧模式）
       if (frameBlob && !downgrade) {
         body.ratio = 'adaptive';
-        if (isMoyuFlavor) body.input_reference = await blobToDataUrlScaled(frameBlob);
+        if (isMoyuFlavor) body.input_reference = moyuImagePayload(await blobToDataUrlScaled(frameBlob));
         else try { body.image = await blobToDataUrlScaled(frameBlob); } catch { /* 忽略首帧编码失败 */ }
       } else if (vRefs.length) {
         const imgs = downgrade ? [frameBlob].concat(vRefs) : vRefs;
         body.images = isMoyuFlavor
-          ? await Promise.all(imgs.map((b) => blobToDataUrlScaled(b)))
+          ? await Promise.all(imgs.map(async (b) => moyuImagePayload(await blobToDataUrlScaled(b))))
           : isOpenaiVideo
             ? await Promise.all(imgs.map(async (b) => ({ url: await blobToDataUrlScaled(b), role: 'reference_image' })))
             : await Promise.all(imgs.map((b) => blobToDataUrlScaled(b)));

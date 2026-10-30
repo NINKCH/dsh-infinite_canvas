@@ -37,11 +37,11 @@ const apiVideoIdx = src.indexOf('async function apiVideo');
 ok(videoIdx > apiVideoIdx, 'isMoyuFlavor 应定义在 apiVideo（视频）作用域内（位于 apiImage 之后即不影响图片路径）');
 
 // ---------- 2) 首帧分支：moyu → input_reference ----------
-ok(/if \(frameBlob && !downgrade\) \{[\s\S]{0,200}?body\.input_reference = await blobToDataUrlScaled\(frameBlob\);/.test(src), 'moyu 首帧未走 input_reference');
+ok(/if \(isMoyuFlavor\) body\.input_reference = moyuImagePayload\(await blobToDataUrlScaled\(frameBlob\)\);/.test(src), 'moyu 首帧未走 input_reference（裸 base64）');
 ok(/else try \{ body\.image = await blobToDataUrlScaled\(frameBlob\); \} catch/.test(src), '非 moyu 首帧的 body.image 原行为丢失');
 
 // ---------- 3) 参考图分支：moyu → images 纯字符串数组 ----------
-ok(/body\.images = isMoyuFlavor[\s\S]{0,120}?await Promise\.all\(imgs\.map\(\(b\) => blobToDataUrlScaled\(b\)\)\)/.test(src), 'moyu 参考图未走纯字符串数组');
+ok(/body\.images = isMoyuFlavor[\s\S]{0,160}?moyuImagePayload\(await blobToDataUrlScaled\(b\)\)\)/.test(src), 'moyu 参考图未走纯字符串数组（裸 base64）');
 ok(/: isOpenaiVideo\s*\? await Promise\.all\(imgs\.map\(async \(b\) => \(\{ url: await blobToDataUrlScaled\(b\), role: 'reference_image' \}\)\)\)/.test(src), '非 moyu openai 的 [{url,role}] 结构丢失（JUAI 回归）');
 
 // ---------- 4) duration 夹取 + moyu resolution 大写 ----------
@@ -51,6 +51,7 @@ ok(/if \(isMoyuFlavor\) body\.resolution = String\(o\.resolution \|\| '1080P'\)\
 // ---------- 5) moyu 下不发 generate_audio / output_format ----------
 ok(/if \(!isMoyuFlavor\) \{[\s\S]{0,200}?generate_audio = true;[\s\S]{0,200}?output_format/.test(src), 'moyu 分支未屏蔽 generate_audio/output_format');
 
+ok(/const moyuImagePayload = \(dataUrl\) =>/.test(src), '缺 moyuImagePayload（dataURL 剥前缀 helper）');
 // ---------- 6) 轮询字段覆盖 ----------
 ok(/j\.data && j\.data\.result_url,/.test(src), 'extractVideoUrl 未覆盖 data.result_url');
 ok(/st\.data && \(st\.data\.fail_reason/.test(src), 'taskFailureOf 未覆盖 data.fail_reason');
