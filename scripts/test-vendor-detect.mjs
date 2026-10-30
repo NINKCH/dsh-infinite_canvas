@@ -1,16 +1,14 @@
 #!/usr/bin/env node
 /**
- * IC-03 回归：视频厂商识别 / 网关前缀归一化 / 未知厂商降级提示。
+ * IC-03 回归：视频厂商路由——**厂商格式（设置下拉）是唯一权威**。
  *
- * 背景（IC-03 卡）：vendor 探测与前缀归一化这块历史上改一次崩一次
- * （0.17.15 前后十余个 fix 提交），从未有单测；未知厂商此前直接
- * `throw 暂未适配的视频厂商格式`，现在降级走 OpenAI 兼容通用链并给节点提示。
- *
- * 断言（≥3 已知前缀 + 1 未知前缀 + 端点归一化 + 降级提示源码契约）：
- *   1) detectVideoVendor：模型名优先（wan/h3/kling/... 12 家）、URL 兜底、显式 vendor 必胜
- *   2) gatewayPrefixFor：relayrouter → /alibailian；未知网关 → ''
- *   3) wanEndpoints：官方域 / 网关裸域 / 网关带前缀 / 完整端点 四种写法 + 拖尾 /v1 清理
- *   4) apiVideo：未知厂商不再 throw（源码级），且 warn 提示含降级说明
+ * 2026-10-30 修订：移除"模型名猜测路由"。此前 wan3.0-video（moyu 中转站）因模型名
+ * 命中 wan 正则被改道 DashScope 官方格式，中转站解析不到图字段 → 502 三连。
+ * 新口径：
+ *   ① 显式 vendor（设置下拉）= 唯一权威，模型名绝不参与；
+ *   ② URL 特征兜底（用户填的 URL 也是显式配置的一部分，且设置卡会回填 vendor）；
+ *   ③ 兜底 openai。
+ * 保留：gatewayPrefixFor / wanEndpoints / apiVideo 未知厂商降级提示（原有断言不松）。
  *
  * 运行：node scripts/test-vendor-detect.mjs   退出码 0 = 通过；1 = 失败
  */
@@ -35,138 +33,65 @@ const fakeReact = {
 };
 const lsStub = { _m: new Map(), getItem(k) { return this._m.has(k) ? this._m.get(k) : null; }, setItem(k, v) { this._m.set(k, String(v)); }, removeItem(k) { this._m.delete(k); }, clear() { this._m.clear(); } };
 const sandbox = {
-  window: { devicePixelRatio: 1, innerWidth: 1600, innerHeight: 900, addEventListener: noop, removeEventListener: noop, AudioContext: undefined, webkitAudioContext: undefined, __DSH_IC_SMOKE__: true, localStorage: lsStub },
+  window: { devicePixelRatio: 1, innerWidth: 1600, innerHeight: 900, addEventListener: noop, removeEventListener: noop, matchMedia: () => ({ matches: false, addEventListener: noop }), localStorage: lsStub, location: { href: 'http://localhost/' }, AudioContext: undefined, webkitAudioContext: undefined, __DSH_IC_SMOKE__: true },
   document: {
     createElement: () => ({ style: {}, dataset: {}, children: [], appendChild: noop, remove: noop, setAttribute: noop, addEventListener: noop, removeEventListener: noop, getBoundingClientRect: () => ({ left: 0, top: 0, right: 100, bottom: 100, width: 100, height: 100 }) }),
-    createTextNode: (t) => ({ nodeValue: String(t) }),
-    head: { appendChild: noop }, body: { appendChild: noop, removeChild: noop }, documentElement: {},
-    getElementById: () => null, querySelector: () => null, querySelectorAll: () => [], elementFromPoint: () => null, activeElement: null, addEventListener: noop,
+    addEventListener: noop, removeEventListener: noop, body: { appendChild: noop }, head: { appendChild: noop }, documentElement: { style: {} },
   },
-  localStorage: lsStub,
-  navigator: { userAgent: 'test-vendor', clipboard: { writeText: async () => {} } },
-  location: { href: 'http://127.0.0.1:1/', reload: noop },
-  fetch: async () => ({ ok: true, status: 200, text: async () => '{}', json: async () => ({}) }),
-  requestAnimationFrame: noop, cancelAnimationFrame: noop,
-  setTimeout, clearTimeout, setInterval, clearInterval, queueMicrotask,
-  console, performance, Blob, URL, AbortController, AbortSignal, structuredClone, crypto,
-  Image: class { constructor() { this.src = ''; } },
-  Audio: class { constructor() { this.src = ''; } },
-  FileReader: class { readAsDataURL() {} readAsArrayBuffer() {} readAsText() {} },
-  CustomEvent: class { constructor(t, i) { this.type = t; this.detail = i && i.detail; } },
-  Event: class { constructor(t) { this.type = t; } },
-  ResizeObserver: class { observe() {} unobserve() {} disconnect() {} },
-  getComputedStyle: () => ({ getPropertyValue: () => '' }),
-  matchMedia: () => ({ matches: false, addEventListener: noop, removeEventListener: noop }),
-  indexedDB: { open: () => ({ set onupgradeneeded(v) { void v; }, set onsuccess(v) { void v; }, set onerror(v) { void v; } }) },
-  alert: noop, confirm: () => false, prompt: () => null,
+  localStorage: lsStub, navigator: { language: 'zh-CN', userAgent: 'node' }, location: { href: 'http://localhost/' },
+  setTimeout, clearTimeout, setInterval: (f) => setTimeout(f, 0), clearInterval: noop, queueMicrotask,
+  fetch: () => Promise.reject(new Error('no-net')), console,
+  performance: { now: () => Date.now() }, requestAnimationFrame: (f) => setTimeout(f, 0), cancelAnimationFrame: noop,
+  TextEncoder, TextDecoder, URL, URLSearchParams, Promise, JSON, Math, Date, Number, String, Array, Object, Map, Set, Error, RegExp, parseInt, parseFloat, isNaN, isFinite, Buffer, Blob: class {},
 };
 sandbox.globalThis = sandbox;
+sandbox.window.globalThis = sandbox.window;
 vm.createContext(sandbox);
 let mod = null;
 sandbox.window.__ModuleLoader__ = { load(def) { mod = def; } };
-vm.runInContext(src, sandbox, { filename: 'client.js' });
-if (!mod) { console.error('✗ client.js 顶层执行失败'); process.exit(1); }
-const plugin = mod.factory((name) => { if (name === 'react') return fakeReact; throw new Error('意外 require: ' + name); });
-plugin.apply({ effect(fn) { fn(); }, locale: { register: noop, subscribe: () => () => {} }, slots: { inject(n, cb) { cb(); }, register: () => () => {} } });
-
-const V = sandbox.window.__DSH_IC_VENDOR__;
-ok(!!V && typeof V.detectVideoVendor === 'function', '冒烟缝隙未暴露 __DSH_IC_VENDOR__（IC-03 出口缺失）');
-if (V) {
-  const { detectVideoVendor, gatewayPrefixFor, wanEndpoints, vendorBase, VIDEO_REF_CAPS } = V;
-
-  // ---------------- 1) detectVideoVendor：模型名优先 ----------------
-  // 已知前缀（模型名能识别的，远超 3 家——这里全表过一遍，防「改一次崩一次」）
-  const modelCases = [
-    ['wan2.2-t2v-plus', 'wan'], ['wanx2.1-t2v-turbo', 'wan'], ['万相-xxx', 'wan'],
-    ['minimax-h3-01', 'minimaxv2'], ['hailuo-03-preview', 'minimaxv2'],
-    ['kling-v2-6', 'kling'], ['klingai-omni', 'kling'],
-    ['minimax-video', 'minimax'], ['hailuo-standard', 'minimax'],
-    ['vidu-q2', 'vidu'], ['runway-gen4', 'runway'], ['veo-3.0-fast', 'veo'],
-    ['luma-ray-2', 'luma'], ['ray-2-flash', 'luma'], ['pixverse-v4', 'pixverse'],
-    ['stable-video-diffusion', 'stability'], ['svd-xt', 'stability'],
-    ['doubao-seedance-2-0-260128', 'seedance'],
-  ];
-  for (const [model, want] of modelCases) {
-    const got = detectVideoVendor({ model, url: 'https://gw.example.com' });
-    ok(got === want, `模型名「${model}」应识别为 ${want}，实际 ${got}`);
-  }
-  // URL 兜底
-  const urlCases = [
-    ['https://dashscope.aliyuncs.com/api/v1', 'wan'],
-    ['https://api.klingai.com/v1', 'kling'],
-    ['https://api.minimaxi.com/v1', 'minimax'],
-    ['https://api.vidu.com/v1', 'vidu'],
-    ['https://api.dev.runwayml.com/v1', 'runway'],
-    ['https://generativelanguage.googleapis.com/v1', 'veo'],
-    ['https://api.lumalabs.ai/v1', 'luma'],
-    ['https://app-api.pixverse.ai/v1', 'pixverse'],
-    ['https://ark.cn-beijing.volces.com/api/v3/contents/generations/tasks', 'seedance'],
-  ];
-  for (const [url, want] of urlCases) {
-    const got = detectVideoVendor({ model: '', url });
-    ok(got === want, `URL「${url}」应识别为 ${want}，实际 ${got}`);
-  }
-  // 显式 vendor 必胜（模型名/URL 都骗不动）
-  ok(detectVideoVendor({ vendor: 'kling', model: 'wan2.2', url: 'https://dashscope.aliyuncs.com' }) === 'kling', '显式 vendor 应优先于模型名/URL');
-  // 未知前缀 → openai（不再 throw 的前提：识别层只归 openai，降级由 apiVideo 处理）
-  ok(detectVideoVendor({ model: 'gw-x-unheard-vendor-9', url: 'https://gw.example.com' }) === 'openai', '未知前缀应归 openai（通用链）');
-  ok(detectVideoVendor(null) === 'openai', '空配置应归 openai');
-  ok(detectVideoVendor({ model: 'minimax-h3-01', url: 'https://dashscope.aliyuncs.com' }) === 'minimaxv2', 'H3 判定必须先于 V1 minimax（顺序回归）');
-  console.log('  ✓ detectVideoVendor：' + modelCases.length + ' 组模型名 + ' + urlCases.length + ' 组 URL + 显式优先 + H3 先于 V1');
-
-  // ---------------- 2) gatewayPrefixFor ----------------
-  ok(gatewayPrefixFor('api.relayrouter.ai', 'wan') === '/alibailian', 'relayrouter 的 wan 前缀应为 /alibailian');
-  ok(gatewayPrefixFor('gw.relayrouter.ai', 'wan') === '/alibailian', '子域也应命中');
-  ok(gatewayPrefixFor('gw.example.com', 'wan') === '', '未知网关应返回空（不猜）');
-  ok(gatewayPrefixFor('api.relayrouter.ai', 'kling') === '', '已知网关的未知厂商前缀应为空');
-  console.log('  ✓ gatewayPrefixFor：已知网关/子域/未知网关/未知厂商');
-
-  // ---------------- 3) wanEndpoints：四种写法归一化 ----------------
-  const we = (u) => wanEndpoints(u);
-  let e = we('https://dashscope.aliyuncs.com');
-  ok(e.submitUrl === 'https://dashscope.aliyuncs.com/api/v1/services/aigc/video-generation/video-synthesis', '官方裸域应拼官方端点：' + e.submitUrl);
-  e = we('https://api.relayrouter.ai');
-  ok(e.submitUrl.startsWith('https://api.relayrouter.ai/alibailian/api/v1/'), '网关裸域应自动补厂商前缀：' + e.submitUrl);
-  e = we('https://api.relayrouter.ai/alibailian');
-  ok(e.submitUrl.startsWith('https://api.relayrouter.ai/alibailian/api/v1/'), '网关带前缀应原样保留：' + e.submitUrl);
-  e = we('https://api.relayrouter.ai/alibailian/api/v1/services/aigc/video-generation/video-synthesis');
-  ok(e.submitUrl.startsWith('https://api.relayrouter.ai/alibailian/api/v1/'), '完整端点应反推出前缀：' + e.submitUrl);
-  e = we('https://dashscope.aliyuncs.com/v1/');
-  ok(e.submitUrl === 'https://dashscope.aliyuncs.com/api/v1/services/aigc/video-generation/video-synthesis', '拖尾 /v1 应剥掉：' + e.submitUrl);
-  ok(we('https://dashscope.aliyuncs.com').taskUrl('T1') === 'https://dashscope.aliyuncs.com/api/v1/tasks/T1', 'taskUrl 拼接错误');
-  console.log('  ✓ wanEndpoints：官方域/网关裸域/带前缀/完整端点/拖尾 /v1/taskUrl');
-
-  // ---------------- vendorBase ----------------
-  ok(vendorBase('https://api.klingai.com/v1/', 'https://x') === 'https://api.klingai.com', '拖尾 /v1 应剥掉');
-  ok(vendorBase('', 'https://api.klingai.com') === 'https://api.klingai.com', '空 base 应回退厂商预设');
-  ok(vendorBase('https://api.klingai.com/api/v1', '') === 'https://api.klingai.com', '/api/v1 也应剥掉');
-
-  // ---------------- VIDEO_REF_CAPS 全覆盖厂商 ----------------
-  const capsVendors = ['wan', 'minimaxv2', 'openai', 'seedance', 'kling', 'vidu', 'runway', 'veo', 'luma', 'pixverse', 'minimax', 'stability'];
-  for (const v of capsVendors) ok(VIDEO_REF_CAPS[v] && Number.isInteger(VIDEO_REF_CAPS[v].img) && VIDEO_REF_CAPS[v].img >= 0, 'VIDEO_REF_CAPS 缺厂商 ' + v);
-  // img:0 厂商 = 协议无实体参考图入口（kling/vidu/… 各 runner 只收首帧+提示词）——
-  // 曾误标 img:1：恰 1 张时静默弃用不告警、≥2 张时谎报"只使用前 1 张"实际 0 张
-  const zeroVendors = Object.keys(VIDEO_REF_CAPS).filter((v) => VIDEO_REF_CAPS[v].img === 0);
-  ok(zeroVendors.length === 8, 'img:0 厂商数量异常（应为 8 家，实际 ' + zeroVendors.length + '：' + zeroVendors.join(',') + '）');
-  console.log('  ✓ vendorBase + VIDEO_REF_CAPS（' + capsVendors.length + ' 家全覆盖，其中 img:0 ' + zeroVendors.length + ' 家）');
+try {
+  vm.runInContext(src, sandbox, { filename: 'client.js' });
+  const plugin = mod.factory((name) => { if (name === 'react') return fakeReact; throw new Error('意外 require: ' + name); });
+  plugin.apply({ effect(fn) { fn(); }, locale: { register: noop, subscribe: () => () => {} }, slots: { inject(n, cb) { cb(); }, register: () => () => {} }, sidebarRightTabs: { register: () => () => {} } });
+} catch (e) {
+  console.error('✗ client.js 顶层执行失败：' + e.message);
+  process.exit(1);
 }
+const SEG = sandbox.window.__DSH_IC_VENDOR__;
+if (!SEG || typeof SEG.detectVideoVendor !== 'function') {
+  console.error('✗ 未暴露 window.__DSH_IC_VENDOR__（vendor 识别的测试缝隙缺失）');
+  process.exit(1);
+}
+const detect = SEG.detectVideoVendor;
 
-// ---------------- 4) apiVideo 降级：源码级契约 ----------------
-const apiVideoBody = (() => {
-  const start = src.indexOf('async function apiVideo(');
-  const next = src.indexOf('\n    function b64Pure', start);
-  return src.slice(start, next > start ? next : start + 9000);
-})();
-ok(!/throw new Error\('暂未适配的视频厂商格式/.test(apiVideoBody), 'apiVideo 仍保留「暂未适配」硬失败（IC-03 未生效）');
-ok(/未识别到「/.test(apiVideoBody) && /按 OpenAI 兼容格式发送/.test(apiVideoBody), '未知厂商降级缺少可见提示');
-ok(/vendorDowngraded/.test(apiVideoBody), '降级路径缺标记变量（静默换协议回归）');
-console.log('  ✓ apiVideo：未知厂商降级 + 提示 + 标记（源码级）');
+// ---------------- ① 显式 vendor = 唯一权威（模型名绝不改道） ----------------
+ok(detect({ vendor: 'openai', model: 'wan3.0-video', url: '' }) === 'openai', '显式 openai：wan3.0-video 模型名不得改道 wan（moyu 事故回归）');
+ok(detect({ vendor: 'wan', model: 'gpt-4o', url: '' }) === 'wan', '显式 wan：任何模型名都走 wan');
+ok(detect({ vendor: 'kling', model: 'wan3.0-video' }) === 'kling', '显式 kling：wan3.0-video 不得改道');
+ok(detect({ vendor: 'seedance', model: 'wan3.0-video' }) === 'seedance', '显式 seedance：wan3.0-video 不得改道');
+ok(detect({ vendor: 'openai', model: 'kling-v2' }) === 'openai', '显式 openai：kling 模型名不得改道 kling');
 
-// ---------------- 汇总 ----------------
+// ---------------- ② URL 特征兜底（旧配置 vendor 为空的过渡） ----------------
+ok(detect({ vendor: '', model: '', url: 'https://dashscope.aliyuncs.com' }) === 'wan', 'URL 兜底：dashscope → wan');
+ok(detect({ vendor: '', model: '', url: 'https://api.klingai.com' }) === 'kling', 'URL 兜底：klingai → kling');
+ok(detect({ vendor: '', model: '', url: 'https://www.moyu.info/v1/video/generations' }) === 'openai', 'URL 兜底：无特征的中转站 → openai（moyu 默认）');
+ok(detect({ vendor: '', model: '', url: '' }) === 'openai', 'URL 兜底：全空 → openai');
+
+// ---------------- ③ protocol=seedance 保留 ----------------
+ok(detect({ vendor: '', model: '', protocol: 'seedance' }) === 'seedance', 'protocol=seedance → seedance');
+ok(detect({ vendor: '', model: '', url: 'https://ark.cn-beijing.volces.com/api/v3/contents/generations/tasks' }) === 'seedance', 'URL 兜底：contents/generations/tasks → seedance');
+
+// ---------------- ④ 空对象/缺参 ----------------
+ok(detect(null) === 'openai', 'null → openai');
+ok(detect({}) === 'openai', '空对象 → openai');
+
+// ---------------- ⑤ 源码契约：模型名正则已移除 ----------------
+ok(!/wanx\|万相/.test(src), 'detectVideoVendor 不应再有 wan 模型名正则（模型名路由已移除）');
+ok(/if \(s\.vendor\) return s\.vendor;/.test(src), '显式 vendor 优先必须保留');
+
 if (errs.length) {
-  console.error('\n✗ 厂商识别回归未通过（' + errs.length + '）：');
+  console.error('✗ 厂商识别回归未通过（' + errs.length + '）：');
   for (const e of errs) console.error('  - ' + e);
   process.exit(1);
 }
-console.log('\n✓ 视频厂商识别 / 前缀归一化回归全部通过（IC-03）');
-process.exit(0); // client.js 的 3s 轮询 interval 会挂住事件循环，显式退出
+console.log('✓ 厂商识别回归通过：显式 vendor 唯一权威 / 模型名路由已移除 / URL 兜底保留 / moyu 默认 openai');

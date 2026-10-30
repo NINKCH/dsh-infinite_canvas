@@ -5979,6 +5979,7 @@ function queueThumb(assetId) {
         j.video && j.video.url,
         j.output && (j.output.url || j.output.video_url),
         j.result && (j.result.url || j.result.video_url),
+        j.data && j.data.result_url,
         // OpenAI 风格视频任务（如 JUAI）：完成响应把结果放在 metadata.url
         j.metadata && (j.metadata.url || j.metadata.video_url),
         Array.isArray(j.data) && j.data[0] && (j.data[0].url || j.data[0].video_url),
@@ -6263,22 +6264,12 @@ function queueThumb(assetId) {
     }
     function detectVideoVendor(s) {
       if (!s) return 'openai';
+      // 厂商格式（设置下拉）= 唯一权威路由：选了什么就用什么，模型名绝不参与。
+      // 曾经按模型名猜（wan3.0-video → 误走 DashScope 官方格式），中转站收不到认识的字段直接 502。
       if (s.vendor) return s.vendor;
       const url = String(s.url || '').toLowerCase();
-      const model = String(s.model || '').toLowerCase();
-      // 模型名优先：第三方网关（relayrouter 等）的 URL 看不出真实厂商，只有模型名能说明
-      if (/wanx|万相|(^|[^a-z])wan(\d|[-_]\d|x)/.test(model)) return 'wan';
-      if (/minimax-?h3|hailuo-?03/.test(model)) return 'minimaxv2'; // H3 走 V2 协议（必须先于 V1 minimax 判定）
-      if (/(^|[^a-z])kling/.test(model)) return 'kling';
-      if (/minimax|hailuo/.test(model)) return 'minimax';
-      if (/vidu/.test(model)) return 'vidu';
-      if (/runway/.test(model)) return 'runway';
-      if (/(^|[^a-z])veo/.test(model)) return 'veo';
-      if (/luma|ray[-_]?[12]/.test(model)) return 'luma';
-      if (/pixverse/.test(model)) return 'pixverse';
-      if (/stable-?video|(^|[^a-z])svd/.test(model)) return 'stability';
-      if (/seedance/.test(model)) return 'seedance';
-      // URL 兜底识别
+      // URL 特征兜底：URL 也是用户显式配置的一部分（旧配置 vendor 字段为空时走这里，
+      // 设置卡片渲染时会按此回填 vendor，之后恒走显式值）。
       if (url.includes('dashscope')) return 'wan';
       if (url.includes('klingai')) return 'kling';
       if (url.includes('minimax')) return 'minimax';
@@ -6766,6 +6757,9 @@ function queueThumb(assetId) {
       if (!base.replace(/^https?:\/\//i, '').includes('/')) base = base + '/v1';
       else if (/\/v1$/.test(base)) base = base + '/video/generations';
       const isOpenaiVideo = /\/video\/generations$/.test(base);
+      // moyu 类中转站：OpenAI 风格但图片字段用 input_reference / images:string[]（dataURL 直接放），
+      // 不收 [{url,role}] 对象数组；resolution 用大写枚举；无 generate_audio/output_format 参数。
+      const isMoyuFlavor = /moyu\.info/i.test(base);
       const headers = { 'Content-Type': 'application/json', ...(s.apiKey ? { Authorization: 'Bearer ' + s.apiKey } : {}) };
       // 尾帧+参考图同连（跨镜衔接）→ 尾帧降级为第一张衔接参考图（first_frame/reference_image 互斥），标注写在提示词里
       const vRefs = o.hardFrame ? [] : (o.refs || []).slice(0, 8);
@@ -6774,24 +6768,30 @@ function queueThumb(assetId) {
       const body = {
         ...(s.model ? { model: s.model } : {}),
         prompt,
-        duration: Number(o.duration) || 5,
+        duration: Math.min(30, Math.max(2, Number(o.duration) || 5)),
         // 分辨率一律小写（Seedance 系为 '720p'/'1080p'；'720P' 会被部分网关判为不支持）
         resolution: (o.resolution || '720p').toLowerCase(),
         ratio: o.ratio || '16:9',
       };
+      if (isMoyuFlavor) body.resolution = String(o.resolution || '1080P').toUpperCase(); // moyu 枚举 480P/720P/1080P
       // 首帧图生视频：构图以首帧为准——Seedance 系要求首帧模式必须 ratio=adaptive（仅纯首帧模式）
       if (frameBlob && !downgrade) {
         body.ratio = 'adaptive';
-        try { body.image = await blobToDataUrlScaled(frameBlob); } catch { /* 忽略首帧编码失败 */ }
+        if (isMoyuFlavor) body.input_reference = await blobToDataUrlScaled(frameBlob);
+        else try { body.image = await blobToDataUrlScaled(frameBlob); } catch { /* 忽略首帧编码失败 */ }
       } else if (vRefs.length) {
         const imgs = downgrade ? [frameBlob].concat(vRefs) : vRefs;
-        body.images = isOpenaiVideo
-          ? await Promise.all(imgs.map(async (b) => ({ url: await blobToDataUrlScaled(b), role: 'reference_image' })))
-          : await Promise.all(imgs.map((b) => blobToDataUrlScaled(b)));
+        body.images = isMoyuFlavor
+          ? await Promise.all(imgs.map((b) => blobToDataUrlScaled(b)))
+          : isOpenaiVideo
+            ? await Promise.all(imgs.map(async (b) => ({ url: await blobToDataUrlScaled(b), role: 'reference_image' })))
+            : await Promise.all(imgs.map((b) => blobToDataUrlScaled(b)));
       }
       // 可选参数：勾选才发送 generate_audio；output_format 留空不发送
-      if (s.generateAudio === true) body.generate_audio = true;
-      if (String(s.outputFormat || '').trim()) body.output_format = String(s.outputFormat).trim();
+      if (!isMoyuFlavor) {
+        if (s.generateAudio === true) body.generate_audio = true;
+        if (String(s.outputFormat || '').trim()) body.output_format = String(s.outputFormat).trim();
+      }
       // 角色声音参考（@引用实体名下的音频资产）→ audios[]：模型生成的对白/声音向参考音色对齐；
       // 带声音参考时强制开启同步音频（否则参考无意义）
       if (o.audioRefs && o.audioRefs.length) {
@@ -6869,7 +6869,7 @@ function queueThumb(assetId) {
       const DONE = ['succeeded', 'success', 'completed', 'complete', 'done', 'finished'];
       if (status && FAIL.includes(status)) {
         const msg = (st.error && (st.error.message || st.error.msg)) || st.message || st.msg || st.reason
-          || (st.data && st.data.error && (st.data.error.message || st.data.error)) || status;
+          || (st.data && (st.data.fail_reason || (st.data.error && (st.data.error.message || st.data.error)))) || status;
         return String(msg).slice(0, 300);
       }
       if (status && DONE.includes(status)) return null; // 成功但没解析出地址：交给调用方超时/后续处理
@@ -17975,6 +17975,8 @@ const DIRECTOR_KEY_HELP = [
               kind === 'video' ? h('div', { key: 'vendor', className: 'dshic-field' },
                 h('div', { className: 'dshic-row' },
                   h('span', { className: 'dshic-field-label' }, T('vendorLabel')),
+                  // 旧配置迁移：vendor 字段后加，早期供应商为空 → 按 URL 特征回填一次（此后恒走显式值）
+                  (() => { if (!p.vendor) { const d = detectVideoVendor(p); patchProvider(p.id, 'vendor', d); p.vendor = d; } return null; })(),
                   InfoTip((VIDEO_VENDORS[detectVideoVendor(p)] || {}).note || '')),
                 h('select', {
                   className: 'dshic-select', value: detectVideoVendor(p),

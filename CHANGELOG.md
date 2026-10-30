@@ -6,6 +6,14 @@ GitHub Releases carry the same notes in English; maintainer-facing runbooks live
 
 ## [Unreleased]
 
+## [0.19.13] — 2026-10-30
+
+### Fixed
+- **`wan3.0-video` on relay gateways no longer gets routed into the DashScope protocol.** The vendor auto-detect used to guess from the model name — `wan3.0-video` matched the wan regex and the request was built as `{input:{prompt, media[]}, parameters{}}` with `X-DashScope-Async`, which a relay like moyu.info cannot parse; its internal image proxy then replied 需要http(s)接口url and the whole generation 502'd three times (main + both fallbacks). **The vendor format dropdown is now the single source of routing truth**: all eleven model-name guesses are removed. Routing order: explicit `vendor` (set in the dropdown) → URL traits (dashscope/klingai/…, also explicit config) → openai fallback. Legacy providers whose `vendor` field is empty get it backfilled once from URL traits at settings render.
+- **Image fields for URL-only relays are now shaped per vendor.** The openai video branch detects `moyu.info` and switches to its documented shapes: first frame → `input_reference` (dataURL), reference images → `images: ["dataURL", …]` (plain string array, base64 accepted per vendor support), `resolution` in uppercase enum (`1080P`), `duration` clamped to [2,30], and `generate_audio`/`output_format` are not sent (unknown parameters there). JUAI-style gateways keep the existing `[{url, role}]` array — behavior unchanged outside the moyu flavor.
+- **Async polling covers the moyu response shape.** `extractVideoUrl` now reads `data.result_url`; `taskFailureOf` reads `data.fail_reason`; `data.status` SUCCESS/FAILURE map through the existing lowercase normalizer.
+- Regression: `test-vendor-detect.mjs` rewritten for the new routing contract (explicit vendor wins, model name never routes, moyu defaults to openai); new `test-video-image-url.mjs` locks the image-field shapes and the JUAI structure. Gate 81 → 82 items, all green.
+
 ## [0.19.12] — 2026-10-29
 
 ### Fixed
