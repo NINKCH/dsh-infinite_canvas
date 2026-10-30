@@ -6759,15 +6759,7 @@ function queueThumb(assetId) {
       const isOpenaiVideo = /\/video\/generations$/.test(base);
       // moyu 类中转站：OpenAI 风格但图片字段用 input_reference / images:string[]（dataURL 直接放），
       // 不收 [{url,role}] 对象数组；resolution 用大写枚举；无 generate_audio/output_format 参数。
-      const isMoyuFlavor = /moyu\.info/i.test(base);
-      // moyu 的图片代理接受「裸 base64」或「http(s) URL」，但【不认 data: 前缀】——
-      // dataURL 的前缀会让它的 URL 校验失败（0.19.13 实测 502「需要 http(s) 接口 url」）。
-      const moyuImagePayload = (dataUrl) => {
-        const t = String(dataUrl || '');
-        const m = /^data:[^;]+;base64,(.+)$/.exec(t);
-        return m ? m[1] : t;
-      };
-      const headers = { 'Content-Type': 'application/json', ...(s.apiKey ? { Authorization: 'Bearer ' + s.apiKey } : {}) };
+            const headers = { 'Content-Type': 'application/json', ...(s.apiKey ? { Authorization: 'Bearer ' + s.apiKey } : {}) };
       // 尾帧+参考图同连（跨镜衔接）→ 尾帧降级为第一张衔接参考图（first_frame/reference_image 互斥），标注写在提示词里
       const vRefs = o.hardFrame ? [] : (o.refs || []).slice(0, 8);
       const downgrade = Boolean(frameBlob && vRefs.length);
@@ -6775,30 +6767,22 @@ function queueThumb(assetId) {
       const body = {
         ...(s.model ? { model: s.model } : {}),
         prompt,
-        duration: Math.min(30, Math.max(2, Number(o.duration) || 5)),
+        duration: Number(o.duration) || 5,
         // 分辨率一律小写（Seedance 系为 '720p'/'1080p'；'720P' 会被部分网关判为不支持）
         resolution: (o.resolution || '720p').toLowerCase(),
         ratio: o.ratio || '16:9',
       };
-      if (isMoyuFlavor) body.resolution = String(o.resolution || '1080P').toUpperCase(); // moyu 枚举 480P/720P/1080P
       // 首帧图生视频：构图以首帧为准——Seedance 系要求首帧模式必须 ratio=adaptive（仅纯首帧模式）
       if (frameBlob && !downgrade) {
         body.ratio = 'adaptive';
-        if (isMoyuFlavor) body.input_reference = moyuImagePayload(await blobToDataUrlScaled(frameBlob));
-        else try { body.image = await blobToDataUrlScaled(frameBlob); } catch { /* 忽略首帧编码失败 */ }
+        try { body.image = await blobToDataUrlScaled(frameBlob); } catch { /* 忽略首帧编码失败 */ }
       } else if (vRefs.length) {
         const imgs = downgrade ? [frameBlob].concat(vRefs) : vRefs;
-        body.images = isMoyuFlavor
-          ? await Promise.all(imgs.map(async (b) => moyuImagePayload(await blobToDataUrlScaled(b))))
-          : isOpenaiVideo
-            ? await Promise.all(imgs.map(async (b) => ({ url: await blobToDataUrlScaled(b), role: 'reference_image' })))
-            : await Promise.all(imgs.map((b) => blobToDataUrlScaled(b)));
+        body.images = await Promise.all(imgs.map(async (b) => ({ url: await blobToDataUrlScaled(b), role: 'reference_image' })));
       }
       // 可选参数：勾选才发送 generate_audio；output_format 留空不发送
-      if (!isMoyuFlavor) {
-        if (s.generateAudio === true) body.generate_audio = true;
-        if (String(s.outputFormat || '').trim()) body.output_format = String(s.outputFormat).trim();
-      }
+      if (s.generateAudio === true) body.generate_audio = true;
+      if (String(s.outputFormat || '').trim()) body.output_format = String(s.outputFormat).trim();
       // 角色声音参考（@引用实体名下的音频资产）→ audios[]：模型生成的对白/声音向参考音色对齐；
       // 带声音参考时强制开启同步音频（否则参考无意义）
       if (o.audioRefs && o.audioRefs.length) {

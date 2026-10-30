@@ -132,7 +132,6 @@ const SUITE = [
   { name: 'check-pack.mjs', desc: '打包清单 + 元数据核对（npm pack --dry-run）' },
   { name: 'test-mode-preset.mjs', desc: '媒体创作模式预设：patch 结构/挂载数量/旧包名清零/persona 完整性 + 工作坊技能 + skills.js 快照可达' },
   { name: 'test-image-field-retry.mjs', desc: '图片 API 字段校验型 400 自愈：识别函数口径（中英文 11 例+负例）+ generations 主路径已接入' },
-  { name: 'test-video-image-url.mjs', desc: 'moyu 类中转站图片字段兼容：isMoyuFlavor 域 / input_reference / images:string[] / JUAI 保留 / 轮询字段覆盖' },
   { name: 'test-addnode-column.mjs', desc: '建点布局强控制：一类型一列 / 碰撞下移 / 新类型起列 / 全图无重叠（nextNodePosClient + addNodeAt 收口）' },
 ];
 
