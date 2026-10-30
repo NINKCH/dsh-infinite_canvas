@@ -6266,6 +6266,44 @@ function queueThumb(assetId) {
         taskUrl: (tid) => apiRoot + '/api/v1/tasks/' + encodeURIComponent(tid),
       };
     }
+    /** DashScope 兼容中转站的响应形态归一（tiantoken 等中转会改写响应结构，纯函数供回归断言）：
+     *  · task_id：output.task_id → task_id → data.task_id → output.id → id；
+     *  · 状态：output.task_status → output.status → task_status → status，统一小写比较
+     *    （官方大写 SUCCEEDED / 中转小写 succeeded / 顶层 status 都能认）；
+     *  · 成功/失败集合外的一切状态（unknown/pending/running 及未知值）= 继续轮询，绝不误杀
+     *    （中转在任务刚提交、上游未回报时常回 {status:'unknown'}）。 */
+    function wanTaskIdOf(j) {
+      if (!j || typeof j !== 'object') return null;
+      return (j.output && j.output.task_id) || j.task_id || (j.data && j.data.task_id)
+        || (j.output && j.output.id) || j.id || null;
+    }
+    const WAN_STATUS_DONE = ['succeeded', 'success', 'done', 'completed', 'complete', 'finished', 'ok'];
+    const WAN_STATUS_FAIL = ['failed', 'failure', 'fail', 'error', 'canceled', 'cancelled', 'expired', 'rejected', 'timeout'];
+    function wanStatusOf(j) {
+      if (!j || typeof j !== 'object') return '';
+      const v = (j.output && (j.output.task_status ?? j.output.status)) ?? j.task_status ?? j.status;
+      return String(v ?? '').trim().toLowerCase();
+    }
+    function wanVideoUrlOf(j) {
+      if (!j || typeof j !== 'object') return '';
+      const o = j.output || {};
+      return [o.video_url, o.url, o.videoUrl, j.video_url, j.data && j.data.result_url]
+        .find((u) => typeof u === 'string' && /^https?:/.test(u)) || '';
+    }
+    function wanErrorOf(j) {
+      const o = (j && j.output) || {};
+      const msg = o.message || (j && (j.message || (j.error && j.error.message))) || '';
+      return (o.code && msg) ? (o.code + ' ' + msg) : (msg || o.code || '');
+    }
+    function wanPollState(j) {
+      const st = wanStatusOf(j);
+      if (WAN_STATUS_DONE.includes(st)) {
+        const url = wanVideoUrlOf(j);
+        return url ? { state: 'done', url } : { state: 'fail', error: '成功但无视频地址' };
+      }
+      if (WAN_STATUS_FAIL.includes(st)) return { state: 'fail', error: wanErrorOf(j) || st };
+      return { state: 'wait' }; // unknown/pending/running 及一切未知状态 = 继续轮询
+    }
     /** 读取生成视频的真实尺寸与时长（用于「厂商是否忽略了参数」的可见校验）。 */
     function probeVideoMeta(blob) {
       return new Promise((resolve) => {
@@ -6427,17 +6465,14 @@ function queueThumb(assetId) {
         const r1 = await fetchViaProxy(ep.submitUrl, { headers, body, label: 'Wan 提交' });
         if (!r1.ok) throw new Error('Wan 提交 HTTP ' + r1.status + ' @ ' + ep.submitUrl + '：' + r1.text.slice(0, 300));
         let j1 = null; try { j1 = JSON.parse(r1.text); } catch { throw new Error('Wan 响应非 JSON：' + r1.text.slice(0, 200)); }
-        const tid = j1 && j1.output && j1.output.task_id;
+        const tid = wanTaskIdOf(j1);
         if (!tid) throw new Error('Wan 响应中没有 task_id：' + r1.text.slice(0, 200));
         if (o.onTask) { try { o.onTask(tid, ep.taskUrl(tid)); } catch { /* 持久化失败不影响生成 */ } }
         const url = await vendorPoll('Wan', 8000, async () => {
           const r = await fetchViaProxy(ep.taskUrl(tid), { method: 'GET', headers: { Authorization: 'Bearer ' + (s.apiKey || '') }, timeoutMs: 60000, label: 'Wan 查询' });
           if (!r || !r.ok) return { state: 'wait' };
           let j = null; try { j = JSON.parse(r.text); } catch { return { state: 'wait' }; }
-          const st = j && j.output && j.output.task_status;
-          if (st === 'SUCCEEDED') return j.output.video_url ? { state: 'done', url: j.output.video_url } : { state: 'fail', error: '成功但无视频地址' };
-          if (st === 'FAILED' || st === 'CANCELED') return { state: 'fail', error: (j.output && j.output.message) || st };
-          return { state: 'wait' };
+          return wanPollState(j);
         });
         return await downloadVideo(url, {});
       },
@@ -20153,7 +20188,7 @@ const DIRECTOR_KEY_HELP = [
           // IC-04：参考图上传三件套的纯函数出口（供 scripts/test-image-upload.mjs 直接断言）
           window.__DSH_IC_IMGREF__ = { rawImageDims, sniffImageEncoding, registerReferenceAsset };
           // IC-03：视频厂商识别/前缀归一化的纯函数出口（供 scripts/test-vendor-detect.mjs 直接断言）
-          window.__DSH_IC_VENDOR__ = { detectVideoVendor, gatewayPrefixFor, wanEndpoints, vendorBase, VIDEO_REF_CAPS, needsSimpleMediaRetry, buildSimpleMediaRetryBody };
+          window.__DSH_IC_VENDOR__ = { detectVideoVendor, gatewayPrefixFor, wanEndpoints, vendorBase, VIDEO_REF_CAPS, needsSimpleMediaRetry, buildSimpleMediaRetryBody, wanTaskIdOf, wanStatusOf, wanPollState };
           // 按镜头切段（分段生成本身就是最容易出错的地方）：规划器 + 强弱模型分流 + 节点段区间解析
           // 供 scripts/test-segment-plan.mjs 直接断言
           window.__DSH_IC_SEGMENT__ = { planShotSegments, isCutPoint, segmentNeedsHardFrame, videoSegmentOf, shotContinuityPlan };

@@ -115,6 +115,46 @@ ok(/if \(s\.vendor\) return s\.vendor;/.test(src), '显式 vendor 优先必须�
   ok(/buildSimpleMediaRetryBody\(/.test(src), 'apiVideo 未使用简化参考字段请求体');
 }
 
+// ---------------- ⑦ wan（DashScope 兼容中转）响应形态归一 ----------------
+// tiantoken 等 DashScope 系中转会改写响应结构：task_id / 状态 / 成品地址的位置和大小写都可能变。
+// 归一口径：位置按序兼容 + 状态统一小写；集合外状态（含 unknown）一律继续轮询，绝不误杀。
+{
+  const tidOf = SEG.wanTaskIdOf, stOf = SEG.wanStatusOf, pollOf = SEG.wanPollState;
+  ok(typeof pollOf === 'function', '缺少 wan 响应归一测试缝隙（wanTaskIdOf/wanStatusOf/wanPollState）');
+  if (typeof tidOf === 'function' && typeof stOf === 'function' && typeof pollOf === 'function') {
+    // task_id 多形态
+    ok(tidOf({ output: { task_id: 'a' } }) === 'a', 'task_id：output.task_id 官方形态优先');
+    ok(tidOf({ task_id: 'b' }) === 'b', 'task_id：中转顶层 task_id');
+    ok(tidOf({ data: { task_id: 'c' } }) === 'c', 'task_id：data.task_id');
+    ok(tidOf({ id: 'd' }) === 'd', 'task_id：裸 id');
+    ok(tidOf({}) === null && tidOf(null) === null, 'task_id：缺失返回 null');
+    // 状态多形态 + 小写化
+    ok(stOf({ output: { task_status: 'SUCCEEDED' } }) === 'succeeded', '状态：官方大写 → 小写比较');
+    ok(stOf({ status: 'Running' }) === 'running', '状态：顶层 status（中转改写形态）');
+    ok(stOf({ task_status: 'Unknown' }) === 'unknown', '状态：顶层 task_status');
+    ok(stOf({ output: { status: 'Done' } }) === 'done', '状态：output.status');
+    ok(stOf({}) === '' && stOf(null) === '', '状态：缺失返回空串');
+    // 轮询判定
+    ok(pollOf({ output: { task_status: 'SUCCEEDED', video_url: 'https://x/v.mp4' } }).state === 'done'
+      && pollOf({ output: { task_status: 'SUCCEEDED', video_url: 'https://x/v.mp4' } }).url === 'https://x/v.mp4', '轮询：官方成功形态取 output.video_url');
+    ok(pollOf({ status: 'success', video_url: 'https://x/v.mp4' }).state === 'done', '轮询：小写 success + 顶层 url');
+    ok(pollOf({ output: { task_status: 'SUCCEEDED' } }).state === 'fail', '轮询：成功但无地址 → 快失败，不空转 2 小时');
+    ok(pollOf({ data: { result_url: 'https://x/v.mp4' }, output: { task_status: 'Success' } }).url === 'https://x/v.mp4', '轮询：data.result_url 兜底成品地址');
+    ok(pollOf({ status: 'unknown' }).state === 'wait', '轮询：unknown ≠ 失败（中转刚提交常回 unknown，误杀回归）');
+    ok(pollOf({ output: { task_status: 'PENDING' } }).state === 'wait', '轮询：PENDING 继续等');
+    ok(pollOf({ status: 'Running' }).state === 'wait', '轮询：running 继续等');
+    ok(pollOf({}).state === 'wait' && pollOf(null).state === 'wait', '轮询：无状态字段 → wait');
+    const f1 = pollOf({ output: { task_status: 'FAILED', code: 'InvalidParameter', message: 'bad media' } });
+    ok(f1.state === 'fail' && /InvalidParameter/.test(f1.error) && /bad media/.test(f1.error), '轮询：失败带 output.code + output.message');
+    ok(pollOf({ status: 'Expired' }).state === 'fail', '轮询：expired 终态');
+    ok(pollOf({ status: 'Cancelled' }).state === 'fail', '轮询：cancelled（双 l）终态');
+    const f2 = pollOf({ status: 'Timeout', message: 'upstream timeout' });
+    ok(f2.state === 'fail' && /upstream timeout/.test(f2.error), '轮询：顶层 message 兜底错误信息');
+  }
+  ok(/const tid = wanTaskIdOf\(j1\)/.test(src), 'wan runner 未接入 task_id 多形态提取');
+  ok(/return wanPollState\(j\)/.test(src), 'wan runner 轮询未接入状态归一');
+}
+
 if (errs.length) {
   console.error('✗ 厂商识别回归未通过（' + errs.length + '）：');
   for (const e of errs) console.error('  - ' + e);
