@@ -114,8 +114,10 @@ if (unrelHasEntries) {
 // OBS-1 硬要求（QA 判据）：清单**手工维护**，绝不从 `git log` 动态生成——动态清单会自证
 // （脚本生成的清单当然自己全中，"缺一必红"退化成摆设）。数量相等 + 逐 sha 关键词命中，两条都拦。
 const COVERAGE = [
-  // 0.19.12 已发布（含 e1dec3d/9120f70/c250f7f/4c73215 全部四个修复），清单清零。
-  // 下一个未发版提交出现在 main..dev 时，按 keys 补一条；发版时清零。
+  // 0.19.14 未发版提交×2：7a58844（建点布局强控制）+ 755f5cd（moyu 裸 base64）。
+  // 发版后清零。
+  { sha: '7a58844', keys: [/addNodeAt now enforces|nextNodePosClient|zero-overlap sweep/i] },
+  { sha: '755f5cd', keys: [/moyuImagePayload/i, /剥 dataURL|裸 base64/i] },
 ];
 for (const c of COVERAGE) {
   ok(c.keys.some((re) => re.test(coverageText)), '未发版提交 ' + c.sha + ' 在 CHANGELOG（Unreleased 或最新已发布段）里找不到对应记录（补记不全）');

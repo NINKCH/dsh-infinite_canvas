@@ -6,6 +6,19 @@ GitHub Releases carry the same notes in English; maintainer-facing runbooks live
 
 ## [Unreleased]
 
+## [0.19.14] — 2026-10-30
+
+### Added
+- Bare-base64 image payloads for URL-only relays (`moyuImagePayload`), enabling relays whose image proxy validates raw base64 alongside http(s) URLs.
+
+### Fixed
+- **moyu image payloads strip the `data:` prefix.** 0.19.13 sent `input_reference` / `images[]` as dataURLs (`data:image/jpeg;base64,…`), but the relay's internal image proxy validates against http(s) URLs or bare base64 — the `data:` prefix fails that check and the gateway replies 需要http(s)接口url with a 502. A `moyuImagePayload()` helper strips the prefix, so both fields now carry bare base64 (the shape the vendor's support confirmed).
+
+- **Canvas node placement is now enforced by code, not by caller discipline.** `addNodeAt` used to take whatever coordinates the caller passed — toolbar shortcuts spawn at `worldCenter ± fixed offset`, the double-click add menu adds `±30px random`, reference-image quick-create uses `±400` — so building two image nodes in a row from the toolbar put them at overlapping positions. `addNodeAt` now runs every spawn through `nextNodePosClient` (the client twin of the Host's `nextNodePos`): same-type nodes align to their type column (min x, y = column tail + 40), a first-of-type starts a new column at the caller position, and any candidate box intersecting an existing node (28px min gap) is pushed below it — up to 80 rounds. The caller's position is only used to start a new column. Regression `test-addnode-column.mjs` seeds a graph and asserts column alignment, collision resolution and a zero-overlap sweep; exposed via `__DSH_IC_LAYOUT__`.
+
+### Changed
+- **Vendor-format dropdown is the single source of routing truth.** Model-name routing (11 regexes) removed — `wan3.0-video` on a relay no longer gets rebuilt as a DashScope request; legacy providers get `vendor` backfilled from URL traits. (Detailed in 0.19.13 below; listed here because the fix commits ride on top of it.)
+
 ## [0.19.13] — 2026-10-30
 
 ### Fixed
