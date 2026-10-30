@@ -6,6 +6,18 @@ GitHub Releases carry the same notes in English; maintainer-facing runbooks live
 
 ## [Unreleased]
 
+### Fixed
+- **Wan (DashScope) runner now accepts relay-rewritten response shapes.** DashScope-compatible relays (tiantoken-style) move `task_id`, task status, and the result URL to different positions and casings. The wan runner now reads `task_id` from `output.task_id / task_id / data.task_id / id`, lowercases the status found at `output.task_status / output.status / task_status / status`, treats `unknown`/`pending`/`running` as still-running (never a false kill), fails fast with `output.code + output.message` (top-level `message` as fallback), and falls back to `output.url` / `data.result_url` for the result video. No new vendor adapter was added.
+
+### Added
+- (无独立新增；本版为 wan runner 响应兼容性收紧。)
+
+### Changed
+- (无独立变更。)
+
+### Internal
+- Response parsing extracted into pure helpers (`wanTaskIdOf` / `wanStatusOf` / `wanPollState`) exposed via the `__DSH_IC_VENDOR__` test seam, with relay-shape regression assertions in `scripts/test-vendor-detect.mjs`.
+
 ## [0.19.15] — 2026-10-30
 
 ### Fixed
