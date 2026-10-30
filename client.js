@@ -9165,7 +9165,46 @@ function queueThumb(assetId) {
         data,
       };
     }
+    /**
+     * 客户端建点布局（与 Host nextNodePos 同一套算法，代码级强控制）：
+     *   ① 一类型一列：同类型已有节点 → x 对齐该列（取最小 x），y 追加到列尾（最大 bottom + 40）；
+     *   ② 该类型第一个节点 → 用调用者给的 pos 起新列；
+     *   ③ 碰撞下移：候选框（含 28px 最小间距）与任何节点相交 → 自动下移到相交节点下方，绝不重叠；
+     *   ④ 上限 80 轮防死循环。
+     * 调用者传入的 pos 只用于"起新列"，不用于自由摆放——布局纪律由代码保证，
+     * 不依赖调用者（对话框/工具条/快捷键）自觉。
+     */
+    function nextNodePosClient(type, pos, size) {
+      const GAP_X = 60, GAP_Y = 40, MIN_GAP = 28;
+      const H = (n) => Number(n && n.h) || 160;
+      const W = (n) => Number(n && n.w) || 280;
+      const nodes = Object.values(S.graph.nodes);
+      const estH = (size && Number(size.h)) || 360;
+      const estW = (size && Number(size.w)) || 360;
+      const same = nodes.filter((n) => n.type === type && n.type !== 'group');
+      let x = Math.round((pos && pos.x) || 80);
+      let y = Math.round((pos && pos.y) || 40);
+      if (same.length) {
+        x = Math.min(...same.map((n) => n.x || 0));
+        y = Math.max(...same.map((n) => (n.y || 0) + H(n))) + GAP_Y;
+      }
+      const hit = (yy) => nodes.find((n) => n.type !== 'group' && !((n.data && n.data.hidden))
+        && (n.x || 0) < x + estW + MIN_GAP && (n.x || 0) + W(n) + MIN_GAP > x
+        && (n.y || 0) < yy + estH + MIN_GAP && (n.y || 0) + H(n) + MIN_GAP > yy);
+      let blocker = hit(y);
+      let guard = 0;
+      while (blocker && guard++ < 80) { y = (blocker.y || 0) + H(blocker) + MIN_GAP; blocker = hit(y); }
+      return { x, y };
+    }
+
     function addNodeAt(type, pos) {
+      // 代码级强控制：建点坐标由布局引擎决定（一类型一列 + 碰撞下移），不信任调用者的自由坐标。
+      // 媒体节点外框按比例（与 Host nextNodePos 同口径），其余 360×360。
+      const t2 = normalizeNodeType(type);
+      const sz = (t2 === 'image' || t2 === 'video')
+        ? nodeSizeForRatio((pos && pos.ratio) || '16:9', { hasFooter: false })
+        : null;
+      pos = nextNodePosClient(t2, pos, sz);
       const n = newNode(type, pos);
       update((s) => { s.graph.nodes[n.id] = n; s.sel = new Set([n.id]); s.selEdge = null; });
       pushHistory();
@@ -20012,6 +20051,10 @@ const DIRECTOR_KEY_HELP = [
             ratioIsValid, ratioAspect, ratioFromDims, mediaRatioOf, mediaAspectOf, mediaRatioForDims,
             normalizeMediaNodeSize, normalizeGraphDoc, resizeBoxFor, composerWidthFor,
             wheelScrollTarget,
+            // 建点布局强控制（一类型一列 + 碰撞下移）：addNodeAt 收口 + 纯函数，供回归测试直接驱动
+            nextNodePosClient, addNodeAt,
+            graph: () => JSON.parse(JSON.stringify(S.graph)), // 建点结果断言用（与 SYNC.graph 同口径）
+            addGraphNodes: (list) => { for (const n of (list || [])) S.graph.nodes[n.id] = n; }, // 测试播种（写入活状态）
             // 下拉自定义数值的纯函数：范围夹取 / 整数与小数口径（分镜数、单段上限共用）
             clampCustomNumber,
             // 视频请求时长策略：手动秒数 vs 分镜节拍（供面板禁用态与请求侧共用）
