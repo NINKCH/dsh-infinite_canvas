@@ -116,7 +116,7 @@ if (unrelHasEntries) {
 const COVERAGE = [
   // 0.19.14 未发版提交×2：7a58844（建点布局强控制）+ 755f5cd（moyu 裸 base64）。
   // 发版后清零。
-  { sha: '7a58844', keys: [/addNodeAt now enforces|nextNodePosClient|zero-overlap sweep/i] },
+  { sha: '93d9582', keys: [/reverted after live testing|Rolls back the unverified moyu/i] },
 ];
 for (const c of COVERAGE) {
   ok(c.keys.some((re) => re.test(coverageText)), '未发版提交 ' + c.sha + ' 在 CHANGELOG（Unreleased 或最新已发布段）里找不到对应记录（补记不全）');

@@ -6,6 +6,18 @@ GitHub Releases carry the same notes in English; maintainer-facing runbooks live
 
 ## [Unreleased]
 
+### Fixed
+- **Rolls back the unverified moyu image-field experiment from 0.19.14** (live-tested: the generic path was already accepted; see 0.19.14 notes for evidence).
+
+### Added
+- (从 0.19.14 顺延) 建点布局代码级强控制与 moyu 实验回滚说明见 0.19.14 段。
+
+### Changed
+- (无独立变更；本版为 0.19.14 实验回滚 + 布局强控制首发。)
+
+### Internal
+- Rollback engineering for the moyu image-field experiment (live-tested with the vendor key before deciding).
+
 ## [0.19.14] — 2026-10-30
 
 ### Added
