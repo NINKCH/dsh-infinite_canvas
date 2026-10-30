@@ -5992,6 +5992,40 @@ function queueThumb(assetId) {
         ?? (j.data && (j.data.task_id ?? j.data.id ?? j.data.taskId))
         ?? (j.output && (j.output.task_id ?? j.output.id));
     }
+    /** 中转站常见的一类 5xx：图片被交给内部图片代理后，代理只认 http(s) URL。
+     *  文档与实测表明同一网关支持 dataURL，只是字段形态不同（input_reference / images:string[]）。
+     *  只识别这一类错误，鉴权/限流/内容安全等错误绝不重试。 */
+    function needsSimpleMediaRetry(errText) {
+      const t = String(errText || '');
+      return /图片接口代理请求失败|需要\s*https?(?:\(s\))?\s*接口\s*url|image\s+(?:proxy|api).*?\burl\b/i.test(t);
+    }
+    /** 通用简化媒体请求体：不绑定任何厂商；首帧用 input_reference，参考图用字符串 dataURL 数组。
+     *  带参考音频时统一走 media[]（reference_image / reference_audio），首帧同时存在也降级为参考图，
+     *  避免 first_frame 与 reference_* 互斥。 */
+    function buildSimpleMediaRetryBody(base, media) {
+      const b = base || {};
+      const m = media || {};
+      const frame = String(m.frameDataUrl || '');
+      const refs = (Array.isArray(m.refDataUrls) ? m.refDataUrls : []).map(String).filter(Boolean);
+      const audios = (Array.isArray(m.audioDataUrls) ? m.audioDataUrls : []).map(String).filter(Boolean);
+      const out = {
+        ...(b.model ? { model: b.model } : {}),
+        prompt: String(b.prompt || ''),
+        duration: Math.max(2, Math.min(30, Math.round(Number(b.duration) || 5))),
+        resolution: String(b.resolution || '720P').toUpperCase(),
+        ratio: String(b.ratio || '16:9'),
+      };
+      const images = (frame ? [frame] : []).concat(refs);
+      if (audios.length) {
+        out.media = images.map((url) => ({ type: 'reference_image', url }))
+          .concat(audios.map((url) => ({ type: 'reference_audio', url })));
+      } else if (frame && !refs.length) {
+        out.input_reference = frame;
+      } else if (images.length) {
+        out.images = images;
+      }
+      return out;
+    }
     async function downloadVideo(url, headers, authFallback) {
       // 经 Host 代理：签名下载直连同样会被 CORS 拦
       let r = await fetchViaProxy(url, { method: 'GET', headers: headers || {}, timeoutMs: 300000, label: '下载视频' });
@@ -6794,7 +6828,37 @@ function queueThumb(assetId) {
         const extra = parseExtraParams(s.extra);
         if (extra) Object.assign(body, extra);
       } catch (e) { throw new Error('视频 API 扩展参数配置有误：' + ((e && e.message) || e)); }
-      const res = await fetchViaProxy(base, { headers, body, timeoutMs: Number(s.timeoutMs) > 0 ? Number(s.timeoutMs) : 120000, label: '视频 API' });
+      const res0 = await fetchViaProxy(base, { headers, body, timeoutMs: Number(s.timeoutMs) > 0 ? Number(s.timeoutMs) : 120000, label: '视频 API' });
+      let res = res0;
+      // 通用兜底：不新增厂商。首帧/image/images 对象被中转站内部图片代理拒绝时，
+      // 只把参考素材改成文档支持的简单字段再试一次：首帧→input_reference，
+      // 参考图→images 字符串数组（带音频时→media[]）。
+      if (!res.ok && needsSimpleMediaRetry(res.text) && (frameBlob || vRefs.length)) {
+        const frameDataUrl = frameBlob ? await blobToDataUrlScaled(frameBlob) : '';
+        const refDataUrls = await Promise.all(vRefs.map((b) => blobToDataUrlScaled(b)));
+        const audioDataUrls = await Promise.all((o.audioRefs || []).map((b) => blobToDataUrl(b)));
+        const simpleBody = buildSimpleMediaRetryBody({
+          model: s.model || '',
+          prompt,
+          duration: Number(o.duration) || 5,
+          resolution: o.resolution || '720P',
+          ratio: body.ratio || o.ratio || '16:9',
+        }, { frameDataUrl, refDataUrls, audioDataUrls });
+        // 扩展参数仍然优先，允许中转站在兜底请求上继续覆盖字段
+        try {
+          const extra = parseExtraParams(s.extra);
+          if (extra) Object.assign(simpleBody, extra);
+        } catch { /* 主请求已校验过，不因兜底阻断 */ }
+        try {
+          res = await fetchViaProxy(base, { headers, body: simpleBody, timeoutMs: Number(s.timeoutMs) > 0 ? Number(s.timeoutMs) : 120000, label: '视频 API（简化参考字段重试）' });
+        } catch (e) {
+          throw new Error('视频 API 请求失败，简化参考字段重试也失败：' + ((e && e.message) || e));
+        }
+        if (!res.ok) {
+          throw new Error('视频 API HTTP ' + res0.status + ' @ ' + base + '：' + res0.text.slice(0, 160)
+            + '；[简化参考字段重试] HTTP ' + res.status + '：' + res.text.slice(0, 200));
+        }
+      }
       if (!res.ok) {
         if (isOpenaiVideo) {
           // 降级链：① Seedance 原生 content[] 格式（RelayRouter 等，轮询 /v1/video/query）
@@ -20089,7 +20153,7 @@ const DIRECTOR_KEY_HELP = [
           // IC-04：参考图上传三件套的纯函数出口（供 scripts/test-image-upload.mjs 直接断言）
           window.__DSH_IC_IMGREF__ = { rawImageDims, sniffImageEncoding, registerReferenceAsset };
           // IC-03：视频厂商识别/前缀归一化的纯函数出口（供 scripts/test-vendor-detect.mjs 直接断言）
-          window.__DSH_IC_VENDOR__ = { detectVideoVendor, gatewayPrefixFor, wanEndpoints, vendorBase, VIDEO_REF_CAPS };
+          window.__DSH_IC_VENDOR__ = { detectVideoVendor, gatewayPrefixFor, wanEndpoints, vendorBase, VIDEO_REF_CAPS, needsSimpleMediaRetry, buildSimpleMediaRetryBody };
           // 按镜头切段（分段生成本身就是最容易出错的地方）：规划器 + 强弱模型分流 + 节点段区间解析
           // 供 scripts/test-segment-plan.mjs 直接断言
           window.__DSH_IC_SEGMENT__ = { planShotSegments, isCutPoint, segmentNeedsHardFrame, videoSegmentOf, shotContinuityPlan };

@@ -89,6 +89,32 @@ ok(detect({}) === 'openai', '空对象 → openai');
 ok(!/wanx\|万相/.test(src), 'detectVideoVendor 不应再有 wan 模型名正则（模型名路由已移除）');
 ok(/if \(s\.vendor\) return s\.vendor;/.test(src), '显式 vendor 优先必须保留');
 
+// ---------------- ⑥ 通用图片字段兜底（不新增厂商） ----------------
+{
+  const needs = SEG.needsSimpleMediaRetry;
+  const build = SEG.buildSimpleMediaRetryBody;
+  ok(typeof needs === 'function' && typeof build === 'function', '缺少通用图片字段兜底测试缝隙');
+  if (typeof needs === 'function' && typeof build === 'function') {
+    ok(needs('{"error":"图片接口代理请求失败：需要 http(s) 接口 url"}'), '应识别“图片代理需要 http(s) URL”错误');
+    ok(!needs('{"error":"Invalid API key"}'), '鉴权错误不得触发图片字段兜底');
+    ok(!needs('{"error":"rate limit exceeded"}'), '限流错误不得触发图片字段兜底');
+    const base = { model: 'wan3.0-video', prompt: 'p', duration: 5, resolution: '720P', ratio: '16:9' };
+    const first = build(base, { frameDataUrl: 'data:image/png;base64,AAA' });
+    ok(first.input_reference === 'data:image/png;base64,AAA', '纯首帧兜底应使用 input_reference=dataURL');
+    ok(!first.image && !first.images, '纯首帧兜底不得再发 image / images');
+    ok(first.resolution === '720P', '兜底请求应保留大写分辨率');
+    const refs = build(base, { refDataUrls: ['data:image/png;base64,AAA', 'data:image/jpeg;base64,BBB'] });
+    ok(Array.isArray(refs.images) && refs.images.every((x) => typeof x === 'string'), '参考图兜底 images 必须是字符串 dataURL 数组');
+    ok(!refs.images.some((x) => x && typeof x === 'object' && 'role' in x), '参考图兜底不得再发 {url,role} 对象');
+    const mixed = build(base, { frameDataUrl: 'data:image/png;base64,FFF', refDataUrls: ['data:image/png;base64,AAA'] });
+    ok(Array.isArray(mixed.images) && mixed.images.length === 2 && mixed.images[0] === 'data:image/png;base64,FFF', '首帧+参考图应统一降级为 images 字符串数组，首帧排第一');
+    const audio = build(base, { refDataUrls: ['data:image/png;base64,AAA'], audioDataUrls: ['data:audio/wav;base64,CCC'] });
+    ok(Array.isArray(audio.media) && audio.media[0].type === 'reference_image' && audio.media[1].type === 'reference_audio', '带参考音频时应使用 media[] 且保留参考音频');
+  }
+  ok(/needsSimpleMediaRetry\(res\.text\)/.test(src), 'apiVideo 未接入通用图片字段兜底');
+  ok(/buildSimpleMediaRetryBody\(/.test(src), 'apiVideo 未使用简化参考字段请求体');
+}
+
 if (errs.length) {
   console.error('✗ 厂商识别回归未通过（' + errs.length + '）：');
   for (const e of errs) console.error('  - ' + e);
