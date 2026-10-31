@@ -45,6 +45,31 @@ const cases = [
 ];
 for (const [a, b, want] of cases) expect(`cmpVer(${a}, ${b})`, i.cmpVer(a, b), want);
 
+// 2.5) 更新源：双源白名单 / 选源纯函数 / 缓存 TTL / pnpm args 只认白名单 registry
+expect('白名单含官方源', i.NPM_REGISTRIES.official === 'https://registry.npmjs.org', true);
+expect('白名单含大陆镜像源', i.NPM_REGISTRIES.china === 'https://registry.npmmirror.com', true);
+const pr = i.pickUpdateRegistry;
+expect('选源：auto + 官方可达（权威优先）', pr('auto', { official: { ok: true }, china: { ok: true } }), 'official');
+expect('选源：auto + 官方超时镜像可达（大陆直连形态）', pr('auto', { official: { ok: false }, china: { ok: true } }), 'china');
+expect('选源：auto + 双超时（维持官方现状）', pr('auto', { official: { ok: false }, china: { ok: false } }), 'official');
+expect('选源：auto + 仅官方可达', pr('auto', { official: { ok: true }, china: { ok: false } }), 'official');
+expect('选源：auto + 空探测', pr('auto', null), 'official');
+expect('选源：china 手动覆盖优先', pr('china', { official: { ok: true }, china: { ok: true } }), 'china');
+expect('选源：official 手动覆盖优先', pr('official', null), 'official');
+expect('选源：override 缺省按 auto', pr(undefined, { official: { ok: false }, china: { ok: true } }), 'china');
+const now = Date.now();
+expect('缓存：24h 内有效', i.registryCacheValid({ resolved: 'china', at: now - 3600e3 }, now), true);
+expect('缓存：过期失效', i.registryCacheValid({ resolved: 'china', at: now - 25 * 3600e3 }, now), false);
+expect('缓存：非法源失效', i.registryCacheValid({ resolved: 'evil-host', at: now - 1000 }, now), false);
+expect('缓存：缺失失效', i.registryCacheValid(null, now), false);
+const argsChina = i.pnpmAddArgs({ kind: 'command' }, '@ninkch/dsh-infinite-canvas@9.9.9', { registry: 'china' });
+expect('pnpm args：镜像源走 --registry', argsChina.includes('--registry') && argsChina.includes('https://registry.npmmirror.com'), true);
+const argsEvil = i.pnpmAddArgs({ kind: 'command' }, '@ninkch/dsh-infinite-canvas@9.9.9', { registry: 'https://evil.example/pack' });
+expect('pnpm args：非白名单 registry 被拒绝（不带参数）', !argsEvil.includes('--registry'), true);
+const argsScript = i.pnpmAddArgs({ kind: 'script', script: 'pnpm.cjs' }, 'pkg@1.0.0', { registry: 'china' });
+expect('pnpm args：script 形态保留 --expose-internals 前缀', argsScript[0] === '--expose-internals' && argsScript[1] === 'pnpm.cjs', true);
+expect('pnpm args：script 形态仍带 --registry', argsScript.includes('--registry'), true);
+
 // 3) 真实检查：本地版本 vs npm registry latest
 try {
   const r = await i.updateCheck();

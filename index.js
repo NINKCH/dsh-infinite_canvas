@@ -29,8 +29,15 @@ try {
 
 // 更新检查的唯一信息源 = npm registry latest（与安装方式无关：
 // npm 在线安装 / 本地 link 开发态 / 其它方式，一律走同一条逻辑）。
-const NPM_LATEST_URL = 'https://registry.npmjs.org/' + encodeURIComponent('@ninkch/dsh-infinite-canvas') + '/latest';
+// 双源：官方权威 + 中国大陆镜像（registry.npmmirror.com）。按网络环境自动选源
+// （探测缓存 24h），用户可在更新横幅手动覆盖（config.updateRegistry = 'auto' | 'official' | 'china'）。
 const PKG_NAME = '@ninkch/dsh-infinite-canvas';
+const NPM_LATEST_PATH = '/' + encodeURIComponent(PKG_NAME) + '/latest';
+const NPM_REGISTRIES = {
+  official: 'https://registry.npmjs.org',
+  china: 'https://registry.npmmirror.com',
+};
+const REGISTRY_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 
 // ---------- 安装形态探测（用于"点击即更新"） ----------
 // 受管安装 = 本副本位于某个 DSH profile 的 node_modules 下（向上找带 dsh.profile.bundles 的 package.json）。
@@ -68,16 +75,22 @@ function findPnpm() {
 }
 
 /** 在 profile 目录执行 pnpm add <spec> --save-exact。opts.relaxReleaseAge → 跳过 24h 新版本冷却期。 */
+/** 组装 pnpm add 参数（纯函数供回归）：registry 只认白名单值——
+ *  URL 是外部输入时绝不进命令行（防注入面），非白名单一律不带参数（回落机器默认配置）。 */
+function pnpmAddArgs(pnpm, spec, opts = {}) {
+  const relax = opts.relaxReleaseAge ? ['--config.minimum-release-age=0'] : [];
+  const reg = NPM_REGISTRIES[opts.registry] ? ['--registry', NPM_REGISTRIES[opts.registry]] : [];
+  const tail = ['add', spec, '--save-exact', ...relax, ...reg];
+  return pnpm.kind === 'script' ? ['--expose-internals', pnpm.script, ...tail] : tail;
+}
+
 function runPnpmAdd(pnpm, spec, opts = {}) {
   return new Promise((resolve) => {
     const started = Date.now();
     const stdout = [];
     const stderr = [];
     let child;
-    const relax = opts.relaxReleaseAge ? ['--config.minimum-release-age=0'] : [];
-    const args = pnpm.kind === 'script'
-      ? ['--expose-internals', pnpm.script, 'add', spec, '--save-exact', ...relax]
-      : ['add', spec, '--save-exact', ...relax];
+    const args = pnpmAddArgs(pnpm, spec, opts);
     try {
       child = pnpm.kind === 'script'
         ? spawn(pnpm.node, args, { cwd: PROFILE_DIR, windowsHide: true, env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' } })
@@ -2709,9 +2722,10 @@ function canvasConnect(args) {
   };
 }
 
-/** 读取 npm registry 上 latest dist-tag 的版本号。 */
-async function npmLatestVersion() {
-  const res = await fetch(NPM_LATEST_URL, {
+/** 读取 npm registry 上 latest dist-tag 的版本号（kind: 'official' | 'china'，双源白名单）。 */
+async function npmLatestVersion(kind) {
+  const base = NPM_REGISTRIES[kind] || NPM_REGISTRIES.official;
+  const res = await fetch(base + NPM_LATEST_PATH, {
     headers: { accept: 'application/json' },
     signal: AbortSignal.timeout(15000),
   });
@@ -2722,6 +2736,69 @@ async function npmLatestVersion() {
   const v = meta.version.trim();
   if (!/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/.test(v)) throw new Error('npm registry 返回了非法的版本号');
   return v;
+}
+
+/** 探测双源可用性（并发，3s 超时）：探测路径就是实际要拉取的 packument——比 /-/ping 更贴近真实链路。 */
+async function probeRegistries() {
+  const probeOne = async (kind) => {
+    const t0 = Date.now();
+    try {
+      const res = await fetch(NPM_REGISTRIES[kind] + NPM_LATEST_PATH, { headers: { accept: 'application/json' }, signal: AbortSignal.timeout(3000) });
+      return { ok: !!res.ok, ms: Date.now() - t0 };
+    } catch { return { ok: false, ms: Date.now() - t0 }; }
+  };
+  const [official, china] = await Promise.all([probeOne('official'), probeOne('china')]);
+  return { official, china };
+}
+
+/** 选源纯函数（表驱动回归）：手动覆盖显式优先；auto 按探测结果——
+ *  官方可达 → 官方（非大陆/代理良好，权威源优先）；官方不可达而镜像可达 → 镜像（大陆直连形态）；
+ *  双可达 → 官方（保守，镜像同步有分钟级延迟）；双不可达 → 官方（维持现状行为与报错）。 */
+function pickUpdateRegistry(override, probe) {
+  if (override === 'china') return 'china';
+  if (override === 'official') return 'official';
+  const off = probe && probe.official;
+  const cn = probe && probe.china;
+  if (off && off.ok) return 'official';
+  if (cn && cn.ok) return 'china';
+  return 'official';
+}
+
+/** 自动探测缓存是否仍有效：24h TTL 且源必须是白名单值（防 config 被手改成任意字符串）。 */
+function registryCacheValid(cache, now) {
+  if (!cache) return false;
+  if (cache.resolved !== 'official' && cache.resolved !== 'china') return false;
+  const at = Number(cache.at);
+  if (!Number.isFinite(at) || at <= 0) return false;
+  return now - at < REGISTRY_CACHE_TTL_MS;
+}
+
+/** 解析本次更新应使用的源：手动覆盖优先；auto 读 24h 缓存，过期/缺失则探测并写回缓存。 */
+async function resolveUpdateRegistry() {
+  const cfg = readIcConfig();
+  const override = cfg.updateRegistry === 'china' || cfg.updateRegistry === 'official' ? cfg.updateRegistry : 'auto';
+  if (override !== 'auto') return { kind: override, override: true };
+  const cache = cfg.updateRegistryResolved && Number(cfg.updateRegistryAt) > 0
+    ? { resolved: cfg.updateRegistryResolved, at: Number(cfg.updateRegistryAt) }
+    : null;
+  if (registryCacheValid(cache, Date.now())) return { kind: cache.resolved, cached: true };
+  const kind = pickUpdateRegistry('auto', await probeRegistries());
+  try {
+    writeIcConfig({ ...readIcConfig(), updateRegistry: 'auto', updateRegistryResolved: kind, updateRegistryAt: Date.now() });
+  } catch { /* 写缓存失败不阻断更新 */ }
+  return { kind, probed: true };
+}
+
+/** 按偏好源取 latest，失败自动换备源一次（探测再准也有抖动，兜底保证不卡更新）。 */
+async function npmLatestVersionAny(preferred) {
+  const order = preferred === 'china' ? ['china', 'official'] : ['official', 'china'];
+  let lastErr = null;
+  for (const kind of order) {
+    try {
+      return { kind, version: await npmLatestVersion(kind) };
+    } catch (e) { lastErr = e; }
+  }
+  throw lastErr;
 }
 
 /**
@@ -2773,14 +2850,17 @@ function readLocalVersion() {
  */
 async function updateCheck() {
   const runningVersion = readLocalVersion();
-  const remoteVersion = await npmLatestVersion();
+  const reg = await resolveUpdateRegistry();
+  const r = await npmLatestVersionAny(reg.kind);
+  const remoteVersion = r.version;
   const cmp = cmpVer(runningVersion, remoteVersion);
+  const base = { registryKind: r.kind, registry: NPM_REGISTRIES[r.kind], registryFallback: r.kind !== reg.kind };
   if (cmp === null) {
     // 版本号无法解析（本地被改成非规范三段等）：如实报"未知"，绝不谎称已是最新
-    return { source: 'npm', runningVersion, remoteVersion, behind: 0, upToDate: false, unknown: true, note: '版本号无法解析，无法判断是否需要更新' };
+    return { source: 'npm', ...base, runningVersion, remoteVersion, behind: 0, upToDate: false, unknown: true, note: '版本号无法解析，无法判断是否需要更新' };
   }
   const behind = cmp < 0 ? 1 : 0;
-  return { source: 'npm', runningVersion, remoteVersion, behind, upToDate: behind === 0 };
+  return { source: 'npm', ...base, runningVersion, remoteVersion, behind, upToDate: behind === 0 };
 }
 
 /**
@@ -2792,7 +2872,10 @@ async function updateCheck() {
  */
 async function updateInstall() {
   const runningVersion = readLocalVersion();
-  const latest = await npmLatestVersion();
+  const reg = await resolveUpdateRegistry();
+  const order = reg.kind === 'china' ? ['china', 'official'] : ['official', 'china'];
+  const r = await npmLatestVersionAny(order[0]);
+  const latest = r.version;
   const cmp = cmpVer(runningVersion, latest);
   if (cmp === null) {
     // 无法比较时不能假装"已是最新"（按钮会显示成功但什么都没装）→ 回退为引导
@@ -2806,12 +2889,20 @@ async function updateInstall() {
   }
   const pnpm = findPnpm();
   const spec = PKG_NAME + '@' + latest;
-  let res = await runPnpmAdd(pnpm, spec);
+  let usedRegistry = order[0];
   let policyRelaxed = false;
+  let registryFallback = false;
+  let res = await runPnpmAdd(pnpm, spec, { registry: usedRegistry });
   if (!res.ok && /MINIMUM_RELEASE_AGE_VIOLATION/.test((res.stdout || '') + (res.stderr || ''))) {
     // pnpm 11 供应链保护对 24h 内新发布间歇性拦截；用户点击已是明确同意 → 放宽重试一次
     policyRelaxed = true;
-    res = await runPnpmAdd(pnpm, spec, { relaxReleaseAge: true });
+    res = await runPnpmAdd(pnpm, spec, { relaxReleaseAge: true, registry: usedRegistry });
+  }
+  if (!res.ok) {
+    // 备源兜底：探测选错的源不会卡死更新——自动换另一源重试一次
+    registryFallback = true;
+    usedRegistry = order[1];
+    res = await runPnpmAdd(pnpm, spec, { registry: usedRegistry, relaxReleaseAge: policyRelaxed });
   }
   const output = ((res.stdout || '') + '\n' + (res.stderr || '')).trim().slice(-1500);
   if (!res.ok) {
@@ -2824,13 +2915,13 @@ async function updateInstall() {
   try {
     installed = JSON.parse(readFileSync(path.join(PROFILE_DIR, 'node_modules', ...PKG_NAME.split('/'), 'package.json'), 'utf8')).version || latest;
   } catch { /* 保留 latest */ }
-  return { ok: true, changed: true, version: installed, output, policyRelaxed };
+  return { ok: true, changed: true, version: installed, output, policyRelaxed, registryKind: usedRegistry, registry: NPM_REGISTRIES[usedRegistry], registryFallback };
 }
 
 export const inject = ['webServer', 'tools'];
 
 // 仅供诊断 / 自动化测试（不属于 RPC 面，运行时行为不受影响）
-export const _internals = { THUMB_MAX_SIDE, thumbRelOf, isDerivedMedia, updateCheck, updateInstall, npmLatestVersion, cmpVer, findPnpm, getProfileDir: () => PROFILE_DIR, getVersion: () => VERSION, dataRoot, setDataRoot, dataRootMigrate, dataRootImport, ensureProjectFolder, physicalRel, mirrorProjectToDataRoot, writeAssetIndex, removeAssetIndexEntry, readDataRootMeta, removeDataRootProject, sqlDeleteProjectRows, deletedProjectIds, addDeletedProjectId, clearDeletedProjectId, fetchProxyForward, storyboardConsistencyWarnings, readAssetIndexNames, safeJoin, mimeOf, pipeFile, getIcConfigPath: () => CONFIG_PATH, canvasCreateProject, canvasWriteNode, canvasConnect, canvasDeleteProject, canvasDeleteNode, canvasRunNode, canvasNodeStatus, canvasGetBible, canvasUpdateBible, canvasCreateNode, canvasOpen, canvasesList, canvasCreate, canvasRename, canvasDelete, canvasDocId, isCanvasDocId, splitCanvasDocId, normalizeCanvasId, canvasRegistry, sanitizeCanvases, readCanvasDoc, writeCanvasDoc, deleteCanvasDocsForProject, projectsList, projectsPut, projectsGet, projectsDelete, projectsSync, sqliteAvailable: () => !!SQLITE, getDb, closeDb, dbAssetsList, dbAssetsGet, dbAssetNames, dbAssetCreate, dbAssetUpdate, dbAssetDelete, objectAbsFor, ftsReconcile, readDocOrNull, docExists, sqlActive, rpcMethods: () => _rpcMethods, canvasUpdateNode, canvasGenerateNode };
+export const _internals = { THUMB_MAX_SIDE, thumbRelOf, isDerivedMedia, updateCheck, updateInstall, npmLatestVersion, cmpVer, findPnpm, NPM_REGISTRIES, pickUpdateRegistry, registryCacheValid, pnpmAddArgs, getProfileDir: () => PROFILE_DIR, getVersion: () => VERSION, dataRoot, setDataRoot, dataRootMigrate, dataRootImport, ensureProjectFolder, physicalRel, mirrorProjectToDataRoot, writeAssetIndex, removeAssetIndexEntry, readDataRootMeta, removeDataRootProject, sqlDeleteProjectRows, deletedProjectIds, addDeletedProjectId, clearDeletedProjectId, fetchProxyForward, storyboardConsistencyWarnings, readAssetIndexNames, safeJoin, mimeOf, pipeFile, getIcConfigPath: () => CONFIG_PATH, canvasCreateProject, canvasWriteNode, canvasConnect, canvasDeleteProject, canvasDeleteNode, canvasRunNode, canvasNodeStatus, canvasGetBible, canvasUpdateBible, canvasCreateNode, canvasOpen, canvasesList, canvasCreate, canvasRename, canvasDelete, canvasDocId, isCanvasDocId, splitCanvasDocId, normalizeCanvasId, canvasRegistry, sanitizeCanvases, readCanvasDoc, writeCanvasDoc, deleteCanvasDocsForProject, projectsList, projectsPut, projectsGet, projectsDelete, projectsSync, sqliteAvailable: () => !!SQLITE, getDb, closeDb, dbAssetsList, dbAssetsGet, dbAssetNames, dbAssetCreate, dbAssetUpdate, dbAssetDelete, objectAbsFor, ftsReconcile, readDocOrNull, docExists, sqlActive, rpcMethods: () => _rpcMethods, canvasUpdateNode, canvasGenerateNode };
 
 function resolveModel(providers, want) {
   const byProvider = want && want.provider
@@ -2997,6 +3088,22 @@ export function apply(ctx) {
       async llmComplete(args) { return complete(args); },
       async updateCheck() { return updateCheck(); },
       async updateInstall() { return updateInstall(); },
+      async updateGetRegistry() {
+        const cfg = readIcConfig();
+        const override = cfg.updateRegistry === 'china' || cfg.updateRegistry === 'official' ? cfg.updateRegistry : 'auto';
+        return { override, resolved: cfg.updateRegistryResolved || null, cachedAt: cfg.updateRegistryAt || null, registries: NPM_REGISTRIES };
+      },
+      async updateSetRegistry(args) {
+        const v = String((args && args.override) || 'auto');
+        if (v !== 'auto' && v !== 'official' && v !== 'china') throw new Error('updateRegistry 只接受 auto / official / china');
+        const cfg = readIcConfig();
+        cfg.updateRegistry = v;
+        // 覆盖变化后清掉自动探测缓存：显式覆盖不需要缓存；切回 auto 时重新探测
+        delete cfg.updateRegistryResolved;
+        delete cfg.updateRegistryAt;
+        writeIcConfig(cfg);
+        return { override: v, resolved: null };
+      },
       async dataRootGet() {
         const root = dataRoot();
         let exists = false;

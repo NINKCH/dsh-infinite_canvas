@@ -1157,6 +1157,12 @@ function revealCanvasInRight() {
       'updateInstalledHint': '重启 Harness 后生效（网页部分刷新页面即可）',
       'updateFailGuide': '自动安装未成功，请在 DSH 插件管理 中升级',
       'updatePolicySkipped': '（已按你的点击跳过 24 小时新版本冷却期）',
+      'updateSrcTitle': '更新源',
+      'updateSrcAuto': '自动检测',
+      'updateSrcOfficial': 'npm 官方源',
+      'updateSrcChina': '中国大陆镜像源',
+      'updateSrcNow': '当前源',
+      'updateSrcSet': '更新源已切换',
       'dataRootLabel': '数据根目录',
       'dataRootPlaceholder': '如 D:\\canvas-data',
       'dataRootHint': '资产与视频按项目落盘到该目录（不再占用 C 盘 IndexedDB）。留空 = 浏览器 IndexedDB。',
@@ -2087,6 +2093,12 @@ function revealCanvasInRight() {
       'updateInstalledHint': 'restart Harness to take effect (refresh the page for the web part)',
       'updateFailGuide': 'Auto-install failed — please upgrade via the DSH Plugin Manager',
       'updatePolicySkipped': '(skipped the 24-hour release cool-down at your click)',
+      'updateSrcTitle': 'Update source',
+      'updateSrcAuto': 'Auto-detect',
+      'updateSrcOfficial': 'npm official',
+      'updateSrcChina': 'China mainland mirror',
+      'updateSrcNow': 'Active source',
+      'updateSrcSet': 'Update source changed',
       'dataRootLabel': 'Data root',
       'dataRootPlaceholder': 'e.g. D:\\canvas-data',
       'dataRootHint': 'Assets and videos are stored per project under this folder (no more C: IndexedDB). Empty = browser IndexedDB.',
@@ -8068,6 +8080,23 @@ function queueThumb(assetId) {
     // 有新版本 → 横幅 + "去升级"；点击后由 Host 在所属 profile 内
     // pnpm add 精确版本（绝不自动重启/刷新）；旧 Host / 开发态 / 失败 → 回退为纯引导
     // ============================================================
+    /** 从 Host 读取更新源配置（覆盖值 + 自动探测结果；旧 Host 无此 RPC → 静默隐藏选择器）。 */
+    async function fetchUpdateRegistry() {
+      try {
+        const r = await hostRpc('updateGetRegistry');
+        update((s) => { s.updateRegistry = r.override || 'auto'; s.updateRegistryResolved = r.resolved || null; });
+      } catch { /* 旧 Host：radio 仍显示，仅无当前源展示 */ }
+    }
+    /** 切换更新源（auto=按网络环境自动探测；official/china=手动覆盖）。写 Host config 并回读生效源。 */
+    async function setUpdateSource(val) {
+      update((s) => { s.updateRegistry = val; });
+      try {
+        const r = await hostRpc('updateSetRegistry', { override: val });
+        update((s) => { s.updateRegistry = r.override || val; s.updateRegistryResolved = r.resolved || null; });
+        toast(T('updateSrcSet') + (r.resolved ? '：' + (r.resolved === 'china' ? T('updateSrcChina') : T('updateSrcOfficial')) : ''));
+      } catch { /* 旧 Host 无此 RPC：UI 状态已记录，仅生效源未知 */ }
+    }
+    const srcLabel = (kind) => (kind === 'china' ? T('updateSrcChina') : kind === 'official' ? T('updateSrcOfficial') : T('updateSrcAuto'));
     async function checkUpdate(silent) {
       update((s) => { s.updateInfo = null; s.updateChecking = true; s.updateMsg = null; });
       try {
@@ -8089,7 +8118,8 @@ function queueThumb(assetId) {
         const res = await hostRpc('updateInstall');
         if (res && res.ok && res.changed) {
           const relaxed = res.policyRelaxed ? ' ' + T('updatePolicySkipped') : '';
-          update((s) => { s.updateBusy = false; s.updateMsg = T('updateInstalled') + ' v' + res.version + ' — ' + T('updateInstalledHint') + relaxed; });
+          const srcTxt = res.registryKind ? '（' + T('updateSrcNow') + '：' + srcLabel(res.registryKind) + '）' : '';
+          update((s) => { s.updateBusy = false; s.updateMsg = T('updateInstalled') + ' v' + res.version + srcTxt + ' — ' + T('updateInstalledHint') + relaxed; });
         } else if (res && res.ok) {
           update((s) => { s.updateBusy = false; s.updateMsg = T('updateUpToDate') + (res.version ? ' v' + res.version : ''); });
         } else {
@@ -19713,6 +19743,17 @@ const DIRECTOR_KEY_HELP = [
                     onPointerDown: (e) => e.stopPropagation(),
                     onClick: applyUpdate,
                   }, Ic('download', 11), T('updateGo')),
+              // 更新源：自动检测（按网络环境）/ 手动覆盖官方源或大陆镜像源（如图选择的 radio 形态）
+              h('span', { style: { display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, opacity: 0.95 }, onPointerDown: (e) => e.stopPropagation() },
+                T('updateSrcTitle') + '：',
+                ...[['auto', 'updateSrcAuto'], ['official', 'updateSrcOfficial'], ['china', 'updateSrcChina']].map(([val, key]) =>
+                  h('label', { key: val, style: { display: 'flex', alignItems: 'center', gap: 3, cursor: 'pointer' } },
+                    h('input', { type: 'radio', name: 'dshic-update-src', checked: (S.updateRegistry || 'auto') === val, disabled: !!S.updateBusy, onChange: () => setUpdateSource(val) }),
+                    T(key))),
+                S.updateRegistryResolved
+                  ? h('span', { style: { opacity: 0.75 } }, '（' + T('updateSrcNow') + '：' + (S.updateRegistryResolved === 'china' ? T('updateSrcChina') : T('updateSrcOfficial')) + '）')
+                  : null,
+              ),
               h('a', {
                 href: 'https://github.com/NINKCH/dsh-infinite_canvas/releases', target: '_blank', rel: 'noreferrer',
                 style: { color: 'inherit', opacity: 0.8, fontSize: 11 },
@@ -20114,6 +20155,8 @@ const DIRECTOR_KEY_HELP = [
           probeCraft();
           // 检查更新（Host RPC；Host 旧版未带此方法时静默）
           checkUpdate(true);
+          // 更新源配置（自动探测/手动覆盖；旧 Host 无此 RPC 时静默降级为仅展示）
+          fetchUpdateRegistry();
           // 数据根目录（Host 旧版静默降级为 IndexedDB 模式）；就绪后把本地遗留 blob 搬进服务端（v1 旧布局由 Host 侧自动迁移）
           refreshDataRoot().then(() => migrateLegacyAssets('boot')).catch(() => { /* 静默 */ });
           // 对话 ↔ 画布同步（启动一次 + 3s 轮询；旧 Host 自动停轮询）
