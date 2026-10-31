@@ -124,6 +124,16 @@ for (const mk of marks) {
 const s5 = parse('全剧梗概：一个关于雨的故事。\n\n【场1】A\n画面：X。');
 ok(s5.length === 1 && s5[0].text.includes('画面：X'), '⑤ 首个分场标记前的导语不产生幽灵场景');
 
+// ---------- ⑥ markdown 普通数字标题不得误判为分场（「场」字必选） ----------
+{
+  const s6 = parse('## 2024年度总结\n\n【场1】A\n画面：X。');
+  ok(s6.length === 1 && /【场1】/.test(s6[0].title), '⑥ ## 2024年度总结 不得被误判为分场标记');
+  const s6b = parse('### 3 个技巧\n\n【场1】A\n画面：X。');
+  ok(s6b.length === 1, '⑥ ### 3 个技巧 不得被误判为分场标记');
+  const s6c = parse('## 场2 仓库（夜）\n画面：Y。\n\n【场1】A\n画面：X。');
+  ok(s6c.length === 2, '⑥ ## 场N 形式仍然识别');
+}
+
 if (errs.length) {
   console.error('✗ 剧本场景切分回归未通过（' + errs.length + '）：');
   for (const e of errs) console.error('  - ' + e);

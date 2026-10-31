@@ -6594,7 +6594,7 @@ function queueThumb(assetId) {
         const body = buildSanbaoVideoBody(baseSpec, {
           frameDataUrl: frameBlob ? await blobToDataUrlScaled(frameBlob) : '',
           refDataUrls: await Promise.all(rawRefs.map((b) => blobToDataUrlScaled(b))),
-          audioDataUrls: await Promise.all((o.audioRefs || []).map((b) => blobToDataUrl(b))),
+          audioDataUrls: await Promise.all((o.audioRefs || []).slice(0, 3).map((b) => blobToDataUrl(b))),
         });
         // 扩展参数：逃生舱；uploadKey 专用上传 key 只用于 /uploads/raw，绝不进任务请求体
         let uploadKey = s.apiKey || '';
@@ -6616,7 +6616,7 @@ function queueThumb(assetId) {
             const refUrls = [];
             for (const b of rawRefs) refUrls.push(await sanbaoUploadRaw(base, uploadKey, b, 'image'));
             const audioUrls = [];
-            for (const b of (o.audioRefs || [])) audioUrls.push(await sanbaoUploadRaw(base, uploadKey, b, 'audio'));
+            for (const b of (o.audioRefs || []).slice(0, 3)) audioUrls.push(await sanbaoUploadRaw(base, uploadKey, b, 'audio'));
             const body2 = buildSanbaoVideoBody(baseSpec, { frameDataUrl: frameUrl, refDataUrls: refUrls, audioDataUrls: audioUrls });
             const ex2 = parseExtraParams(s.extra);
             if (ex2) { const rest2 = { ...ex2 }; delete rest2.uploadKey; Object.assign(body2, rest2); }
@@ -13000,7 +13000,7 @@ function queueThumb(assetId) {
      *  尾部的「人物：/场景/道具：」清单从最后一场剥离（资产生产参考，不属于场景正文）。 */
     function parseScriptScenes(output) {
       const text = String(output || '').replace(/\r\n/g, '\n');
-      const head = /^\s*(?:【\s*场\s*\d+[^】]*】|【?\s*场\s*\d+\s*】?\s*[：:、．.]|场\s*\d+\s*[：:、．.]|#{1,4}\s*场?\s*\d+|SCENE\s*\d+\b)/i;
+      const head = /^\s*(?:【\s*场\s*\d+[^】]*】|【?\s*场\s*\d+\s*】?\s*[：:、．.]|场\s*\d+\s*[：:、．.]|#{1,4}\s*场\s*\d+|SCENE\s*\d+\b)/i;
       const scenes = [];
       let cur = null;
       for (const line of text.split('\n')) {
@@ -14376,16 +14376,16 @@ function queueThumb(assetId) {
     async function buildImageLockText(P, manifest, profile, k) {
       const parts = [];
       const push = (label, body) => { const b = String(body || '').trim(); if (b) parts.push(label + '\n' + b); };
-      /** 按句末标点截断，避免切出半句。 */
+      /** 按句末标点截断，避免切出半句；UTF-8 字节数手算（部分测试沙箱没有 TextEncoder）。 */
       const cap = (text, maxBytes) => {
         const t = String(text || '').replace(/\s+/g, ' ').trim();
         if (!t) return '';
-        const enc = new TextEncoder();
-        if (enc.encode(t).length <= maxBytes) return t;
+        const bLen = (s) => { let n = 0; for (const ch of String(s)) { const c = ch.codePointAt(0); n += c < 0x80 ? 1 : c < 0x800 ? 2 : c < 0x10000 ? 3 : 4; } return n; };
+        if (bLen(t) <= maxBytes) return t;
         const heads = t.split(/(?<=[。；;!?])/);
         let out = '';
         for (const h of heads) {
-          if (enc.encode(out + h).length > maxBytes) break;
+          if (bLen(out + h) > maxBytes) break;
           out += h;
         }
         return (out || t.slice(0, maxBytes)).trim();
@@ -14470,7 +14470,7 @@ function queueThumb(assetId) {
       }
 
       if (!parts.length) return '';
-      return '[画面风格锁] 以下决定画面成色（与正文冲突时以本块为准）：' + EOL + parts.join(EOL);
+      return '[画面风格锁] 以下决定画面成色（与正文冲突时以本块为准）：\n' + parts.join('\n');
     }
 
     async function buildShotLockText(kind, opts) {

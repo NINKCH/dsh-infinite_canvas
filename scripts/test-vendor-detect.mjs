@@ -209,6 +209,7 @@ ok(/if \(s\.vendor\) return s\.vendor;/.test(src), '显式 vendor 优先必须�
   ok(/openapi\/v1\/videos/.test(src), '三宝：任务创建/查询端点未接入');
   ok(/sanbaoUploadRaw/.test(src) && /uploads\/raw/.test(src), '三宝：素材上传口未接入');
   ok(/uploadKey/.test(src), '三宝：专用上传 key（扩展参数 uploadKey）未接入');
+  ok(/audioDataUrls: await Promise\.all\(\(o\.audioRefs \|\| \[\]\)\.slice\(0,\s*3\)\.map/.test(src), '三宝：参考音频未按上限切片（≤3，与告警口径一致）');
 }
 
 // ---------------- ⑨ 注入分工：视频总控锁 + 风格锚 ----------------

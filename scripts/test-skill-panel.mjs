@@ -427,6 +427,20 @@ if (TABS && CRAFT) {
     ok(!lock.includes('全局负向词'), '视频锁负向词应为 ≤6 条内联（旧 2400B 预算已废）');
     ok(P.utf8Bytes(lock) <= 1600, '视频总控锁超预算（' + P.utf8Bytes(lock) + 'B > 1.6KB）');
 
+    // 图片锁功能回归：medium='image' 必须产出完整紧凑锁——此前 buildImageLockText 返回语句引用
+    // 未定义的 EOL 抛 ReferenceError，被调用点 try/catch 静默吞掉：图片生成从未真正拿到风格锁且零测试覆盖
+    const imgLock = await CRAFT.buildShotLockText('prompt', { medium: 'image', pid: 'pVideoLock' });
+    ok(imgLock.startsWith('[画面风格锁]'), '图片锁缺少标准头（EOL 未定义会让锁静默变空）');
+    ok(imgLock.includes('画面风格：'), '图片锁缺镜头风格 bits（焦距/光比/主色）');
+    ok(imgLock.includes('色彩：'), '图片锁缺色彩命题');
+    ok(imgLock.includes('影调：'), '图片锁缺影调与光比');
+    ok(imgLock.includes('场面材料：'), '图片锁缺题材场面材料');
+    ok(imgLock.includes('必须排除：'), '图片锁缺负向词');
+    ok(P.utf8Bytes(imgLock) <= 2600, '图片锁超预算（' + P.utf8Bytes(imgLock) + 'B）');
+    // 设定图档额外带材质响应
+    const assetsLock = await CRAFT.buildShotLockText('assets', { medium: 'image', pid: 'pVideoLock' });
+    ok(assetsLock.includes('材质：'), '设定图档图片锁缺材质响应');
+
     // 四层负向词必须在合并后全局去重；用可替换的 pack 模块桩让每张卡返回同一短语，若有重复会立刻红
     const realPack = P;
     try {
