@@ -2769,6 +2769,8 @@ body[data-ds-dark-theme] .dshic-inline-input{border-color:var(--dsw-alias-border
 .dshic-edge.kind-image{stroke:var(--dsw-alias-brand-primary);}
 .dshic-edge.kind-video{stroke:var(--dsw-alias-state-success-primary);}
 .dshic-edge.is-selected{stroke-width:3.5;filter:drop-shadow(0 0 3px color-mix(in srgb,var(--dsw-alias-brand-primary) 60%,transparent));}
+/* 选中节点的连线高亮：亮绿 + 双层外发光（固定高对比色，选中态不随主题变化） */
+.dshic-edge.is-node-linked{stroke:#2fe08a;stroke-width:2.6;filter:drop-shadow(0 0 3px rgba(47,224,138,.95)) drop-shadow(0 0 9px rgba(47,224,138,.5));}
 .dshic-edge-hit{fill:none;stroke:transparent;stroke-width:14;pointer-events:stroke;cursor:pointer;}
 .dshic-edge-temp{fill:none;stroke:var(--dsw-alias-label-secondary);stroke-width:2;stroke-dasharray:6 5;pointer-events:none;}
 /* ── 节点卡片（原型 .node）：圆角 14 / 1px --line2 边框 / 柔和投影 ── */
@@ -13625,6 +13627,8 @@ function queueThumb(assetId) {
         S.graph.edges.map((e) => {
           const kind = edgeKind(e);
           const sel = S.selEdge === e.id;
+          // 选中节点的所有入边/出边 → 亮绿外发光（边自身被选中时已有 is-selected，互斥不叠加）
+          const linked = !sel && (S.sel.has(e.fromNode) || S.sel.has(e.toNode));
           const g = edgeGeom(e);
           return h('g', { key: e.id, className: 'dshic-edge-g' },
             h('path', {
@@ -13633,7 +13637,7 @@ function queueThumb(assetId) {
             }),
             h('path', {
               ref: (el) => { if (el) edgePathEls.set(e.id, el); else edgePathEls.delete(e.id); },
-              d: g.d, className: cls('dshic-edge', 'kind-' + kind, sel && 'is-selected'),
+              d: g.d, className: cls('dshic-edge', 'kind-' + kind, sel && 'is-selected', linked && 'is-node-linked'),
             }),
             // 悬停中点显示删除按钮（Toonflow 式）
             h('g', {

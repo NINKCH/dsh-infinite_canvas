@@ -841,6 +841,16 @@ const barsOn = () => HDR() + FOOT();
     ok(/box-shadow:var\(--dshic-shadow-sel\),var\(--dshic-shadow\)/.test(selRule), '选中节点必须有 3px accent 光圈 + 常驻阴影');
     eq(cssVar('shadow-sel'), '0 0 0 3px rgba(43,109,253,.16)', '选中光圈必须是 0 0 0 3px rgba(43,109,253,.16)');
   }
+  {
+    // 选中节点的连线高亮：亮绿 + 双层外发光（src 类名逻辑 + CSS 规则双断言）
+    const linkRule = cssOf('.dshic-edge.is-node-linked');
+    ok(!!linkRule, '选中节点的连线高亮 CSS 规则缺失');
+    ok(/#2fe08a/.test(linkRule), '连线高亮必须是亮绿 #2fe08a');
+    ok((linkRule.match(/drop-shadow/g) || []).length >= 2, '连线高亮必须有双层 drop-shadow 外发光');
+    ok(/stroke-width/.test(linkRule), '连线高亮必须加粗描边');
+    ok(/S\.sel\.has\(e\.fromNode\) \|\| S\.sel\.has\(e\.toNode\)/.test(src), '选中节点连线标记逻辑缺失（fromNode/toNode 命中判断）');
+    ok(/is-node-linked/.test(src), 'EdgeLayer 未输出 is-node-linked 类名');
+  }
   const headRule2 = cssOf('.dshic-node-head');
   ok(/height:var\(--dshic-head-h\)/.test(headRule2), '标题栏高度必须引用 --dshic-head-h');
   ok(/background:var\(--dshic-head-bg\)/.test(headRule2), '标题栏背景必须引用 --dshic-head-bg');
