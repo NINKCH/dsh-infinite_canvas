@@ -6220,6 +6220,7 @@ function queueThumb(assetId) {
       seedance:  { label: '火山方舟 · Seedance（豆包视频）', base: 'https://ark.cn-beijing.volces.com/api/v3/contents/generations/tasks', keyPh: 'ARK API Key', note: 'Base URL 填方舟提交端点或 /api/v3 均可；模型 id 如 doubao-seedance-2-0-260128' },
       kling:     { label: '快手可灵 Kling', base: 'https://api.klingai.com', keyPh: 'AK:SK（冒号分隔）', note: 'Key 填 AK:SK，代码自动签 JWT；国际站把 Base URL 改为 api-singapore.klingai.com；时长按官方 5/10s 取整' },
       wan:       { label: '阿里通义万相 Wan（DashScope）', base: 'https://dashscope.aliyuncs.com', note: '异步任务制；国际站把 Base URL 改为 dashscope-intl.aliyuncs.com；图生视频走 img_url' },
+      sanbao:    { label: '三宝影像工坊（Sanbao 多参考）', base: 'https://sanbaobeauty.com', keyPh: 'sk-sanbao-…', note: '任务制 /openapi/v1/videos；本地素材 dataURL 直传（全模型 media_inputs 含 data_url，已实测）；报图片格式错误自动用扩展参数 {"uploadKey":"sk-sanbao-…"} 指定的专用 key 上传 /openapi/v1/uploads/raw 转公网 URL 后重试一次；resolution 小写（480p/720p/1080p/2k）；reference 固定 all（可扩展参数覆盖）；参考图上限按模型：wan/kling 系 10、hailuo/SD2.0 系 9、SD2.5 系 30，音频 3–10' },
       minimax:   { label: 'MiniMax 海螺视频（V1 协议）', base: 'https://api.minimaxi.com', note: '异步任务制；时长按官方 6/10s 取整；首帧图支持 base64' },
       minimaxv2: { label: 'MiniMax H3 · V2 协议（优云智算 / 官方）', base: 'https://cp.compshare.cn', keyPh: 'sk-ml-…', note: 'V2 协议自动适配：优云智算走 /minimax/v2，官方（api.minimax.io/.cn）走 /v2；content[] 多模态（首帧/尾帧/参考图≤9/视频≤3/音频≤3），原生音频，分辨率 480P/768P/1080P/2K/4K（大小写敏感），时长 4-30s；use_context_ir / mute_audio 等走扩展参数' },
       vidu:      { label: '生数科技 Vidu', base: 'https://api.vidu.com', note: '图片支持 base64；时长按官方 4/8s 取整' },
@@ -6304,6 +6305,84 @@ function queueThumb(assetId) {
       if (WAN_STATUS_FAIL.includes(st)) return { state: 'fail', error: wanErrorOf(j) || st };
       return { state: 'wait' }; // unknown/pending/running 及一切未知状态 = 继续轮询
     }
+    // —— 三宝影像工坊（Sanbao）：任务制多参考（/openapi/v1/videos）——
+    /** 三宝视频请求体（纯函数供回归断言）：本地素材 dataURL 直传（全模型 media_inputs 含 data_url，
+     *  2026-10-31 实测格式校验通过）。首帧+参考图同传时首帧降级为首张参考图（沿用全站互斥口径）；
+     *  参考音频走 audios[{tag,url}]；reference 固定 all（多参考全能模式，可扩展参数覆盖）。
+     *  frameDataUrl/refDataUrls 取值 dataURL 或公网 URL 皆可——上传兜底重试共用同一构造器。 */
+    function buildSanbaoVideoBody(base, media) {
+      const b = base || {};
+      const m = media || {};
+      const frame = String(m.frameDataUrl || '');
+      const refs = (Array.isArray(m.refDataUrls) ? m.refDataUrls : []).map(String).filter(Boolean);
+      const audios = (Array.isArray(m.audioDataUrls) ? m.audioDataUrls : []).map(String).filter(Boolean);
+      const out = {
+        model: String(b.model || ''),
+        prompt: String(b.prompt || ''),
+        ratio: String(b.ratio || '16:9'),
+        resolution: String(b.resolution || '720p').toLowerCase(), // 模型表枚举是小写：480p/720p/1080p/2k
+        duration: Math.round(Number(b.duration)) || 5,
+        reference: 'all',
+      };
+      const images = (frame ? [frame] : []).concat(refs);
+      if (images.length) out.images = images;
+      if (audios.length) out.audios = audios.map((url, i) => ({ tag: '音频' + (i + 1), url }));
+      return out;
+    }
+    /** 三宝任务 id：查询响应包在 data 里（data.id），创建响应顶层 id 兼容。 */
+    function sanbaoTaskIdOf(j) {
+      if (!j || typeof j !== 'object') return null;
+      const d = (j.data && typeof j.data === 'object') ? j.data : null;
+      return (d && (d.id || d.task_id)) || j.id || j.task_id || null;
+    }
+    function sanbaoStatusOf(j) {
+      if (!j || typeof j !== 'object') return '';
+      const d = (j.data && typeof j.data === 'object') ? j.data : null;
+      return String((d && (d.status ?? d.task_status)) ?? j.status ?? '').trim().toLowerCase();
+    }
+    function sanbaoVideoUrlOf(j) {
+      if (!j || typeof j !== 'object') return '';
+      const d = (j.data && typeof j.data === 'object') ? j.data : null;
+      return [d && (d.video_url || d.download_url || d.url), j.video_url, j.download_url]
+        .find((u) => typeof u === 'string' && /^https?:/.test(u)) || '';
+    }
+    function sanbaoErrorOf(j) {
+      const d = (j && j.data && typeof j.data === 'object') ? j.data : null;
+      return String((d && d.error) || (j && j.error) || '');
+    }
+    /** 三宝轮询判定：queued/processing 及未知状态 = 继续；succeeded → video_url/download_url；failed → error。 */
+    function sanbaoPollState(j) {
+      const st = sanbaoStatusOf(j);
+      if (st === 'succeeded') {
+        const url = sanbaoVideoUrlOf(j);
+        return url ? { state: 'done', url } : { state: 'fail', error: '成功但无视频地址' };
+      }
+      if (st === 'failed') return { state: 'fail', error: sanbaoErrorOf(j) || st };
+      return { state: 'wait' };
+    }
+    /** 三宝图片字段兜底触发：只认「图片/素材/格式/URL」类错误。
+     *  余额(402/余额不足/credits)、鉴权(401/api key)、限流(429/频繁)、账号限制(403)绝不重试。 */
+    function needsSanbaoMediaRetry(errText) {
+      const t = String(errText || '');
+      if (!t) return false;
+      if (/余额不足|积分不足|insufficient_credits|api\s*key|unauthorized|forbidden|请求过于频繁|rate\s*limit|401|402|403|429/i.test(t)) return false;
+      return /图片|图像|image|素材|格式|url|链接/i.test(t);
+    }
+    /** 三宝素材上传（原始二进制体，非 multipart）：返回 file.url 公网地址。
+     *  用专用 uploadKey（扩展参数指定，缺省回退主 key）；fetchViaProxy 的 bodyRaw 直传 Blob。 */
+    async function sanbaoUploadRaw(base, uploadKey, blob, kind) {
+      const type = (blob && blob.type) || (kind === 'audio' ? 'audio/mpeg' : kind === 'video' ? 'video/mp4' : 'image/jpeg');
+      const ext = String(type.split('/')[1] || 'bin').replace(/[^a-z0-9]/gi, '') || 'bin';
+      const r = await fetchViaProxy(base + '/openapi/v1/uploads/raw?kind=' + kind + '&fileName=ref.' + ext, {
+        headers: { 'Content-Type': type, Authorization: 'Bearer ' + (uploadKey || '') },
+        bodyRaw: blob, bodyContentType: type, timeoutMs: 120000, label: 'Sanbao 素材上传',
+      });
+      if (!r.ok) throw new Error('Sanbao 素材上传 HTTP ' + r.status + '：' + String(r.text || '').slice(0, 200));
+      let j = null; try { j = JSON.parse(r.text); } catch { throw new Error('Sanbao 素材上传响应非 JSON：' + String(r.text || '').slice(0, 200)); }
+      const url = j && j.file && j.file.url;
+      if (!/^https?:/.test(String(url || ''))) throw new Error('Sanbao 素材上传未返回 file.url');
+      return url;
+    }
     /** 读取生成视频的真实尺寸与时长（用于「厂商是否忽略了参数」的可见校验）。 */
     function probeVideoMeta(blob) {
       return new Promise((resolve) => {
@@ -6343,6 +6422,7 @@ function queueThumb(assetId) {
       // URL 特征兜底：URL 也是用户显式配置的一部分（旧配置 vendor 字段为空时走这里，
       // 设置卡片渲染时会按此回填 vendor，之后恒走显式值）。
       if (url.includes('dashscope')) return 'wan';
+      if (url.includes('sanbaobeauty')) return 'sanbao';
       if (url.includes('klingai')) return 'kling';
       if (url.includes('minimax')) return 'minimax';
       if (url.includes('vidu')) return 'vidu';
@@ -6473,6 +6553,62 @@ function queueThumb(assetId) {
           if (!r || !r.ok) return { state: 'wait' };
           let j = null; try { j = JSON.parse(r.text); } catch { return { state: 'wait' }; }
           return wanPollState(j);
+        });
+        return await downloadVideo(url, {});
+      },
+      // —— 三宝影像工坊 Sanbao：任务制多参考（/openapi/v1/videos），本地图 dataURL 直传，格式错误自动上传转 URL 重试 ——
+      async sanbao(prompt, frameBlob, s, o) {
+        const base = vendorBase(s.url, VIDEO_VENDORS.sanbao.base);
+        const headers = { 'Content-Type': 'application/json', Authorization: 'Bearer ' + (s.apiKey || '') };
+        const rawRefs = o.hardFrame ? [] : (o.refs || []).slice(0, 9);
+        let text = prompt;
+        if (frameBlob && rawRefs.length) text = videoRefNote(o.refNames) + '\n' + prompt;
+        const baseSpec = { model: s.model || '', prompt: text, ratio: o.ratio, resolution: o.resolution || '720p', duration: o.duration };
+        // 第一发：本地素材 dataURL 直传（全模型 media_inputs 含 data_url，2026-10-31 实测格式校验通过）
+        const body = buildSanbaoVideoBody(baseSpec, {
+          frameDataUrl: frameBlob ? await blobToDataUrlScaled(frameBlob) : '',
+          refDataUrls: await Promise.all(rawRefs.map((b) => blobToDataUrlScaled(b))),
+          audioDataUrls: await Promise.all((o.audioRefs || []).map((b) => blobToDataUrl(b))),
+        });
+        // 扩展参数：逃生舱；uploadKey 专用上传 key 只用于 /uploads/raw，绝不进任务请求体
+        let uploadKey = s.apiKey || '';
+        try {
+          const ex = parseExtraParams(s.extra);
+          if (ex) {
+            if (ex.uploadKey) uploadKey = String(ex.uploadKey);
+            const rest = { ...ex }; delete rest.uploadKey;
+            Object.assign(body, rest);
+          }
+        } catch (e) { throw new Error('三宝扩展参数配置有误：' + ((e && e.message) || e)); }
+        const submit = (b, label) => fetchViaProxy(base + '/openapi/v1/videos', { headers, body: b, timeoutMs: 120000, label });
+        let r1 = await submit(body, 'Sanbao 提交');
+        // 兜底：图片/素材格式或 URL 类错误 → 用专用 uploadKey 把本地素材传 /uploads/raw 转公网 URL 后重试一次
+        // （余额/鉴权/限流/账号限制类错误绝不重试——needsSanbaoMediaRetry 排除）
+        if (!r1.ok && needsSanbaoMediaRetry(r1.text) && (frameBlob || rawRefs.length || (o.audioRefs || []).length)) {
+          try {
+            const frameUrl = frameBlob ? await sanbaoUploadRaw(base, uploadKey, frameBlob, 'image') : '';
+            const refUrls = [];
+            for (const b of rawRefs) refUrls.push(await sanbaoUploadRaw(base, uploadKey, b, 'image'));
+            const audioUrls = [];
+            for (const b of (o.audioRefs || [])) audioUrls.push(await sanbaoUploadRaw(base, uploadKey, b, 'audio'));
+            const body2 = buildSanbaoVideoBody(baseSpec, { frameDataUrl: frameUrl, refDataUrls: refUrls, audioDataUrls: audioUrls });
+            const ex2 = parseExtraParams(s.extra);
+            if (ex2) { const rest2 = { ...ex2 }; delete rest2.uploadKey; Object.assign(body2, rest2); }
+            r1 = await submit(body2, 'Sanbao 提交（素材转URL重试）');
+          } catch (e) {
+            throw new Error('Sanbao 提交 HTTP ' + r1.status + '：' + r1.text.slice(0, 200) + '；[素材上传重试] ' + ((e && e.message) || e));
+          }
+        }
+        if (!r1.ok) throw new Error('Sanbao 提交 HTTP ' + r1.status + ' @ ' + base + '：' + r1.text.slice(0, 300));
+        let j1 = null; try { j1 = JSON.parse(r1.text); } catch { throw new Error('Sanbao 响应非 JSON：' + r1.text.slice(0, 200)); }
+        const tid = sanbaoTaskIdOf(j1);
+        if (!tid) throw new Error('Sanbao 响应中没有任务 id：' + r1.text.slice(0, 200));
+        if (o.onTask) { try { o.onTask(tid, base + '/openapi/v1/videos/' + encodeURIComponent(tid)); } catch { /* 持久化失败不影响生成 */ } }
+        const url = await vendorPoll('Sanbao', 8000, async () => {
+          const r = await fetchViaProxy(base + '/openapi/v1/videos/' + encodeURIComponent(tid), { method: 'GET', headers: { Authorization: 'Bearer ' + (s.apiKey || '') }, timeoutMs: 60000, label: 'Sanbao 查询' });
+          if (!r || !r.ok) return { state: 'wait' };
+          let j = null; try { j = JSON.parse(r.text); } catch { return { state: 'wait' }; }
+          return sanbaoPollState(j);
         });
         return await downloadVideo(url, {});
       },
@@ -6766,6 +6902,8 @@ function queueThumb(assetId) {
      *  超出上限会被截断——必须显式告警（o.warn → 节点 genWarn），绝不静默丢素材。 */
     const VIDEO_REF_CAPS = {
       wan: { img: 10 },
+      // 三宝：按最保守通用模型（hailuo/SD2.0 系 9 图 3 音频；wan/kling 系 10 图、SD2.5 系 30 图，见厂商 note）
+      sanbao: { img: 9, audio: 3 },
       minimaxv2: { img: 9, audio: 3 },
       openai: { img: 8 },
       seedance: { img: 8 },
@@ -20188,7 +20326,7 @@ const DIRECTOR_KEY_HELP = [
           // IC-04：参考图上传三件套的纯函数出口（供 scripts/test-image-upload.mjs 直接断言）
           window.__DSH_IC_IMGREF__ = { rawImageDims, sniffImageEncoding, registerReferenceAsset };
           // IC-03：视频厂商识别/前缀归一化的纯函数出口（供 scripts/test-vendor-detect.mjs 直接断言）
-          window.__DSH_IC_VENDOR__ = { detectVideoVendor, gatewayPrefixFor, wanEndpoints, vendorBase, VIDEO_REF_CAPS, needsSimpleMediaRetry, buildSimpleMediaRetryBody, wanTaskIdOf, wanStatusOf, wanPollState };
+          window.__DSH_IC_VENDOR__ = { detectVideoVendor, gatewayPrefixFor, wanEndpoints, vendorBase, VIDEO_REF_CAPS, needsSimpleMediaRetry, buildSimpleMediaRetryBody, wanTaskIdOf, wanStatusOf, wanPollState, buildSanbaoVideoBody, sanbaoTaskIdOf, sanbaoPollState, needsSanbaoMediaRetry };
           // 按镜头切段（分段生成本身就是最容易出错的地方）：规划器 + 强弱模型分流 + 节点段区间解析
           // 供 scripts/test-segment-plan.mjs 直接断言
           window.__DSH_IC_SEGMENT__ = { planShotSegments, isCutPoint, segmentNeedsHardFrame, videoSegmentOf, shotContinuityPlan };

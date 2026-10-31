@@ -155,6 +155,62 @@ ok(/if \(s\.vendor\) return s\.vendor;/.test(src), '显式 vendor 优先必须�
   ok(/return wanPollState\(j\)/.test(src), 'wan runner 轮询未接入状态归一');
 }
 
+// ---------------- ⑧ 三宝影像工坊（Sanbao）任务制多参考 ----------------
+// 协议：POST /openapi/v1/videos（任务制）+ GET 轮询 data.status；本地素材 dataURL 直传
+// （全模型 media_inputs 含 data_url，实测格式校验通过）；报图片/素材格式类错误 →
+// 用专用 uploadKey（扩展参数）走 /openapi/v1/uploads/raw 转公网 URL 后重试一次。
+{
+  const build = SEG.buildSanbaoVideoBody;
+  const tidOf = SEG.sanbaoTaskIdOf;
+  const pollOf = SEG.sanbaoPollState;
+  const retry = SEG.needsSanbaoMediaRetry;
+  ok(typeof build === 'function' && typeof pollOf === 'function' && typeof retry === 'function', '缺少三宝测试缝隙（buildSanbaoVideoBody/sanbaoTaskIdOf/sanbaoPollState/needsSanbaoMediaRetry）');
+  if (typeof build === 'function') {
+    const base = { model: 'wan30_720p_real', prompt: 'p', ratio: '9:16', resolution: '720P', duration: 5 };
+    const b1 = build(base, { frameDataUrl: 'data:image/png;base64,AAA', refDataUrls: ['data:image/jpeg;base64,BBB', 'data:image/jpeg;base64,CCC'] });
+    ok(b1.model === 'wan30_720p_real', '三宝：model 透传');
+    ok(Array.isArray(b1.images) && b1.images.length === 3 && b1.images[0] === 'data:image/png;base64,AAA', '三宝：首帧降级为首张参考图，images 字符串数组');
+    ok(b1.reference === 'all', '三宝：多参考模式 reference=all');
+    ok(b1.resolution === '720p', '三宝：resolution 小写化（模型表枚举 480p/720p/1080p/2k）');
+    ok(b1.ratio === '9:16' && b1.duration === 5, '三宝：ratio/duration 透传');
+    const b2 = build(base, { refDataUrls: ['data:image/jpeg;base64,BBB'] });
+    ok(!('input_reference' in b2) && Array.isArray(b2.images) && b2.images.length === 1, '三宝：无首帧只发参考图');
+    const b3 = build(base, { frameDataUrl: 'data:image/png;base64,AAA', audioDataUrls: ['data:audio/mpeg;base64,CCC'] });
+    ok(Array.isArray(b3.audios) && b3.audios[0].tag === '音频1' && /^data:audio/.test(b3.audios[0].url), '三宝：参考音频走 audios[{tag,url}]');
+    const b4 = build(base, { refDataUrls: ['https://sanbaobeauty.com/a.jpg'] });
+    ok(b4.images[0] === 'https://sanbaobeauty.com/a.jpg', '三宝：公网 URL 与 dataURL 同通道（上传兜底重试共用构造器）');
+    ok(!('parameters' in b1) && !('watermark' in b1), '三宝：不发明其他协议的字段');
+  }
+  if (typeof tidOf === 'function') {
+    ok(tidOf({ data: { id: 'task_x' } }) === 'task_x', '三宝：任务 id 在 data.id');
+    ok(tidOf({ id: 't2' }) === 't2', '三宝：顶层 id 兼容');
+    ok(tidOf({}) === null && tidOf(null) === null, '三宝：无 id 返回 null');
+  }
+  if (typeof pollOf === 'function') {
+    ok(pollOf({ data: { status: 'succeeded', video_url: 'https://x/v.mp4' } }).state === 'done'
+      && pollOf({ data: { status: 'succeeded', video_url: 'https://x/v.mp4' } }).url === 'https://x/v.mp4', '三宝：succeeded → data.video_url');
+    ok(pollOf({ data: { status: 'succeeded', download_url: 'https://x/d.mp4' } }).url === 'https://x/d.mp4', '三宝：download_url 兜底（签名直链）');
+    ok(pollOf({ data: { status: 'succeeded' } }).state === 'fail', '三宝：成功但无地址 → 快失败');
+    const f1 = pollOf({ data: { status: 'failed', error: '敏感内容' } });
+    ok(f1.state === 'fail' && /敏感内容/.test(f1.error), '三宝：failed → data.error');
+    ok(pollOf({ data: { status: 'queued' } }).state === 'wait' && pollOf({ data: { status: 'processing', progress: 40 } }).state === 'wait', '三宝：queued/processing 继续等');
+    ok(pollOf({}).state === 'wait' && pollOf(null).state === 'wait', '三宝：无状态 → wait');
+  }
+  if (typeof retry === 'function') {
+    ok(retry('图片格式不支持，请提供 http(s) url'), '三宝兜底：图片格式类错误触发');
+    ok(retry('素材拉取失败'), '三宝兜底：素材类错误触发');
+    ok(!retry('余额不足'), '三宝兜底：余额错误绝不重试');
+    ok(!retry('{"code":"INSUFFICIENT_CREDITS"}'), '三宝兜底：积分错误绝不重试');
+    ok(!retry('Invalid API key'), '三宝兜底：鉴权错误绝不重试');
+    ok(!retry('请求过于频繁'), '三宝兜底：限流绝不重试');
+    ok(!retry(''), '三宝兜底：空错误不触发');
+  }
+  ok(detect({ vendor: '', model: '', url: 'https://sanbaobeauty.com/openapi/v1/videos' }) === 'sanbao', 'URL 兜底：sanbaobeauty → sanbao');
+  ok(/openapi\/v1\/videos/.test(src), '三宝：任务创建/查询端点未接入');
+  ok(/sanbaoUploadRaw/.test(src) && /uploads\/raw/.test(src), '三宝：素材上传口未接入');
+  ok(/uploadKey/.test(src), '三宝：专用上传 key（扩展参数 uploadKey）未接入');
+}
+
 if (errs.length) {
   console.error('✗ 厂商识别回归未通过（' + errs.length + '）：');
   for (const e of errs) console.error('  - ' + e);
