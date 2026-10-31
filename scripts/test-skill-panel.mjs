@@ -386,13 +386,14 @@ if (TABS && CRAFT) {
   ok(/设定图/.test(runGen), '图片分支缺少「设定图 → assets 切片」判定');
   const lockFn = fnSlice('buildShotLockText');
   ok(!!lockFn, '未能定位 buildShotLockText');
-  ok(/yamlBlock/.test(lockFn), '风格增强块未使用 yamlBlock 取风格参数');
-  ok(/negativePhrases/.test(lockFn), '风格增强块未取负向词');
-  // 风格增强块必须带四层（不是只有风格参数与负向词）——这是「后面越走越偏」的根因
-  ok(/pickSections\(lens/.test(lockFn) || /pickSections\(md, k\)/.test(lockFn), '风格增强块未按能力取透镜切片');
-  ok(/影调与材质/.test(lockFn), '风格增强块缺影调的成像与材质内容');
-  ok(/常见场面颗粒|参考镜头|视觉母题/.test(lockFn), '风格增强块缺题材的场面颗粒');
-  ok(/类型负向词|交付规格/.test(lockFn), '风格增强块缺规格的节奏与负向词');
+  ok(!/yamlBlock/.test(lockFn), '视频总控锁不得再注入透镜 YAML（导演语言已字段化进分镜）');
+  ok(/negativePhrases/.test(lockFn), '视频总控锁未取负向词');
+  // 注入分工：教材长文（灯光规则/影调材质/题材颗粒/禁项）只在分镜层消化成逐镜字段，不进视频请求
+  ok(!/pickSections/.test(lockFn), '视频总控锁不得倾倒教材小节全文');
+  ok(!/常见场面颗粒|参考镜头|视觉母题/.test(lockFn), '视频总控锁注入了题材颗粒长文');
+  ok(/成像底层/.test(lockFn), '视频总控锁缺影调美学短语（成像底层）');
+  ok(/类型负向词|交付规格/.test(lockFn), '视频总控锁缺规格的节奏约束');
+  ok(/slice\(0,\s*6\)/.test(lockFn), '视频总控锁内联负向词应 ≤6 条（稀释规则）');
   // 短路必须把「规格」算作一层（只选规格时也要注入）
   ok(/if \(!profile\.lens && !profile\.look && !profile\.form && !\(profile\.genres \|\| \[\]\)\.length\) return '';/.test(lockFn),
     '风格增强块的短路未包含 form（只选规格时不注入 → 与对话侧分叉）');
@@ -413,19 +414,18 @@ if (TABS && CRAFT) {
     ok(/const pid = \(opts && opts\.pid\) \|\| S\.activeId;/.test(src), 'buildShotLockText 未支持 opts.pid');
     CRAFT.saveSkillProfile('pVideoLock', { lens: 'fincher', genres: ['crime-police'], form: 'trailer', look: 'dark-myth-cg' });
     const lock = await CRAFT.buildShotLockText('prompt', { pid: 'pVideoLock' });
-    ok(lock.startsWith('[风格增强锁]'), '视频风格锁缺少标准头');
-    ok(lock.includes('本片风格参数'), '视频锁未注入导演透镜的风格参数');
-    ok(lock.includes('导演的光线与色彩规则'), '视频锁未注入导演的 prompt 切片');
-    ok(lock.includes('题材的场面颗粒'), '视频锁未注入题材的场面颗粒');
-    ok(lock.includes('本题材的画面禁项'), '视频锁未注入题材的画面禁项');
+    ok(lock.startsWith('[全片风格锚]'), '视频总控锁缺少标准头');
+    ok(lock.includes('影调质感'), '视频锁未注入影调美学短语（成像底层摘要）');
     ok(lock.includes('交付规格'), '视频锁未注入规格的节奏约束');
-    ok(lock.includes('影调与材质'), '视频锁未注入影调的成像与材质');
-    ok(lock.includes('全局负向词'), '视频锁未把四层负向词合并注入');
-    // 反向断言：prompt 能力不拿剧本/分镜专属小节，防止又退回“整卡倾倒”
-    ok(!lock.includes('## 叙事方法'), '视频锁注入了剧本专属「叙事方法」');
-    ok(!lock.includes('## 剪辑节奏'), '视频锁注入了分镜专属「剪辑节奏」');
-    ok(!lock.includes('## 人物与表演'), '视频锁注入了分镜/剧本专属「人物与表演」');
-    ok(P.utf8Bytes(lock) < 24000, '视频锁体积过大（' + P.utf8Bytes(lock) + 'B），疑似整卡注入');
+    ok(lock.includes('必须排除'), '视频锁未注入负向词');
+    // 反向断言（注入分工）：教材长文不得回流视频请求——已由分镜层消化成逐镜字段
+    ok(!lock.includes('本片风格参数'), '视频锁注入了透镜 YAML（应已字段化进分镜）');
+    ok(!lock.includes('导演的光线与色彩规则'), '视频锁注入了导演教材长文');
+    ok(!lock.includes('题材的场面颗粒'), '视频锁注入了题材颗粒长文');
+    ok(!lock.includes('本题材的画面禁项'), '视频锁注入了题材禁项长文');
+    ok(!lock.includes('影调与材质'), '视频锁注入了影调材质长文');
+    ok(!lock.includes('全局负向词'), '视频锁负向词应为 ≤6 条内联（旧 2400B 预算已废）');
+    ok(P.utf8Bytes(lock) <= 1600, '视频总控锁超预算（' + P.utf8Bytes(lock) + 'B > 1.6KB）');
 
     // 四层负向词必须在合并后全局去重；用可替换的 pack 模块桩让每张卡返回同一短语，若有重复会立刻红
     const realPack = P;
@@ -436,16 +436,16 @@ if (TABS && CRAFT) {
       eq((dup.match(/no duplicate negative/g) || []).length, 1, '跨层负向词未全局去重');
       ok((dup.match(/no flicker/g) || []).length === 1, '负向词合并后仍有重复');
 
-      // 预算：异常庞大的负向词集合必须截断，不允许把请求撑成负向词文本墙
+      // 稀释规则：80 条庞大的负向词集合只内联前 6 条，不允许把请求撑成负向词文本墙
       const many = Array.from({ length: 80 }, (_, i) => 'negative-phrase-' + String(i).padStart(3, '0') + '-' + 'x'.repeat(48));
       const capPack = { ...P, negativePhrases: () => many };
       TABS.__setPackForTest(M, capPack);
       const capped = await CRAFT.buildShotLockText('prompt', { pid: 'pVideoLock' });
-      const negBlock = capped.split('\n全局负向词（必须排除）：\n')[1] || '';
-      const negBody = negBlock.split('\n\n')[0] || '';
-      ok(P.utf8Bytes(negBody) <= 2400, '负向词预算未生效（' + P.utf8Bytes(negBody) + 'B）');
-      ok(negBody.includes('negative-phrase-000'), '负向词截断把高优先级短语也丢了');
-      ok(!negBody.includes('negative-phrase-079'), '负向词预算未截断尾部短语');
+      const negBlock = capped.split('\n必须排除：\n')[1] || '';
+      const negBody = negBlock.split('\n')[0] || '';
+      ok((negBody.match(/negative-phrase-/g) || []).length === 6, '负向词应只内联前 6 条（实际 ' + (negBody.match(/negative-phrase-/g) || []).length + '）');
+      ok(negBody.includes('negative-phrase-000'), '负向词把高优先级短语也丢了');
+      ok(!negBody.includes('negative-phrase-006'), '负向词未按 ≤6 条截断');
     } finally {
       TABS.__setPackForTest(M, realPack);
     }

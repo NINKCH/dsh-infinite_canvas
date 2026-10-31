@@ -3725,7 +3725,7 @@ body[data-ds-dark-theme] .dshic-pick-item.is-on{background:color-mix(in srgb,var
     // ============================================================
     const LS_BIBLE = 'dsh-ic:bible:';
     const LS_BIBLE_SYNC = 'dsh-ic:biblesync:';
-    function emptyBible() { return { worldview: '', style: '', characters: [], scenes: [], props: [] }; }
+    function emptyBible() { return { worldview: '', style: '', styleAnchor: '', characters: [], scenes: [], props: [] }; }
     function loadBible(pid) {
       if (!pid) return emptyBible();
       const b = lsGet(LS_BIBLE + pid, null);
@@ -3733,6 +3733,7 @@ body[data-ds-dark-theme] .dshic-pick-item.is-on{background:color-mix(in srgb,var
       return {
         worldview: b.worldview || '',
         style: b.style || '',
+        styleAnchor: b.styleAnchor || '',
         characters: Array.isArray(b.characters) ? b.characters : [],
         scenes: Array.isArray(b.scenes) ? b.scenes : [],
         props: Array.isArray(b.props) ? b.props : [],
@@ -3929,7 +3930,7 @@ body[data-ds-dark-theme] .dshic-pick-item.is-on{background:color-mix(in srgb,var
         return `${entityLabelOf(e.kind)} ${e.name}：${desc}${voiceLine}`;
       });
       return [
-        (bible.style || '').trim() ? (zh ? '风格：' : 'Style: ') + bible.style.trim() : '',
+        bibleStyleAnchor(bible) ? (zh ? '风格：' : 'Style: ') + bibleStyleAnchor(bible) : '',
         bind ? (zh ? '参考图 → ' : 'Refs -> ') + bind : '',
         stripMentionMarks(prompt),
         entLines.length ? (zh ? '设定集：' : 'Series bible: ') + entLines.join('；') : '',
@@ -3974,6 +3975,17 @@ body[data-ds-dark-theme] .dshic-pick-item.is-on{background:color-mix(in srgb,var
       const b = bible || {};
       return [].concat(b.characters || [], b.scenes || [], b.props || [])
         .map((x) => (x && x.name ? String(x.name).trim() : '')).filter(Boolean);
+    }
+    /** 设定集风格锚（一句话，全片视觉总锚）：优先 styleAnchor 字段（AI 更新设定集时同步产出），
+     *  缺省取 style 第一句（按句末标点语义分句，整句保留，绝不字数截断）。
+     *  分工：style 全文进剧本/分镜 LLM 消化成逐镜色调；图片/视频请求只带锚。 */
+    function bibleStyleAnchor(bible) {
+      const raw = String((bible && (bible.styleAnchor || bible.style_anchor)) || '').trim();
+      if (raw) return raw;
+      const style = String((bible && bible.style) || '').trim();
+      if (!style) return '';
+      const m = /^[^。；！？.!?]*[。；！？.!?]?/.exec(style);
+      return (m && m[0].trim()) || style;
     }
 
     // ---------- 分镜衔接（续帧接力 / 段落调度 / 接缝校验）----------
@@ -4553,7 +4565,7 @@ body[data-ds-dark-theme] .dshic-pick-item.is-on{background:color-mix(in srgb,var
       });
       // ④ 逐镜描述（画面 + 运镜 + 台词 + 音效）
       outs.push('detailed_description:');
-      const style = String((bible && bible.style) || '').trim();
+      const style = bibleStyleAnchor(bible);
       if (style) outs.push((zh ? '风格：' : 'Style: ') + style);
       const hasDialogue = list.some((s) => (s.dialogue || []).some((d) => String((d && d.line) || '').trim()));
       if (hasDialogue) {
@@ -4649,7 +4661,7 @@ body[data-ds-dark-theme] .dshic-pick-item.is-on{background:color-mix(in srgb,var
         const seg = ap ? ap[1] : raw.replace(/声音[：:][^。；\n]*/g, '').trim();
         return seg.replace(/\s+/g, ' ').trim();
       })();
-      const style = String((bible && bible.style) || '').trim() || (zh ? '写实电影感' : 'realistic cinematic');
+      const style = bibleStyleAnchor(bible) || (zh ? '写实电影感' : 'realistic cinematic');
       const lookLine = look ? look : (zh ? '（设定集未提供外观描述：按名称与常识绘制，保持朴素克制）' : '(no appearance notes in the bible: keep it plain and coherent)');
       if (kind === 'scene') {
         return zh
@@ -8769,6 +8781,7 @@ function queueThumb(assetId) {
             '- **【动作层次·硬性】timeBeats 是本镜的三个时间节拍（数组，按时间顺序）**：把"一个动作"拆成 **起势 → 发力 → 落点** 三拍，每拍写**可见的**身体/道具状态，如 ["0s 右手抬到一半、指节收紧","1.2s 手继续抬到胸口、肩线前压","3s 停在信封贴住心口、雨珠从指缝滑落"]。**只写一个节拍 = 模型只会演一个姿势（用户实测：动作极简、只会平移）**；凡 ≥2s 的镜头必须写满 3 拍，≤1s 的快切镜可以只写 1 拍。**每一拍都必须能拍出来，不写"他感到/他意识到"**；',
             '- **camera 是本镜的机位/焦段/运镜三件套**（不是只写"推近/平移"）：写成「景别 + 焦段光圈 + 运镜起点→终点」，如「中近景 50mm f/2.0，从腰高缓推至面部，匀速、到面部前 0.2 秒减速停住」。**禁止只写"推近/拉远/平移"这类空模板**（那是用户看到的"只会平移"的直接来源）；**一镜只能有一个主运镜**，要两个就拆镜；',
             '- **vfx 是本镜必须可见的物理特效/细节**（不写就没有，模型不会自己加）：按题材点名 1–3 项——雨丝斜打 / 尘粒在光柱中浮动 / 雪片近大远小 / 逆光镜头光斑 / 路灯钠黄溢光 / 闪电瞬时照亮 / 衣角被风掀起 / 水面涟漪扩散 / 纸张翻飞 / 轻微手持晃动 / 运动模糊拖影 / 烟雾弥漫 / 蒸汽升腾。写**可拍摄的物理现象**，不写"画面很唯美"这类空话；**每场至少 3 镜要有 vfx**；',
+            '- **【色调·逐镜显式】把本镜色调写进 visual（主色/色温/明暗对比，按影调色彩命题取值，如「钠黄主光、青绿补色、高对比」）——色调是逐镜的画面事实，不得只写"电影感/有质感"这类空话**；',
             '- characters/scene/props 使用剧本与设定集中的名称（不带 @），便于匹配资产；无道具给空数组；',
             '- **dialogue 是本镜的角色台词**：把剧本中落在这一镜的对白逐行搬进来（{"role":"角色名","line":"台词原文"}），台词必须**逐字来自剧本**、不新写不改写；本镜无台词给空数组；一镜尽量只放一个角色的台词（单说话人镜头利于声音参考提取）；',
             '- **【音话同步·硬性】有台词的镜头必须让说话角色在画面内开口说话**：景别用近景/中近景，脸部朝向可见（正面或 3/4 侧脸），禁止背对镜头、脸部被遮挡、人物出画；visual 或 motion 里必须写明「开口说话、口型清晰可见」；台词**绝不能**处理成画外音/旁白（否则成片里人嘴是闭的、声音飘在背景里）；若某句台词在剧本里说话人无法入画，就把这句台词安排到能看见他说话的那一镜；',
@@ -8804,6 +8817,7 @@ function queueThumb(assetId) {
             '- **[ACTION LAYERING - HARD] timeBeats is this shot\'s three time beats (array, in order)**: split "one action" into **wind-up -> drive -> settle**, each beat describing a VISIBLE body/prop state, e.g. ["0s right hand half-way up, knuckles tightening","1.2s hand reaches the chest, shoulder line pressing forward","3s it settles over the envelope, a raindrop sliding off the fingers"]. **A single beat means the model performs a single pose (measured user feedback: minimal motion, pan-only)**; any shot >=2s must carry 3 beats, rapid cuts <=1s may carry 1. **Every beat must be filmable - never "he feels / he realizes"**;',
             '- **camera = body/lens/move for this shot** (not just "push in / pan"): write "shot size + focal length & aperture + move start->end", e.g. "medium close-up 50mm f/2.0, slow push from waist height to the face, constant speed, decelerating to a stop 0.2s before the face". **Never use empty template verbs like push in / pull out / pan alone** (that is exactly what produces the "pan-only" result); **one primary camera move per shot** - if you need two, split the shot;',
             '- **vfx = physical effects/details that must be visible in this shot** (if unwritten they simply do not exist; the model will not add them): name 1-3 per shot by genre - slanted rain / dust motes floating in a light shaft / snowflakes near-to-far / backlit lens flare / sodium-vapour streetlamp spill / lightning flash lighting the set / coat hem lifted by wind / ripples spreading on water / paper sheets tumbling / subtle handheld shake / motion-blur trails / drifting smoke / rising steam. Write **filmable physical phenomena**, never "a beautiful frame"; **at least 3 shots per scene must carry vfx**;',
+            '- **[TONE - PER SHOT] write this shot\'s dominant colour / colour temperature / contrast into visual per the look\'s colour thesis (e.g. "sodium-amber key, teal fill, high contrast") - tone is a per-shot fact, never just "cinematic"**;',
             '- characters/scene/props arrays must use plain names from the script and series bible (no @) so assets match; empty props array if none;',
             '- **dialogue = the character lines that fall in this shot**, moved verbatim from the script ({"role":"Name","line":"exact line"}); never rewrite lines; empty array if none; keep one speaker per shot when possible (helps voice-reference extraction);',
             '- **[LIP-SYNC - HARD] any shot carrying dialogue must show the speaker TALKING ON SCREEN**: use a close-up / medium close-up with the face visible (frontal or 3/4), never back-to-camera, never obscured, never off-frame; state "speaks on screen, mouth clearly visible" in visual or motion; dialogue must NEVER become voice-over/narration (otherwise the final cut has a closed mouth with the voice floating in the background); if a line cannot be on camera in the script, move that line to the shot where the speaker is visible;',
@@ -14282,20 +14296,21 @@ function queueThumb(assetId) {
       ].join('\n');
     }
 
-    /** 提示词侧的「镜头语言锁」：只带风格参数与负向词，不污染结构化格式。 */
     /**
-     * 图片 / 视频提示词的「风格增强块」。
+     * 图片 / 视频提示词的「风格锁」（注入分工契约）。
      *
-     * 这是整条链路最容易掉队的一环：剧本与分镜走的是 AI 生成（拿到完整切片），
-     * 但图片与视频是「拼装提示词」——如果只带风格参数与负向词，影调的成像/材质/光学、
-     * 规格的节奏、题材的场面颗粒就全丢了，于是第一镜对、后面越走越偏。
+     * 分工：导演的运镜手法/镜头语言/细色调在分镜层由 LLM 消化成逐镜 camera/motion/visual
+     * 字段（随结构化正文进请求）；技能卡切片只进剧本/分镜的系统提示当教材，绝不原文进
+     * 生成请求——视频编码器有效窗口只有几百 token，教材长文会稀释正文。
      *
      * 按生成能力取切片：
-     *   kind='prompt' —— 图片与视频。风格参数 + 影调（成像/光比/色彩/介质/光学/材质/特效）
-     *                    + 规格（ASL 与负向词）+ 题材的「常见场面颗粒」+ 三份负向词
-     *   kind='assets' —— 角色/场景/道具设定图。影调的成像与色彩（不含叙事与剪辑）
+     *   图片（medium='image'）—— 紧凑锁：镜头风格 bits + 色彩/影调（截断）+ 场面材料（260B）
+     *                            + 负向词（700B 总预算）；设定图额外带材质响应。
+     *   视频（kind='prompt'）—— 总控锁 ≤1.2KB：影调美学短语（成像底层摘要）+ 交付规格
+     *                            （单镜时长口径）+ 负向词 ≤6 条。全片风格锚（styleAnchor/
+     *                            style 首句）在正文「风格：」行，逐镜事实以正文为准。
      *
-     * 不内联：叙事方法、剪辑节奏、人物表演（这些只对剧本/分镜有意义）。
+     * 不内联（叙事方法、剪辑节奏、运镜词典、题材颗粒长文……）：只对剧本/分镜有意义。
      */
     /**
      * 图片生成专用的紧凑风格锁。
@@ -14425,58 +14440,34 @@ function queueThumb(assetId) {
         const b = String(body || '').trim();
         if (b) parts.push(label + '\n' + b);
       };
-      // 负向词跨四层全局收集：单卡内去重不够——导演/题材/规格/影调经常重复同类禁令，
-      // 重复注入会稀释权重。统一去重后再给总预算，防止异常卡把视频请求撑成负向词文本墙。
-      const negs = [];
-      const seenNeg = new Set();
-      const addNegs = (phrases) => {
-        for (const raw of (phrases || [])) {
-          const s = String(raw || '').trim();
-          if (s && !seenNeg.has(s.toLowerCase())) { seenNeg.add(s.toLowerCase()); negs.push(s); }
+      // 按句末标点压缩（不切半句）：总控锁里唯一允许的压缩方式
+      const capZh = (text, maxBytes) => {
+        const t = String(text || '').replace(/\s+/g, ' ').trim();
+        if (!t) return '';
+        // UTF-8 字节数手算（不依赖 TextEncoder——部分测试沙箱没有该构造器）
+        const bLen = (s) => { let n = 0; for (const ch of String(s)) { const c = ch.codePointAt(0); n += c < 0x80 ? 1 : c < 0x800 ? 2 : c < 0x10000 ? 3 : 4; } return n; };
+        if (bLen(t) <= maxBytes) return t;
+        const heads = t.split(/(?<=[。；;!?])/);
+        let out = '';
+        for (const h of heads) {
+          if (bLen(out + h) > maxBytes) break;
+          out += h;
         }
+        return (out || t.slice(0, maxBytes)).trim();
       };
-
-      // ① 导演透镜：风格参数 YAML（机读、可核对）+ 灯光与色彩（成型规则）
-      const lensEntry = profile.lens ? (manifest.lenses || []).find((x) => x.id === profile.lens) : null;
-      if (lensEntry) {
-        const md = await readPackCard('lens', lensEntry.file);
-        if (md) {
-          const y = P.yamlBlock(md);
-          if (y) push('本片风格参数（逐条执行，不得改动数值）：', y);
-          const light = P.pickSections(md, k);
-          if (light) push('导演的光线与色彩规则：', light);
-        }
-      }
-
-      // ② 影调质感：按能力切片（prompt 取成像/光比/色彩/介质/光学/材质/特效；assets 取成像与色彩）
+      // —— 总控锁 v2（注入分工）：导演的运镜手法/镜头语言/细色调已在分镜层被 LLM 消化成
+      //   每镜 camera/motion/visual 字段（随结构化正文进请求），这里不再倒教材——视频编码器
+      //   有效窗口只有几百 token，长锁会稀释正文。锁只保留全片级总控元素，总量 ≤1.2KB。——
+      // ① 影调美学短语：影调卡「成像底层」摘要——全片质感的总控兜底（逐镜色调已写进 visual）
       const lookEntry = profile.look ? (manifest.looks || []).find((x) => x.id === profile.look) : null;
       if (lookEntry) {
         const md = await readPackCard('look', lookEntry.file);
         if (md) {
-          const body = P.pickSections(md, k);
-          if (body) push('影调与材质（画面必须长成这样）：', body);
+          const essence = P.sectionText(md, '成像底层') || P.sectionText(md, '质感基线') || '';
+          if (essence) push('影调质感：', capZh(essence, 200));
         }
       }
-
-      // ③ 题材：只取「常见场面颗粒」（可拍摄的物件/动作/空间），这是提示词最需要的具体材料
-      for (const gid of (profile.genres || [])) {
-        const ge = (manifest.genres || []).find((x) => x.id === gid) || null;
-        const ie = ge ? null : (manifest.industries || []).find((x) => x.id === gid);
-        const entry = ge || ie;
-        if (!entry) continue;
-        const md = await readPackCard(ge ? 'genre' : 'industry', entry.file);
-        if (!md) continue;
-        const granules = P.sectionText(md, '常见场面颗粒') || P.sectionText(md, '参考镜头') || P.sectionText(md, '视觉母题');
-        if (granules) push((ge ? '题材的场面颗粒' : '行业视觉母题') + '（' + entry.name + '）：', granules);
-        // 题材的「禁止漂移」是画面层约束（能出现什么物件、不能出现什么年代错误、不许用什么代替故事），
-        // 以前只在 script 切片里出现、进不了 prompt，等于题材对成片没有约束力。这里补上。
-        const forbid = P.sectionText(md, '禁止漂移');
-        if (forbid) push('本题材的画面禁项（' + entry.name + '，必须排除）：', forbid);
-        // 题材级负向词与其它层合并，统一去重后在块尾注入
-        addNegs(P.negativePhrases(md));
-      }
-
-      // ④ 规格：节奏与负向词（画幅不在这里定，由视频节点选）
+      // ② 交付规格：单镜时长口径（规格卡）
       const formEntry = profile.form ? (manifest.forms || []).find((x) => x.id === profile.form) : null;
       if (formEntry) {
         const md = await readPackCard('form', formEntry.file);
@@ -14485,38 +14476,37 @@ function queueThumb(assetId) {
           const bits = [];
           if (spec.asl_floor_s) bits.push('单镜不短于 ' + spec.asl_floor_s + 's');
           if (spec.asl_target_s) bits.push('平均镜长 ' + spec.asl_target_s + 's');
-          if (bits.length) push('交付规格（' + formEntry.name + '）：', bits.join('；'));
-          addNegs(P.negativePhrases(md));
+          if (bits.length) push('交付规格：', bits.join('；'));
         }
       }
-
-      // ⑤ 透镜与影调负向词：和题材/规格合并，块尾统一注入
-      for (const layer of ['lens', 'look']) {
-        const id = layer === 'lens' ? profile.lens : profile.look;
-        const entry = id ? (manifest[layer === 'lens' ? 'lenses' : 'looks'] || []).find((x) => x.id === id) : null;
+      // ③ 负向词：四层合并去重后只内联前 6 条——内联负向词会与正向争夺注意力（稀释规则），
+      //    只点名最可能出现的风险类；有独立负向词字段的厂商应改走字段（runner 侧，后续接通）
+      const negs = [];
+      const seenNeg = new Set();
+      const addNegs = (phrases) => {
+        for (const raw of (phrases || [])) {
+          const s = String(raw || '').trim();
+          if (s && !seenNeg.has(s.toLowerCase())) { seenNeg.add(s.toLowerCase()); negs.push(s); }
+        }
+      };
+      for (const [layer, id] of [['lens', profile.lens], ['look', profile.look], ['form', profile.form]]) {
+        if (!id) continue;
+        const entry = (manifest[layer === 'lens' ? 'lenses' : layer === 'look' ? 'looks' : 'forms'] || []).find((x) => x.id === id);
         if (!entry) continue;
         const md = await readPackCard(layer, entry.file);
-        if (!md) continue;
-        addNegs(P.negativePhrases(md));
+        if (md) addNegs(P.negativePhrases(md));
       }
-
-      if (negs.length) {
-        // 预算按 UTF-8 字节计算（pack.js 的 utf8Bytes 与浏览器/Node 同口径）；逗号分隔符也计入。
-        // 超过预算的尾部短语直接截掉，不做半句截断——截半条负向词可能反转语义。
-        const kept = [];
-        let bytes = 0;
-        for (const s of negs) {
-          const need = P.utf8Bytes(s) + (kept.length ? 2 : 0);
-          if (!need || bytes + need > 2400) continue;
-          kept.push(s);
-          bytes += need;
-        }
-        if (kept.length) push('全局负向词（必须排除）：', kept.join(', '));
+      for (const gid of (profile.genres || [])) {
+        const ge = (manifest.genres || []).find((x) => x.id === gid);
+        if (!ge) continue;
+        const md = await readPackCard('genre', ge.file);
+        if (md) addNegs(P.negativePhrases(md));
       }
+      if (negs.length) push('必须排除：', negs.slice(0, 6).join(', '));
 
       if (!parts.length) return '';
-      const head = '[风格增强锁] 以下分块直接决定画面成败，与提示词正文冲突时以本块为准：';
-      return head + '\n' + parts.join('\n\n');
+      const head = '[全片风格锚] 以下为全片级总控；逐镜画面与动作以正文为准：';
+      return head + '\n' + parts.join('\n');
     }
 
     async function loadModelIndex() {
@@ -18890,6 +18880,7 @@ const DIRECTOR_KEY_HELP = [
       const next = {
         worldview: String(obj.worldview || cur.worldview || '').trim(),
         style: String(obj.style || cur.style || '').trim(),
+        styleAnchor: String(obj.styleAnchor !== undefined ? obj.styleAnchor : (cur.styleAnchor || '')).trim(),
         characters: merge(cur.characters, list(obj.characters)),
         scenes: merge(cur.scenes, list(obj.scenes)),
         props: merge(cur.props, list(obj.props)),
@@ -20326,7 +20317,7 @@ const DIRECTOR_KEY_HELP = [
           // IC-04：参考图上传三件套的纯函数出口（供 scripts/test-image-upload.mjs 直接断言）
           window.__DSH_IC_IMGREF__ = { rawImageDims, sniffImageEncoding, registerReferenceAsset };
           // IC-03：视频厂商识别/前缀归一化的纯函数出口（供 scripts/test-vendor-detect.mjs 直接断言）
-          window.__DSH_IC_VENDOR__ = { detectVideoVendor, gatewayPrefixFor, wanEndpoints, vendorBase, VIDEO_REF_CAPS, needsSimpleMediaRetry, buildSimpleMediaRetryBody, wanTaskIdOf, wanStatusOf, wanPollState, buildSanbaoVideoBody, sanbaoTaskIdOf, sanbaoPollState, needsSanbaoMediaRetry };
+          window.__DSH_IC_VENDOR__ = { detectVideoVendor, gatewayPrefixFor, wanEndpoints, vendorBase, VIDEO_REF_CAPS, needsSimpleMediaRetry, buildSimpleMediaRetryBody, wanTaskIdOf, wanStatusOf, wanPollState, buildSanbaoVideoBody, sanbaoTaskIdOf, sanbaoPollState, needsSanbaoMediaRetry, bibleStyleAnchor };
           // 按镜头切段（分段生成本身就是最容易出错的地方）：规划器 + 强弱模型分流 + 节点段区间解析
           // 供 scripts/test-segment-plan.mjs 直接断言
           window.__DSH_IC_SEGMENT__ = { planShotSegments, isCutPoint, segmentNeedsHardFrame, videoSegmentOf, shotContinuityPlan };

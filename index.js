@@ -930,6 +930,8 @@ function normalizeBible(raw) {
   return {
     worldview: String(b.worldview || '').slice(0, 8000),
     style: String(b.style || '').slice(0, 2000),
+    // 风格锚（一句话全片视觉总锚）：AI 更新设定集时与 style 同时产出；生成请求只带锚，style 全文进分镜消化
+    styleAnchor: String(b.styleAnchor || '').slice(0, 200),
     characters: arr(b.characters),
     scenes: arr(b.scenes),
     props: arr(b.props),
@@ -1999,6 +2001,7 @@ async function canvasUpdateBible(args) {
   const next = {
     worldview: inc.worldview !== undefined ? String(inc.worldview) : cur.worldview,
     style: inc.style !== undefined ? String(inc.style) : cur.style,
+    styleAnchor: inc.styleAnchor !== undefined ? String(inc.styleAnchor) : cur.styleAnchor,
     characters: mergeList(cur.characters, inc.characters),
     scenes: mergeList(cur.scenes, inc.scenes),
     props: mergeList(cur.props, inc.props),
@@ -3703,7 +3706,7 @@ export function apply(ctx) {
         });
         reg({
           name: 'canvas_update_bible',
-          description: '写入项目设定集（世界观/核心设定、风格基调、角色/场景/道具）。默认按名称合并：同名更新、不存在则追加；mode="replace" 时条目整体替换。【设定集先行】先把世界观/风格/角色/场景/道具写进设定集，再生成剧本与参考图，保证跨镜跨集一致。',
+          description: '写入项目设定集（世界观/核心设定、风格基调、角色/场景/道具）。默认按名称合并：同名更新、不存在则追加；mode="replace" 时条目整体替换。【设定集先行】先把世界观/风格/角色/场景/道具写进设定集，再生成剧本与参考图，保证跨镜跨集一致。写/改 style 时必须同时产出 styleAnchor（一句话 ≤40 字的全片视觉总锚；细节在 style，锚进生成请求总控）。',
           parameters: {
             type: 'object',
             properties: {
@@ -3714,7 +3717,8 @@ export function apply(ctx) {
                 description: '设定集内容（只传要改的字段）',
                 properties: {
                   worldview: { type: 'string', description: '世界观/核心设定（题材、年代、核心规则、主线暗线）' },
-                  style: { type: 'string', description: '风格基调（画风、年代、色调、质感）' },
+                  style: { type: 'string', description: '风格基调（画风、年代、色调、质感，可多句细节）' },
+                  styleAnchor: { type: 'string', description: '风格锚：一句话（≤40 字）全片视觉总锚，与 style 同时产出——style 写细节，锚进图片/视频生成请求的总控' },
                   characters: { type: 'array', items: { type: 'object', properties: { name: { type: 'string' }, desc: { type: 'string' } }, required: ['name'] }, description: '角色设定（名称 + 外观/性格描述）' },
                   scenes: { type: 'array', items: { type: 'object', properties: { name: { type: 'string' }, desc: { type: 'string' } }, required: ['name'] }, description: '场景设定' },
                   props: { type: 'array', items: { type: 'object', properties: { name: { type: 'string' }, desc: { type: 'string' } }, required: ['name'] }, description: '道具设定' },

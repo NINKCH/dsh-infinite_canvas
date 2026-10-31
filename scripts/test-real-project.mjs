@@ -47,7 +47,7 @@ function grab(name) {
 }
 const fnSrc = ['shotVisualText', 'shotContinuityPlan', 'shotContinuityBlock', 'storyboardContinuityNote',
   'frameAnchorText', 'subjectInfoFromRef', 'condenseDesc', 'voiceFromDesc', 'entityBibleBlock',
-  'buildStructuredVideoPrompt', 'matchBibleEntity', 'entityLabelOf'].map(grab).join('\n\n');
+  'buildStructuredVideoPrompt', 'matchBibleEntity', 'entityLabelOf', 'bibleStyleAnchor'].map(grab).join('\n\n');
 
 // 复刻 runGenNode 里的 plan IIFE（与源码同逻辑，逐字搬运）
 const planSrc = `

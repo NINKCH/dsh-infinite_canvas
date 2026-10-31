@@ -211,6 +211,43 @@ ok(/if \(s\.vendor\) return s\.vendor;/.test(src), '显式 vendor 优先必须�
   ok(/uploadKey/.test(src), '三宝：专用上传 key（扩展参数 uploadKey）未接入');
 }
 
+// ---------------- ⑨ 注入分工：视频总控锁 + 风格锚 ----------------
+// 分工契约：导演语言（运镜/镜头语言/色调细节）只在分镜层字段化（逐镜 camera/motion/visual），
+// 视频请求只带全片级总控（美学短语/交付规格/≤6 条负向词）+ 结构化正文；风格全文进剧本/分镜
+// LLM 消化，请求只带风格锚（styleAnchor 优先，缺省取 style 第一句，语义分句、绝不字数截断）。
+{
+  const anchor = SEG.bibleStyleAnchor;
+  ok(typeof anchor === 'function', '缺少风格锚测试缝隙（bibleStyleAnchor）');
+  if (typeof anchor === 'function') {
+    ok(anchor({ styleAnchor: '港片复古，霓虹雨夜' }) === '港片复古，霓虹雨夜', '风格锚：styleAnchor 字段优先');
+    ok(anchor({ style: '港片复古质感：霓虹反光、高对比撞色。雨夜街道，胶片颗粒。高对比暖橙。' }) === '港片复古质感：霓虹反光、高对比撞色。', '风格锚：无锚取 style 第一句（语义分句，非字数截断）');
+    ok(anchor({ style: '无句读的整段风格描述' }) === '无句读的整段风格描述', '风格锚：无句读整段保留（不切割）');
+    ok(anchor({ style: '' }) === '' && anchor(null) === '', '风格锚：空设定返回空');
+  }
+  const i0 = src.indexOf('async function buildShotLockText');
+  const i1 = src.indexOf('async function loadModelIndex');
+  ok(i0 > 0 && i1 > i0, 'buildShotLockText 源码切片定位失败');
+  if (i0 > 0 && i1 > i0) {
+    const vlock = src.slice(i0, i1);
+    ok(!/yamlBlock/.test(vlock), '视频锁不得再注入透镜 YAML（导演语言已字段化进分镜）');
+    ok(!/pickSections/.test(vlock), '视频锁不得倾倒教材小节全文');
+    ok(!/常见场面颗粒/.test(vlock), '视频锁不得注入题材颗粒长文');
+    ok(!/禁止漂移/.test(vlock), '视频锁不得注入题材禁项长文');
+    ok(!/'色彩命题'/.test(vlock), '视频锁不得注入色彩命题长文（色调已下沉分镜 visual）');
+    ok(!/'影调与光比'/.test(vlock), '视频锁不得注入影调光比长文');
+    ok(!/'材质响应'/.test(vlock), '视频锁不得注入材质长文');
+    ok(/成像底层/.test(vlock), '视频锁保留影调美学短语（成像底层摘要，≤200B）');
+    ok(/交付规格/.test(vlock), '视频锁保留交付规格（单镜时长口径）');
+    ok(/slice\(0,\s*6\)/.test(vlock), '视频锁内联负向词 ≤6 条（稀释规则）');
+    ok(!/2400/.test(vlock), '视频锁不得保留旧 2400B 负向词预算');
+  }
+  const anchorUses = (src.match(/bibleStyleAnchor\(/g) || []).length;
+  ok(anchorUses >= 4, '风格锚接入点不足（定义 + 生效提示词/结构化正文/设定图模板至少各 1 处）');
+  ok(/把本镜色调|色调按/.test(src), '分镜契约缺「色调写进 visual」显式要求');
+  const idxSrc = readFileSync(path.join(ROOT, 'index.js'), 'utf8');
+  ok(/styleAnchor/.test(idxSrc), 'canvas_update_bible 未支持 styleAnchor 产出（风格锚字段）');
+}
+
 if (errs.length) {
   console.error('✗ 厂商识别回归未通过（' + errs.length + '）：');
   for (const e of errs) console.error('  - ' + e);
