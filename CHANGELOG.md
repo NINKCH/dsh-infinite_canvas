@@ -17,7 +17,7 @@ GitHub Releases carry the same notes in English; maintainer-facing runbooks live
 - **Effective-prompt style lines and asset-sheet templates now use the style anchor** instead of the full `bible.style` text; the bible merge/normalize layers pass `styleAnchor` through end to end.
 
 ### Fixed
-- (无独立修复；本版为注入分工重构。)
+- **"Expand to scenes" no longer loses the last scene's body.** The trailing-list stripper (`parseScriptScenes`) matched the first `人物：/角色：` line anywhere in the final scene and swallowed everything after it — scripts whose scenes carry their own `人物：` line (a common per-scene format) had the last scene reduced to its title. The stripper now only removes a pure trailing list block (人物/角色/场景/道具/地点 lines + blank + （终）/完 markers, including the combined `场景/道具：` form) that runs to the very end of the text; in-scene list lines and the （终） marker stay in the body. `parseScriptScenes` is exported for regression (`scripts/test-script-scenes.mjs`, new strict-regression entry).
 
 ### Changed
 - (无独立变更。)
