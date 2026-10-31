@@ -8,9 +8,14 @@ GitHub Releases carry the same notes in English; maintainer-facing runbooks live
 
 ### Added
 - **Sanbao (三宝影像工坊) video vendor adapter for multi-reference generation.** Task-based protocol (`POST /openapi/v1/videos` + polling `data.status`), `reference: "all"` multi-reference mode, reference images as string data-URLs (accepted by every model per its `media_inputs`, live-verified), reference audio as `audios: [{tag, url}]`, lowercase `resolution` (480p/720p/1080p/2k) and pass-through `ratio`/`duration`. Select 三宝影像工坊 in the vendor dropdown; Base URL `https://sanbaobeauty.com`.
+- **Style anchor (`styleAnchor`) on the series bible.** One-sentence (~40 chars) whole-film visual anchor produced alongside `style` by `canvas_update_bible`; legacy projects fall back to the first sentence of `style` (semantic sentence split, never a character-count cut). `style` full text keeps flowing into the script/storyboard LLMs — only the anchor reaches image/video requests.
+
+### Changed
+- **Video requests now use a master style lock (≤1.6KB) instead of the 17KB skill-pack dump.** Injection division of labor: the director's camera language, lens grammar and fine tone are digested at the storyboard layer into per-shot `camera`/`motion`/`visual` fields (the storyboard slice keeps the camera-moves lexicon, lens shot sections, fight rhythm and the look's colour thesis, plus a new contract line that writes the per-shot tone into `visual`). The video lock keeps only whole-film controls: the look's aesthetic phrase (≤200B), the delivery pacing line, and ≤6 inline negative phrases (dilution rule; field-routed negatives for vendors that support them come later). Teach-material sections (lens YAML, lighting rules, look essays, genre granules, drift bans) never enter generation requests.
+- **Effective-prompt style lines and asset-sheet templates now use the style anchor** instead of the full `bible.style` text; the bible merge/normalize layers pass `styleAnchor` through end to end.
 
 ### Fixed
-- (无独立修复；本版为三宝厂商适配新增。)
+- (无独立修复；本版为注入分工重构。)
 
 ### Changed
 - (无独立变更。)
