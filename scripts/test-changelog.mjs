@@ -114,8 +114,8 @@ if (unrelHasEntries) {
 // OBS-1 硬要求（QA 判据）：清单**手工维护**，绝不从 `git log` 动态生成——动态清单会自证
 // （脚本生成的清单当然自己全中，"缺一必红"退化成摆设）。数量相等 + 逐 sha 关键词命中，两条都拦。
 const COVERAGE = [
-  // 0.19.15 已发布，历史提交清零。当前未发版：wan runner 响应形态归一（DashScope 兼容中转）。
-  { sha: 'ce0f486', keys: [/relay-rewritten response shapes/i, /lowercases the status/i, /never a false kill/i] },
+  // 0.19.16 已发布，历史提交清零。当前未发版：三宝影像工坊多参考任务适配（dataURL 直传 + 上传兜底）。
+  { sha: '101ea2a', keys: [/Sanbao.*video vendor adapter/i, /multi-reference generation/i, /uploads\/raw/i] },
 ];
 for (const c of COVERAGE) {
   ok(c.keys.some((re) => re.test(coverageText)), '未发版提交 ' + c.sha + ' 在 CHANGELOG（Unreleased 或最新已发布段）里找不到对应记录（补记不全）');

@@ -6,6 +6,18 @@ GitHub Releases carry the same notes in English; maintainer-facing runbooks live
 
 ## [Unreleased]
 
+### Added
+- **Sanbao (三宝影像工坊) video vendor adapter for multi-reference generation.** Task-based protocol (`POST /openapi/v1/videos` + polling `data.status`), `reference: "all"` multi-reference mode, reference images as string data-URLs (accepted by every model per its `media_inputs`, live-verified), reference audio as `audios: [{tag, url}]`, lowercase `resolution` (480p/720p/1080p/2k) and pass-through `ratio`/`duration`. Select 三宝影像工坊 in the vendor dropdown; Base URL `https://sanbaobeauty.com`.
+
+### Fixed
+- (无独立修复；本版为三宝厂商适配新增。)
+
+### Changed
+- (无独立变更。)
+
+### Internal
+- If the submit request fails with an image/material-format or URL error, the runner uploads local blobs once via `POST /openapi/v1/uploads/raw` (raw binary body) using a dedicated `uploadKey` from extended params (`{"uploadKey":"sk-sanbao-…"}`, falling back to the main key) and retries with the returned `file.url`. Credits, auth, rate-limit and account-restriction errors never trigger the retry. Pure helpers (`buildSanbaoVideoBody` / `sanbaoTaskIdOf` / `sanbaoPollState` / `needsSanbaoMediaRetry`) are exposed for regression assertions in `scripts/test-vendor-detect.mjs`.
+
 ## [0.19.16] — 2026-10-30
 
 ### Fixed
