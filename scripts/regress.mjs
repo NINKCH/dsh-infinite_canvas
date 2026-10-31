@@ -68,6 +68,7 @@ const SUITE = [
   { name: 'test-mentions.mjs', desc: '@引用解析（设定集匹配 / [图N] 绑定 / 资产设定图提示词）' },
   { name: 'test-ref-ownership.mjs', desc: '参考图严格=连线 / 绑定弹窗分页拉全 / 设定文字注入视频提示词' },
   { name: 'test-segment-plan.mjs', desc: '按镜头切段：切点只在换场/特写/新角色 / 连续动作不拆 / 时长上限 / 强弱模型分流 / 提示词四件套' },
+  { name: 'test-script-scenes.mjs', desc: '剧本→场景切分：分场标记 / 片尾清单只剥尾块 / 场内「人物：」行保留（最后一场正文零丢失）' },
   { name: 'test-director-stage.mjs', desc: '3D 导演台：场景可序列化 / 相机投影 / 几何 / 真渲染 / 拾取 / 人偶→真人提示词 / 持久化兜底' },
   { name: 'test-director-structure.mjs', desc: '组件结构：无 TDZ 引用（定义前使用会白屏）/ hooks 顺序正确' },
   { name: 'test-playback-loop.mjs', desc: '动画循环：播放/暂停可控 / cleanup 取消 rAF / 真实时间推进' },

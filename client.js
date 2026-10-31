@@ -13012,10 +13012,28 @@ function queueThumb(assetId) {
         }
       }
       if (cur && cur.text.trim()) scenes.push(cur);
+      // 片尾清单剥离：只剥「真正的片尾清单」——最后一场的**末尾**是纯清单行块
+      // （人物/角色/场景/道具/地点 行 + 空行 + （终）/完 终止符）一直延续到文本结尾，
+      // 且块内真的含「人物/角色」清单行，才剥离。场内的「人物：」行（每场格式的常见写法）
+      // 不是片尾清单，绝不剥离（旧正则从场内首个「人物：」一路吞到结尾，曾把最后一场正文全部丢掉）。
       if (scenes.length) {
         const last = scenes[scenes.length - 1];
-        const i = last.text.search(/\n(?:人物|角色)\s*[:：][\s\S]*$/);
-        if (i >= 0) last.text = last.text.slice(0, i) + '\n';
+        const lines = last.text.split('\n');
+        const isList = (l) => /^\s*(?:(?:人物|角色|地点|场景|道具)\s*[:：]|场景\s*\/\s*道具\s*[:：])/.test(l);
+        const isMeta = (l) => /^\s*$/.test(l) || /^\s*(?:（终）|完|——\s*完\s*——)\s*$/.test(l);
+        let i = lines.length - 1;
+        let sawList = false;
+        for (; i >= 1; i--) {
+          if (isList(lines[i])) { sawList = true; continue; }
+          if (isMeta(lines[i])) continue;
+          break;
+        }
+        if (sawList && i >= 1) {
+          // 剥离从块的第一个清单行开始：块内排在清单行之前的终止符/空行（如「（终）」）保留在正文里
+          let firstList = i + 1;
+          while (firstList < lines.length && !isList(lines[firstList])) firstList++;
+          last.text = lines.slice(0, firstList).join('\n') + '\n';
+        }
       }
       return scenes.filter((s) => s.text.trim());
     }
@@ -20358,6 +20376,8 @@ const DIRECTOR_KEY_HELP = [
             expandStoryboard,
             // 纯函数出口：资产设定图提示词生成器（不依赖 DOM，可直接断言）
             buildAssetSheetPrompt, assetSheetNodeSpec,
+            // 纯函数出口：剧本 → 场景切分（供 scripts/test-script-scenes.mjs 断言分场与片尾清单剥离）
+            parseScriptScenes,
           };
           // IC-01：下载侧扩展名判定的纯函数出口（供 scripts/test-download-ext.mjs 直接断言）
           window.__DSH_IC_MEDIA__ = { extForDownload };
