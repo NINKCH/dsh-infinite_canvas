@@ -249,6 +249,72 @@ ok(/if \(s\.vendor\) return s\.vendor;/.test(src), '显式 vendor 优先必须�
   ok(/styleAnchor/.test(idxSrc), 'canvas_update_bible 未支持 styleAnchor 产出（风格锚字段）');
 }
 
+// ---------------- ⑩ 三宝下载缓存重试（succeeded ≠ 文件可下载） ----------------
+// 三宝任务成功只代表转码完成；CDN 缓存未铺开时首次 GET 会 502（实测 2–3 分钟，最迟 5 分钟）。
+// 生成成功只有一次下载机会 → 必须给窗口重试，且每次重试前刷新签名地址。
+{
+  const retryable = SEG.retryableDownloadError;
+  const dlRetry = SEG.downloadVideoWithRetry;
+  ok(typeof retryable === 'function' && typeof dlRetry === 'function', '缺少三宝下载重试测试缝隙（retryableDownloadError/downloadVideoWithRetry）');
+  ok(SEG.SANBAO_DOWNLOAD_RETRY_MS === 10 * 60 * 1000 && SEG.SANBAO_DOWNLOAD_RETRY_STEP_MS === 10 * 1000,
+    '三宝下载重试窗口/步长不是 10 分钟/10 秒');
+  if (typeof retryable === 'function') {
+    const mk = (status) => ({ status });
+    ok(retryable(mk(502)) && retryable(mk(503)) && retryable(mk(504)), '502/503/504 可重试');
+    ok(retryable(mk(404)) && retryable(mk(403)) && retryable(mk(429)) && retryable(mk(408)), '缓存未就绪类 4xx 可重试');
+    ok(retryable(new Error('network')), '无 HTTP 状态的网络错误可重试');
+    ok(!retryable(mk(401)) && !retryable(mk(400)) && !retryable(mk(405)), '鉴权/请求格式错误不重试');
+  }
+  if (typeof dlRetry === 'function') {
+    // 前两次 502、第三次成功：每次重试前刷新签名地址
+    let hits = 0; const urls = []; const blob = { size: 9 };
+    const out = await dlRetry('https://x/a.mp4', {}, {
+      windowMs: 60000, stepMs: 1000,
+      download: async (u) => { urls.push(u); hits++; if (hits < 3) { const e = new Error('下载视频失败 HTTP 502'); e.status = 502; throw e; } return blob; },
+      sleep: async () => {},
+      isAborted: () => false,
+      refreshUrl: async () => 'https://x/fresh' + hits + '.mp4',
+    });
+    ok(out === blob && hits === 3, '502 重试直到成功（不是单次失败即死）');
+    ok(urls[1] === 'https://x/fresh1.mp4' && urls[2] === 'https://x/fresh2.mp4', '重试前刷新签名地址（旧地址可能过期）');
+    // 401 立即失败（不重试）
+    let n401 = 0; let e401 = null;
+    try {
+      await dlRetry('u', {}, {
+        windowMs: 60000,
+        download: async () => { n401++; const e = new Error('下载视频失败 HTTP 401'); e.status = 401; throw e; },
+      });
+    } catch (e) { e401 = e; }
+    ok(n401 === 1 && !!e401 && /401/.test(e401.message), '401 立即失败不重试');
+    // 10 分钟窗口边界：每 10s 一次，第 61 次（t=600s）失败后停止
+    let t = 0; let nWin = 0; let eWin = null;
+    try {
+      await dlRetry('u', {}, {
+        windowMs: 600000, stepMs: 10000, now: () => t, sleep: async (ms) => { t += ms; },
+        download: async () => { nWin++; const e = new Error('下载视频失败 HTTP 502'); e.status = 502; throw e; },
+      });
+    } catch (e) { eWin = e; }
+    ok(nWin === 61 && t === 600000, '10 分钟窗口按 10s 重试，到点停止（61 次）');
+    ok(!!eWin && /10 分钟内仍无法下载/.test(eWin.message) && /502/.test(eWin.message), '窗口耗尽错误带时长与最后状态');
+    // 中断优先：不再发起下载
+    let dlCalled = false; let eAbort = null;
+    try {
+      await dlRetry('u', {}, { isAborted: () => true, download: async () => { dlCalled = true; return blob; } });
+    } catch (e) { eAbort = e; }
+    ok(!dlCalled && !!eAbort, '中断后不再发起下载');
+  }
+  // 源码契约：三宝 runner 必须走重试助手，且不再裸调 downloadVideo
+  const s0 = src.indexOf('async sanbao(prompt, frameBlob, s, o)');
+  const s1 = src.indexOf('// —— MiniMax 海螺', s0);
+  ok(s0 > 0 && s1 > s0, '三宝 runner 源码切片失败');
+  if (s0 > 0 && s1 > s0) {
+    const body = src.slice(s0, s1);
+    ok(/downloadVideoWithRetry\(/.test(body), '三宝 runner 未接入下载重试');
+    ok(!/return await downloadVideo\(url, \{\}\)/.test(body), '三宝 runner 仍是单次下载（502 立即失败）');
+    ok(/SANBAO_DOWNLOAD_RETRY_MS/.test(body) && /refreshUrl/.test(body), '三宝下载重试缺窗口常量或签名地址刷新');
+  }
+}
+
 if (errs.length) {
   console.error('✗ 厂商识别回归未通过（' + errs.length + '）：');
   for (const e of errs) console.error('  - ' + e);

@@ -6083,8 +6083,62 @@ function queueThumb(assetId) {
       if (!r.ok && (r.status === 401 || r.status === 403) && authFallback && Object.keys(authFallback).length) {
         r = await fetchViaProxy(url, { method: 'GET', headers: authFallback, timeoutMs: 300000, label: '下载视频' });
       }
-      if (!r.ok) throw new Error('下载视频失败 HTTP ' + r.status);
+      if (!r.ok) {
+        const e = new Error('下载视频失败 HTTP ' + r.status);
+        e.status = r.status; // 供下载重试判定区分「缓存未就绪（502/404…）」与「鉴权/请求错误（401/400）」
+        throw e;
+      }
       return r.blob;
+    }
+    /** 下载重试判定（纯函数）：厂商任务成功后 CDN 缓存尚未铺开时，首次 GET 常见
+     *  502/503/504/404/403/429/408；这些都可重试。401（鉴权）与 400/405（请求格式）
+     *  是配置错误，绝不重试——否则会把真实错误拖满整个重试窗口。 */
+    function retryableDownloadError(err) {
+      const st = Number(err && err.status) || 0;
+      if (!st) return true; // 无 HTTP 状态 = 网络抖动/代理超时（fetchViaProxy 直接抛错）
+      return st === 403 || st === 404 || st === 408 || st === 409 || st === 425 || st === 429 || st >= 500;
+    }
+    /** 三宝：succeeded 后等 CDN 缓存铺开的下载重试窗口（实测 2–3 分钟，最迟 5 分钟；留 10 分钟余量）。
+     *  生成成功只有一次下载机会 → 单次 502 不能让整次生成作废。 */
+    const SANBAO_DOWNLOAD_RETRY_MS = 10 * 60 * 1000;
+    const SANBAO_DOWNLOAD_RETRY_STEP_MS = 10 * 1000;
+    /** 带窗口的下载重试（三宝等「任务成功 ≠ 文件可下载」的厂商）：
+     *  · 仅在可重试错误上循环（见 retryableDownloadError），鉴权/请求错误立即抛；
+     *  · 每次重试前可用 refreshUrl 拿最新签名地址（旧地址可能已过期）；
+     *  · 到达窗口上限后抛明确错误（带最后 HTTP 状态），绝不再无限等；
+     *  · 中断（用户停止）优先于重试；download/sleep/now 可注入供回归（不真等 10 分钟）。 */
+    async function downloadVideoWithRetry(url, headers, opts) {
+      const o = opts || {};
+      const windowMs = o.windowMs == null ? SANBAO_DOWNLOAD_RETRY_MS : Math.max(0, Number(o.windowMs) || 0);
+      const stepMs = o.stepMs == null ? SANBAO_DOWNLOAD_RETRY_STEP_MS : Math.max(0, Number(o.stepMs) || 0);
+      const dl = typeof o.download === 'function' ? o.download : downloadVideo;
+      const wait = typeof o.sleep === 'function' ? o.sleep : sleep;
+      const now = typeof o.now === 'function' ? o.now : Date.now;
+      const isAborted = typeof o.isAborted === 'function' ? o.isAborted : genAborted;
+      const deadline = now() + windowMs;
+      for (let attempt = 1; ; attempt++) {
+        if (isAborted && isAborted()) throw new Error(T('stoppedNote'));
+        try {
+          return await dl(url, headers || {}, o.authFallback);
+        } catch (e) {
+          if (!retryableDownloadError(e)) throw e;
+          if (now() >= deadline) {
+            const err = new Error((o.label ? o.label + ' ' : '') + '视频已生成，但 '
+              + Math.round(windowMs / 60000) + ' 分钟内仍无法下载（最后错误：' + ((e && e.message) || e) + '）');
+            err.status = e && e.status;
+            err.downloadTimeout = true;
+            throw err;
+          }
+          if (typeof o.onRetry === 'function') { try { o.onRetry(e, attempt); } catch { /* 诊断失败不影响重试 */ } }
+          if (typeof o.refreshUrl === 'function') {
+            try {
+              const fresh = await o.refreshUrl();
+              if (fresh) url = fresh;
+            } catch { /* 刷新地址失败：沿用旧地址继续重试 */ }
+          }
+          await wait(stepMs);
+        }
+      }
     }
     /** 跨镜衔接标注（短剧分镜链式生成的行业标准做法）：图1=上一镜尾帧（仅用于衔接），
      *  图2..N=实体参考图（名称与 o.refNames 对齐）。Seedance 的 first_frame 与 reference_image 互斥，
@@ -6653,14 +6707,41 @@ function queueThumb(assetId) {
         let j1 = null; try { j1 = JSON.parse(r1.text); } catch { throw new Error('Sanbao 响应非 JSON：' + r1.text.slice(0, 200)); }
         const tid = sanbaoTaskIdOf(j1);
         if (!tid) throw new Error('Sanbao 响应中没有任务 id：' + r1.text.slice(0, 200));
-        if (o.onTask) { try { o.onTask(tid, base + '/openapi/v1/videos/' + encodeURIComponent(tid)); } catch { /* 持久化失败不影响生成 */ } }
+        const taskUrl = base + '/openapi/v1/videos/' + encodeURIComponent(tid);
+        if (o.onTask) { try { o.onTask(tid, taskUrl); } catch { /* 持久化失败不影响生成 */ } }
+        const queryTask = async (label) => {
+          const r = await fetchViaProxy(taskUrl, { method: 'GET', headers: { Authorization: 'Bearer ' + (s.apiKey || '') }, timeoutMs: 60000, label });
+          if (!r || !r.ok) return null;
+          try { return JSON.parse(r.text); } catch { return null; }
+        };
         const url = await vendorPoll('Sanbao', 8000, async () => {
-          const r = await fetchViaProxy(base + '/openapi/v1/videos/' + encodeURIComponent(tid), { method: 'GET', headers: { Authorization: 'Bearer ' + (s.apiKey || '') }, timeoutMs: 60000, label: 'Sanbao 查询' });
-          if (!r || !r.ok) return { state: 'wait' };
-          let j = null; try { j = JSON.parse(r.text); } catch { return { state: 'wait' }; }
-          return sanbaoPollState(j);
+          const j = await queryTask('Sanbao 查询');
+          return j ? sanbaoPollState(j) : { state: 'wait' };
         });
-        return await downloadVideo(url, {});
+        // 三宝 succeeded 只代表转码完成：CDN 缓存尚未铺开时首次 GET 会 502（实测 2–3 分钟，最迟 5 分钟）。
+        // 任务已成功、钱已花 → 给 10 分钟重试窗口，每次重试前刷新签名地址；鉴权/请求错误仍立即失败。
+        try {
+          return await downloadVideoWithRetry(url, {}, {
+            windowMs: SANBAO_DOWNLOAD_RETRY_MS,
+            stepMs: SANBAO_DOWNLOAD_RETRY_STEP_MS,
+            refreshUrl: async () => {
+              const j = await queryTask('Sanbao 缓存查询');
+              if (!j) return '';
+              const st = sanbaoPollState(j);
+              return st.state === 'done' ? st.url : '';
+            },
+            onRetry: (e, n) => {
+              try {
+                console.info('[IC] sanbao download not ready (' + ((e && e.message) || e) + ') — retry '
+                  + n + '/' + Math.ceil(SANBAO_DOWNLOAD_RETRY_MS / SANBAO_DOWNLOAD_RETRY_STEP_MS));
+              } catch { /* 诊断失败不影响重试 */ }
+            },
+          });
+        } catch (e) {
+          const err = new Error('三宝视频下载失败（任务 ' + tid + '）：' + ((e && e.message) || e));
+          err.status = e && e.status;
+          throw err;
+        }
       },
       // —— MiniMax 海螺：异步 task_id + query 接口 ——
       async minimax(prompt, frameBlob, s, o) {
@@ -20634,7 +20715,7 @@ const DIRECTOR_KEY_HELP = [
           // IC-04：参考图上传三件套的纯函数出口（供 scripts/test-image-upload.mjs 直接断言）
           window.__DSH_IC_IMGREF__ = { rawImageDims, sniffImageEncoding, registerReferenceAsset };
           // IC-03：视频厂商识别/前缀归一化的纯函数出口（供 scripts/test-vendor-detect.mjs 直接断言）
-          window.__DSH_IC_VENDOR__ = { detectVideoVendor, gatewayPrefixFor, wanEndpoints, vendorBase, VIDEO_REF_CAPS, needsSimpleMediaRetry, buildSimpleMediaRetryBody, wanTaskIdOf, wanStatusOf, wanPollState, buildSanbaoVideoBody, sanbaoTaskIdOf, sanbaoPollState, needsSanbaoMediaRetry, bibleStyleAnchor };
+          window.__DSH_IC_VENDOR__ = { detectVideoVendor, gatewayPrefixFor, wanEndpoints, vendorBase, VIDEO_REF_CAPS, needsSimpleMediaRetry, buildSimpleMediaRetryBody, wanTaskIdOf, wanStatusOf, wanPollState, buildSanbaoVideoBody, sanbaoTaskIdOf, sanbaoPollState, needsSanbaoMediaRetry, retryableDownloadError, downloadVideoWithRetry, SANBAO_DOWNLOAD_RETRY_MS, SANBAO_DOWNLOAD_RETRY_STEP_MS, bibleStyleAnchor };
           // 按镜头切段（分段生成本身就是最容易出错的地方）：规划器 + 强弱模型分流 + 节点段区间解析
           // 供 scripts/test-segment-plan.mjs 直接断言
           window.__DSH_IC_SEGMENT__ = { planShotSegments, isCutPoint, segmentNeedsHardFrame, videoSegmentOf, shotContinuityPlan };
