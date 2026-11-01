@@ -8212,8 +8212,22 @@ function queueThumb(assetId) {
     const LS_DOCSYNC = 'dsh-ic:docsync:';
     /** Host 侧改动了项目文档（Agent 建节点/连线/写内容/补设定集）→ 拉回并合并到本地画布。
      *  canvasId 非空 = 该画布文档（多画布）；缺省 = 项目默认画布。 */
-    function mergeHostDoc(pid, full, canvasId) {
-      if (!full) return;
+    /** 媒体节点指针空值保护（纯函数供回归）：Host 副本把 assetId/lastAssetId 清成 null 时，
+     *  本地有值则保留——null 不是有效写入（没人会"有意"清空指针），而这类 null 恰是
+     *  「历史清理误判 / 跨机空库」污染后的形态；真删资产时展示层有缺失态兜底，保留指针永远可恢复。
+     *  Host 的非空值仍以 Host 为准（Agent 写入是有意的）。 */
+    function protectMediaPointer(hostNode, localNode) {
+      if (!hostNode || !hostNode.data || !localNode || !localNode.data) return hostNode;
+      const t = normalizeNodeType(hostNode.type);
+      if (t !== 'image' && t !== 'video') return hostNode;
+      const local = localNode.data;
+      const data = { ...hostNode.data };
+      let changed = false;
+      if (!data.assetId && local.assetId) { data.assetId = local.assetId; changed = true; }
+      if (!data.lastAssetId && local.lastAssetId) { data.lastAssetId = local.lastAssetId; changed = true; }
+      return changed ? { ...hostNode, data } : hostNode;
+    }
+    function mergeHostDoc(pid, full, canvasId) {      if (!full) return;
       const cid = full.canvasId || canvasId || DEFAULT_CANVAS_ID;
       // Host 侧（对话 Agent）可能写入了旧类型节点：先把整份文档归一，再做合并（类型迁移与旧项目兼容）
       normalizeGraphDoc(full);
@@ -8237,7 +8251,7 @@ function queueThumb(assetId) {
         // （否则刚生成完的分镜会被一次过期合并清空，客户端再推回去就永久丢失）
         if (cur && cur.type === 'storyboard' && Array.isArray(cur.data && cur.data.shots) && cur.data.shots.length
           && !(n && n.data && Array.isArray(n.data.shots) && n.data.shots.length)) continue;
-        nodes[nid] = n; // Host 为准（Agent 写入是有意的）
+        nodes[nid] = protectMediaPointer(n, cur); // Host 为准，但媒体指针不允许被 Host 的 null 清空（回链被覆盖事故）
       }
       const deadEdges = new Set([...(local.edgeTombstones || []), ...(full.edgeTombstones || []), ...((live && live.edgeTombstones) || [])]);
       const edges = (live && live.edges) ? [...live.edges] : [...(local.edges || [])];
@@ -20563,6 +20577,8 @@ const DIRECTOR_KEY_HELP = [
             layoutBatchColumns,
             // 历史条死条目裁剪 / 资产回链候选挑选与回链计划（纯函数，供回归测试直接断言）
             pruneDeadHistory, repairPickAsset, repairPlan,
+            // 媒体节点指针空值保护（Host 合并不得用 null 覆盖本地有效 assetId/lastAssetId）
+            protectMediaPointer,
             graph: () => JSON.parse(JSON.stringify(S.graph)), // 建点结果断言用（与 SYNC.graph 同口径）
             addGraphNodes: (list) => { for (const n of (list || [])) S.graph.nodes[n.id] = n; }, // 测试播种（写入活状态）
             // 下拉自定义数值的纯函数：范围夹取 / 整数与小数口径（分镜数、单段上限共用）

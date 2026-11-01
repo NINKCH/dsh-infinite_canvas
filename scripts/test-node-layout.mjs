@@ -266,6 +266,24 @@ const barsOn = () => HDR() + FOOT();
     }
     ok(/scheduleRepair\(\)/.test(src), '缺少 repair 调度调用（画布载入后自愈）');
   }
+  {
+    // 媒体指针空值保护：Host 的 null 不得覆盖本地有效指针（回链结果被 merge 清空事故回归）
+    const PM = LAYOUT.protectMediaPointer;
+    ok(typeof PM === 'function', '缺少 protectMediaPointer 测试缝隙');
+    if (typeof PM === 'function') {
+      const host = { type: 'image', data: { assetId: null, status: 'done', label: 'test-1' } };
+      const local = { type: 'image', data: { assetId: 'a_ok', status: 'done', label: 'test-1' } };
+      const merged = PM(host, local);
+      eq(merged.data.assetId, 'a_ok', 'Host assetId=null 不得覆盖本地有效指针');
+      eq(merged.data.label, 'test-1', '其余字段仍以 Host 为准');
+      eq(PM({ type: 'image', data: { assetId: 'a_host' } }, local).data.assetId, 'a_host', 'Host 有值仍以 Host 为准');
+      eq(PM({ type: 'video', data: { assetId: null, lastAssetId: null } }, { type: 'video', data: { assetId: 'v1', lastAssetId: 'f1' } }).data.lastAssetId, 'f1', '尾帧指针同样保护');
+      const textHost = { type: 'text', data: {} };
+      ok(PM(textHost, { type: 'text', data: { text: 'x' } }) === textHost, '非媒体节点原样返回');
+      ok(PM(null, local) === null, '空节点原样');
+    }
+    ok(/protectMediaPointer\(n, cur\)/.test(src), 'mergeHostDoc 未接入媒体指针保护');
+  }
   const widePv = LAYOUT.sizeForRatio('21:9');
   ok(Math.max(widePv.w, widePv.h) <= LAYOUT.MEDIA_MAX_LONG, '超长比例（21:9）预览区长边必须 ≤ 800（实际 ' + JSON.stringify(widePv) + '）');
   ok(widePv.w > widePv.h, '21:9 预览区必须横向变长');
