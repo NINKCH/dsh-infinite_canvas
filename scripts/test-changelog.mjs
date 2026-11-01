@@ -114,8 +114,9 @@ if (unrelHasEntries) {
 // OBS-1 硬要求（QA 判据）：清单**手工维护**，绝不从 `git log` 动态生成——动态清单会自证
 // （脚本生成的清单当然自己全中，"缺一必红"退化成摆设）。数量相等 + 逐 sha 关键词命中，两条都拦。
 const COVERAGE = [
-  // 0.19.17 已发布，历史提交清零。当前未发版：资产多选批量导入（按列铺开）+ 批量删除。
+  // 0.19.17 已发布。当前未发版 ×2：资产多选批量导入；预览丢失根修（破坏性 assetId 清理 + 自动回链）。
   { sha: 'bb0f476', keys: [/batch add-to-canvas/i, /layoutBatchColumns/i, /batch delete/i] },
+  { sha: '7a26b07', keys: [/asset previews after refresh/i, /never erased/i, /re-linked to their asset/i] },
 ];
 for (const c of COVERAGE) {
   ok(c.keys.some((re) => re.test(coverageText)), '未发版提交 ' + c.sha + ' 在 CHANGELOG（Unreleased 或最新已发布段）里找不到对应记录（补记不全）');
