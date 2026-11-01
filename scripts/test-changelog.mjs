@@ -118,6 +118,7 @@ const COVERAGE = [
   // 节点名=资产名 + 分类收敛 + 统一导入（含文本）。
   { sha: 'a19e3a8', keys: [/strict project isolation/i, /one row/i, /text assets/i] },
   { sha: 'f0bf071', keys: [/asset's name/i, /image.*category is gone/i, /unified import/i] },
+  { sha: 'a66efe4', keys: [/option-menu mechanism libraries/i, /no mandated story direction/i, /Shanhai Myth/i] },
 ];
 for (const c of COVERAGE) {
   ok(c.keys.some((re) => re.test(coverageText)), '未发版提交 ' + c.sha + ' 在 CHANGELOG（Unreleased 或最新已发布段）里找不到对应记录（补记不全）');
