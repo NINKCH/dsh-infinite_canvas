@@ -114,7 +114,8 @@ if (unrelHasEntries) {
 // OBS-1 硬要求（QA 判据）：清单**手工维护**，绝不从 `git log` 动态生成——动态清单会自证
 // （脚本生成的清单当然自己全中，"缺一必红"退化成摆设）。数量相等 + 逐 sha 关键词命中，两条都拦。
 const COVERAGE = [
-  // 0.19.19 已发布，历史提交清零。当前未发版：无。
+  // 0.19.19 已发布，历史提交清零。当前未发版：资产面板严格项目隔离 + 搜索/项目同行 + 文本卡项目下拉。
+  { sha: 'a19e3a8', keys: [/strict project isolation/i, /one row/i, /text assets/i] },
 ];
 for (const c of COVERAGE) {
   ok(c.keys.some((re) => re.test(coverageText)), '未发版提交 ' + c.sha + ' 在 CHANGELOG（Unreleased 或最新已发布段）里找不到对应记录（补记不全）');
