@@ -10,6 +10,7 @@ GitHub Releases carry the same notes in English; maintainer-facing runbooks live
 - **Assets multi-select with batch add-to-canvas and batch delete.** Asset cards now carry a checkbox and click-to-select (double-click still adds a single node directly); a batch bar appears when selection is non-empty with "add to canvas (n)", "delete (n)" and "clear". Batch add places nodes to the right of the rightmost existing node via `layoutBatchColumns` (≤5 per column, stacked top-down, 60/40px gaps, zero overlap with existing nodes or each other), selects the created nodes, and skips audio assets with a count note. Batch delete reuses the per-asset deletion path (server delete + node unbind + history cleanup) behind a single confirmation showing the first few names, plus a select-all-page checkbox.
 
 ### Fixed
+- **Host sync no longer wipes repaired asset pointers.** `mergeHostDoc` keeps a local non-null `assetId`/`lastAssetId` for image/video nodes when the Host copy carries null (`protectMediaPointer`). This was the last link in the preview-loss chain: relinked pointers survived only until the next 3-second sync merge overwrote them with the stale Host document.
 - **Generated nodes lost their asset previews after refresh / cross-machine open — and the reference itself was being permanently erased.** A MediaNodeBody history-cleanup effect could run before the store was known (refresh race) or against a local DB that lacks the asset rows (cross-machine), classify live assets as dead, and write `assetId = null` into the graph. The cleanup is now guarded (`store` must be known) and prunes only the history array — `data.assetId` is never erased by it. Damaged projects self-heal: on canvas load, nodes with `done` status but no asset are re-linked to their asset by exact `nodeLabel` match (latest one not referenced by other nodes), with a toast summary.
 - **Auto-relink retry hardened.** The once-per-canvas repair memo no longer burns when the canvas graph has not loaded yet (startup race), so damaged projects relink their assets on the next scheduled pass instead of never.
 
@@ -17,7 +18,7 @@ GitHub Releases carry the same notes in English; maintainer-facing runbooks live
 - (无独立变更。)
 
 ### Internal
-- (无。)
+- Repaired asset relinking is driven by the `repairPlan` pure helper and end-to-end regression on the real damaged-project shape (orphan node + exact `nodeLabel` match).
 
 ## [0.19.17] — 2026-11-01
 

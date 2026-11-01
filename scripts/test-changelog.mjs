@@ -118,6 +118,8 @@ const COVERAGE = [
   { sha: 'bb0f476', keys: [/batch add-to-canvas/i, /layoutBatchColumns/i, /batch delete/i] },
   { sha: '7a26b07', keys: [/asset previews after refresh/i, /never erased/i, /re-linked to their asset/i] },
   { sha: '5ad9e2e', keys: [/once-per-canvas repair memo/i, /repair pass/i] },
+  { sha: 'bffbe68', keys: [/repairPlan/i] },
+  { sha: 'cffb666', keys: [/wipes repaired asset pointers/i, /protectMediaPointer/i] },
 ];
 for (const c of COVERAGE) {
   ok(c.keys.some((re) => re.test(coverageText)), '未发版提交 ' + c.sha + ' 在 CHANGELOG（Unreleased 或最新已发布段）里找不到对应记录（补记不全）');
