@@ -118,6 +118,7 @@ const COVERAGE = [
   { sha: '5fe8561', keys: [/fx-driven storyboard contract/i, /state_jump/i, /FX fields/i] },
   { sha: '24aef03', keys: [/One tail frame per video/i, /tailPending/i] },
   { sha: '4ca71b9', keys: [/capacity warning judges real shot count/i] },
+  { sha: '27798f5', keys: [/Sanbao image task protocol/i, /task id persists/i] },
 ];
 for (const c of COVERAGE) {
   ok(c.keys.some((re) => re.test(coverageText)), '未发版提交 ' + c.sha + ' 在 CHANGELOG（Unreleased 或最新已发布段）里找不到对应记录（补记不全）');
