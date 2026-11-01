@@ -1163,6 +1163,15 @@ function revealCanvasInRight() {
       'updateSrcChina': '中国大陆镜像源',
       'updateSrcNow': '当前源',
       'updateSrcSet': '更新源已切换',
+      'assetsSelAllPage': '全选本页',
+      'assetsAddToCanvas': '添加到画布',
+      'assetsClearSel': '清除选择',
+      'assetsOnlyAudio': '所选均为音频资产，无法生成画布节点',
+      'assetsAudioSkip': '{n} 个音频资产已跳过',
+      'assetsAdded': '已添加 {n} 个资产节点',
+      'assetsBatchDelWarn': '将从资产库删除所选资产；画布上引用它们的节点会解绑：',
+      'assetsDeletedN': '已删除 {n} 个资产',
+      'assetClickHint': '单击选择 / 双击直接添加到画布',
       'dataRootLabel': '数据根目录',
       'dataRootPlaceholder': '如 D:\\canvas-data',
       'dataRootHint': '资产与视频按项目落盘到该目录（不再占用 C 盘 IndexedDB）。留空 = 浏览器 IndexedDB。',
@@ -2099,6 +2108,15 @@ function revealCanvasInRight() {
       'updateSrcChina': 'China mainland mirror',
       'updateSrcNow': 'Active source',
       'updateSrcSet': 'Update source changed',
+      'assetsSelAllPage': 'Select page',
+      'assetsAddToCanvas': 'Add to canvas',
+      'assetsClearSel': 'Clear selection',
+      'assetsOnlyAudio': 'Only audio assets selected — nothing to place on canvas',
+      'assetsAudioSkip': '{n} audio assets skipped',
+      'assetsAdded': '{n} asset nodes added',
+      'assetsBatchDelWarn': 'Selected assets will be deleted from the library; canvas nodes referencing them will be unbound:',
+      'assetsDeletedN': '{n} assets deleted',
+      'assetClickHint': 'Click to select / double-click to add to canvas',
       'dataRootLabel': 'Data root',
       'dataRootPlaceholder': 'e.g. D:\\canvas-data',
       'dataRootHint': 'Assets and videos are stored per project under this folder (no more C: IndexedDB). Empty = browser IndexedDB.',
@@ -2913,6 +2931,9 @@ body[data-ds-dark-theme] .dshic-inline-input{border-color:var(--dsw-alias-border
 .dshic-asset{position:relative;border:1px solid var(--dsw-alias-border-l1);border-radius:9px;overflow:hidden;cursor:pointer;
   background:var(--dsw-alias-bg-layer-2);}
 .dshic-asset:hover{border-color:var(--dsw-alias-brand-primary);}
+/* 批量选择：复选框常驻左上角；选中卡片描边 */
+.dshic-asset-check{position:absolute;left:6px;top:6px;z-index:2;width:15px;height:15px;cursor:pointer;accent-color:var(--dsw-alias-brand-primary);}
+.dshic-asset.is-checked{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:-2px;}
 .dshic-asset-thumb{width:100%;height:86px;object-fit:cover;display:block;background:var(--dsw-alias-bg-layer-2);}
 .dshic-asset-meta{display:flex;align-items:center;gap:4px;padding:3px 6px;font-size:10px;color:var(--dsw-alias-label-secondary);flex-wrap:wrap;}
 .dshic-asset-actions{position:absolute;top:4px;right:4px;display:flex;gap:3px;opacity:0;transition:opacity .12s;}
@@ -9469,6 +9490,46 @@ function queueThumb(assetId) {
       let guard = 0;
       while (blocker && guard++ < 80) { y = (blocker.y || 0) + H(blocker) + MIN_GAP; blocker = hit(y); }
       return { x, y };
+    }
+
+    /** 资产批量导入落点（纯函数供回归）：在现有节点最右侧之外按列铺开，一列 ≤5 个。
+     *  existingRects：现有节点矩形 [{x,y,w,h}]；items：[{w,h}]（按导入顺序，仅计可成节点的资产）。
+     *  返回 [{x,y,w,h}]：列内自上而下堆叠、放不下碰撞则顺延，列间 GAP_COL，彼此与现有节点零重叠。 */
+    function layoutBatchColumns(existingRects, items, opts) {
+      const o = opts || {};
+      const GAP_X = Number(o.gapX) || 80;    // 与现有节点最右界的水平间距
+      const GAP_COL = Number(o.gapCol) || 60; // 列间距
+      const GAP_Y = Number(o.gapY) || 40;     // 行间距
+      const PER_COL = Number(o.perCol) || 5;  // 一列上限
+      const rects = (existingRects || []).filter((r) => r && Number.isFinite(Number(r.x)));
+      const baseX = rects.length
+        ? Math.round(Math.max(...rects.map((r) => (Number(r.x) || 0) + (Number(r.w) || 0))) + GAP_X)
+        : 80;
+      const baseY = Math.round(Number(o.y0) || 40);
+      const placed = [];
+      const hit = (x, y, w, h) => rects.find((r) => (Number(r.x) || 0) < x + w + 28 && (Number(r.x) || 0) + (Number(r.w) || 0) + 28 > x
+        && (Number(r.y) || 0) < y + h + 28 && (Number(r.y) || 0) + (Number(r.h) || 0) + 28 > y)
+        || placed.find((p) => p.x < x + w + 28 && p.x + p.w + 28 > x && p.y < y + h + 28 && p.y + p.h + 28 > y);
+      const out = [];
+      let colX = baseX;
+      let colY = baseY;
+      let colW = 0;
+      let inCol = 0;
+      for (const it of items || []) {
+        const w = Math.max(1, Number(it && it.w) || 360);
+        const h = Math.max(1, Number(it && it.h) || 220);
+        if (inCol >= PER_COL) { colX = colX + colW + GAP_COL; colY = baseY; colW = 0; inCol = 0; }
+        let y = colY;
+        let blocker = hit(colX, y, w, h);
+        let guard = 0;
+        while (blocker && guard++ < 80) { y = (Number(blocker.y) || 0) + (Number(blocker.h) || 0) + 28; blocker = hit(colX, y, w, h); }
+        out.push({ x: Math.round(colX), y: Math.round(y), w, h });
+        placed.push({ x: colX, y, w, h });
+        colW = Math.max(colW, w);
+        colY = y + h + GAP_Y;
+        inCol++;
+      }
+      return out;
     }
 
     function addNodeAt(type, pos) {
@@ -17778,6 +17839,8 @@ const DIRECTOR_KEY_HELP = [
       const [craftFor, setCraftFor] = useState(null);
       const [delTarget, setDelTarget] = useState(null); // 待确认删除的资产（确认框见 DeleteAssetModal）
       const [assetName, setAssetName] = useState(''); // 删除确认框的输入内容
+      const [selIds, setSelIds] = useState(() => new Set()); // 批量选择（资产 id）：选中后一键按列导入画布 / 批量删除
+      const [batchDel, setBatchDel] = useState(false); // 批量删除确认框
       const fileRef = useRef(null);
       // 搜索防抖：资产多时避免每个按键都过一遍全量过滤
       useEffect(() => {
@@ -17880,6 +17943,52 @@ const DIRECTOR_KEY_HELP = [
         });
         bumpView();
       };
+      // ---------- 批量选择：一键按列导入画布 / 批量删除 ----------
+      // 落点由 layoutBatchColumns 决定（现有节点最右侧之外按列铺开，一列 ≤5，零重叠），
+      // 音频资产不成节点（与单个添加同一口径），导入时跳过并提示数量。
+      const selList = assets.filter((a) => selIds.has(a.id));
+      const addableList = selList.filter((a) => a.kind !== 'audio');
+      const audioN = selList.length - addableList.length;
+      const allPageSel = () => shown.length > 0 && shown.every((a) => selIds.has(a.id));
+      const toggleSel = (a) => setSelIds((prev) => { const n = new Set(prev); if (n.has(a.id)) n.delete(a.id); else n.add(a.id); return n; });
+      const selectAllPage = () => setSelIds((prev) => {
+        const n = new Set(prev);
+        if (allPageSel()) shown.forEach((a) => n.delete(a.id));
+        else shown.forEach((a) => n.add(a.id));
+        return n;
+      });
+      const clearSel = () => setSelIds(new Set());
+      const addSelectedToCanvas = () => {
+        if (!addableList.length) { toast(T('assetsOnlyAudio')); return; }
+        // 检测画布现有节点位置：批量落点在其最右侧之外按列铺开，绝不与现有节点重叠
+        const rects = Object.values(S.graph.nodes)
+          .filter((nd) => nd.type !== 'group' && !(nd.data && nd.data.hidden))
+          .map((nd) => ({ x: Number(nd.x) || 0, y: Number(nd.y) || 0, w: Number(nd.w) || 280, h: Number(nd.h) || 160 }));
+        const items = addableList.map((a) => (a.kind === 'text' ? { w: 360, h: 220 } : nodeSizeForRatio('16:9', { hasFooter: false })));
+        const pts = layoutBatchColumns(rects, items);
+        const newIds = [];
+        update((s) => {
+          addableList.forEach((a, k) => {
+            const nd = newNode(a.kind === 'text' ? 'text' : a.kind, pts[k]);
+            if (a.kind === 'text') nd.data.text = a.text || '';
+            else { nd.data.assetId = a.id; nd.data.status = 'done'; }
+            s.graph.nodes[nd.id] = nd;
+            newIds.push(nd.id);
+          });
+          s.sel = new Set(newIds); s.selEdge = null;
+        });
+        pushHistory();
+        flushSave();
+        setSelIds(new Set());
+        toast(T('assetsAdded').replace('{n}', String(addable.length)) + (audioN ? '，' + T('assetsAudioSkip').replace('{n}', String(audioN)) : ''));
+      };
+      const delSelected = async () => {
+        const list = selList.slice();
+        setBatchDel(false);
+        for (const a of list) { try { await del(a); } catch { /* 单个失败继续其余 */ } }
+        setSelIds(new Set());
+        toast(T('assetsDeletedN').replace('{n}', String(list.length)));
+      };
       // 资产重命名：服务端写回（SQL/JSON 各自落库）+ 刷新名称缓存（@引用与连线名称都吃这份缓存）
       const rename = async (a, name) => {
         if (S.store) {
@@ -17945,6 +18054,9 @@ const DIRECTOR_KEY_HELP = [
         }),
         h('button', { key: 'craftsync', type: 'button', className: 'dshic-mini', style: { alignSelf: 'flex-start' }, disabled: !craftOkCached(), title: craftOkCached() ? T('craftSyncAll') : T('craftUnreachable'), onClick: syncAll, onPointerDown: (e) => e.stopPropagation() }, Ic('upload', 11), T('craftSyncAll')),
         h('button', { key: 'imp', type: 'button', className: 'dshic-mini', style: { alignSelf: 'flex-start' }, onClick: () => { if (fileRef.current) fileRef.current.click(); } }, Ic('upload', 11), T('import')),
+        h('label', { key: 'selall', style: { alignSelf: 'flex-start', display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, cursor: 'pointer' }, onPointerDown: (e) => e.stopPropagation() },
+          h('input', { type: 'checkbox', checked: allPageSel(), disabled: !shown.length, onChange: selectAllPage }),
+          T('assetsSelAllPage')),
         h('input', { key: 'file', ref: fileRef, type: 'file', accept: 'image/*,video/*', multiple: true, style: { display: 'none' }, onChange: onImport }),
         loading && !assets.length
           ? h('div', { key: 'loading', className: 'dshic-hint' }, T('aiRunning'))
@@ -17955,8 +18067,18 @@ const DIRECTOR_KEY_HELP = [
                   key: a.id, a, onAdd: addNodeFor, onDel: (x) => setDelTarget(x), onCat: changeCategory,
                   onRename: rename, onMove: moveAsset,
                   projectName: projectName(a.projectId),
+                  checked: selIds.has(a.id), onToggleSel: toggleSel,
                 })),
               ),
+        // 批量操作条：选中 >0 时出现（一键按列导入画布 / 批量删除 / 清除选择）
+        selIds.size
+          ? h('div', { key: 'batchbar', 'data-role': 'assets-batch-bar', style: { display: 'flex', alignItems: 'center', gap: 8, alignSelf: 'flex-start', padding: '4px 0' } },
+              h('button', { type: 'button', className: 'dshic-mini', disabled: !addableList.length, onClick: addSelectedToCanvas, onPointerDown: (e) => e.stopPropagation() }, Ic('expandAll', 11), T('assetsAddToCanvas') + '（' + addableList.length + '）'),
+              h('button', { type: 'button', className: 'dshic-mini', style: { color: 'var(--dsw-alias-state-error-primary)', borderColor: 'var(--dsw-alias-state-error-primary)' }, onClick: () => setBatchDel(true), onPointerDown: (e) => e.stopPropagation() }, T('doDelete') + '（' + selIds.size + '）'),
+              h('button', { type: 'button', className: 'dshic-mini is-ghost', onClick: clearSel, onPointerDown: (e) => e.stopPropagation() }, T('assetsClearSel')),
+              audioN ? h('span', { style: { fontSize: 11, opacity: 0.75 } }, T('assetsAudioSkip').replace('{n}', String(audioN))) : null,
+            )
+          : null,
         // 分页（客户端分页：资产数据源已是全量 assetsForPicker）
         h('div', { key: 'pager', className: 'dshic-asset-pager' },
           h('button', {
@@ -17974,6 +18096,17 @@ const DIRECTOR_KEY_HELP = [
           onCancel: () => { setDelTarget(null); setAssetName(''); },
           onConfirm: async () => { const t = delTarget; setDelTarget(null); setAssetName(''); await del(t); },
         }) : null,
+        batchDel ? h('div', { className: 'dshic-modal-overlay', onPointerDown: (e) => { if (e.target === e.currentTarget) setBatchDel(false); } },
+          h('div', { className: 'dshic-modal' },
+            h('div', { className: 'dshic-modal-title' }, T('delAssetTitle') + ' × ' + selIds.size),
+            h('div', { className: 'dshic-modal-warn' },
+              T('assetsBatchDelWarn'),
+              h('div', { className: 'dshic-modal-name', style: { marginTop: 4 } },
+                selList.slice(0, 3).map((a) => a.name || '—').join('、') + (selList.length > 3 ? ' …' : ''))),
+            h('div', { className: 'dshic-modal-actions' },
+              h('button', { type: 'button', className: 'dshic-btn dshic-btn-outline', onClick: () => setBatchDel(false) }, T('cancel')),
+              h('button', { type: 'button', className: 'dshic-btn is-danger', onClick: delSelected }, T('doDelete'))),
+          )) : null,
       ];
     }
     /** 删除资产确认框：与项目删除同一套交互 —— 名字可选中，手打确认，不做一键填入。 */
@@ -18009,7 +18142,7 @@ const DIRECTOR_KEY_HELP = [
         ));
     }
 
-    function AssetCard({ a, onAdd, onDel, onCat, onRename, onMove, projectName }) {
+    function AssetCard({ a, checked = false, onToggleSel = () => {}, onAdd, onDel, onCat, onRename, onMove, projectName }) {
       const url = useAssetUrl(a.kind === 'text' ? null : a.id);
       const [craftFor, setCraftFor] = useState(false);
       const [renaming, setRenaming] = useState(false);
@@ -18034,7 +18167,17 @@ const DIRECTOR_KEY_HELP = [
         onClick: startRename,
       }, Ic('pencil', 11));
       const downloadName = (a.name || 'asset') + extForDownload(a.mime, a.name, a.kind);
-      return h('div', { className: 'dshic-asset', onClick: a.kind === 'audio' ? undefined : () => onAdd(a), title: a.kind === 'text' ? T('textAssetHint') : a.kind === 'audio' ? '' : T('addAssetNode') },
+      return h('div', {
+        className: cls('dshic-asset', checked && 'is-checked'),
+        onClick: () => onToggleSel(a),
+        onDoubleClick: a.kind === 'audio' ? undefined : () => onAdd(a), // 双击 = 单个直接添加（熟练用户捷径）
+        title: T('assetClickHint'),
+      },
+        // 复选框：批量选择入口（单击卡片也切换选中；图标按钮仍 stopPropagation 不受影响）
+        h('input', { type: 'checkbox', className: 'dshic-asset-check', checked: !!checked,
+          onPointerDown: (e) => e.stopPropagation(),
+          onClick: (e) => { e.stopPropagation(); onToggleSel(a); },
+          onChange: () => {} }),
         a.kind === 'text'
           ? h('div', { className: 'dshic-textcard is-title' },
               renaming ? nameInput : h('div', { className: 'dshic-textcard-title', title: a.name || '' }, a.name || T('scriptAssetPrefix')),
@@ -20337,6 +20480,8 @@ const DIRECTOR_KEY_HELP = [
             wheelScrollTarget,
             // 建点布局强控制（一类型一列 + 碰撞下移）：addNodeAt 收口 + 纯函数，供回归测试直接驱动
             nextNodePosClient, addNodeAt,
+            // 资产批量导入落点：现有节点最右侧之外按列铺开（一列 ≤5，零重叠），供回归测试直接断言
+            layoutBatchColumns,
             graph: () => JSON.parse(JSON.stringify(S.graph)), // 建点结果断言用（与 SYNC.graph 同口径）
             addGraphNodes: (list) => { for (const n of (list || [])) S.graph.nodes[n.id] = n; }, // 测试播种（写入活状态）
             // 下拉自定义数值的纯函数：范围夹取 / 整数与小数口径（分镜数、单段上限共用）

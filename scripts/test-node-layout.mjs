@@ -195,6 +195,35 @@ const barsOn = () => HDR() + FOOT();
   eq(LAYOUT.sizeForRatio('1:1'), { w: 360, h: 360 }, "sizeForRatio('1:1') 预览区");
   eq(LAYOUT.sizeForRatio('4:3'), { w: 480, h: 360 }, "sizeForRatio('4:3') 预览区");
   eq(LAYOUT.sizeForRatio('3:4'), { w: 360, h: 480 }, "sizeForRatio('3:4') 预览区");
+  {
+    // 资产批量导入落点：现有节点最右侧之外按列铺开，一列 ≤5，列间/彼此/与现有节点零重叠
+    const LB = LAYOUT.layoutBatchColumns;
+    ok(typeof LB === 'function', '缺少 layoutBatchColumns 测试缝隙（资产批量导入布局）');
+    if (typeof LB === 'function') {
+      const pts = LB([{ x: 0, y: 0, w: 280, h: 160 }], Array.from({ length: 7 }, () => ({ w: 320, h: 200 })));
+      ok(pts.length === 7, '批量布局应返回全部坐标');
+      ok(pts[0].x >= 360, '落点必须在现有节点最右侧之外（baseX ≥ maxRight + 间距）');
+      ok(pts.filter((p) => p.x === pts[0].x).length === 5, '一列最多 5 个（首列 5 个）');
+      ok(pts[5].x > pts[0].x && pts[5].y === pts[0].y, '第 6 个起新列（x 递增、y 回到列首）');
+      const boxes = pts.map((p) => ({ x: p.x, y: p.y, w: p.w || 320, h: p.h || 200 }));
+      let overlap = false;
+      for (let i = 0; i < boxes.length && !overlap; i++) for (let j = i + 1; j < boxes.length; j++) {
+        const a = boxes[i], b = boxes[j];
+        if (a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y) { overlap = true; break; }
+      }
+      ok(!overlap, '批量节点两两无重叠');
+      ok(pts.every((p) => !(p.x < 280 && p.y < 160)), '批量落点不与现有节点重叠');
+      eq(LB([], [{ w: 320, h: 200 }])[0].x, 80, '空画布从默认 x=80 起列');
+    }
+  }
+  {
+    // 资产批量选择 UI 契约：卡片单击=选中（不再直接加画布）/ 复选框 / 批量操作条
+    ok(/assets-batch-bar/.test(src), '资产批量操作条缺失');
+    ok(/dshic-asset-check/.test(src), '资产卡片复选框缺失');
+    ok(!/className: 'dshic-asset', onClick: a\.kind === 'audio' \? undefined : \(\) => onAdd\(a\)/.test(src),
+      '资产卡片单击仍直接添加到画布（应改为切换选中）');
+    ok(/dshic-asset-check\{[^}]*position:absolute/.test(src), '复选框需要绝对定位在卡片左上角');
+  }
   const widePv = LAYOUT.sizeForRatio('21:9');
   ok(Math.max(widePv.w, widePv.h) <= LAYOUT.MEDIA_MAX_LONG, '超长比例（21:9）预览区长边必须 ≤ 800（实际 ' + JSON.stringify(widePv) + '）');
   ok(widePv.w > widePv.h, '21:9 预览区必须横向变长');
