@@ -225,6 +225,35 @@ const barsOn = () => HDR() + FOOT();
     ok(/dshic-asset-check\{[^}]*position:absolute/.test(src), '复选框需要绝对定位在卡片左上角');
   }
   {
+    // 尾帧入库决策：一次生成只入一张（事故回归——生成路径与媒体节点体兜底两条管线各存一张，
+    // 一次生成冒出「尾帧」×2 +「尾帧选帧」×1 = 三张尾帧资产）
+    const TD = LAYOUT.tailFrameDecision;
+    ok(typeof TD === 'function', '缺少 tailFrameDecision 测试缝隙');
+    if (typeof TD === 'function') {
+      const b1 = { mark: 'last' }, b2 = { mark: 'best' };
+      const d1 = TD({ last: b1, best: b1, bestT: 4.9, bestScore: 0.8 });
+      ok(d1 && d1.blob === b1 && d1.isPick === false, 'best=last → 只存一张（命名"尾帧"）');
+      const d2 = TD({ last: b1, best: b2, bestT: 4.6, bestScore: 0.9 });
+      ok(d2 && d2.blob === b2 && d2.isPick === true, 'best≠last → 只存最佳帧，真·最后一帧不再单独入库');
+      ok(TD({}) === null && TD(null) === null, '无帧可存 → 不入库');
+    }
+    // 源码契约①：生成完成先写 tailPending 占位，封锁媒体节点体兜底
+    ok(/update\(\(s\) => \{ const nd = s\.graph\.nodes\[n\.id\]; if \(nd\) nd\.data\.tailPending = rec\.id; \}\);/.test(src),
+      '生成完成未先写 tailPending 占位（兜底 effect 会抢先入库，一次生成冒两张相同尾帧）');
+    // 源码契约②：尾帧块只允许一次 saveAssetRecord（best≠last 第二张入库存已被移除）
+    const i0 = src.indexOf('const dec = tailFrameDecision(tail);');
+    const i1 = src.indexOf('接缝校验', i0);
+    ok(i0 > 0 && i1 > i0, '尾帧块源码切片失败');
+    if (i0 > 0 && i1 > i0) {
+      const seg = src.slice(i0, i1);
+      ok((seg.match(/saveAssetRecord/g) || []).length === 1, '尾帧块存在多次入库（仍会一次生成冒多张尾帧资产）');
+    }
+    ok(!/tail\.best !== tail\.last/.test(src), '旧版"best≠last 单独存第二张"写法仍在');
+    // 源码契约③：兜底守卫识别 tailPending 占位，不再只看 lastAssetId
+    ok(/if \(n\.data\.tailPending === n\.data\.assetId\) return;/.test(src), '媒体节点体兜底守卫未识别 tailPending 占位');
+    ok(/lastAssetId = recT\.id/.test(src) && /lastPickAssetId = recT\.id/.test(src), '尾帧资产未同时写入 last 与 tailpick 两个口');
+  }
+  {
     // 历史清理去破坏化 + 资产回链（预览丢失事故回归）
     const PD = LAYOUT.pruneDeadHistory;
     const RP = LAYOUT.repairPickAsset;

@@ -7521,6 +7521,23 @@ function queueThumb(assetId) {
         URL.revokeObjectURL(url);
       }
     }
+    /** 尾帧入库决策（纯函数）：一次生成只入一张尾帧。
+     *  优先"最佳选帧"（续帧接力用的是它）；best 缺失或与 last 同一张 → 用 last（命名"尾帧"）；
+     *  best 与 last 是两张不同画面 → 只存 best（命名"尾帧选帧"），真·最后一帧不再单独入库。
+     *  历史事故：生成路径与媒体节点体兜底两条管线各存一张，一次生成冒出三张尾帧资产。 */
+    function tailFrameDecision(tail) {
+      const t = tail || {};
+      const last = t.last || null;
+      const best = t.best || null;
+      if (!last && !best) return null;
+      const same = !best || best === last;
+      return {
+        blob: same ? last : best,
+        isPick: !same,
+        t: Number(t.bestT) || 0,
+        score: Number(t.bestScore) || 0,
+      };
+    }
     /** 缩略灰度（接缝校验用）：任意图 Blob → 32×32 RGBA。 */
     async function grayThumb(blob, size) {
       const n = Math.max(8, Math.min(128, Number(size) || 32));
@@ -10680,33 +10697,38 @@ function queueThumb(assetId) {
           } catch { /* 探测失败不影响生成 */ }
           // 尾帧抽取（续帧接力的关键）：末段多帧候选里选「动作进行中/清晰/不抖」的一帧，
           // 而不是机械取最后一帧（最后一帧常在动作顶点/模糊/抖动上）。
+          // 【单一所有者】入库前先写 tailPending 占位（封锁媒体节点体的兜底提取 effect）：
+          // 两条管线曾各自入库，一次生成冒出两张相同尾帧 + 一张最佳帧 = 三张尾帧资产。
           try {
+            update((s) => { const nd = s.graph.nodes[n.id]; if (nd) nd.data.tailPending = rec.id; });
             const tail = await extractTailFrames(blob, { count: 9, span: 0.8 });
-            if (tail && tail.last) {
-              const fRec = await saveAssetRecord(S.activeId, 'image', tail.last, {
-                name: T('lastFrame') + '-' + (n.data.label || n.id.slice(-4)),
-                prompt: 'last frame of ' + prompt.slice(0, 60), source: 'api', category: 'image',
+            const dec = tailFrameDecision(tail);
+            if (dec && dec.blob) {
+              const recT = await saveAssetRecord(S.activeId, 'image', dec.blob, {
+                name: (dec.isPick ? T('tailPick') : T('lastFrame')) + '-' + (n.data.label || n.id.slice(-4)),
+                prompt: (dec.isPick ? 'continuity tail pick t=' + Number(dec.t).toFixed(2) + 's; ' : 'last frame of ') + prompt.slice(0, 60),
+                source: 'api', category: 'image',
               });
-              // 最佳选帧单独存一份（last 口保持"真·最后一帧"语义，接力用"最佳帧"）
-              let pickRec = null;
-              if (tail.best && tail.best !== tail.last) {
-                pickRec = await saveAssetRecord(S.activeId, 'image', tail.best, {
-                  name: T('tailPick') + '-' + (n.data.label || n.id.slice(-4)),
-                  prompt: 'continuity tail pick t=' + Number(tail.bestT || 0).toFixed(2) + 's; ' + prompt.slice(0, 40),
-                  source: 'api', category: 'image',
-                });
-              }
               update((s) => {
                 const nd = s.graph.nodes[n.id];
                 if (nd) {
-                  nd.data.lastAssetId = fRec.id; nd.data.lastAssetVideo = rec.id;
-                  nd.data.lastPickAssetId = pickRec ? pickRec.id : fRec.id;
-                  nd.data.tailPickMeta = { t: Number(tail.bestT || 0), score: Math.round((tail.bestScore || 0) * 100) / 100 };
+                  // 一张尾帧服务两个口：last / tailpick 指向同一资产（自动续帧与手动连线都优先 tailpick）
+                  nd.data.lastAssetId = recT.id;
+                  nd.data.lastPickAssetId = recT.id;
+                  nd.data.lastAssetVideo = rec.id;
+                  nd.data.tailPickMeta = { t: Number(dec.t) || 0, score: Math.round((Number(dec.score) || 0) * 100) / 100 };
+                  nd.data.tailPending = null;
                 }
                 s.assetsTick++;
               });
             }
-          } catch { /* 尾帧提取失败不影响主流程 */ }
+          } catch {
+            // 抽帧/入库失败：解锁占位，让媒体节点体的兜底提取可以重试（外部导入视频仍走兜底）
+            update((s) => {
+              const nd = s.graph.nodes[n.id];
+              if (nd && nd.data.tailPending === rec.id && nd.data.lastAssetVideo !== rec.id) nd.data.tailPending = null;
+            });
+          }
           // 接缝校验：本段首帧 vs 上一段尾帧（续帧段才有意义）。不达标 → 节点上可见告警（不静默）
           if (useFrame && plan.chain) {
             try {
@@ -12749,10 +12771,13 @@ function queueThumb(assetId) {
      *  空节点不放任何生成按钮（生成动作在 GenComposer 的发送按钮）。点击节点任意位置打开面板。 */
     function MediaNodeBodyInner({ n, kind, refSig }) {
       void refSig;
-      // 视频产物自动提取尾帧（含外部注入/导入的视频）：last 口与跨镜衔接不依赖"必须由本节点生成"
+      // 视频产物自动提取尾帧（含外部注入/导入的视频）：last 口与跨镜衔接不依赖"必须由本节点生成"。
+      // 【守卫】lastAssetVideo 匹配 = 本节点已登记这条视频（生成管线独占负责，见 tailPending 占位）；
+      // tailPending 匹配 = 生成管线正在抽帧入库——两者都跳过，绝不与生成路径重复入库。
       useEffect(() => {
         if (kind !== 'video' || !n.data.assetId) return;
-        if (n.data.lastAssetId && n.data.lastAssetVideo === n.data.assetId) return;
+        if (n.data.lastAssetVideo === n.data.assetId) return;
+        if (n.data.tailPending === n.data.assetId) return;
         let cancelled = false;
         (async () => {
           try {
@@ -20835,6 +20860,8 @@ const DIRECTOR_KEY_HELP = [
             layoutBatchColumns,
             // 资产页分页跳转（页码输入 → 0-based 页；非法文本 null、越界夹取）
             assetsPageIndex,
+            // 尾帧入库决策（一次生成只入一张：best 优先，best=last 才用 last）
+            tailFrameDecision,
             // 历史条死条目裁剪 / 资产回链候选挑选与回链计划（纯函数，供回归测试直接断言）
             pruneDeadHistory, repairPickAsset, repairPlan,
             // 媒体节点指针空值保护（Host 合并不得用 null 覆盖本地有效 assetId/lastAssetId）
