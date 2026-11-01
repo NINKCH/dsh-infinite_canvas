@@ -6,6 +6,8 @@ GitHub Releases carry the same notes in English; maintainer-facing runbooks live
 
 ## [Unreleased]
 
+## [0.19.20] — 2026-11-02
+
 ### Added
 - **Genre cards v3: option-menu mechanism libraries, no mandated story direction.** All 37 genre cards rebuilt: the five story-playbook sections (pressure engine, character strategy, payoff, hook orientation, act pacing) become option menus — conflict/personnel/payoff-hook/pacing libraries, each listing 3+ selectable directions that can be combined, adapted or skipped; 题材核心 becomes a short 题材基调与世界观; drift bans keep only visual/factual rules. The script-slice pack head now carries the doctrine — entries are combinable parts, events and direction belong to the script — plus the material precedence (existing novel/script text and the bible outrank the genre library; style and camera always apply). A regression gate bans the old single-direction sections and template phrases across all cards.
 - **Shanhai Myth genre card with material libraries.** 异兽图志库（12 beasts with form/habitat/habitat-scale cues）、法术能力库（八门能力，各配画面呈现）、神器地理库 — tagged as a `library` slice consumed only by the asset-sheet capability (beast sheets can be drawn straight from the library); script and storyboard never receive it, so library settings can never override an imported novel. Its 冲突机制库 deliberately includes cost-covenant as ONE optional pattern, never a mandate.
