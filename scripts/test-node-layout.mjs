@@ -265,6 +265,9 @@ const barsOn = () => HDR() + FOOT();
       }
     }
     ok(/scheduleRepair\(\)/.test(src), '缺少 repair 调度调用（画布载入后自愈）');
+    ok(/setTimeout\(\(\) => scheduleRepair\(\), 2000\)/.test(src) && /setTimeout\(\(\) => scheduleRepair\(\), 10000\)/.test(src),
+      '启动主流程未显式调度资产自愈（普通启动不触发 mergeHostDoc，自愈永不运行）');
+    ok(/\[IC\] asset-relink: orphans=/.test(src), '自愈缺少运行诊断日志（无法在运行时判断断点）');
   }
   {
     // 媒体指针空值保护：Host 的 null 不得覆盖本地有效指针（回链结果被 merge 清空事故回归）

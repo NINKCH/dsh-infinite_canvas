@@ -9643,12 +9643,16 @@ function queueThumb(assetId) {
       // 记账必须在"真正完成一次有效检查"之后，否则启动竞态会把每画布一次的额度烧掉
       if (!nodes.length) return;
       const recs = await idbByProject(S.activeId).catch(() => []);
-      if (!recs.length) return;
+      if (!recs.length) {
+        try { console.info('[IC] asset-relink: orphans=' + nodes.length + ' recs=0（assetsList 未返回）'); } catch { /* 忽略 */ }
+        return;
+      }
       const key = S.activeId + '/' + activeCanvasId();
       if (repairDoneFor === key) return;
       repairDoneFor = key;
       const usedIds = new Set(Object.values(S.graph.nodes).map((nd) => nd.data && nd.data.assetId).filter(Boolean));
       const fixes = repairPlan(nodes, recs, usedIds);
+      try { console.info('[IC] asset-relink: orphans=' + nodes.length + ' recs=' + recs.length + ' fixes=' + fixes.length); } catch { /* 忽略 */ }
       if (!fixes.length) return;
       update((s) => {
         for (const f of fixes) {
@@ -20417,6 +20421,10 @@ const DIRECTOR_KEY_HELP = [
           fetchUpdateRegistry();
           // 数据根目录（Host 旧版静默降级为 IndexedDB 模式）；就绪后把本地遗留 blob 搬进服务端（v1 旧布局由 Host 侧自动迁移）
           refreshDataRoot().then(() => migrateLegacyAssets('boot')).catch(() => { /* 静默 */ });
+          // 资产指针自愈：显式调度，不依赖同步回调（普通启动没有文档变更信号，mergeHostDoc 不会触发）。
+          // 2s 主跑 + 10s 兜底重试（图/资产清单加载慢时第二轮补上）；scheduleRepair 自带 1.5s 防抖。
+          setTimeout(() => scheduleRepair(), 2000);
+          setTimeout(() => scheduleRepair(), 10000);
           // 对话 ↔ 画布同步（启动一次 + 3s 轮询；旧 Host 自动停轮询）
           hostSyncTick().then(() => pushAllProjectsToHost());
           const hostSyncTimer = setInterval(() => hostSyncTick(), 3000);
