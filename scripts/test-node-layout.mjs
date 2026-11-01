@@ -223,6 +223,9 @@ const barsOn = () => HDR() + FOOT();
     ok(!/className: 'dshic-asset', onClick: a\.kind === 'audio' \? undefined : \(\) => onAdd\(a\)/.test(src),
       '资产卡片单击仍直接添加到画布（应改为切换选中）');
     ok(/dshic-asset-check\{[^}]*position:absolute/.test(src), '复选框需要绝对定位在卡片左上角');
+    // 添加到画布：节点名 = 资产名（单添加与批量两条路径都不得再叫 图片1/视频2/文本1）
+    ok((src.match(/nd\.data\.label = a\.name \|\| nd\.data\.label/g) || []).length >= 2,
+      '添加资产到画布未同步资产命名（单添加+批量两条路径都要覆盖）');
   }
   {
     // 尾帧入库决策：一次生成只入一张（事故回归——生成路径与媒体节点体兜底两条管线各存一张，

@@ -295,6 +295,25 @@ function cssRulesMatchingClass(name) {
   // 文本资产（分镜表/剧本）也有项目归属下拉（projSel 抽取复用：媒体在名称行下、文本在 meta 行）
   ok(/const projSel = h\('select'/.test(src), '项目下拉未抽成 projSel 复用');
   ok(/a\.kind === 'text' \? projSel : null/.test(src), '文本资产卡片缺项目归属下拉');
+  // 分类收敛：「图片」分类移除（角色/道具/场景本来就是图片），历史 image 资产读取侧归一到通用
+  ok(!/const CATEGORIES = \[[^\]]*'image'/.test(src), 'CATEGORIES 仍含已移除的 image 分类');
+  {
+    const nc = LAYOUT.normCat;
+    ok(typeof nc === 'function', '缺少 normCat 测试缝隙（分类归一）');
+    if (typeof nc === 'function') {
+      eq(nc('image'), 'general', 'image 分类归一到通用');
+      eq(nc(''), 'general', '空分类归一到通用');
+      eq(nc('character'), 'character', '既有分类保持不变');
+      eq(nc('storyboard'), 'storyboard', '既有分类保持不变');
+    }
+    ok(/normCat\(a\.category\) !== filter/.test(assetsBody), '分类筛选未走归一（历史 image 资产会被孤立）');
+    ok(/catLabel\(normCat\(a\.category\)\)/.test(assetsBody), '搜索索引未走分类归一');
+    ok(/value: normCat\(a\.category\)/.test(src), '资产卡片分类下拉未走归一（image 资产下拉会显示错位）');
+  }
+  // 统一导入：单按钮按文件类型分流（图片/视频/文本 .txt/.md）
+  ok(/accept: 'image\/\*,video\/\*,\.txt,\.md/.test(assetsBody), '导入按钮未接受文本文件');
+  ok(/\.\(txt\|md\|markdown\)\$\/i\.test\(f\.name\)/.test(assetsBody), '导入分流缺文本扩展名识别');
+  ok(/category: 'script', source: 'upload'/.test(assetsBody), '导入的文本资产未按剧本分类入库');
   // 卡片结构：缩略图/首帧 + 名称 + 分类 + 时间（AssetCard 复用）
   const card = all(PANEL.AssetCard({
     a: { id: 'a1', kind: 'image', name: '角色图', category: 'character', createdAt: Date.now() },

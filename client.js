@@ -297,7 +297,7 @@ function revealCanvasInRight() {
     const MULTI_INPUT_PORTS = new Set(['ref', 'char', 'scene', 'prop']);
     // 分镜端口期望的资产分类（仅用于连接时的非阻断提示）
     const PORT_CATEGORY = { char: 'character', scene: 'scene', prop: 'prop' };
-    const CATEGORIES = ['character', 'scene', 'prop', 'script', 'storyboard', 'audio', 'finalcut', 'image', 'general'];
+    const CATEGORIES = ['character', 'scene', 'prop', 'script', 'storyboard', 'audio', 'finalcut', 'general'];
     const RATIOS = ['16:9', '9:16', '1:1', '4:3', '3:4', '21:9'];
     const IMAGE_SIZES = ['1K', '2K', '4K'];
     // 时长选项放宽到 30s（万相 3.0 等支持长视频）；各厂商上限不同——超限由接口报错，系统不做静默截断
@@ -882,7 +882,7 @@ function revealCanvasInRight() {
       'projectName': '项目名称',
       'renameHint': '双击名称重命名',
       'delProjectHint': '删除项目及其资产',
-      'import': '导入图片/视频',
+      'import': '导入',
       'addAssetNode': '添加到画布',
       'download': '下载',
       'viewOriginal': '查看原图',
@@ -1829,7 +1829,7 @@ function revealCanvasInRight() {
       'projectName': 'Project name',
       'renameHint': 'Double-click to rename',
       'delProjectHint': 'Delete project and its assets',
-      'import': 'Import image/video',
+      'import': 'Import',
       'addAssetNode': 'Add to canvas',
       'download': 'Download',
       'viewOriginal': 'View original',
@@ -10091,6 +10091,12 @@ function queueThumb(assetId) {
       };
       return map[c] || c;
     }
+    /** 资产分类归一（纯函数供回归）：「图片」分类已移除——角色/道具/场景本来就是图片，
+     *  其余一律归「通用」。历史已标 image 的资产在展示/过滤/搜索层归一，不迁移数据库。 */
+    function normCat(c) {
+      const v = String(c || '').trim();
+      return !v || v === 'image' ? 'general' : v;
+    }
     function portWorldPos(nodeId, portId, dir) {
       const n = S.graph.nodes[nodeId];
       if (!n) return { x: 0, y: 0 };
@@ -18337,7 +18343,10 @@ const DIRECTOR_KEY_HELP = [
         if (a.kind === 'text') {
           const c = worldCenter();
           const nd = addNodeAt('text', { x: c.x - 120, y: c.y - 60 });
-          update((s) => { const n2 = s.graph.nodes[nd.id]; if (n2) n2.data.text = a.text || ''; });
+          update((s) => {
+            const n2 = s.graph.nodes[nd.id];
+            if (n2) { n2.data.text = a.text || ''; n2.data.label = a.name || n2.data.label; } // 节点名 = 资产名
+          });
           return;
         }
         const c = worldCenter();
@@ -18345,7 +18354,7 @@ const DIRECTOR_KEY_HELP = [
         const n = addNodeAt(type, { x: c.x + (Math.random() * 60 - 30), y: c.y + (Math.random() * 60 - 30) });
         update((s) => {
           const nd = s.graph.nodes[n.id];
-          if (nd) { nd.data.assetId = a.id; nd.data.status = 'done'; }
+          if (nd) { nd.data.assetId = a.id; nd.data.status = 'done'; nd.data.label = a.name || nd.data.label; } // 节点名 = 资产名
         });
       };
       const changeCategory = (a, category) => {
@@ -18360,13 +18369,22 @@ const DIRECTOR_KEY_HELP = [
         let failed = 0;
         for (const f of files) {
           const kind = f.type.startsWith('video/') ? 'video' : f.type.startsWith('image/') ? 'image' : null;
-          if (!kind) continue;
           try {
-            await saveAssetRecord(S.activeId, kind, f, { name: f.name, source: 'upload', category: 'general' });
+            // 文本（.txt/.md）：入库为文本资产（名称=文件名去扩展名，分类=剧本，归属=当前项目）——
+            // 多集小说/剧本一键导入，入库后在资产面板多选批量铺画布（text 节点可直接连分镜表当剧本源）
+            if (!kind && /\.(txt|md|markdown)$/i.test(f.name)) {
+              const text = await f.text();
+              await saveTextAssetRecord(S.activeId, {
+                name: f.name.replace(/\.(txt|md|markdown)$/i, ''),
+                text, category: 'script', source: 'upload',
+              });
+            } else if (kind) {
+              await saveAssetRecord(S.activeId, kind, f, { name: f.name, source: 'upload', category: 'general' });
+            } else { continue; }
           } catch { failed++; } // 单个失败不影响其余文件
         }
         if (failed) toast(T('uploadFailed') + '（' + failed + '/' + files.length + '）');
-        if (files.length) bumpView();
+        if (files.length) { bumpView(); update((s) => { s.assetsTick++; }); }
       };
       const del = async (a) => {
         // 服务端删除（SQL：行 + FTS + CAS 引用计数；JSON：文件 + assets.json），随后清本地缓存
@@ -18417,6 +18435,7 @@ const DIRECTOR_KEY_HELP = [
             const nd = newNode(a.kind === 'text' ? 'text' : a.kind, pts[k]);
             if (a.kind === 'text') nd.data.text = a.text || '';
             else { nd.data.assetId = a.id; nd.data.status = 'done'; }
+            nd.data.label = a.name || nd.data.label; // 节点名 = 资产名（不再叫 图片1/视频2/文本1）
             s.graph.nodes[nd.id] = nd;
             newIds.push(nd.id);
           });
@@ -18468,10 +18487,10 @@ const DIRECTOR_KEY_HELP = [
         // 混入其他项目（旧口径"通用资产多项目共享"改为显式——要看通用资产请把 scope 切到
         // 「通用项目」或「全部」；跨项目取素材的功能面（@引用/设定集绑定）不受影响）。
         if (scope !== 'all' && a.projectId !== scope) return false;
-        if (filter !== 'all' && (a.category || 'general') !== filter) return false;
+        if (filter !== 'all' && normCat(a.category) !== filter) return false;
         if (!q) return true;
         const hay = [
-          a.name, a.prompt || '', a.text || '', catLabel(a.category || 'general'),
+          a.name, a.prompt || '', a.text || '', catLabel(normCat(a.category)),
           projectName(a.projectId), a.kind === 'image' ? T('kindImage') : a.kind === 'video' ? T('kindVideo') : 'text',
         ].join(' ').toLowerCase();
         return hay.includes(q);
@@ -18574,7 +18593,7 @@ const DIRECTOR_KEY_HELP = [
             h('span', { className: 'dshic-asset-pagecount', 'data-role': 'assets-page-info' }, T('assetsTotalCount').replace('{n}', String(filtered.length))),
           ),
         ),
-        h('input', { key: 'file', ref: fileRef, type: 'file', accept: 'image/*,video/*', multiple: true, style: { display: 'none' }, onChange: onImport }),
+        h('input', { key: 'file', ref: fileRef, type: 'file', accept: 'image/*,video/*,.txt,.md,text/plain,text/markdown', multiple: true, style: { display: 'none' }, onChange: onImport }),
         loading && !assets.length
           ? h('div', { key: 'loading', className: 'dshic-hint' }, T('aiRunning'))
           : shown.length === 0
@@ -18750,7 +18769,7 @@ const DIRECTOR_KEY_HELP = [
           // 文本资产：meta 行补项目下拉（媒体资产的下拉在名称行下，文本卡片放这里——位置不同、控件同款）
           a.kind === 'text' ? projSel : null,
           h('select', {
-            className: 'dshic-cat', title: T('catLabel'), value: a.category || 'general',
+            className: 'dshic-cat', title: T('catLabel'), value: normCat(a.category),
             onClick: (e) => e.stopPropagation(),
             onPointerDown: (e) => e.stopPropagation(),
             onChange: (e) => { e.stopPropagation(); onCat(a, e.target.value); },
@@ -20993,6 +21012,8 @@ const DIRECTOR_KEY_HELP = [
             assetsPageIndex,
             // 尾帧入库决策（一次生成只入一张：best 优先，best=last 才用 last）
             tailFrameDecision,
+            // 资产分类归一（image→general，空→general）：「图片」分类已移除，展示/过滤/搜索层归一
+            normCat,
             // 历史条死条目裁剪 / 资产回链候选挑选与回链计划（纯函数，供回归测试直接断言）
             pruneDeadHistory, repairPickAsset, repairPlan,
             // 媒体节点指针空值保护（Host 合并不得用 null 覆盖本地有效 assetId/lastAssetId）
