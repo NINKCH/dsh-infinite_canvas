@@ -682,6 +682,12 @@ const barsOn = () => HDR() + FOOT();
   ok(src.includes('return shots.slice(0, MAX_STORYBOARD_SHOTS)'), '分镜生成仍使用旧的 24 镜截断（应使用 100 上限常量）');
   ok(/const MAX_STORYBOARD_SHOTS = 100;/.test(src), '缺少分镜硬上限常量 MAX_STORYBOARD_SHOTS=100');
   ok(/segments\.length < 128/.test(src), '切段循环上限过低，无法覆盖 100 镜自定义分镜');
+  // 容量告警必须按**实际镜头数**判断：字数（st.length > 600）与镜头数没有换算关系，
+  // 特效分镜写得更详细后每场剧本都超 600 字，旧口径恒报警（914 字 / 9 镜也报"超 100 镜"）。
+  ok(/shots\.length > MAX_STORYBOARD_SHOTS\)/.test(src), '分镜容量告警未按实际镜头数判断');
+  ok(!/stLen > 600/.test(src) && !/st\.length > 600/.test(src), '剧本字数容量判据仍在（字数≠镜头数，恒误报）');
+  ok(/warnShotsOverCapacity/.test(src), '容量告警文案 key 缺失（warnShotsOverCapacity）');
+  ok(!/warnScriptTooLong/.test(src), '旧容量告警 key（warnScriptTooLong）仍有残留引用');
 }
 
 // ============================================================

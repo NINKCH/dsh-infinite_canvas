@@ -1071,7 +1071,7 @@ function revealCanvasInRight() {
       'shotsUnit': '镜',
       'savedOk': '已存为资产',
       'warnUnregistered': '未在设定集/资产中登记',
-      'warnScriptTooLong': '剧本较长（{n} 字）≈ 超过单个分镜的镜头容量（100 镜）：请按场景拆分为多个场景剧本节点（每个分镜只连一个场景剧本）',
+      'warnShotsOverCapacity': '本分镜已生成 {n} 镜，超过单个分镜的镜头容量（100 镜）：请按场景拆分为多个场景剧本节点（每个分镜只连一个场景剧本）',
       'warnEmptyDesc': '已登记但描述为空（待补全）',
       'catMention': '提及',
       'assetCategoriesFixed': '已按命名规范纠正 {n} 个资产的分类',
@@ -2018,7 +2018,7 @@ function revealCanvasInRight() {
       'shotsUnit': 'shots',
       'savedOk': 'Saved as asset',
       'warnUnregistered': 'not in bible/assets',
-      'warnScriptTooLong': 'Script is long ({n} chars) ≈ beyond one storyboard\'s shot capacity (100 shots): split the script into multiple scene script nodes (each storyboard takes ONE scene)',
+      'warnShotsOverCapacity': "This storyboard generated {n} shots - beyond one storyboard's shot capacity (100 shots): split the script into multiple scene script nodes (each storyboard takes ONE scene)",
       'warnEmptyDesc': 'registered but description is empty (fill it in)',
       'catMention': 'Mention',
       'assetCategoriesFixed': 'Re-categorized {n} assets by naming convention',
@@ -10334,11 +10334,11 @@ function queueThumb(assetId) {
         // 先自动补录缺失条目（空描述），再算一致性告警：否则告警标志的条目其实马上就被自动补录了，"未登记"语义会误导用户与对话侧
         try { await autoRegisterBibleEntries(shots); } catch { /* 补录失败不影响分镜 */ }
         const warnings = await checkShotConsistency(shots);
-        // 容量告警：镜头数硬上限 100（与生成端解析/UI 自定义输入一致）。剧本过长说明应该按场景
-        // 拆分成多个场景剧本节点，而不是让一个分镜表硬吃全集。时长本身不设上限，不做压缩。
-        const stLen = st.length;
-        if (stLen > 600) {
-          warnings.push(T('warnScriptTooLong').replace('{n}', String(stLen)));
+        // 容量告警：按**实际生成的镜头数**判断（MAX_STORYBOARD_SHOTS，与生成端解析/UI 自定义输入一致）。
+        // 字数与镜头数没有换算关系——914 字的单场剧本正常产出 9~15 镜；旧口径按剧本字数（>600 字）
+        // 判容量，特效分镜镜头写得更详细后每场都超，是纯误报，已废弃。时长本身不设上限，不做压缩。
+        if (shots.length > MAX_STORYBOARD_SHOTS) {
+          warnings.push(T('warnShotsOverCapacity').replace('{n}', String(shots.length)));
         }
         update((s) => {
           const nd = s.graph.nodes[n.id];

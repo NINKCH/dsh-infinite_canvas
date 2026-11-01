@@ -12,6 +12,7 @@ GitHub Releases carry the same notes in English; maintainer-facing runbooks live
 - **Chat-side shot edits keep the four FX fields.** `canvas_update_node`, `canvas_node_status` and the RPC schema now round-trip `timeBeats` / `camera` / `vfx` / `negative`, so chat-authored FX shots no longer degrade to visual+motion when written through Host tools.
 
 ### Fixed
+- **Storyboard capacity warning judges real shot count, not script length.** The warning fired on any scene script over 600 characters — regardless of how many shots were actually generated (a 914-char scene producing 9 shots reported "beyond 100-shot capacity"). The check now compares the generated shot count against `MAX_STORYBOARD_SHOTS` (100) and the message reports the real number; detailed FX storyboards no longer trigger it.
 - **One tail frame per video.** Two uncoordinated pipelines could each save a "last frame" asset for the same video — the generation tail block (last + scored pick) and the media-node fallback effect racing in on an `assetsTick` — so one generation produced three tail assets in the library. The generation path now owns tail extraction exclusively (a `tailPending` placeholder locks out the fallback, which still handles imported/external videos), and only ONE frame is stored: the scored best pick when it differs from the true last frame, otherwise the last frame; both the `last` and `tailpick` chain ports point at it.
 
 ### Changed
