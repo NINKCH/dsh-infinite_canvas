@@ -14825,6 +14825,11 @@ function queueThumb(assetId) {
       });
       const KIND = { script: ['剧本', 'script'], storyboard: ['分镜', 'storyboard'], prompt: ['提示词', 'prompt'], assets: ['资产设定图', 'asset sheet'] };
       const kl = (KIND[kind] || [kind])[zh ? 0 : 1];
+      // 剧本能力切片的总纲：机制库条目 = 可自由组合的零件，绝不规定唯一走向；
+      // 素材优先级：已有小说/剧本原文与设定集 > 题材素材库（库条目供二次创作借形）。
+      const scriptDoctrine = zh
+        ? '【机制与素材】题材卡的机制库条目是可自由组合的零件：按当下故事的需要选择、改造、混搭或不用，事件与走向由剧本决定，条目绝不规定唯一走向，也绝不要求"用某设定就必须叠加某机制"。【素材优先级】已有小说/剧本原文与设定集设定 > 题材素材库：库条目仅供二次创作借形，绝不替代或改写既有设定。风格基调与导演运镜始终有效。'
+        : '[Mechanics & material] Genre mechanism entries are freely combinable parts: pick, adapt, mix or skip per the story at hand - events and direction belong to the script, entries never mandate a single direction, and no entry implies "use X therefore Y". [Material precedence] Existing novel/script text and the series bible outrank the genre library: library entries are optional shapes for adaptation, never replacements for established settings. Style and camera direction always apply.';
       if (zh) {
         return [
           '【画布技能包 · ' + kl + '】',
@@ -14833,6 +14838,7 @@ function queueThumb(assetId) {
             + '　规格：' + (nameOf('forms', profile.form) || '未选')
             + '　影调：' + (profile.look ? nameOf('looks', profile.look) : '跟随导演'),
           '优先级：用户显式指令 > 导演透镜 > 规格（仅单镜时长与结构上压过透镜；画幅由视频节点生成时决定，不在此列）> 题材 > 影调。以下为对应切片，写提示词时按它执行；与本块冲突的通用规则让位于本块。',
+          ...(kind === 'script' ? [scriptDoctrine] : []),
         ].join('\n');
       }
       return [
@@ -14842,6 +14848,7 @@ function queueThumb(assetId) {
           + '  Spec: ' + (nameOf('forms', profile.form) || 'none')
           + '  Look: ' + (profile.look ? nameOf('looks', profile.look) : 'follow the lens'),
         'Precedence: explicit user instruction > director lens > spec (clip length and structure only; aspect is set on the video node) > genre > look. The slices below are binding; generic rules that disagree give way.',
+        ...(kind === 'script' ? [scriptDoctrine] : []),
       ].join('\n');
     }
 

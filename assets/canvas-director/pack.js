@@ -119,8 +119,9 @@ export const KIND_SLICES = {
   storyboard: ['shot', 'storyboard'],
   // 提示词：只取风格参数与提示词模板（外加灯光）；不取叙事、剪辑、表演
   prompt: ['prompt'],
-  // 资产设定图：只取成像与材质相关
-  assets: ['assets'],
+  // 资产设定图：只取成像与材质相关；题材「素材库」（异兽图志/法术体系等，library 切片）
+  // 供设定图按图志出图——这是素材库唯一的注入面（剧本/分镜不消费，避免库设定污染故事）。
+  assets: ['assets', 'library'],
 };
 
 /** 取一份 Markdown 在某个生成能力下的全部小节正文（按出现顺序拼接）。 */

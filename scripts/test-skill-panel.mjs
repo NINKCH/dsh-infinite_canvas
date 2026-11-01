@@ -40,8 +40,8 @@ const NEED = {
   lenses: ['一句话镜头 / Lens in one line', '适用场景', '反例：这不是什么 / What this lens is NOT', '核心风格关键词',
     '叙事方法', '镜头语言', '灯光与色彩', '剪辑节奏', '声音与音乐', '人物与表演',
     '风格参数 / Style parameters', '可迁移拍摄清单', '提示词模板 / Prompt templates', '落地示例 / Worked example'],
-  genres: ['题材核心与观众为什么看', '压力来源与冲突发动机', '人物策略与信息权限', '观众回报与情绪落点',
-    '常见场面颗粒', '集尾钩子取向', '前中后期打法', '制作难点', '禁止漂移', '证据与置信度'],
+  genres: ['题材基调与世界观', '冲突机制库', '人物机制库', '回报钩子库', '节奏打法库',
+    '常见场面颗粒', '制作难点', '禁止漂移', '类型级负向词'],
   industries: ['视觉母题', '证据点', '常见承诺', '禁项', '参考镜头'],
   forms: ['交付规格', '结构块', '这个类型的观众契约', '与导演透镜冲突时的改写', '类型级负向词'],
   looks: ['成像底层', '形体与骨相', '影调与光比', '色彩命题', '空气与介质', '光学与镜头', '材质响应', '特效语言', '针对性禁项', '负向词块'],
@@ -122,6 +122,24 @@ for (const it of M.genres) {
   ok(neg.length >= 4, 'genre/' + it.id + ': 类型级负向词少于 4 条（题材对成片没有约束力）');
   ok(!!P.sectionText(md, '禁止漂移'), 'genre/' + it.id + ': 缺「禁止漂移」小节');
   ok(!!P.sectionText(md, '常见场面颗粒'), 'genre/' + it.id + ': 缺「常见场面颗粒」小节');
+}
+// 题材卡 v3 门禁：题材 = 基调 + 世界观 + **可自由组合的机制库** + 素材颗粒。
+// 机制条目是可选零件（多方向、可组合、可改造），事件与走向由剧本决定——
+// 旧版"单向故事模板"（唯一压力机制/唯一钩子取向/三幕打法）是全部题材剧本同质化的根因，禁止复活。
+const BANNED_GENRE_TITLES = /压力来源与冲突发动机|人物策略与信息权限|观众回报与情绪落点|集尾钩子取向|前中后期打法|题材核心与观众为什么看/;
+const BANNED_GENRE_PHRASES = /发动机是一次|必须付清|只准从|不成立的替代品|每一次动用力量都要|从施术者身上拿走|必须以[^\n]{0,10}犯禁|钩子必须从/;
+for (const it of M.genres) {
+  const md = fs.readFileSync(path.join(PACK, 'genres', it.file), 'utf8');
+  ok(!BANNED_GENRE_TITLES.test(md), 'genre/' + it.id + ': 仍含旧版单向故事模板小节（题材不得规定故事走向）');
+  ok(!BANNED_GENRE_PHRASES.test(md), 'genre/' + it.id + ': 仍含写死故事走向的强制句');
+  for (const t of ['冲突机制库', '人物机制库', '回报钩子库', '节奏打法库']) {
+    const body = P.sectionText(md, t);
+    ok(!!body, 'genre/' + it.id + ': 缺「' + t + '」（机制库 = 可选零件，不是缺失项）');
+    if (body) {
+      const items = body.split('\n').filter((l) => /^\s*[-·*]/.test(l) || /^\s*[①②③④⑤⑥]/.test(l));
+      ok(items.length >= 3, 'genre/' + it.id + '「' + t + '」只有 ' + items.length + ' 个可选条目（机制库必须 ≥3 方向，防止单一模板）');
+    }
+  }
 }
 // 特效演绎开关（fx_motion）：奇幻向题材/影调卡必须标记，写实卡不得误标——
 // 分镜契约按这个标记追加特效演绎扩展块（动作承担者中立 / 画面状态节拍 / state_jump / 速度铁律）。
