@@ -122,6 +122,7 @@ const COVERAGE = [
   { sha: 'cffb666', keys: [/wipes repaired asset pointers/i, /protectMediaPointer/i] },
   { sha: 'fcfe782', keys: [/self-heal now runs on every startup/i, /asset-relink/i] },
   { sha: 'a7dbda6', keys: [/Sanbao downloads retry/i, /10-minute window/i] },
+  { sha: 'c52dcfd', keys: [/one toolbar row/i, /jump-to-page/i, /outline-only/i] },
 ];
 for (const c of COVERAGE) {
   ok(c.keys.some((re) => re.test(coverageText)), '未发版提交 ' + c.sha + ' 在 CHANGELOG（Unreleased 或最新已发布段）里找不到对应记录（补记不全）');

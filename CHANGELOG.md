@@ -17,7 +17,7 @@ GitHub Releases carry the same notes in English; maintainer-facing runbooks live
 - **Auto-relink retry hardened.** The once-per-canvas repair memo no longer burns when the canvas graph has not loaded yet (startup race), so damaged projects relink their assets on the next scheduled pass instead of never.
 
 ### Changed
-- (无独立变更。)
+- **Assets page: one toolbar row and a jump-to-page pager.** Sync-all, import, select-page, batch add-to-canvas / delete / clear, and pagination now share the single row below the project selector instead of stacking as separate rows. Buttons are outline-only (transparent background, 1px border, text; red outline for delete) with no grey fill. Pagination is `‹ [page input] / N ›` with Enter/blur jump, invalid text ignored, out-of-range clamped, and the total count on the right; the row wraps on narrow windows with the pager pinned right.
 
 ### Internal
 - Repaired asset relinking is driven by the `repairPlan` pure helper and end-to-end regression on the real damaged-project shape (orphan node + exact `nodeLabel` match).
