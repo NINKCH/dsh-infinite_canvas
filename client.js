@@ -9591,6 +9591,27 @@ function queueThumb(assetId) {
       }
       return best;
     }
+    /** 资产回链计划（纯函数供回归）：孤儿节点（done 无 assetId）按 nodeLabel 逐字匹配资产，
+     *  跳过已被其他节点引用的候选，每节点取 createdAt 最新的一条；无可用候选 → 不产生修复项。 */
+    function repairPlan(orphanNodes, recs, usedIdsIn) {
+      const usedIds = new Set(usedIdsIn || []);
+      const byLabel = new Map();
+      for (const rec of recs || []) {
+        if (rec.kind !== 'image' && rec.kind !== 'video') continue;
+        const lb = String(rec.nodeLabel || '').trim();
+        if (!lb) continue;
+        if (!byLabel.has(lb)) byLabel.set(lb, []);
+        byLabel.get(lb).push(rec);
+      }
+      const fixes = [];
+      for (const nd of orphanNodes || []) {
+        const pick = repairPickAsset(byLabel.get(String(nd.data.label || '').trim()), usedIds);
+        if (!pick) continue;
+        fixes.push({ id: nd.id, assetId: pick.id });
+        usedIds.add(pick.id);
+      }
+      return fixes;
+    }
     // 修复：旧版清理在 store 未就绪（刷新竞态）/跨机打开（本地库无资产行）时会误把 assetId
     // 置空并落盘 → 生成节点预览全部丢失（资产文件与资产库都还在，只有指针没了）。
     // 每次载入项目/切画布后跑一次：按 nodeLabel 与节点 label 逐字唯一匹配回链最新资产（幂等）。
@@ -9613,21 +9634,7 @@ function queueThumb(assetId) {
       if (repairDoneFor === key) return;
       repairDoneFor = key;
       const usedIds = new Set(Object.values(S.graph.nodes).map((nd) => nd.data && nd.data.assetId).filter(Boolean));
-      const byLabel = new Map();
-      for (const rec of recs) {
-        if (rec.kind !== 'image' && rec.kind !== 'video') continue;
-        const lb = String(rec.nodeLabel || '').trim();
-        if (!lb) continue;
-        if (!byLabel.has(lb)) byLabel.set(lb, []);
-        byLabel.get(lb).push(rec);
-      }
-      const fixes = [];
-      for (const nd of nodes) {
-        const pick = repairPickAsset(byLabel.get(String(nd.data.label || '').trim()), usedIds);
-        if (!pick) continue;
-        fixes.push({ id: nd.id, assetId: pick.id });
-        usedIds.add(pick.id);
-      }
+      const fixes = repairPlan(nodes, recs, usedIds);
       if (!fixes.length) return;
       update((s) => {
         for (const f of fixes) {
@@ -20554,8 +20561,8 @@ const DIRECTOR_KEY_HELP = [
             nextNodePosClient, addNodeAt,
             // 资产批量导入落点：现有节点最右侧之外按列铺开（一列 ≤5，零重叠），供回归测试直接断言
             layoutBatchColumns,
-            // 历史条死条目裁剪 / 资产回链候选挑选（纯函数，供回归测试直接断言）
-            pruneDeadHistory, repairPickAsset,
+            // 历史条死条目裁剪 / 资产回链候选挑选与回链计划（纯函数，供回归测试直接断言）
+            pruneDeadHistory, repairPickAsset, repairPlan,
             graph: () => JSON.parse(JSON.stringify(S.graph)), // 建点结果断言用（与 SYNC.graph 同口径）
             addGraphNodes: (list) => { for (const n of (list || [])) S.graph.nodes[n.id] = n; }, // 测试播种（写入活状态）
             // 下拉自定义数值的纯函数：范围夹取 / 整数与小数口径（分镜数、单段上限共用）

@@ -246,6 +246,24 @@ const barsOn = () => HDR() + FOOT();
       eq(RP(cands, new Set(['a_old', 'a_new'])), null, '全部被引用 → 不回链（宁缺勿错）');
       eq(RP([], new Set()), null, '无候选 → 不回链');
     }
+    {
+      // 回链计划端到端（用户实测数据形态）：test-1 节点孤儿 + 资产行 node_label 逐字匹配 → 唯一修复项
+      const plan = LAYOUT.repairPlan;
+      ok(typeof plan === 'function', '缺少 repairPlan 测试缝隙');
+      if (typeof plan === 'function') {
+        const nodes = [{ id: 'n_mvxbv55oby2q6', data: { label: 'test-1', status: 'done' } }];
+        const recs = [{ id: 'a_mvxbw1updq0sq', kind: 'image', nodeLabel: 'test-1', createdAt: 1761890000000 }];
+        const fixes = plan(nodes, recs, new Set());
+        ok(fixes.length === 1 && fixes[0].id === 'n_mvxbv55oby2q6' && fixes[0].assetId === 'a_mvxbw1updq0sq',
+          '实测数据形态：test-1 孤儿节点应回链到其资产');
+        const none = plan(nodes, [{ id: 'x', kind: 'image', nodeLabel: '别的名字' }], new Set());
+        ok(none.length === 0, 'nodeLabel 不匹配 → 不产生修复项');
+        const multi = plan(
+          [{ id: 'n1', data: { label: 'A 设定图', status: 'done' } }, { id: 'n2', data: { label: 'A 设定图', status: 'done' } }],
+          [{ id: 'k1', kind: 'image', nodeLabel: 'A 设定图', createdAt: 1 }, { id: 'k2', kind: 'image', nodeLabel: 'A 设定图', createdAt: 2 }]);
+        ok(multi.length === 2 && new Set(multi.map((f) => f.assetId)).size === 2, '同名双节点各回链一条（互不抢占）');
+      }
+    }
     ok(/scheduleRepair\(\)/.test(src), '缺少 repair 调度调用（画布载入后自愈）');
   }
   const widePv = LAYOUT.sizeForRatio('21:9');
