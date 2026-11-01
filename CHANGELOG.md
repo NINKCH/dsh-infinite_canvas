@@ -6,6 +6,8 @@ GitHub Releases carry the same notes in English; maintainer-facing runbooks live
 
 ## [Unreleased]
 
+## [0.19.18] — 2026-11-01
+
 ### Added
 - **Assets multi-select with batch add-to-canvas and batch delete.** Asset cards now carry a checkbox and click-to-select (double-click still adds a single node directly); a batch bar appears when selection is non-empty with "add to canvas (n)", "delete (n)" and "clear". Batch add places nodes to the right of the rightmost existing node via `layoutBatchColumns` (≤5 per column, stacked top-down, 60/40px gaps, zero overlap with existing nodes or each other), selects the created nodes, and skips audio assets with a count note. Batch delete reuses the per-asset deletion path (server delete + node unbind + history cleanup) behind a single confirmation showing the first few names, plus a select-all-page checkbox.
 
