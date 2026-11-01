@@ -9602,14 +9602,16 @@ function queueThumb(assetId) {
     }
     async function repairMissingAssetLinks() {
       if (!S.store || !S.activeId) return;
-      const key = S.activeId + '/' + activeCanvasId();
-      if (repairDoneFor === key) return;
-      repairDoneFor = key;
       const nodes = Object.values(S.graph.nodes).filter((nd) => (nd.type === 'image' || nd.type === 'video')
         && nd.data && nd.data.status === 'done' && !nd.data.assetId && String(nd.data.label || '').trim());
+      // 图未加载 / 服务端暂时拉不到清单 → 不记账直接返回（下次调度重试）；
+      // 记账必须在"真正完成一次有效检查"之后，否则启动竞态会把每画布一次的额度烧掉
       if (!nodes.length) return;
       const recs = await idbByProject(S.activeId).catch(() => []);
       if (!recs.length) return;
+      const key = S.activeId + '/' + activeCanvasId();
+      if (repairDoneFor === key) return;
+      repairDoneFor = key;
       const usedIds = new Set(Object.values(S.graph.nodes).map((nd) => nd.data && nd.data.assetId).filter(Boolean));
       const byLabel = new Map();
       for (const rec of recs) {
