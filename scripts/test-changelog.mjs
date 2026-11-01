@@ -114,11 +114,7 @@ if (unrelHasEntries) {
 // OBS-1 硬要求（QA 判据）：清单**手工维护**，绝不从 `git log` 动态生成——动态清单会自证
 // （脚本生成的清单当然自己全中，"缺一必红"退化成摆设）。数量相等 + 逐 sha 关键词命中，两条都拦。
 const COVERAGE = [
-  // 0.19.18 已发布，历史提交清零。当前未发版：特效演绎分镜契约（fx_motion 卡 / state_jump / 速度铁律）；尾帧单一入库。
-  { sha: '5fe8561', keys: [/fx-driven storyboard contract/i, /state_jump/i, /FX fields/i] },
-  { sha: '24aef03', keys: [/One tail frame per video/i, /tailPending/i] },
-  { sha: '4ca71b9', keys: [/capacity warning judges real shot count/i] },
-  { sha: '27798f5', keys: [/Sanbao image task protocol/i, /task id persists/i] },
+  // 0.19.19 已发布，历史提交清零。当前未发版：无。
 ];
 for (const c of COVERAGE) {
   ok(c.keys.some((re) => re.test(coverageText)), '未发版提交 ' + c.sha + ' 在 CHANGELOG（Unreleased 或最新已发布段）里找不到对应记录（补记不全）');
