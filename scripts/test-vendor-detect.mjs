@@ -315,6 +315,48 @@ ok(/if \(s\.vendor\) return s\.vendor;/.test(src), '显式 vendor 优先必须�
   }
 }
 
+// ---------------- ⑪ 三宝图片任务协议（/openapi/v1/images，异步） ----------------
+// 通用同步格式在三宝会 504（出图 >120s 代理 abort，无任务 id、已扣费无法回查）。
+// 图片与视频同构：提交拿任务 id（onTask 持久化）→ 轮询 → 带重试下载。
+{
+  const build = SEG.buildSanbaoImageBody;
+  const pollOf = SEG.sanbaoImagePollState;
+  const urlOf = SEG.sanbaoImageResultOf;
+  ok(typeof build === 'function' && typeof pollOf === 'function' && typeof urlOf === 'function',
+    '缺少三宝图片任务测试缝隙（buildSanbaoImageBody/sanbaoImagePollState/sanbaoImageResultOf）');
+  if (typeof build === 'function') {
+    const b1 = build({ model: 'gpt-image2', prompt: '海报', aspect_ratio: '16:9', quality: 'high' }, { refUrls: ['https://sanbaobeauty.com/uploads/a.jpg'] });
+    ok(b1.model === 'gpt-image2' && b1.prompt === '海报', '三宝图片：model/prompt 透传');
+    ok(b1.aspect_ratio === '16:9' && b1.quality === 'high', '三宝图片：aspect_ratio/quality 透传');
+    ok(Array.isArray(b1.images) && b1.images[0] === 'https://sanbaobeauty.com/uploads/a.jpg', '三宝图片：参考图走 images 公网 URL 数组');
+    ok(!('uploadKey' in b1) && !('watermark' in b1), '三宝图片：uploadKey 绝不进请求体 / 不发明其他协议字段');
+    const b2 = build({ model: '', prompt: 'p', aspect_ratio: '', quality: '' }, {});
+    ok(b2.aspect_ratio === 'auto' && b2.quality === 'high' && !('images' in b2), '三宝图片：缺省 aspect_ratio=auto、quality=high、无参考图不带 images');
+  }
+  if (typeof pollOf === 'function') {
+    ok(pollOf({ data: { status: 'succeeded', image_url: 'https://x/a.png' } }).state === 'done'
+      && pollOf({ data: { status: 'succeeded', image_url: 'https://x/a.png' } }).url === 'https://x/a.png', '三宝图片：succeeded → data.image_url');
+    ok(urlOf({ data: { status: 'succeeded', images: ['https://x/b.png'] } }) === 'https://x/b.png', '三宝图片：images[0] 字符串兜底');
+    ok(urlOf({ data: { status: 'succeeded', images: [{ url: 'https://x/c.png' }] } }) === 'https://x/c.png', '三宝图片：images[0] 对象 {url} 兜底');
+    ok(urlOf({ data: { status: 'succeeded', download_url: 'https://x/d.png' } }) === 'https://x/d.png', '三宝图片：download_url 兜底');
+    const f1 = pollOf({ data: { status: 'failed', error: '敏感内容拦截' } });
+    ok(f1.state === 'fail' && /敏感内容/.test(f1.error), '三宝图片：failed → data.error');
+    const f2 = pollOf({ data: { status: 'succeeded' } });
+    ok(f2.state === 'fail' && /无图片地址/.test(f2.error), '三宝图片：成功但无地址 → 明确失败');
+    ok(pollOf({ data: { status: 'queued' } }).state === 'wait' && pollOf({ data: { status: 'processing', progress: 40 } }).state === 'wait', '三宝图片：queued/processing 继续等');
+    ok(pollOf({}).state === 'wait' && pollOf(null).state === 'wait', '三宝图片：无状态 → wait');
+  }
+  // 源码契约：apiImage 域名命中 sanbaobeauty 自动切任务式；模式显式值 sanbao；onTask 透传到节点
+  ok(/sanbaoRoute = /.test(src) && /sanbaobeauty/.test(src), '三宝图片：域名自动路由未接入');
+  ok(/s\.mode === 'sanbao'/.test(src), '三宝图片：显式模式未接入');
+  ok(/sanbaoImageTask\(prompt, refs, s, opts\)/.test(src), '三宝图片：apiImage 未接入任务式运行器');
+  ok(/onTask: \(tid, qurl\) => \{[\s\S]{0,200}?nd\.data\.taskId = String\(tid \|\| ''\)/.test(src), '三宝图片：任务 id 未持久化到节点（代理超时后无法回查）');
+  ok(/await sanbaoUploadRaw\(base, uploadKey, raw, 'image'\)/.test(src), '三宝图片：本地参考图未走 uploads/raw 转公网');
+  // 通用格式瞬态重试：502/503/504/429 补一次尝试（401/400 不重试，判定与下载同口径）
+  ok(/image api not ready \(HTTP/.test(src), '通用图片提交缺瞬态重试日志');
+  ok(/let res = await send\(body, '图片 API'\);[\s\S]{0,400}?retryableDownloadError\(\{ status: res\.status \}\)/.test(src), '通用图片提交未接瞬态重试判定');
+}
+
 if (errs.length) {
   console.error('✗ 厂商识别回归未通过（' + errs.length + '）：');
   for (const e of errs) console.error('  - ' + e);

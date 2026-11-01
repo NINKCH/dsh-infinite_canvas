@@ -942,6 +942,7 @@ function revealCanvasInRight() {
       'modeGenerations': '生图 /images/generations（支持多参考图）',
       'modeEdits': '参考图编辑 /images/edits（多参考图上传）',
       'modeCompshare': '优云智算任务式 /image/v1/tasks（Qwen-Image，参考图登记 + 提示词优化）',
+      'modeSanbao': '三宝图片任务 /openapi/v1/images（异步任务，任务 id 可回查；baseUrl 命中 sanbaobeauty.com 自动生效）',
       'catMismatch': '提示：资产分类为「{a}」，端口期望「{b}」，已保留连接',
       'nStoryboard': '分镜表',
       'nScript': '剧本',
@@ -1888,6 +1889,7 @@ function revealCanvasInRight() {
       'modeGenerations': 'image /images/generations (with references)',
       'modeEdits': 'image edit /images/edits (multi-reference upload)',
       'modeCompshare': 'Compshare task /image/v1/tasks (Qwen-Image, reference upload)',
+      'modeSanbao': 'Sanbao image task /openapi/v1/images (async task with queryable task id; auto-enabled when baseUrl hits sanbaobeauty.com)',
       'catMismatch': 'Note: asset category is "{a}", port expects "{b}". Connected anyway.',
       'nStoryboard': 'Storyboard',
       'nScript': 'Script',
@@ -5778,6 +5780,12 @@ function queueThumb(assetId) {
       // 协议自动路由：优云智算的图片 API 只有任务式（/image/v1/tasks）——误配成通用模式
       // 会在 /v1/images/generations 上拿到 401 "invalid api key"（该面不存在），按域名自动切任务式
       try { if (/compshare\.cn$/i.test(new URL(base).hostname)) return await compshareImageTask(prompt, refs, { ...s, extra: extraSrc }, opts); } catch { /* URL 异常由后续流程报错 */ }
+      // 三宝影像工坊：图片走**异步任务协议**（POST /openapi/v1/images 拿任务 id → 轮询 → 下载）。
+      // 通用同步格式在该厂商出图 >120s 会吃代理 504，且手里没有任务 id、已扣费也无法回查；
+      // 域名命中自动切任务式（与优云同款），也可在图片 API 模式下拉显式选「三宝图片任务」。
+      let sanbaoRoute = s.mode === 'sanbao';
+      if (!sanbaoRoute) { try { sanbaoRoute = /(^|\.)sanbaobeauty\.com$/i.test(new URL(base).hostname); } catch { /* URL 异常由后续流程报错 */ } }
+      if (sanbaoRoute) return await sanbaoImageTask(prompt, refs, s, opts);
       const upstreamTimeout = Number(s.timeoutMs) > 0 ? Number(s.timeoutMs) : 120000; // 商汤等同步接口 20s+，默认 120s
       // 参考图编辑模式：multipart 上传到 /images/edits（OpenAI gpt-image-1 兼容）
       if (refs.length && s.mode === 'edits') {
@@ -5834,6 +5842,14 @@ function queueThumb(assetId) {
         body: b, timeoutMs: upstreamTimeout, label,
       });
       let res = await send(body, '图片 API');
+      // 瞬态兜底（通用格式）：上游慢/冷启动导致 502/503/504/429/408 时补一次尝试；
+      // 401/400/405 是配置错误绝不重试（retryableDownloadError 与视频/下载同一判定口径）
+      if (!res.ok && retryableDownloadError({ status: res.status })) {
+        if (genAborted()) throw new Error(T('stoppedNote'));
+        try { console.info('[IC] image api not ready (HTTP ' + res.status + ') — retry 1/1'); } catch { /* 忽略 */ }
+        await sleep(20000);
+        res = await send(body, '图片 API(瞬态重试)');
+      }
       if (!res.ok && res.status === 400) {
         const bad = unsupportedFieldName(res.text);
         if (bad && Object.prototype.hasOwnProperty.call(body, bad)) {
@@ -6506,6 +6522,93 @@ function queueThumb(assetId) {
       }
       if (st === 'failed') return { state: 'fail', error: sanbaoErrorOf(j) || st };
       return { state: 'wait' };
+    }
+    // —— 三宝图片任务协议（/openapi/v1/images，异步）：通用同步格式在该厂商会 504
+    //    （出图 >120s 时代理 abort，且手里没有任务 id，远程已扣费也无法回查）。
+    //    任务式与视频同构：提交拿 id → 轮询 → 下载，钱花了必须能凭 id 找回。——
+    /** 三宝图片请求体（纯函数供回归断言）：model/prompt/aspect_ratio/images/quality；
+     *  images 为公网 URL 数组（本地参考图先经 uploads/raw 转公网）；uploadKey 绝不进请求体。 */
+    function buildSanbaoImageBody(base, media) {
+      const b = base || {};
+      const m = media || {};
+      const out = {
+        model: String(b.model || ''),
+        prompt: String(b.prompt || ''),
+        aspect_ratio: String(b.aspect_ratio || 'auto'),
+        quality: String(b.quality || 'high'),
+      };
+      const images = (Array.isArray(m.refUrls) ? m.refUrls : []).map(String).filter(Boolean);
+      if (images.length) out.images = images;
+      return out;
+    }
+    /** 三宝图片结果地址（纯函数）：succeeded 后从 data.image_url / data.images[0]（字符串或 {url}）/
+     *  data.download_url 逐级取第一个 http(s) 地址；顶层兜底兼容。 */
+    function sanbaoImageResultOf(j) {
+      if (!j || typeof j !== 'object') return '';
+      const d = (j.data && typeof j.data === 'object') ? j.data : null;
+      const imgs = ((d && Array.isArray(d.images) ? d.images : (Array.isArray(j.images) ? j.images : []))
+        .map((x) => (typeof x === 'string' ? x : (x && x.url)))
+        .find((u) => typeof u === 'string' && /^https?:/.test(u))) || '';
+      return [d && (d.image_url || d.download_url || d.url), imgs, j.image_url, j.download_url]
+        .find((u) => typeof u === 'string' && /^https?:/.test(u)) || '';
+    }
+    /** 三宝图片轮询判定：queued/processing 及未知状态 = 继续；succeeded → 图片地址；failed → error。 */
+    function sanbaoImagePollState(j) {
+      const st = sanbaoStatusOf(j);
+      if (st === 'succeeded') {
+        const url = sanbaoImageResultOf(j);
+        return url ? { state: 'done', url } : { state: 'fail', error: '成功但无图片地址' };
+      }
+      if (st === 'failed') return { state: 'fail', error: sanbaoErrorOf(j) || st };
+      return { state: 'wait' };
+    }
+    /** 三宝图片任务运行器：提交（本地参考图先经 uploads/raw 转公网）→ 轮询 → 带重试下载。
+     *  aspect_ratio：供应商设置填了 size（具体尺寸值）则原样传，否则节点比例（16:9 等），缺省 auto。
+     *  quality 默认 high，扩展参数可覆盖；uploadKey 只用于上传，绝不进任务请求体。 */
+    async function sanbaoImageTask(prompt, refBlobs, s, opts) {
+      const base = vendorBase(s.baseUrl, VIDEO_VENDORS.sanbao.base);
+      const headers = { 'Content-Type': 'application/json', Authorization: 'Bearer ' + (s.apiKey || '') };
+      const o = opts || {};
+      const rawRefs = refBlobs || [];
+      // 扩展参数：逃生舱；uploadKey 专用上传 key 只用于 /uploads/raw，绝不进任务请求体
+      let uploadKey = s.apiKey || '';
+      let extra = null;
+      try {
+        const ex = parseExtraParams(s.extra || '');
+        if (ex) { uploadKey = String(ex.uploadKey || uploadKey); extra = { ...ex }; delete extra.uploadKey; }
+      } catch (e) { throw new Error('三宝扩展参数配置有误：' + ((e && e.message) || e)); }
+      // 参考图：本地 blob → uploads/raw 公网 URL；已是 http(s) 的引用原样透传
+      const refUrls = [];
+      for (const b of rawRefs) {
+        const raw = (b && b.blob) ? b.blob : b;
+        if (typeof raw === 'string' && /^https?:/i.test(raw)) { refUrls.push(raw); continue; }
+        if (!raw) continue;
+        refUrls.push(await sanbaoUploadRaw(base, uploadKey, raw, 'image'));
+      }
+      const aspect = String(s.size || '').trim() || String(o.ratio || '').trim() || 'auto';
+      const body = buildSanbaoImageBody({ model: s.model || '', prompt, aspect_ratio: aspect, quality: 'high' }, { refUrls });
+      if (extra) Object.assign(body, extra);
+      const r1 = await fetchViaProxy(base + '/openapi/v1/images', { headers, body, timeoutMs: 120000, label: 'Sanbao 图片提交' });
+      if (!r1.ok) throw new Error('Sanbao 图片提交 HTTP ' + r1.status + ' @ ' + base + '：' + r1.text.slice(0, 300));
+      let j1 = null; try { j1 = JSON.parse(r1.text); } catch { throw new Error('Sanbao 图片响应非 JSON：' + r1.text.slice(0, 200)); }
+      const tid = sanbaoTaskIdOf(j1);
+      if (!tid) throw new Error('Sanbao 图片响应中没有任务 id：' + r1.text.slice(0, 200));
+      const taskUrl = base + '/openapi/v1/images/' + encodeURIComponent(tid);
+      if (o.onTask) { try { o.onTask(tid, taskUrl); } catch { /* 持久化失败不影响生成 */ } }
+      const url = await vendorPoll('Sanbao', 5000, async () => {
+        const r = await fetchViaProxy(taskUrl, { method: 'GET', headers: { Authorization: 'Bearer ' + (s.apiKey || '') }, timeoutMs: 60000, label: 'Sanbao 图片查询' });
+        if (!r || !r.ok) return { state: 'wait' };
+        let j = null; try { j = JSON.parse(r.text); } catch { return { state: 'wait' }; }
+        return sanbaoImagePollState(j);
+      });
+      // 链接是签名直链（约 24h 有效），拿到就立即下载；下载带瞬态重试（缓存未就绪 502 同视频口径）
+      return await downloadVideoWithRetry(url, {}, {
+        windowMs: SANBAO_DOWNLOAD_RETRY_MS,
+        stepMs: SANBAO_DOWNLOAD_RETRY_STEP_MS,
+        onRetry: (e, n) => {
+          try { console.info('[IC] sanbao image download not ready (' + ((e && e.message) || e) + ') — retry ' + n); } catch { /* 忽略 */ }
+        },
+      });
     }
     /** 三宝图片字段兜底触发：只认「图片/素材/格式/URL」类错误。
      *  余额(402/余额不足/credits)、鉴权(401/api key)、限流(429/频繁)、账号限制(403)绝不重试。 */
@@ -10493,7 +10596,14 @@ function queueThumb(assetId) {
           const cases = [];
           for (let i = 0; i < want; i++) {
             if (want > 1) update((s) => { const nd = s.graph.nodes[n.id]; if (nd) nd.data.progress = (i + 1) + '/' + want; });
-            const blob = await apiImage(p, metas, mcfg, { size: n.data.size, ratio: n.data.ratio, nodeExtra: n.data.imgExtra, warn: addWarn });
+            const blob = await apiImage(p, metas, mcfg, {
+              size: n.data.size, ratio: n.data.ratio, nodeExtra: n.data.imgExtra, warn: addWarn,
+              // 任务式厂商（三宝图片）：任务 id 就是凭证——代理超时/页面关闭后仍可凭 id 回查（与视频同口径）
+              onTask: (tid, qurl) => {
+                update((s) => { const nd = s.graph.nodes[n.id]; if (nd) { nd.data.taskId = String(tid || ''); nd.data.taskQueryUrl = String(qurl || ''); } });
+                flushSave();
+              },
+            });
             const rec = await saveAssetRecord(S.activeId, 'image', blob, {
               name: assetNameFor(n, entities, 'image'),
               prompt: stripMentionMarks(prompt), effectivePrompt: p,
@@ -18818,7 +18928,8 @@ const DIRECTOR_KEY_HELP = [
                   h('select', { className: 'dshic-select', value: p.mode || 'generations', onChange: (e) => patchProvider(p.id, 'mode', e.target.value), onPointerDown: (e) => e.stopPropagation() },
                     h('option', { value: 'generations' }, T('modeGenerations')),
                     h('option', { value: 'edits' }, T('modeEdits')),
-                    h('option', { value: 'compshare' }, T('modeCompshare')))),
+                    h('option', { value: 'compshare' }, T('modeCompshare')),
+                    h('option', { value: 'sanbao' }, T('modeSanbao')))),
               ] : [
                 (detectVideoVendor(p) === 'openai' || detectVideoVendor(p) === 'seedance') ? h(Field, { key: 'of', label: T('vidOutFormat'), value: p.outputFormat || '', onChange: (v) => patchProvider(p.id, 'outputFormat', v), placeholder: 'mp4（留空不发送）' }) : null,
                 (detectVideoVendor(p) === 'openai' || detectVideoVendor(p) === 'seedance') ? h('label', { key: 'ga', className: 'dshic-row', style: { gap: 6, fontSize: 11 } },
@@ -18952,7 +19063,8 @@ const DIRECTOR_KEY_HELP = [
                       onPointerDown: (e) => e.stopPropagation(),
                     },
                       h('option', { value: 'generations' }, T('modeGenerations')),
-                      h('option', { value: 'edits' }, T('modeEdits'))))
+                      h('option', { value: 'edits' }, T('modeEdits')),
+                      h('option', { value: 'sanbao' }, T('modeSanbao'))))
                 : null,
               kind === 'video'
                 ? h('div', { key: 'proto', className: 'dshic-field' },
@@ -20913,7 +21025,7 @@ const DIRECTOR_KEY_HELP = [
           // IC-04：参考图上传三件套的纯函数出口（供 scripts/test-image-upload.mjs 直接断言）
           window.__DSH_IC_IMGREF__ = { rawImageDims, sniffImageEncoding, registerReferenceAsset };
           // IC-03：视频厂商识别/前缀归一化的纯函数出口（供 scripts/test-vendor-detect.mjs 直接断言）
-          window.__DSH_IC_VENDOR__ = { detectVideoVendor, gatewayPrefixFor, wanEndpoints, vendorBase, VIDEO_REF_CAPS, needsSimpleMediaRetry, buildSimpleMediaRetryBody, wanTaskIdOf, wanStatusOf, wanPollState, buildSanbaoVideoBody, sanbaoTaskIdOf, sanbaoPollState, needsSanbaoMediaRetry, retryableDownloadError, downloadVideoWithRetry, SANBAO_DOWNLOAD_RETRY_MS, SANBAO_DOWNLOAD_RETRY_STEP_MS, bibleStyleAnchor };
+          window.__DSH_IC_VENDOR__ = { detectVideoVendor, gatewayPrefixFor, wanEndpoints, vendorBase, VIDEO_REF_CAPS, needsSimpleMediaRetry, buildSimpleMediaRetryBody, wanTaskIdOf, wanStatusOf, wanPollState, buildSanbaoVideoBody, sanbaoTaskIdOf, sanbaoPollState, needsSanbaoMediaRetry, retryableDownloadError, downloadVideoWithRetry, SANBAO_DOWNLOAD_RETRY_MS, SANBAO_DOWNLOAD_RETRY_STEP_MS, buildSanbaoImageBody, sanbaoImageResultOf, sanbaoImagePollState, bibleStyleAnchor };
           // 按镜头切段（分段生成本身就是最容易出错的地方）：规划器 + 强弱模型分流 + 节点段区间解析
           // 供 scripts/test-segment-plan.mjs 直接断言
           window.__DSH_IC_SEGMENT__ = { planShotSegments, isCutPoint, segmentNeedsHardFrame, videoSegmentOf, shotContinuityPlan };
