@@ -31,7 +31,7 @@ ok(parsed.ok, 'manifest 校验失败：' + parsed.errors.join('；'));
 const M = parsed.manifest || { lenses: [], genres: [], industries: [], forms: [], looks: [] };
 
 eq(M.lenses.length, 45, '导演透镜数量不对');
-eq(M.genres.length, 36, '叙事题材数量不对');
+eq(M.genres.length, 37, '叙事题材数量不对');
 eq(M.industries.length, 10, '行业题材数量不对');
 eq(M.forms.length, 8, '规格数量不对');
 eq(M.looks.length, 15, '影调数量不对');
@@ -122,6 +122,35 @@ for (const it of M.genres) {
   ok(neg.length >= 4, 'genre/' + it.id + ': 类型级负向词少于 4 条（题材对成片没有约束力）');
   ok(!!P.sectionText(md, '禁止漂移'), 'genre/' + it.id + ': 缺「禁止漂移」小节');
   ok(!!P.sectionText(md, '常见场面颗粒'), 'genre/' + it.id + ': 缺「常见场面颗粒」小节');
+}
+// 特效演绎开关（fx_motion）：奇幻向题材/影调卡必须标记，写实卡不得误标——
+// 分镜契约按这个标记追加特效演绎扩展块（动作承担者中立 / 画面状态节拍 / state_jump / 速度铁律）。
+const FX_GENRES = new Set(['fantasy', 'xianxia-cultivation', 'wuxia', 'smalltown-uncanny', 'shanhaijing-myth']);
+const REALISTIC_GENRES = new Set(['modern-urban', 'slice-of-life', 'family-melodrama', 'crime-police', 'county-drift']);
+const FX_LOOKS = new Set(['dark-myth-cg', 'guoman-3d-xianxia', 'east-epic-3d', 'saturated-epic']);
+const REALISTIC_LOOKS = new Set(['realistic-cinema', 'minimal-grey', 'cold-noir']);
+const hasFxFlag = (md) => /^\s*fx_motion:\s*true\s*$/m.test(md);
+for (const it of M.genres) {
+  const md = fs.readFileSync(path.join(PACK, 'genres', it.file), 'utf8');
+  const fx = hasFxFlag(md);
+  if (FX_GENRES.has(it.id)) ok(fx, 'genre/' + it.id + ': 奇幻向题材缺 fx_motion（特效演绎开关）');
+  if (REALISTIC_GENRES.has(it.id)) ok(!fx, 'genre/' + it.id + ': 写实题材误标 fx_motion');
+}
+for (const it of M.looks) {
+  const md = fs.readFileSync(path.join(PACK, 'looks', it.file), 'utf8');
+  const fx = hasFxFlag(md);
+  if (FX_LOOKS.has(it.id)) ok(fx, 'look/' + it.id + ': 奇幻向影调缺 fx_motion');
+  if (REALISTIC_LOOKS.has(it.id)) ok(!fx, 'look/' + it.id + ': 写实影调误标 fx_motion');
+}
+// 山海经卡：特效演绎小节必须存在且包含关键词条（剪影飞掠 / 状态跳变 / 角色签名 / 落地共振）
+{
+  const md = fs.readFileSync(path.join(PACK, 'genres', 'shanhaijing-myth.md'), 'utf8');
+  const fx = P.sectionText(md, '特效演绎');
+  ok(!!fx, 'genre/shanhaijing-myth: 缺「特效演绎」小节');
+  for (const k of ['状态跳变', '剪影飞掠', '特效签名', '落地', '法术四拍']) {
+    ok(fx.includes(k), 'genre/shanhaijing-myth: 特效演绎缺「' + k + '」词条');
+  }
+  ok(/^\s*fx_motion:\s*true\s*$/m.test(md), 'genre/shanhaijing-myth: 缺 fx_motion 开关');
 }
 for (const it of M.forms) {
   const md = fs.readFileSync(path.join(PACK, 'forms', it.file), 'utf8');
@@ -346,7 +375,7 @@ if (TABS && CRAFT) {
     }
     const ids = new Set(allIds.map(([, it]) => it.id));
     for (const k of Object.keys(GLYPHS)) ok(ids.has(k), 'GLYPHS 有孤儿键（没有对应卡）：' + k);
-    eq(Object.keys(GLYPHS).length, 45 + 36 + 10 + 8 + 15, '图标总数应等于四层卡数之和');
+    eq(Object.keys(GLYPHS).length, 45 + 37 + 10 + 8 + 15, '图标总数应等于四层卡数之和');
   }
   for (const layer of ['lenses', 'genres', 'industries', 'forms', 'looks']) {
     for (const it of M[layer]) ok(!!it.oneliner, layer + '/' + it.id + ': manifest 缺 oneliner（会显示成空标题）');

@@ -4,6 +4,7 @@ title: 武侠
 kind: narrative
 aliases: [武侠, 江湖, 侠客, 门派, 刀剑, 恩怨, 武林, 古装]
 confidence: medium
+fx_motion: true
 ---
 <!-- slice:story -->
 ## 题材核心与观众为什么看

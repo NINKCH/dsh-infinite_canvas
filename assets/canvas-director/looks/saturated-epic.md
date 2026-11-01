@@ -2,6 +2,7 @@
 look_id: saturated-epic
 title: 高饱和史诗
 kind: look
+fx_motion: true
 ---
 <!-- slice:story shot prompt -->
 ## 成像底层

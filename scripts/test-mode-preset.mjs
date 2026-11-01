@@ -13,7 +13,7 @@
  *   4  patch 无旧包名 @ninkch/dsh-media-studio-preset 残留
  *   5  skills/director-workshop/SKILL.md frontmatter 合法（name/description）
  *   6  skills.js 可动态 import：name === 'media-studio-skills'、inject 含 'skills'
- *   7  skills.js 快照逻辑读得到本包 manifest（45 透镜/36 题材/15 影调当期数）
+ *   7  skills.js 快照逻辑读得到本包 manifest（45 透镜/37 题材/15 影调当期数）
  * 运行：node scripts/test-mode-preset.mjs；退出码 0=通过 1=失败
  */
 import { readFileSync } from 'node:fs';
@@ -130,7 +130,7 @@ ok(Array.isArray(skillsJs.inject) && skillsJs.inject.includes('skills'), "skills
 // ---------- 7) 当期清单快照可达（本包 manifest） ----------
 const manifest = JSON.parse(readFileSync(path.join(ROOT, 'assets', 'canvas-director', 'manifest.json'), 'utf8'));
 ok(manifest.lenses.length === 45, 'manifest 透镜应为 45，实际 ' + manifest.lenses.length);
-ok(manifest.genres.length === 36, 'manifest 题材应为 36，实际 ' + manifest.genres.length);
+ok(manifest.genres.length === 37, 'manifest 题材应为 36，实际 ' + manifest.genres.length);
 ok(manifest.looks.length === 15, 'manifest 影调应为 15，实际 ' + manifest.looks.length);
 // skills.js 的自定位锚点必须命中本包（fsSync.existsSync 由 import 校验过的实现提供）
 const src = readFileSync(path.join(ROOT, 'skills.js'), 'utf8');

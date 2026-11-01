@@ -2,6 +2,7 @@
 look_id: east-epic-3d
 title: 东方神话3D
 kind: look
+fx_motion: true
 ---
 <!-- slice:story shot prompt -->
 ## 成像底层

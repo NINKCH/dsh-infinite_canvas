@@ -2,6 +2,7 @@
 look_id: dark-myth-cg
 title: 暗黑系神话游戏CG
 kind: look
+fx_motion: true
 ---
 <!-- slice:story shot prompt -->
 ## 成像底层

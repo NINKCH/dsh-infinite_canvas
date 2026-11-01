@@ -229,7 +229,7 @@ function assertSegments(label, shots, opts, check) {
     const sb = { data: { shots, label: '场1' } };
     const full = build(sb);
     ok(typeof full === 'string' && full.length > 200, '整表提示词为空或过短');
-    for (const k of ['动作节拍', '机位/焦段/运镜', '物理特效', '禁止：换脸']) {
+    for (const k of ['动作节拍', '机位/焦段/运镜', '特效（必须可见）', '禁止：换脸']) {
       ok(full.includes(k), '提示词缺少关键段落「' + k + '」（模型不会自己补出来）');
     }
     ok(full.includes('雨丝斜打'), '提示词未注入 vfx 内容');
@@ -247,6 +247,46 @@ function assertSegments(label, shots, opts, check) {
     const seg2 = { from: 2, to: 2, index: 1, count: 2, needsTailChain: false, seamRisk: 'none' };
     const two = build(sb, seg2);
     ok(/切点|不要承接上一段/.test(two), '从切点开始的段提示词未声明"不承接上一段画面"');
+  }
+}
+
+// ============================================================
+// 5b) state_jump（同机位状态跳变）：奇幻特效叙事的合法段落
+//     空景 → 灯闪 → 影子凭空在场：跳变是"切"，不是动画
+// ============================================================
+{
+  const build = sandbox.window.__DSH_IC_STORYBOARD_PROMPT__ && sandbox.window.__DSH_IC_STORYBOARD_PROMPT__.buildStoryboardVideoPrompt;
+  const shots = [
+    mkShot({ title: '空桥', duration: 3, seg: 'scene_change', visual: '大远景俯拍，第九灯下桥面空景，干地，无任何生物', tail: '', cam: '' }),
+    mkShot({ title: '灯闪', duration: 1.5, seg: 'state_jump', visual: '同机位，灯闪过曝一帧又收回', vfx: '灯闪过曝一帧', tail: '', cam: '' }),
+    mkShot({ title: '影在场', duration: 2.5, seg: 'state_jump', visual: '同机位，兽形暗影已横在桥面，静止，只有弯角与粗尾轮廓', vfx: '兽形暗影凭空在场', tail: '', cam: '' }),
+  ];
+  const plans = shots.map((s, i) => SEG.shotContinuityPlan(s, shots[i - 1] || null, i));
+  ok(plans[1].seg === 'state_jump', 'state_jump 别名解析失败');
+  ok(plans[2].seg === 'state_jump', 'state_jump 第 3 镜解析失败');
+  ok(plans[1].join === 'cut', 'state_jump 接缝档位应为 cut（跳切）');
+  ok(plans[1].chain === false, 'state_jump 不得接尾帧（chain 应为 false）');
+  ok(SEG.isCutPoint('state_jump'), 'state_jump 应是合法切点');
+  // 容量切分：4s 上限下 state_jump 可以开新段，且不要求尾帧接力
+  const segs = SEG.planShotSegments(shots, { maxSeconds: 4 }).segments;
+  ok(segs.length >= 2, 'state_jump 切点未生效（4s 上限应至少切出 2 段）');
+  const sjSeg = segs.find((sg) => sg.firstSeg === 'state_jump');
+  ok(!!sjSeg, '没有以 state_jump 开头的生成段');
+  if (sjSeg) {
+    ok(sjSeg.needsTailChain === false, 'state_jump 开头的段不需要尾帧接力，却被要求接力');
+    ok(sjSeg.opensOnCut === true, 'state_jump 开头的段未标 opensOnCut');
+  }
+  // 提示词：状态硬切说明 + 负向词替换（"凭空出现"对跳变段是目标效果，必须换掉）
+  if (typeof build === 'function') {
+    const out = build({ data: { shots, label: '场1' } });
+    ok(out.includes('同机位状态跳变'), '含跳变镜的段提示词缺状态硬切说明');
+    ok(out.includes('主体未在首帧完整在场'), '跳变段未把"凭空出现"替换为精确禁令');
+    ok(!out.includes('人物凭空出现或消失'), '跳变段仍保留"凭空出现"禁令（与目标特效正面冲突）');
+    ok(out.includes('灯闪过曝一帧'), '跳变段提示词未注入 vfx');
+    // 普通段（无跳变镜）必须保留原禁令
+    const plain = build({ data: { shots: [mkShot({ title: '普通', duration: 3, seg: 'opening', visual: '街头' })] } });
+    ok(plain.includes('人物凭空出现或消失'), '普通段丢失"人物凭空出现或消失"禁令');
+    ok(!plain.includes('同机位状态跳变'), '普通段被误注入状态跳变说明');
   }
 }
 

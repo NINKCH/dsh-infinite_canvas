@@ -4,6 +4,7 @@ title: 小镇异闻
 kind: narrative
 aliases: [小镇, 异闻, 怪谈, 梦境, 不对劲, 悬念, 郊区, 汽车旅馆]
 confidence: medium
+fx_motion: true
 ---
 <!-- slice:story -->
 ## 题材核心与观众为什么看

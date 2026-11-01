@@ -466,6 +466,23 @@
    "oneliner": "观众看的是一个有价目的世界，每一次动用力量都要付一样能看见的东西"
   },
   {
+   "id": "shanhaijing-myth",
+   "aliases": [
+    "山海经",
+    "神话",
+    "上古",
+    "异兽",
+    "洪荒",
+    "封神",
+    "志怪",
+    "蛮荒"
+   ],
+   "name": "山海神话",
+   "file": "shanhaijing-myth.md",
+   "glyph": "shanhaijing-myth",
+   "oneliner": "观众看的是上古异兽与神人的奇观秩序——每一种神性都有形、有价、有痕迹"
+  },
+  {
    "id": "hk-retro",
    "aliases": [
     "复古港风",

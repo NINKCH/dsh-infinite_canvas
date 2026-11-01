@@ -2,6 +2,7 @@
 look_id: guoman-3d-xianxia
 title: 国漫3D仙侠
 kind: look
+fx_motion: true
 ---
 <!-- slice:story shot prompt -->
 ## 成像底层

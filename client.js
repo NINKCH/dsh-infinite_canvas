@@ -4088,6 +4088,8 @@ body[data-ds-dark-theme] .dshic-pick-item.is-on{background:color-mix(in srgb,var
         new_character: 'new_character', newchar: 'new_character', '新角色': 'new_character', '入场': 'new_character',
         scene_change: 'scene_change', scene: 'scene_change', '换场': 'scene_change', '转场': 'scene_change',
         closeup: 'closeup', insert: 'closeup', '特写': 'closeup', '插入': 'closeup',
+        // 同机位状态跳变：切前不在/切后在（灯闪现身、影子凭空在场、影化实）——奇幻特效叙事的合法段落
+        state_jump: 'state_jump', jump: 'state_jump', '跳变': 'state_jump', '状态跳变': 'state_jump',
       };
       let seg = SEG_ALIAS[segRaw] || '';
       const boxed = (k) => String(s[k] || '').trim();
@@ -4099,8 +4101,8 @@ body[data-ds-dark-theme] .dshic-pick-item.is-on{background:color-mix(in srgb,var
         else seg = 'continuation';
       }
       if (seg === 'opening' && prevShot) seg = 'continuation'; // 首段只能在第 1 镜；后面标"开场"视为续帧
-      // 接缝档位：换场/新角色入场都放宽（新角色段本就不承接上段画面），特写插入允许跳切
-      const join = (seg === 'scene_change' || seg === 'new_character') ? 'loose' : seg === 'closeup' ? 'cut' : 'strict';
+      // 接缝档位：换场/新角色入场都放宽（新角色段本就不承接上段画面），特写插入与状态跳变允许跳切
+      const join = (seg === 'scene_change' || seg === 'new_character') ? 'loose' : (seg === 'closeup' || seg === 'state_jump') ? 'cut' : 'strict';
       // 只有真正需要画面承接的段落才接力尾帧；新角色入场首帧若来自上一段，新角色反而无从进入
       const chain = seg === 'continuation' && !!prevShot;
       // ownTail = 本镜的接点尾态（留给**下一镜**）；cam = 本镜运镜（同样留给下一镜延续）
@@ -4159,7 +4161,16 @@ body[data-ds-dark-theme] .dshic-pick-item.is-on{background:color-mix(in srgb,var
       let kindLine = '';
       if (p.seg === 'scene_change') kindLine = zh ? '段落类型：换场（不承接上一镜画面，直接建立新空间；环境声可延续）' : 'Segment type: scene change (do not continue the previous frame; establish the new space; ambience may carry over)';
       else if (p.seg === 'closeup') kindLine = zh ? '段落类型：特写/细节插入（可与上一镜跳切，不要求画面连续）' : 'Segment type: insert close-up (jump cut allowed, no frame continuity required)';
-      else if (p.seg === 'new_character') kindLine = zh ? '段落类型：新角色入场（新角色须在画面中自然进入，不得凭空出现）' : 'Segment type: new character enters (must enter naturally, never pop in)';
+      else if (p.seg === 'state_jump') kindLine = zh
+        ? '段落类型：同机位状态跳变（机位/构图与上一镜完全一致，不推不摇；区别只是**状态**——主体/特效在第 1 帧已完整在场且静止；绝不允许演出进入/飞入/移动/变形过程，也不得回退到上一镜状态）'
+        : 'Segment type: same-framing state jump (framing identical to the previous shot, camera locked; the ONLY difference is state - the subject/effect is already fully present and STATIC in frame 1; never animate an entrance/fly-in/move/morph, never fall back to the previous state)';
+      else if (p.seg === 'new_character') kindLine = zh
+        ? ((p.fxEntry || /凝聚|凭空|灯闪|黑场|影子|化实|现身|浮现/.test(String(p.start || '') + String(p.note || '')))
+          ? '段落类型：新角色入场（以特效方式进入：灯闪/黑场后已在场、从影子凝聚立起、浮现成形——不得缓慢走入）'
+          : '段落类型：新角色入场（新角色须在画面中自然进入，不得凭空出现）')
+        : ((p.fxEntry || /凝聚|凭空|灯闪|黑场|影子|化实|现身|浮现/.test(String(p.start || '') + String(p.note || '')))
+          ? 'Segment type: new character enters via an effect (appears after a flash/black frame, rises from a shadow, condenses into form - never walks in slowly)'
+          : 'Segment type: new character enters (must enter naturally, never pop in)');
       else if (p.seg === 'continuation') kindLine = zh
         ? (isFirst ? '段落类型：承接上一个分镜表（本分镜第 1 镜从上一镜结尾继续，不重演、不重新建立场景）' : '段落类型：续帧（从上一镜结尾继续，不重演）')
         : (isFirst ? 'Segment type: continues the previous storyboard (no re-establishing, no replay)' : 'Segment type: continuation (continue from the previous shot, no replay)');
@@ -4174,8 +4185,9 @@ body[data-ds-dark-theme] .dshic-pick-item.is-on{background:color-mix(in srgb,var
       } else if (p.start && p.seg === 'continuation') {
         parts.push((zh ? '本镜起始态：' : 'Start state: ') + p.start);
       }
-      // 运镜延续：优先用上一镜的运镜（本镜要接着走）；没有则用本镜自己写的 cam
-      if (p.cam) parts.push((zh ? '运镜延续：' : 'Camera continues: ') + p.cam + (zh ? '（方向与速度保持，不反向、不突变）' : ' (same direction and speed; no reversal, no sudden change)'));
+      // 运镜延续：优先用上一镜的运镜（本镜要接着走）；没有则用本镜自己写的 cam。
+      // state_jump 同机位跳变除外：机位必须锁死，不承接上一镜的运动。
+      if (p.cam && p.seg !== 'state_jump') parts.push((zh ? '运镜延续：' : 'Camera continues: ') + p.cam + (zh ? '（方向与速度保持，不反向、不突变）' : ' (same direction and speed; no reversal, no sudden change)'));
       // 本镜的接点尾态单独提示，明确它是留给下一段的（同时提醒不要在片尾收成定格）
       if (p.tail && p.seg === 'continuation') {
         parts.push((zh ? '本镜接点（片尾停在此状态，保持动作进行中，不要演完站定）' : 'End this shot on this hand-off state, still mid-motion; do not settle to a static pose') + '：' + p.tail);
@@ -4183,9 +4195,13 @@ body[data-ds-dark-theme] .dshic-pick-item.is-on{background:color-mix(in srgb,var
       if (p.note) parts.push((zh ? '接戏要求：' : 'Continuity requirement: ') + p.note);
       if (!kindLine && !parts.length) return '';
       const head = zh ? '【衔接】' : '[Continuity] ';
-      const end = zh
-        ? '禁止重启姿态、禁止重新建立场景、禁止改变人物朝向与站位（除非剧情明确要求）'
-        : 'Never reset posture, never re-establish the scene, never change facing or blocking unless the story demands it';
+      const end = p.seg === 'state_jump'
+        ? (zh
+          ? '除状态差外，机位、构图、光线基调与上一镜保持一致；本镜只呈现这一次状态跳变'
+          : 'Except for the state change, keep framing/composition/light identical to the previous shot; this cut renders exactly one state jump')
+        : (zh
+          ? '禁止重启姿态、禁止重新建立场景、禁止改变人物朝向与站位（除非剧情明确要求）'
+          : 'Never reset posture, never re-establish the scene, never change facing or blocking unless the story demands it');
       const body = [kindLine].concat(parts, [end]).filter(Boolean);
       // 统一标点：拼接前去掉各自尾部标点，避免出现「。；」这种叠标点
       const clean = body.map((x) => String(x).replace(/[。；;.、\s]+$/, '')).filter(Boolean);
@@ -4226,9 +4242,10 @@ body[data-ds-dark-theme] .dshic-pick-item.is-on{background:color-mix(in srgb,var
     //      同时给这段打 seamRisk:'forced'（UI 要如实显示"这段是硬切的"，不静默）；
     //   ⑤ 只有 ① 之外的情况（上一段末镜与本段首镜同为 continuation）才需要尾帧接力。
     // ============================================================
-    /** 该 seg 是否构成一个"可以安全开始新生成段"的切点。opening 只在全表第 1 镜成立。 */
+    /** 该 seg 是否构成一个"可以安全开始新生成段"的切点。opening 只在全表第 1 镜成立。
+     *  state_jump（同机位状态跳变）也是合法切点：跳变本身就是"切"——前后镜只差状态、不接动作。 */
     function isCutPoint(seg) {
-      return seg === 'scene_change' || seg === 'closeup' || seg === 'new_character' || seg === 'opening';
+      return seg === 'scene_change' || seg === 'closeup' || seg === 'new_character' || seg === 'opening' || seg === 'state_jump';
     }
     /**
      * 把一张分镜表的镜头按「真实镜头边界」切成若干生成段。
@@ -8938,6 +8955,8 @@ function queueThumb(assetId) {
       const bible = bibleBlock(loadBible(S.activeId));
       const zh = effLang() !== 'en';
       const contOn = !(opts && opts.cont === false); // 分镜衔接开关（默认开）
+      // 特效演绎开关：任一所选题材/影调卡 fx_motion:true → 追加特效演绎扩展块（见 FX_RULES）
+      const fxOn = await fxMotionEnabledFor(S.activeId);
       const contFields = (() => {
         if (zh) {
           return contOn
@@ -8948,6 +8967,25 @@ function queueThumb(assetId) {
           ? '{"title":"…","visual":"…","motion":"…","timeBeats":["0s …","mid …","end …"],"camera":"…","vfx":"…","negative":"…","tail":"…","cam":"…","start":"…","seg":"continuation","characters":["…"],"scene":"…","props":["…"],"duration":3,"dialogue":[{"role":"Chen","line":"…"}],"sfx":"zipper snap, paper tear"}'
           : '{"title":"…","visual":"…","motion":"…","timeBeats":["0s …","mid …","end …"],"camera":"…","vfx":"…","negative":"…","characters":["…"],"scene":"…","props":["…"],"duration":3,"dialogue":[{"role":"Chen","line":"…"}],"sfx":"zipper snap, paper tear"}';
       })();
+      /** 特效演绎扩展块（fx_motion 卡开启时注入）：动作承担者中立 / 画面状态节拍 / 奇幻特效词表 /
+       *  角色特效签名 / 速度铁律 / state_jump / 关键帧建议。写实项目（无 fx 卡）完全不受影响。 */
+      const FX_RULES = !fxOn ? [] : (zh ? [
+        '- **【特效演绎·动作承担者】动作的承担者由画面内容决定：角色身体、特效、光影、环境物皆可。特效主导镜的标准写法 = 本体静止 + 一道特效运动（例：人物立于桥头不动，一道兽形暗影贴地掠过画面；真气自掌心汇聚击出）。visual 写明本体状态（静止/仅衣袂微动），motion 写特效的运动轨迹与速度——"人物本体没动，一道特效动了"是完全合法的镜头；',
+        '- **【特效镜节拍·覆盖】vfx/motion 写明"本体静止、特效运动"的镜头，timeBeats 改为**画面状态节拍**：按时间写可见的画面状态推进（例：["0s 桥面空景，第九灯稳定","1s 灯闪过曝一帧","1.5s 兽形暗影已横在桥面，静止"]），拍数 1–3 由内容定，**不受"必须三拍"限制**；身体动作镜仍按"起势→发力→落点"三拍执行；',
+        '- **【vfx 必填·奇幻词表】每镜 vfx 至少 1 项，按需取用——氛围/环境：光尘浮游、雾气漫卷、热浪扭曲、落叶逆卷；发光体：器物幽光、符文亮起、眼瞳竖光；能量：真气/灵气光晕环绕、流光尾迹、粒子凝聚成形、光束击发、冲击波荡开、地面龟裂尘浪、草木伏倒；变化：灯闪过曝一帧、黑场跳变、影化实（影子立起成实体）、实化影（实体缩回影子）、凭空在场（切前不在切后在）、瞬移残影；异兽：剪影飞掠、局部呈现（角/爪/眼/尾）、尺度参照物（桶/门框/马对照）；',
+        '- **【角色特效签名·硬性】每个动用特效的角色/异兽，设定集 desc 必须带「特效签名：颜色 + 形态母题 + 粒子质地」（例：特效签名：青色流云纹真气，龙形招式，细雾粒子）；缺失时先用 canvas_update_bible 补设定集再写分镜；本镜 vfx 涉及该角色时**必须逐字带出签名**——不同角色的光效颜色/形态必须可区分，跨镜头绝不漂色；',
+        '- **【速度铁律·硬性】模型演不出"快"：瞬时事件（一闪而过/瞬移/现身/消失）绝不在本镜内演出过程，一律写成切点两侧的状态差；速度感只允许三种来源：①硬切跳变 ②静止主体+光效突变 ③甩镜+运动模糊。禁止写"高速掠过/瞬间冲过去"让主体在镜内位移——改成三镜：空景 → 灯闪 → 已在场；',
+        '- **【state_jump·同机位状态跳变】seg 可用 `state_jump`：切前不在/切后在（灯闪现身、影子凭空在场、影化实）。机位与上一镜完全一致且静止，不写 tail（尾态就是"静止完整在场"）。「假换场」禁令不适用于 state_jump——假换场指既无状态变化又无叙事目的的乱跳；',
+        '- **【关键帧建议】具象化招式/变身镜（龙形光效、法相、影化实）的 vfx 要写成**可直接出设定图的画面**（构图+形态+颜色+粒子）；这类镜铺开生成时优先"先出关键帧设定图 → 图生视频（hard 首帧）"；',
+      ] : [
+        '- **[FX-DRIVEN - ACTION BEARER] what carries the motion is decided by the picture: the character body, an effect, light or the environment are all valid. The standard FX-led shot = still body + one moving effect (e.g. the character stands still on the bridge while a beast-shaped shadow skims past; qi condenses from a palm and strikes). visual states the body state (still / only clothes stirring), motion describes the effect trajectory and speed - "body unmoved, an effect moves" is a fully legal shot;',
+        '- **[FX BEATS - OVERRIDE] for shots whose vfx/motion say "body still, effect moves", timeBeats become PICTURE-STATE beats: visible state progression over time (e.g. ["0s empty bridge, ninth lantern steady","1s lantern flash overexposes one frame","1.5s the beast shadow is already lying across the deck, static"]), 1-3 beats as content dictates, exempt from the mandatory three-beat rule; body-action shots still use wind-up -> drive -> settle;',
+        '- **[VFX REQUIRED - FANTASY LEXICON] at least 1 vfx per shot: ambience - drifting light dust, rolling mist, heat-haze shimmer, leaves sucked upward; glow - faint object luminescence, runes igniting, vertical slit pupils; energy - qi halo orbiting the body, light-trail, particles condensing into form, beam strike, shockwave ripple, cracked ground and dust wave, flattened grass; transformations - one-frame lantern flash, black-frame jump, shadow-to-solid (a shadow rises into a body), solid-to-shadow, already-present (absent before the cut, present after), teleport afterimage; beasts - silhouette streak, partial reveal (horn/claw/eye/tail), scale reference (bucket/door frame/horse);',
+        '- **[CHARACTER FX SIGNATURE - HARD] every character/beast that uses effects must carry in its bible desc "特效签名：colour + motif + particle texture" (e.g. 特效签名：青色流云纹真气，龙形招式，细雾粒子); if missing, update the bible first; whenever a shot involves that character, its vfx must quote the signature VERBATIM - colours/motifs must stay distinguishable between characters and never drift across shots;',
+        '- **[SPEED IRON LAW - HARD] video models cannot act "fast": instantaneous events (a flash-past / teleport / appearance / vanishing) must NEVER be performed inside a shot; write them as state differences across a cut. Speed may come only from: (1) a hard-cut jump, (2) a still subject plus a sudden light change, (3) a whip pan with motion blur. Never write "streaks past at high speed" expecting the subject to move within the shot - use three shots: empty frame -> flash -> already there;',
+        '- **[STATE_JUMP] `state_jump` segment type: absent before the cut / present after (lantern-flash reveal, a shadow already there, shadow-to-solid). Framing identical to the previous shot and locked; no tail (the tail state IS "fully present, static"). The fake-scene-change ban does not apply to state_jump - a fake scene change is a jump with no state change and no narrative purpose;',
+        '- **[KEYFRAME TIP] for materialized-technique / transformation shots (dragon-shaped light, dharma form, shadow-to-solid) write vfx as a picture that could be generated directly as a keyframe still (composition + form + colour + particles); when expanding, prefer keyframe-then-video (hard first frame) for these shots;',
+      ]);
       const jsonContract = zh
         ? [
             '把剧本拆解为「按镜头切段生成」的分镜脚本：铺开时系统会按真实镜头边界把分镜切成若干次生成，每次只把本段的镜头写进同一条提示词，由视频模型生成那一段（镜头间由模型直接硬切，不是一镜一视频再拼接）。',
@@ -8955,10 +8993,10 @@ function queueThumb(assetId) {
             '规则：',
             '- visual 是本镜画面描述（景别、人物外观与站位、场景、光线、构图，60 字内）；',
             '- **visual 与 motion 里的角色/场景/道具必须写成 @资产名@ 引用形式**（前后各一个 @ 精确包裹，如「@陈拾@ 在 @城市街头@ 的围挡旁拿起 @奇怪快递件@」）；名称必须与设定集/资产**逐字一致**；剧本原文里已出现的 @资产名@ 锚点要在镜头中原样保留（名称逐字一致）；名称内不得含 @、空格或标点；@ 后绝不允许直接跟其他文字（必须以 @ 闭合）——系统会隐藏两个 @ 并把名称显示为蓝色加粗，未登记的 @名称@ 会被一致性检查提示补充；',
-            '- motion 是本镜动作与运镜（主体动作节拍、机位运动方向与速度、情绪节奏，50 字内）；与 visual 不重复；',
+            '- motion 是本镜动作与运镜（主体动作节拍、机位运动方向与速度、情绪节奏，50 字内）；与 visual 不重复；动作的承担者由画面内容决定——角色身体、特效、光影、环境物皆可（特效演绎项目见下方扩展条款）；',
             '- **【动作层次·硬性】timeBeats 是本镜的三个时间节拍（数组，按时间顺序）**：把"一个动作"拆成 **起势 → 发力 → 落点** 三拍，每拍写**可见的**身体/道具状态，如 ["0s 右手抬到一半、指节收紧","1.2s 手继续抬到胸口、肩线前压","3s 停在信封贴住心口、雨珠从指缝滑落"]。**只写一个节拍 = 模型只会演一个姿势（用户实测：动作极简、只会平移）**；凡 ≥2s 的镜头必须写满 3 拍，≤1s 的快切镜可以只写 1 拍。**每一拍都必须能拍出来，不写"他感到/他意识到"**；',
             '- **camera 是本镜的机位/焦段/运镜三件套**（不是只写"推近/平移"）：写成「景别 + 焦段光圈 + 运镜起点→终点」，如「中近景 50mm f/2.0，从腰高缓推至面部，匀速、到面部前 0.2 秒减速停住」。**禁止只写"推近/拉远/平移"这类空模板**（那是用户看到的"只会平移"的直接来源）；**一镜只能有一个主运镜**，要两个就拆镜；',
-            '- **vfx 是本镜必须可见的物理特效/细节**（不写就没有，模型不会自己加）：按题材点名 1–3 项——雨丝斜打 / 尘粒在光柱中浮动 / 雪片近大远小 / 逆光镜头光斑 / 路灯钠黄溢光 / 闪电瞬时照亮 / 衣角被风掀起 / 水面涟漪扩散 / 纸张翻飞 / 轻微手持晃动 / 运动模糊拖影 / 烟雾弥漫 / 蒸汽升腾。写**可拍摄的物理现象**，不写"画面很唯美"这类空话；**每场至少 3 镜要有 vfx**；',
+            '- **vfx 是本镜必须可见的特效/细节**（不写就没有，模型不会自己加）：按题材点名 1–3 项——雨丝斜打 / 尘粒在光柱中浮动 / 雪片近大远小 / 逆光镜头光斑 / 路灯钠黄溢光 / 闪电瞬时照亮 / 衣角被风掀起 / 水面涟漪扩散 / 纸张翻飞 / 轻微手持晃动 / 运动模糊拖影 / 烟雾弥漫 / 蒸汽升腾。写**可呈现的画面现象**，不写"画面很唯美"这类空话；**每场至少 3 镜要有 vfx**；',
             '- **【色调·逐镜显式】把本镜色调写进 visual（主色/色温/明暗对比，按影调色彩命题取值，如「钠黄主光、青绿补色、高对比」）——色调是逐镜的画面事实，不得只写"电影感/有质感"这类空话**；',
             '- characters/scene/props 使用剧本与设定集中的名称（不带 @），便于匹配资产；无道具给空数组；',
             '- **dialogue 是本镜的角色台词**：把剧本中落在这一镜的对白逐行搬进来（{"role":"角色名","line":"台词原文"}），台词必须**逐字来自剧本**、不新写不改写；本镜无台词给空数组；一镜尽量只放一个角色的台词（单说话人镜头利于声音参考提取）；',
@@ -8973,13 +9011,13 @@ function queueThumb(assetId) {
             '- **按情绪选景别**：孤独/绝望/宏大危机=远景；对峙/动作/关系建立=全景；对话/试探/信息交换=中景；震惊/怀疑/内心动摇=近景；崩溃/嘶吼/情绪爆发=特写；关键细节/道具揭示=大特写——冲突用全景、揭秘转近景、爆发给特写、反转可拉远，景别变化本身在讲情绪；',
             '- **快切镜头（<1.5s）的 visual/motion 要极短**（一个动作、一句画内信息），信息量大的镜头才配长时长——时长与内容量必须匹配；',
             '- 只输出 JSON，不要输出任何其他内容。',
-          ].concat(contOn ? [
+          ].concat(FX_RULES, contOn ? [
             '',
             '**【分镜衔接·硬性】成片是分段生成的，每段模型看不到上一段画面——衔接只能靠写在分镜里的"接点"。除末镜外，每镜都必须写 tail 与 cam：**',
             '- **tail（接点尾态）**：本镜**最后一刻**的状态，一行写清——人物姿势停在哪个动作的中途、朝向、视线落点、手持物位置、位置关系（如「右手抬到胸口一半，视线仍锁在 @陈拾@ 脸上，@糯糯@ 停在他左后方半步」「已侧身转到 3/4 面，还没完全转身面对对方」）。**必须是"动作进行中"的状态，不能写成"已经完成/站定/看向"**——切点停在静止定格，下一镜就没有动作可接，接缝必然暴露；',
             '- **cam（运镜延续）**：本镜运镜的方向与速度，写成下一镜可以直接"接着走"的形式（如「右移横移，匀速，未停」「缓推向面部，接近停住」）；末镜写「收束静止」；**全片避免相邻镜反向运镜**（上一镜右移、下一镜突然左移 = 观众立刻感觉跳），需要反向时把切点设计成遮挡/过肩/特写插入；',
             '- **start（仅第 1 镜或 seg 非续帧的镜头需要）**：本镜起始状态；续帧镜头不写 start（它会自动承接上一镜 tail）；',
-            '- **seg（段落类型）**：`continuation` 续帧（默认，绝大多数镜头）、`scene_change` 换场/切换地点时间、`new_character` 新角色首次出场、`closeup` 特写/细节插入（允许跳切）、`opening` 仅第 1 镜且无上游承接时；',
+            '- **seg（段落类型）**：`continuation` 续帧（默认，绝大多数镜头）、`scene_change` 换场/切换地点时间、`new_character` 新角色首次出场、`closeup` 特写/细节插入（允许跳切）、`opening` 仅第 1 镜且无上游承接时、`state_jump` 同机位状态跳变（切前不在/切后在，如灯闪现身；仅特效演绎时使用）；',
             '- **一镜只做一个主动作**：转身、走路、推镜、换表情不要塞进同一镜——模型只会执行前半段，下一镜就对不上；',
             '- **一段一运镜**：不要又推又横移又摇；',
             '- **大位移拆镜**：人物横移超过画面 1/4、或场景大换位，就再拆一镜（用不同景别接，而不是一镜硬走）；',
@@ -8991,10 +9029,10 @@ function queueThumb(assetId) {
             'Rules:',
             '- visual = the shot\'s frame description (shot size, wardrobe, staging, light, framing, <=60 words);',
             '- **characters/scenes/props inside visual and motion must be written as @Name@ references** (an @ on each side, e.g. "@Chen@ picks up @Parcel@ by @Street@"); names must match the bible/assets VERBATIM, with no @, space or punctuation inside; an @ must never be followed directly by other text (always close with @) - the UI hides the @s and shows the name in blue bold; unregistered @Name@ is flagged by the consistency check;',
-            '- motion = action & camera for the shot (action beats, camera move, emotional rhythm, <=50 words); do not repeat visual;',
+            '- motion = action & camera for the shot (action beats, camera move, emotional rhythm, <=50 words); do not repeat visual; what carries the motion is decided by the picture - the body, an effect, light or the environment are all valid (FX projects: see the extension clauses below);',
             '- **[ACTION LAYERING - HARD] timeBeats is this shot\'s three time beats (array, in order)**: split "one action" into **wind-up -> drive -> settle**, each beat describing a VISIBLE body/prop state, e.g. ["0s right hand half-way up, knuckles tightening","1.2s hand reaches the chest, shoulder line pressing forward","3s it settles over the envelope, a raindrop sliding off the fingers"]. **A single beat means the model performs a single pose (measured user feedback: minimal motion, pan-only)**; any shot >=2s must carry 3 beats, rapid cuts <=1s may carry 1. **Every beat must be filmable - never "he feels / he realizes"**;',
             '- **camera = body/lens/move for this shot** (not just "push in / pan"): write "shot size + focal length & aperture + move start->end", e.g. "medium close-up 50mm f/2.0, slow push from waist height to the face, constant speed, decelerating to a stop 0.2s before the face". **Never use empty template verbs like push in / pull out / pan alone** (that is exactly what produces the "pan-only" result); **one primary camera move per shot** - if you need two, split the shot;',
-            '- **vfx = physical effects/details that must be visible in this shot** (if unwritten they simply do not exist; the model will not add them): name 1-3 per shot by genre - slanted rain / dust motes floating in a light shaft / snowflakes near-to-far / backlit lens flare / sodium-vapour streetlamp spill / lightning flash lighting the set / coat hem lifted by wind / ripples spreading on water / paper sheets tumbling / subtle handheld shake / motion-blur trails / drifting smoke / rising steam. Write **filmable physical phenomena**, never "a beautiful frame"; **at least 3 shots per scene must carry vfx**;',
+            '- **vfx = physical effects/details that must be visible in this shot** (if unwritten they simply do not exist; the model will not add them): name 1-3 per shot by genre - slanted rain / dust motes floating in a light shaft / snowflakes near-to-far / backlit lens flare / sodium-vapour streetlamp spill / lightning flash lighting the set / coat hem lifted by wind / ripples spreading on water / paper sheets tumbling / subtle handheld shake / motion-blur trails / drifting smoke / rising steam. Write **renderable picture phenomena**, never "a beautiful frame"; **at least 3 shots per scene must carry vfx**;',
             '- **[TONE - PER SHOT] write this shot\'s dominant colour / colour temperature / contrast into visual per the look\'s colour thesis (e.g. "sodium-amber key, teal fill, high contrast") - tone is a per-shot fact, never just "cinematic"**;',
             '- characters/scene/props arrays must use plain names from the script and series bible (no @) so assets match; empty props array if none;',
             '- **dialogue = the character lines that fall in this shot**, moved verbatim from the script ({"role":"Name","line":"exact line"}); never rewrite lines; empty array if none; keep one speaker per shot when possible (helps voice-reference extraction);',
@@ -9009,13 +9047,13 @@ function queueThumb(assetId) {
             '- **Pick the shot size by emotion**: loneliness/despair/grand crisis = wide; confrontation/action/relationship = full; dialogue/probing/info exchange = medium; shock/suspicion/inner shake = close-up; breakdown/screaming/emotional burst = extreme close-up; key detail/prop reveal = big close-up — conflicts play wide, reveals move close, bursts go extreme, reversals can pull wide; the changing distance itself tells the emotion;',
             '- **Rapid cuts (<1.5s) get minimal visual/motion** (one action, one piece of in-frame information); long durations are earned by information density — duration must match content;',
             '- Output JSON only.',
-          ].concat(contOn ? [
+          ].concat(FX_RULES, contOn ? [
             '',
             '**[CONTINUITY - HARD] the film is generated in segments and each segment cannot see the previous one, so the "hand-off point" must be written into the storyboard. Every shot except the last MUST carry tail and cam:**',
             '- **tail (hand-off tail state)**: the state at the LAST instant of this shot, in one line - where the posture stops mid-motion, facing, gaze target, hand/prop position, blocking (e.g. "right hand half-way up to the chest, eyes still locked on @Chen@, @Nuonuo@ half a step behind his left shoulder"). It MUST be a mid-motion state, never a settled/completed pose: a cut on a static freeze leaves nothing for the next shot to continue, which is exactly what makes the seam visible;',
             '- **cam (camera carry-over)**: the move direction and speed of this shot, written so the next shot can continue it (e.g. "lateral right, constant speed, never stops"; "slow push-in, almost settled"). Last shot: "settle to static". Avoid reversing direction on adjacent shots (right pan then sudden left pan reads as a jump); if you need a reversal, make the cut a wipe/over-shoulder/insert close-up;',
             '- **start**: the start state, needed only for shot 1 or shots whose seg is not a continuation; continuation shots omit it (they inherit the previous tail);',
-            '- **seg (segment type)**: `continuation` (default, most shots), `scene_change` (new place/time), `new_character` (a character appears for the first time), `closeup` (insert/detail, jump cut allowed), `opening` (only shot 1 with no upstream continuation);',
+            '- **seg (segment type)**: `continuation` (default, most shots), `scene_change` (new place/time), `new_character` (a character appears for the first time), `closeup` (insert/detail, jump cut allowed), `opening` (only shot 1 with no upstream continuation), `state_jump` (same-framing state jump: absent before the cut / present after, e.g. a lantern-flash reveal; FX projects only);',
             '- **one primary action per shot**: never pack a turn + walk + push-in + expression change into one shot - the model only executes the first half and the next shot cannot match it;',
             '- **one camera move per shot**;',
             '- **split big displacements**: if a character crosses more than 1/4 of the frame, or the staging changes a lot, break it into another shot (different shot size) instead of one long move;',
@@ -10033,6 +10071,14 @@ function queueThumb(assetId) {
           ? '标注「台词」的对白必须由**画面内可见的角色当场开口说出**（口型与台词同步、语气贴合情绪、面部朝镜头可见）；严禁处理成画外音/旁白；同步音频开启时按台词生成人声。'
           : 'Dialogue must be SPOKEN ON SCREEN by the visible character (lip-synced to the line, matching emotion, face toward camera); never render it as voice-over/narration; generate speech when synced audio is on.');
       }
+      // 状态跳变段（奇幻特效叙事）：镜头之间是"状态硬切"——后一镜的主体/特效在第 1 帧已完整在场。
+      // 负向词里的"凭空出现"对这类段不适用，替换为更精确的禁令（见下方 negation 组装）。
+      const hasStateJump = shots.some((s) => String(s.seg || '').trim().toLowerCase() === 'state_jump');
+      if (hasStateJump) {
+        lines.push(zh
+          ? '本段含同机位状态跳变镜：跳变靠**硬切**呈现——跳变镜的主体/特效在第 1 帧就已完整在场（静止），前后镜之间不演出任何进入/飞入/移动/凝聚的中间过程；运动可以由特效承担，人物/生物本体允许全程静止。'
+          : 'This segment contains same-framing state-jump shots: the jump is a HARD CUT - in a jump shot the subject/effect is already fully present and STATIC in frame 1; no entrance/fly-in/movement/condensation is ever animated in between; motion may be carried by the effect while the character/creature body stays still.');
+      }
       shots.forEach((s, i) => {
         const dur = durOf(s);
         const parts = [];
@@ -10046,7 +10092,7 @@ function queueThumb(assetId) {
         const cam = String(s.camera || '').trim();
         if (cam) parts.push((zh ? '机位/焦段/运镜' : 'Camera/lens/move') + '：' + cam);
         const vfx = String(s.vfx || '').trim();
-        if (vfx) parts.push((zh ? '物理特效（必须可见）' : 'Physical VFX (must be visible)') + '：' + vfx);
+        if (vfx) parts.push((zh ? '特效（必须可见）' : 'VFX (must be visible)') + '：' + vfx);
         const dls = (s.dialogue || []).map((d) => String(d && d.role || '').trim() + '：' + String(d && d.line || '').trim()).filter((x) => x.replace('：', '').trim());
         if (dls.length) {
           parts.push(zh
@@ -10056,14 +10102,21 @@ function queueThumb(assetId) {
         if (String(s.sfx || '').trim()) parts.push((zh ? '音效：' : 'SFX: ') + String(s.sfx).trim());
         lines.push((zh ? `镜头${i + 1}（${dur}s）：` : `Shot ${i + 1} (${dur}s): `) + parts.join(zh ? '；' : '; '));
       });
-      // 段级负向要求：模型默认会漂移、穿模、闪烁，不点名就一定会出现
+      // 段级负向要求：模型默认会漂移、穿模、闪烁，不点名就一定会出现。
+      // 含状态跳变镜的段：「凭空出现」恰好是这类段要的效果，替换为更精确的禁令。
       const negAll = shots.map((s) => String(s.negative || '').trim()).filter(Boolean);
       const negLine = negAll.length
         ? [...new Set(negAll.join('、').split(/[、,，;；]/).map((x) => x.trim()).filter(Boolean))].join('、')
         : '';
-      lines.push(zh
-        ? '禁止：换脸、五官漂移、服装变化、手部畸形、多指、穿模、画面闪烁、风格突变、动作僵硬、人物凭空出现或消失、口型与台词不同步' + (negLine ? '、' + negLine : '') + '。'
-        : 'Never: face swap, facial drift, wardrobe change, deformed hands, extra fingers, clipping, flicker, style jump, stiff motion, characters popping in or out, lip-sync mismatch' + (negLine ? ', ' + negLine : '') + '.');
+      if (hasStateJump) {
+        lines.push(zh
+          ? '禁止：换脸、五官漂移、服装变化、手部畸形、多指、穿模、画面闪烁、风格突变、动作僵硬、口型与台词不同步、主体未在首帧完整在场、主体缓慢走入或移入画面、跳变过程被演成动画' + (negLine ? '、' + negLine : '') + '。'
+          : 'Never: face swap, facial drift, wardrobe change, deformed hands, extra fingers, clipping, flicker, style jump, stiff motion, lip-sync mismatch, subject not fully present in frame 1, subject walking or drifting slowly into frame, the jump animated as a morph' + (negLine ? ', ' + negLine : '') + '.');
+      } else {
+        lines.push(zh
+          ? '禁止：换脸、五官漂移、服装变化、手部畸形、多指、穿模、画面闪烁、风格突变、动作僵硬、人物凭空出现或消失、口型与台词不同步' + (negLine ? '、' + negLine : '') + '。'
+          : 'Never: face swap, facial drift, wardrobe change, deformed hands, extra fingers, clipping, flicker, style jump, stiff motion, characters popping in or out, lip-sync mismatch' + (negLine ? ', ' + negLine : '') + '.');
+      }
       return lines.join('\n');
     }
     function resolvePrompt(n) {
@@ -10531,7 +10584,16 @@ function queueThumb(assetId) {
             } else if (plan.seg === 'scene_change') {
               bits.push(zh ? '本段换场：不承接上一段画面，但环境声/情绪可延续' : 'Scene change: do not continue the previous frame; ambience and mood may carry over');
             } else if (plan.seg === 'new_character') {
-              bits.push(zh ? '本段有新角色入场：新角色必须从画面内自然进入（走入/被带入），不得凭空出现' : 'A new character enters: they must enter naturally from within the frame, never pop in');
+              // 特效入场（灯闪现身/影子凝聚/影化实）合法：首镜 vfx/start 写明特效进入时不逼"走入"
+              const fxEntry = /凝聚|凭空|灯闪|黑场|影子|化实|现身|浮现/.test(
+                String(st.vfx || '') + String(st.start || '') + String(st.visual || '') + String(st.motion || ''));
+              bits.push(zh
+                ? (fxEntry
+                  ? '本段有新角色入场（特效进入）：灯闪/黑场后已在场、从影子凝聚立起、浮现成形——不得缓慢走入'
+                  : '本段有新角色入场：新角色必须从画面内自然进入（走入/被带入），不得凭空出现')
+                : (fxEntry
+                  ? 'A new character enters via an effect: already there after a flash/black frame, rises from a shadow, condenses into form - never walks in slowly'
+                  : 'A new character enters: they must enter naturally from within the frame, never pop in'));
             }
             return bits.join(zh ? '；' : '; ');
           })();
@@ -14466,6 +14528,29 @@ function queueThumb(assetId) {
       return PACK_MANIFEST;
     }
 
+    /** 项目是否开启「特效演绎」（fx_motion）：任一所选题材/影调卡的 frontmatter 带 fx_motion: true。
+     *  开启后分镜契约追加特效演绎扩展块（动作承担者中立 / 画面状态节拍 / 奇幻特效词表 / state_jump /
+     *  速度铁律 / 关键帧建议）。未配置技能包或卡未标记 → false（写实项目行为完全不变）。 */
+    async function fxMotionEnabledFor(pid) {
+      const id = pid || S.activeId;
+      if (!id) return false;
+      const manifest = await loadPackManifest();
+      if (!manifest) return false;
+      const profile = loadSkillProfile(id);
+      const picks = [];
+      if (profile.lens) picks.push(['lens', profile.lens, 'lenses']);
+      for (const g of (profile.genres || [])) picks.push(['genre', g, 'genres']);
+      if (profile.form) picks.push(['form', profile.form, 'forms']);
+      if (profile.look) picks.push(['look', profile.look, 'looks']);
+      for (const [layer, cardId, listKey] of picks) {
+        const entry = (manifest[listKey] || []).find((x) => x.id === cardId);
+        if (!entry) continue;
+        const md = await readPackCard(layer, entry.file);
+        if (md && /(^|\n)\s*fx_motion:\s*true\s*(\n|$)/.test(md)) return true;
+      }
+      return false;
+    }
+
     /** 按层+id 读一张卡的 markdown（缓存）。 */
     async function readPackCard(layer, file) {
       const key = layer + '/' + file;
@@ -14820,6 +14905,10 @@ function queueThumb(assetId) {
         if (md) addNegs(P.negativePhrases(md));
       }
       if (negs.length) push('必须排除：', negs.slice(0, 6).join(', '));
+      // 特效演绎项目（fx_motion 卡）：注入速度铁律——与分镜契约同口径，锁住"模型演快必变慢走"的失败形态
+      if (await fxMotionEnabledFor(pid)) {
+        push('速度与特效：', '瞬时事件（一闪/瞬移/现身）=切点两侧的状态差；速度感只来自硬切、静止主体+光效突变、甩镜；禁止镜内高速位移。');
+      }
 
       if (!parts.length) return '';
       const head = '[全片风格锚] 以下为全片级总控；逐镜画面与动作以正文为准：';
@@ -19631,6 +19720,7 @@ const DIRECTOR_KEY_HELP = [
       'crime-police': ['M4 9l3-4h10l3 4v6l-3 4H7l-3-4z', 'M12 7l1.8 4.2L18 13l-4.2 1.8L12 19l-1.8-4.2L6 13l4.2-1.8z'],
       wuxia: ['M4 9l3-4h10l3 4v6l-3 4H7l-3-4z', 'M6 18L18 6M14 6h4v4'],
       fantasy: ['M4 9l3-4h10l3 4v6l-3 4H7l-3-4z', 'M12 7l2 4 4 1-3 3 1 4-4-2-4 2 1-4-3-3 4-1z'],
+      'shanhaijing-myth': ['M4 9l3-4h10l3 4v6l-3 4H7l-3-4z', 'M6 16c2-6 4-2 6-6s4 0 6-4M9 17h6'],
       adventure: ['M4 9l3-4h10l3 4v6l-3 4H7l-3-4z', 'M6 17l6-9 6 9M9 17h6'],
       'hk-retro': ['M4 9l3-4h10l3 4v6l-3 4H7l-3-4z', 'M8 8v8M16 8v8M8 12h8'],
       // ── L2 行业题材：六边形 + 标记 ──

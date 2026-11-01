@@ -4,6 +4,7 @@ title: 仙侠修真
 kind: narrative
 aliases: [仙侠, 修真, 修仙, 玄幻, 宗门, 御剑, 东方奇幻]
 confidence: medium
+fx_motion: true
 ---
 <!-- slice:story -->
 ## 题材核心与观众为什么看

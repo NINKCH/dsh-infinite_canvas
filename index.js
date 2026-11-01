@@ -1758,6 +1758,12 @@ function canvasWriteNode(args) {
             ? s.dialogue.slice(0, 6).map((d) => ({ role: String(d && d.role || '').trim().slice(0, 24), line: String(d && d.line || '').trim().slice(0, 200) })).filter((d) => d.role && d.line)
             : [],
           sfx: String((s && s.sfx) || '').trim().slice(0, 120),
+          // 分镜新四字段（动作节拍/机位三件套/特效/负向词）必须透传：对话侧改 shots 时
+          // 不带这些字段才允许被默认清空；带了就保留——否则特效演绎镜落库即退化为纯 visual/motion。
+          timeBeats: Array.isArray(s && s.timeBeats) ? s.timeBeats.map(String).map((x) => x.trim()).filter(Boolean).slice(0, 4) : [],
+          camera: String((s && s.camera) || '').trim().slice(0, 200),
+          vfx: String((s && s.vfx) || '').trim().slice(0, 160),
+          negative: String((s && s.negative) || '').trim().slice(0, 200),
         }));
         node.data.aiStatus = 'idle';
         node.data.aiError = null;
@@ -2340,6 +2346,11 @@ async function canvasNodeStatus(args) {
       cam: String((s && s.cam) || '').slice(0, 120),
       start: String((s && s.start) || '').slice(0, 160),
       seg: String((s && s.seg) || '').slice(0, 24),
+      // 新四字段（与分镜契约同构）：动作节拍/机位三件套/特效/负向词——对话侧整表替换时必须带回
+      timeBeats: Array.isArray(s && s.timeBeats) ? s.timeBeats.map(String).slice(0, 4) : [],
+      camera: String((s && s.camera) || '').slice(0, 200),
+      vfx: String((s && s.vfx) || '').slice(0, 160),
+      negative: String((s && s.negative) || '').slice(0, 200),
     }))
     : undefined;
   const d = n.data || {};
@@ -3534,7 +3545,7 @@ export function apply(ctx) {
             additionalProperties: false,
           },
           output: {
-            schema: { type: 'object', properties: { ok: { type: 'boolean' }, text: { type: 'string' }, type: { type: 'string' }, status: { type: 'string' }, x: { type: 'number' }, y: { type: 'number' }, w: { type: 'number' }, h: { type: 'number' }, assetId: { type: 'string' }, prompt: { type: 'string' }, ratio: { type: 'string' }, size: { type: 'string' }, duration: { type: 'number' }, resolution: { type: 'string' }, frameMode: { type: 'string' }, imageModel: { type: 'string' }, videoModel: { type: 'string' }, genWarn: { type: 'string' }, chainFrom: { type: 'string' }, seam: { type: 'object', properties: { ok: { type: 'boolean' }, sim: { type: 'number' }, thr: { type: 'number' }, note: { type: 'string' } } }, tailPickAssetId: { type: 'string' }, historyAssetIds: { type: 'array', items: { type: 'string' } }, warnings: { type: 'array', items: { type: 'string' } }, shots: { type: 'array', items: { type: 'object', properties: { index: { type: 'number' }, title: { type: 'string' }, duration: { type: 'number' }, visual: { type: 'string' }, motion: { type: 'string' }, tail: { type: 'string' }, cam: { type: 'string' }, start: { type: 'string' }, seg: { type: 'string' }, characters: { type: 'array', items: { type: 'string' } }, scene: { type: 'string' }, props: { type: 'array', items: { type: 'string' } } } } } }, required: ['ok', 'text'] },
+            schema: { type: 'object', properties: { ok: { type: 'boolean' }, text: { type: 'string' }, type: { type: 'string' }, status: { type: 'string' }, x: { type: 'number' }, y: { type: 'number' }, w: { type: 'number' }, h: { type: 'number' }, assetId: { type: 'string' }, prompt: { type: 'string' }, ratio: { type: 'string' }, size: { type: 'string' }, duration: { type: 'number' }, resolution: { type: 'string' }, frameMode: { type: 'string' }, imageModel: { type: 'string' }, videoModel: { type: 'string' }, genWarn: { type: 'string' }, chainFrom: { type: 'string' }, seam: { type: 'object', properties: { ok: { type: 'boolean' }, sim: { type: 'number' }, thr: { type: 'number' }, note: { type: 'string' } } }, tailPickAssetId: { type: 'string' }, historyAssetIds: { type: 'array', items: { type: 'string' } }, warnings: { type: 'array', items: { type: 'string' } }, shots: { type: 'array', items: { type: 'object', properties: { index: { type: 'number' }, title: { type: 'string' }, duration: { type: 'number' }, visual: { type: 'string' }, motion: { type: 'string' }, tail: { type: 'string' }, cam: { type: 'string' }, start: { type: 'string' }, seg: { type: 'string' }, characters: { type: 'array', items: { type: 'string' } }, scene: { type: 'string' }, props: { type: 'array', items: { type: 'string' } }, timeBeats: { type: 'array', items: { type: 'string' } }, camera: { type: 'string' }, vfx: { type: 'string' }, negative: { type: 'string' } } } } }, required: ['ok', 'text'] },
             render: (args, value) => [{ type: 'text', text: String(value.text || '') }],
           },
           timeoutMs: 30000,
