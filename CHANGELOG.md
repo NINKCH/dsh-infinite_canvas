@@ -6,19 +6,29 @@ GitHub Releases carry the same notes in English; maintainer-facing runbooks live
 
 ## [Unreleased]
 
-## [0.19.19] — 2026-11-01
-
 ### Added
 - **Genre cards v3: option-menu mechanism libraries, no mandated story direction.** All 37 genre cards rebuilt: the five story-playbook sections (pressure engine, character strategy, payoff, hook orientation, act pacing) become option menus — conflict/personnel/payoff-hook/pacing libraries, each listing 3+ selectable directions that can be combined, adapted or skipped; 题材核心 becomes a short 题材基调与世界观; drift bans keep only visual/factual rules. The script-slice pack head now carries the doctrine — entries are combinable parts, events and direction belong to the script — plus the material precedence (existing novel/script text and the bible outrank the genre library; style and camera always apply). A regression gate bans the old single-direction sections and template phrases across all cards.
 - **Shanhai Myth genre card with material libraries.** 异兽图志库（12 beasts with form/habitat/habitat-scale cues）、法术能力库（八门能力，各配画面呈现）、神器地理库 — tagged as a `library` slice consumed only by the asset-sheet capability (beast sheets can be drawn straight from the library); script and storyboard never receive it, so library settings can never override an imported novel. Its 冲突机制库 deliberately includes cost-covenant as ONE optional pattern, never a mandate.
+
+### Fixed
+- **Canvas nodes take the asset's name; the "image" category is gone; unified import handles text.** Adding assets to the canvas now names nodes after the asset (no more 图片1/视频2/文本1) on both the single-add and batch paths. The redundant "image" asset category is removed — character/prop/scene already are images, everything else lands in General — with legacy `image`-tagged assets normalized at read time (filter/search/card dropdown), no data migration. The single Import button now routes by file type: images/videos as before, plus `.txt`/`.md` files import as script text assets (name from file name) ready to batch-place on the canvas as storyboard sources.
+- **Assets panel: strict project isolation, search/scope on one row, project dropdown on text cards.** The filter used to let General-project assets bleed into every project's view; scope now filters strictly (General assets are visible only under the "General project" scope or "All"). The search box (with an embedded magnifier) and the project selector share one row (≈2/3 + ≈1/3). Text assets (scripts/storyboards) get the same project dropdown as media cards — the ownership control was missing there, not the data.
+
+### Changed
+- (无。)
+
+### Internal
+- (无。)
+
+## [0.19.19] — 2026-11-01
+
+### Added
 - **Sanbao image task protocol (async, queryable).** Sanbao's OpenAI-compatible image endpoint times out at the proxy (>120s to render) with no task id to recover from — the money was spent but the image was lost. Image requests against `sanbaobeauty.com` now auto-route to the async task protocol (`POST /openapi/v1/images` → poll `GET /openapi/v1/images/{taskId}` → download), also selectable explicitly as the「三宝图片任务」mode. Local reference images upload via `/openapi/v1/uploads/raw` using the extended-param `uploadKey`; the task id persists on the node (`taskId`/`taskQueryUrl`) so any interrupted run can be recovered by id; the result download reuses the transient retry window. Generic OpenAI-compatible submits additionally get one transient retry on 502/503/504/429/408 (401/400 never retried).
 - **FX-driven storyboard contract (`fx_motion`).** Fantasy-facing genres and looks can declare `fx_motion: true`; the storyboard contract then injects an FX extension block: the motion bearer is decided by the picture (a still body plus one moving effect is a legal shot), `timeBeats` become picture-state beats for FX-led shots (exempt from the mandatory three body beats), a fantasy VFX lexicon, per-character FX signatures quoted verbatim across shots, the speed iron law (instant events are state differences across cuts — never animated inside a shot), and a keyframe-first tip for materialized techniques. Realist projects without fx cards behave exactly as before.
 - **`state_jump` segment type (same-framing state jump).** Lantern-flash reveals, "a shadow already there", shadow-to-solid: now a legal cut point (`join='cut'`, no tail-frame chaining, camera locked) with explicit prompt language ("the subject is already fully present and STATIC in frame 1; never animate an entrance"), and the "characters popping in or out" negative is replaced on such segments with precise bans (no walking/drifting into frame, no morph). New 山海神话 (shanhaijing-myth) genre card with a seven-family FX lexicon (silhouette streak, summon four-beat, landing shockwave, per-character signatures); four fantasy looks (dark-myth-cg, guoman-3d-xianxia, east-epic-3d, saturated-epic) and four genres (fantasy, xianxia-cultivation, wuxia, smalltown-uncanny) flagged `fx_motion`.
 - **Chat-side shot edits keep the four FX fields.** `canvas_update_node`, `canvas_node_status` and the RPC schema now round-trip `timeBeats` / `camera` / `vfx` / `negative`, so chat-authored FX shots no longer degrade to visual+motion when written through Host tools.
 
 ### Fixed
-- **Canvas nodes take the asset's name; the "image" category is gone; unified import handles text.** Adding assets to the canvas now names nodes after the asset (no more 图片1/视频2/文本1) on both the single-add and batch paths. The redundant "image" asset category is removed — character/prop/scene already are images, everything else lands in General — with legacy `image`-tagged assets normalized at read time (filter/search/card dropdown), no data migration. The single Import button now routes by file type: images/videos as before, plus `.txt`/`.md` files import as script text assets (name from file name) ready to batch-place on the canvas as storyboard sources.
-- **Assets panel: strict project isolation, search/scope on one row, project dropdown on text cards.** The filter used to let General-project assets bleed into every project's view; scope now filters strictly (General assets are visible only under the "General project" scope or "All"). The search box (with an embedded magnifier) and the project selector share one row (≈2/3 + ≈1/3). Text assets (scripts/storyboards) get the same project dropdown as media cards — the ownership control was missing there, not the data.
 - **Storyboard capacity warning judges real shot count, not script length.** The warning fired on any scene script over 600 characters — regardless of how many shots were actually generated (a 914-char scene producing 9 shots reported "beyond 100-shot capacity"). The check now compares the generated shot count against `MAX_STORYBOARD_SHOTS` (100) and the message reports the real number; detailed FX storyboards no longer trigger it.
 - **One tail frame per video.** Two uncoordinated pipelines could each save a "last frame" asset for the same video — the generation tail block (last + scored pick) and the media-node fallback effect racing in on an `assetsTick` — so one generation produced three tail assets in the library. The generation path now owns tail extraction exclusively (a `tailPending` placeholder locks out the fallback, which still handles imported/external videos), and only ONE frame is stored: the scored best pick when it differs from the true last frame, otherwise the last frame; both the `last` and `tailpick` chain ports point at it.
 
@@ -121,12 +131,9 @@ GitHub Releases carry the same notes in English; maintainer-facing runbooks live
 ### Fixed
 - **Custom director actions now survive save/apply and playback.** User actions retain `poseKeys`, action clips and loop metadata; applying an action restores those fields, pose loops actually wrap during playback, and the skinning cache invalidates when pose keys or clips change.
 
-
 - **Cross-rig action clips no longer deform the mannequin.** Action clips tagged with their source rig are only mounted on a matching skeleton; the awplanet-explorer walk/run set can no longer be applied to `xbot`, where its local joint axes produced full-body twisting.
 - **The `双手抱头` pose now puts the hands beside the head.** The old fixed Euler recipe left both hands near the hips; directional arm/forearm constraints now raise the elbows and bring the hands to head height.
 - **Image generation recovers from unsupported-field 400s.** When a strict vendor rejects a field such as `watermark`, the adapter removes that field and retries once instead of failing the whole generation.
-
-
 
 ## [0.19.11] — 2026-10-28
 
@@ -322,7 +329,6 @@ GitHub Releases carry the same notes in English; maintainer-facing runbooks live
 ### Internal
 - New `scripts/test-thumbs.mjs` (registered in `scripts/regress.mjs`) pins the thumbnail contract: derived-file naming and exclusion, the `/api/thumb` route, node images using `*.thumb.jpg`, originals only on demand, the missing-media negative cache, the removal of the permanent composited layer and the non-passive wheel listener.
 - `scripts/test-canvas-perf.mjs` updated for the new media-node hook order (thumbnail URL + lazy play URL) and its fake canvas gained `fillRect` so the downscaled first-frame path is exercised.
-
 
 ## [0.19.0] — 2026-10-25
 
