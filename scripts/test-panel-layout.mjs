@@ -285,6 +285,16 @@ function cssRulesMatchingClass(name) {
     eq(jump('1.5', 10), null, '小数不当作页码');
     eq(jump('', 10), null, '空输入保持当前页');
   }
+  // 搜索行：搜索框（右侧内嵌放大镜）与项目选择同一行
+  ok(/data-role['"]?\s*:\s*'assets-searchrow'/.test(assetsBody), '资产页搜索框与项目选择未收进同一行');
+  ok(/dshic-asset-search[\s\S]{0,800}?dshic-search-ic/.test(assetsBody), '资产搜索框缺右侧内嵌放大镜');
+  ok(/dshic-asset-scope/.test(assetsBody), '资产页项目选择容器缺失（搜索同行布局）');
+  // 严格项目隔离：通用项目（GENERAL_PID）资产不得混入其他项目的可见范围
+  ok(!/a\.projectId !== GENERAL_PID/.test(assetsBody), '资产筛选仍在放行通用项目（项目隔离不完整）');
+  ok(/if \(scope !== 'all' && a\.projectId !== scope\) return false;/.test(assetsBody), '资产筛选未按严格项目隔离过滤');
+  // 文本资产（分镜表/剧本）也有项目归属下拉（projSel 抽取复用：媒体在名称行下、文本在 meta 行）
+  ok(/const projSel = h\('select'/.test(src), '项目下拉未抽成 projSel 复用');
+  ok(/a\.kind === 'text' \? projSel : null/.test(src), '文本资产卡片缺项目归属下拉');
   // 卡片结构：缩略图/首帧 + 名称 + 分类 + 时间（AssetCard 复用）
   const card = all(PANEL.AssetCard({
     a: { id: 'a1', kind: 'image', name: '角色图', category: 'character', createdAt: Date.now() },

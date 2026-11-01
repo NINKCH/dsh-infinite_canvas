@@ -2759,6 +2759,12 @@ body[data-ds-dark-theme] .dshic-studio-modal{border-color:var(--dsw-alias-border
 .dshic-asset-pageinput:focus{outline:none;border-color:var(--dsw-alias-brand-primary);box-shadow:var(--dshic-shadow-sel);}
 .dshic-asset-pagetotal,.dshic-asset-pagecount{font-variant-numeric:tabular-nums;white-space:nowrap;}
 .dshic-asset-pagecount{opacity:.75;}
+/* 搜索行：搜索框（≈2/3，右侧内嵌放大镜）+ 项目选择（≈1/3）同行；窄窗口自动换行 */
+.dshic-asset-searchrow{display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
+.dshic-asset-search{position:relative;flex:2 1 320px;min-width:220px;}
+.dshic-asset-search .dshic-input{width:100%;padding-right:26px;box-sizing:border-box;}
+.dshic-asset-scope{flex:1.1 1 200px;min-width:180px;display:flex;}
+.dshic-asset-scope .dshic-msel{width:100%;}
 /* 设定集条目：行 + 已绑定资产缩略图 */
 .dshic-bible-item{display:flex;flex-direction:column;gap:4px;padding:5px 0;border-bottom:1px dashed var(--dsw-alias-border-l1);}
 .dshic-bible-thumbs{display:flex;gap:5px;flex-wrap:wrap;padding-left:4px;}
@@ -18458,7 +18464,10 @@ const DIRECTOR_KEY_HELP = [
         toast(T('craftSyncDone').replace('{ok}', String(okN)).replace('{fail}', String(failN)));
       };
       const filtered = assets.filter((a) => {
-        if (scope !== 'all' && scope !== GENERAL_PID && a.projectId !== scope && a.projectId !== GENERAL_PID) return false;
+        // 严格项目隔离：scope=具体项目 → 只见该项目资产；通用项目（GENERAL_PID）资产不再
+        // 混入其他项目（旧口径"通用资产多项目共享"改为显式——要看通用资产请把 scope 切到
+        // 「通用项目」或「全部」；跨项目取素材的功能面（@引用/设定集绑定）不受影响）。
+        if (scope !== 'all' && a.projectId !== scope) return false;
         if (filter !== 'all' && (a.category || 'general') !== filter) return false;
         if (!q) return true;
         const hay = [
@@ -18492,18 +18501,24 @@ const DIRECTOR_KEY_HELP = [
               onClick: () => setFilter(c.id),
             }, c.label)),
         ),
-        h('input', {
-          key: 'search', className: 'dshic-input', value: search,
-          placeholder: T('searchLabel'),
-          onChange: (e) => setSearch(e.target.value),
-          onPointerDown: (e) => e.stopPropagation(),
-        }),
-        h(MiniSelect, {
-          key: 'scope', value: scope, title: T('projectFilter'),
-          options: [{ value: 'all', label: T('allProjects') }, { value: GENERAL_PID, label: T('generalProject') }]
-            .concat(S.projects.map((p) => ({ value: p.id, label: p.name }))),
-          onChange: (v) => setScope(v),
-        }),
+        // 搜索行：搜索框（≈2/3，右侧内嵌放大镜）+ 项目选择（≈1/3）同行；窄窗口自动换行
+        h('div', { key: 'searchrow', className: 'dshic-asset-searchrow', 'data-role': 'assets-searchrow' },
+          h('div', { className: 'dshic-asset-search' },
+            h('input', {
+              className: 'dshic-input', value: search,
+              placeholder: T('searchLabel'),
+              onChange: (e) => setSearch(e.target.value),
+              onPointerDown: (e) => e.stopPropagation(),
+            }),
+            h('span', { className: 'dshic-search-ic', 'aria-hidden': 'true' }, Ic('search', 12))),
+          h('div', { className: 'dshic-asset-scope' },
+            h(MiniSelect, {
+              value: scope, title: T('projectFilter'),
+              options: [{ value: 'all', label: T('allProjects') }, { value: GENERAL_PID, label: T('generalProject') }]
+                .concat(S.projects.map((p) => ({ value: p.id, label: p.name }))),
+              onChange: (v) => setScope(v),
+            })),
+        ),
         // 工具栏（项目下一行）：所有操作按钮 + 分页集中在一行，窄窗口自动换行、分页始终靠右。
         // 按钮统一「透明底 + 1px 线框 + 文字」（UI-RULES：禁止灰底色块）。
         h('div', { key: 'toolbar', className: 'dshic-asset-toolbar', 'data-role': 'assets-toolbar' },
@@ -18648,6 +18663,17 @@ const DIRECTOR_KEY_HELP = [
         onClick: startRename,
       }, Ic('pencil', 11));
       const downloadName = (a.name || 'asset') + extForDownload(a.mime, a.name, a.kind);
+      // 项目归属下拉（全部资产同款，含文本资产）：看归属 + 就地改归属（onMove 服务端写回）
+      const projSel = h('select', {
+        className: 'dshic-asset-project', title: T('projectFilter'),
+        value: a.projectId || GENERAL_PID,
+        onClick: (e) => e.stopPropagation(),
+        onPointerDown: (e) => e.stopPropagation(),
+        onChange: (e) => { e.stopPropagation(); onMove(a, e.target.value); },
+      },
+        h('option', { value: GENERAL_PID }, T('generalProject')),
+        S.projects.map((pp) => h('option', { key: pp.id, value: pp.id }, pp.name)),
+      );
       return h('div', {
         className: cls('dshic-asset', checked && 'is-checked'),
         onClick: () => onToggleSel(a),
@@ -18681,16 +18707,7 @@ const DIRECTOR_KEY_HELP = [
               renameBtn)
           : null,
         a.kind !== 'text'
-          ? h('select', {
-              className: 'dshic-asset-project', title: T('projectFilter'),
-              value: a.projectId || GENERAL_PID,
-              onClick: (e) => e.stopPropagation(),
-              onPointerDown: (e) => e.stopPropagation(),
-              onChange: (e) => { e.stopPropagation(); onMove(a, e.target.value); },
-            },
-              h('option', { value: GENERAL_PID }, T('generalProject')),
-              S.projects.map((pp) => h('option', { key: pp.id, value: pp.id }, pp.name)),
-            )
+          ? projSel
           : null,
         h('div', { className: 'dshic-asset-actions' },
           (a.kind === 'image' || a.kind === 'video')
@@ -18730,6 +18747,8 @@ const DIRECTOR_KEY_HELP = [
           ? h('audio', { src: url, controls: true, style: { width: '100%', height: 30 }, onPointerDown: (e) => e.stopPropagation(), onClick: (e) => e.stopPropagation(), preload: 'metadata' })
           : null,
         h('div', { className: 'dshic-asset-meta' },
+          // 文本资产：meta 行补项目下拉（媒体资产的下拉在名称行下，文本卡片放这里——位置不同、控件同款）
+          a.kind === 'text' ? projSel : null,
           h('select', {
             className: 'dshic-cat', title: T('catLabel'), value: a.category || 'general',
             onClick: (e) => e.stopPropagation(),
