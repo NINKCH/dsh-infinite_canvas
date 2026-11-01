@@ -6,6 +6,8 @@ GitHub Releases carry the same notes in English; maintainer-facing runbooks live
 
 ## [Unreleased]
 
+## [0.19.19] — 2026-11-01
+
 ### Added
 - **Sanbao image task protocol (async, queryable).** Sanbao's OpenAI-compatible image endpoint times out at the proxy (>120s to render) with no task id to recover from — the money was spent but the image was lost. Image requests against `sanbaobeauty.com` now auto-route to the async task protocol (`POST /openapi/v1/images` → poll `GET /openapi/v1/images/{taskId}` → download), also selectable explicitly as the「三宝图片任务」mode. Local reference images upload via `/openapi/v1/uploads/raw` using the extended-param `uploadKey`; the task id persists on the node (`taskId`/`taskQueryUrl`) so any interrupted run can be recovered by id; the result download reuses the transient retry window. Generic OpenAI-compatible submits additionally get one transient retry on 502/503/504/429/408 (401/400 never retried).
 - **FX-driven storyboard contract (`fx_motion`).** Fantasy-facing genres and looks can declare `fx_motion: true`; the storyboard contract then injects an FX extension block: the motion bearer is decided by the picture (a still body plus one moving effect is a legal shot), `timeBeats` become picture-state beats for FX-led shots (exempt from the mandatory three body beats), a fantasy VFX lexicon, per-character FX signatures quoted verbatim across shots, the speed iron law (instant events are state differences across cuts — never animated inside a shot), and a keyframe-first tip for materialized techniques. Realist projects without fx cards behave exactly as before.
