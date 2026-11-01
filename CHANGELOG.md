@@ -6,6 +6,8 @@ GitHub Releases carry the same notes in English; maintainer-facing runbooks live
 
 ## [Unreleased]
 
+## [0.19.17] — 2026-11-01
+
 ### Added
 - **Selected nodes light up their connected edges.** All incoming and outgoing edges of selected (or box-selected) nodes render in bright green (`#2fe08a`, fixed high-contrast color) with a double drop-shadow outer glow and slightly thicker stroke; the glow clears when selection clears and never stacks with the edge's own selected style.
 - **Update source auto-detection with China mirror fallback.** Update check and install now probe `registry.npmjs.org` and `registry.npmmirror.com` concurrently (3s timeout, probing the actual packument path). Official reachable → official (authoritative); official down with mirror reachable → China mirror (mainland direct-connection shape); both down → official (previous behavior preserved). The choice is cached in config for 24h and re-probed after expiry. The update banner gains a three-option source selector (自动检测 / npm 官方源 / 中国大陆镜像源) with manual override taking precedence, and install/check results report the source actually used. `pnpm add` gets `--registry` from a strict allow-list only — non-allow-list values are rejected before reaching the command line. Fallback chain: if the selected source fails, the other one is tried once, so a wrong guess never blocks an update.
@@ -21,9 +23,6 @@ GitHub Releases carry the same notes in English; maintainer-facing runbooks live
 - **Sanbao runner now caps reference audio at 3** (`slice(0, 3)` on submit and on the upload-fallback retry path), matching the pre-flight warning instead of sending the full list and failing the relay's 400 limit.
 - **Scene-header markdown tightened.** `parseScriptScenes` required an optional `场` in `#{1,4} 场?N` headers, so ordinary numeric headings like `## 2024年度总结` / `### 3 个技巧` were misread as scene breaks and produced ghost scene nodes; `场` is now required (`## 场N` still recognized), with counter-examples asserted in `scripts/test-script-scenes.mjs`.
 - **"Expand to scenes" no longer loses the last scene's body.** The trailing-list stripper (`parseScriptScenes`) matched the first `人物：/角色：` line anywhere in the final scene and swallowed everything after it — scripts whose scenes carry their own `人物：` line (a common per-scene format) had the last scene reduced to its title. The stripper now only removes a pure trailing list block (人物/角色/场景/道具/地点 lines + blank + （终）/完 markers, including the combined `场景/道具：` form) that runs to the very end of the text; in-scene list lines and the （终） marker stay in the body. `parseScriptScenes` is exported for regression (`scripts/test-script-scenes.mjs`, new strict-regression entry).
-
-### Changed
-- (无独立变更。)
 
 ### Internal
 - If the submit request fails with an image/material-format or URL error, the runner uploads local blobs once via `POST /openapi/v1/uploads/raw` (raw binary body) using a dedicated `uploadKey` from extended params (`{"uploadKey":"sk-sanbao-…"}`, falling back to the main key) and retries with the returned `file.url`. Credits, auth, rate-limit and account-restriction errors never trigger the retry. Pure helpers (`buildSanbaoVideoBody` / `sanbaoTaskIdOf` / `sanbaoPollState` / `needsSanbaoMediaRetry`) are exposed for regression assertions in `scripts/test-vendor-detect.mjs`.
