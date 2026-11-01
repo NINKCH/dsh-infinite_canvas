@@ -1171,6 +1171,7 @@ function revealCanvasInRight() {
       'assetsAdded': '已添加 {n} 个资产节点',
       'assetsBatchDelWarn': '将从资产库删除所选资产；画布上引用它们的节点会解绑：',
       'assetsDeletedN': '已删除 {n} 个资产',
+      'assetsTotalCount': '共 {n} 项',
       'assetClickHint': '单击选择 / 双击直接添加到画布',
       'assetsRelinked': '已自动回链 {n} 个节点的资产引用',
       'dataRootLabel': '数据根目录',
@@ -2117,6 +2118,7 @@ function revealCanvasInRight() {
       'assetsAdded': '{n} asset nodes added',
       'assetsBatchDelWarn': 'Selected assets will be deleted from the library; canvas nodes referencing them will be unbound:',
       'assetsDeletedN': '{n} assets deleted',
+      'assetsTotalCount': '{n} items',
       'assetClickHint': 'Click to select / double-click to add to canvas',
       'assetsRelinked': 'Relinked {n} nodes to their assets',
       'dataRootLabel': 'Data root',
@@ -2730,7 +2732,31 @@ body[data-ds-dark-theme] .dshic-studio-modal{border-color:var(--dsw-alias-border
 .dshic-modal-assets{display:flex;flex-direction:column;gap:10px;}
 .dshic-modal-assets .dshic-asset-grid{grid-template-columns:repeat(auto-fill,minmax(158px,1fr));gap:10px;}
 .dshic-modal-assets .dshic-asset-thumb{height:112px;}
-.dshic-asset-pager{display:flex;align-items:center;gap:8px;font-size:11.5px;color:var(--dsw-alias-label-secondary);}
+/* ── 资产页工具栏（项目下拉下一行）：同步/导入/全选/批量操作 + 分页同排 ──
+   按钮统一「透明底 + 1px 线框 + 文字」（UI-RULES：禁止灰底色块）；hover 只加深边框不加底色。
+   窄窗口 flex-wrap 换行，分页 margin-left:auto 始终靠右。 */
+.dshic-asset-toolbar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;row-gap:6px;}
+.dshic-asset-toolbar-main{display:flex;align-items:center;gap:8px;flex-wrap:wrap;row-gap:6px;min-width:0;}
+.dshic-asset-batch{display:flex;align-items:center;gap:8px;flex-wrap:wrap;row-gap:6px;}
+.dshic-toolbtn{display:inline-flex;align-items:center;gap:4px;height:26px;padding:0 10px;border-radius:7px;
+  border:1px solid var(--dsw-alias-border-l2);background:transparent;color:var(--dsw-alias-label-primary);
+  font:inherit;font-size:12px;line-height:1;white-space:nowrap;flex:none;cursor:pointer;}
+.dshic-toolbtn:hover:not(:disabled){border-color:var(--dsw-alias-label-secondary);}
+.dshic-toolbtn:disabled{opacity:.45;cursor:default;}
+.dshic-toolbtn.is-danger{color:var(--dsw-alias-state-error-primary);border-color:var(--dsw-alias-state-error-primary);}
+.dshic-toolbtn.is-icon{width:26px;padding:0;justify-content:center;font-size:14px;}
+.dshic-asset-selall{display:inline-flex;align-items:center;gap:4px;font-size:12px;
+  color:var(--dsw-alias-label-secondary);cursor:pointer;flex:none;}
+.dshic-asset-audiohint{font-size:11px;color:var(--dsw-alias-label-secondary);opacity:.75;}
+.dshic-asset-pager{display:flex;align-items:center;gap:6px;margin-left:auto;flex:none;
+  font-size:11.5px;color:var(--dsw-alias-label-secondary);}
+.dshic-asset-pagebox{display:inline-flex;align-items:center;gap:4px;}
+.dshic-asset-pageinput{width:44px;height:26px;text-align:center;font:inherit;font-size:12px;padding:0 4px;
+  border:1px solid var(--dsw-alias-border-l2);border-radius:7px;background:transparent;
+  color:var(--dsw-alias-label-primary);box-sizing:border-box;}
+.dshic-asset-pageinput:focus{outline:none;border-color:var(--dsw-alias-brand-primary);box-shadow:var(--dshic-shadow-sel);}
+.dshic-asset-pagetotal,.dshic-asset-pagecount{font-variant-numeric:tabular-nums;white-space:nowrap;}
+.dshic-asset-pagecount{opacity:.75;}
 /* 设定集条目：行 + 已绑定资产缩略图 */
 .dshic-bible-item{display:flex;flex-direction:column;gap:4px;padding:5px 0;border-bottom:1px dashed var(--dsw-alias-border-l1);}
 .dshic-bible-thumbs{display:flex;gap:5px;flex-wrap:wrap;padding-left:4px;}
@@ -17999,6 +18025,16 @@ const DIRECTOR_KEY_HELP = [
      *  搜索/分类/项目筛选与分页都在客户端做；卡片 = AssetCard（缩略图或视频首帧 + 名称 + 分类 + 时间，
      *  预览/下载/添加到画布 全部保留）。右侧面板不再有资产页签。 */
     const ASSET_PAGE_SIZE = 24;
+    /** 资产分页跳转（纯函数）：页码输入 → 0-based 页。
+     *  非数字/空/小数 → null（保持当前页）；越界夹取到 1..pageCount。 */
+    function assetsPageIndex(raw, pageCount) {
+      const t = String(raw == null ? '' : raw).trim();
+      if (!/^\d+$/.test(t)) return null;
+      const n = parseInt(t, 10);
+      if (!Number.isFinite(n)) return null;
+      const pc = Math.max(1, Number(pageCount) || 1);
+      return Math.min(Math.max(1, n), pc) - 1;
+    }
     function AssetsTab({ variant } = {}) {
       void variant;
       const [assets, setAssets] = useState([]);
@@ -18019,13 +18055,14 @@ const DIRECTOR_KEY_HELP = [
       const [assetName, setAssetName] = useState(''); // 删除确认框的输入内容
       const [selIds, setSelIds] = useState(() => new Set()); // 批量选择（资产 id）：选中后一键按列导入画布 / 批量删除
       const [batchDel, setBatchDel] = useState(false); // 批量删除确认框
+      const [pageDraft, setPageDraft] = useState(null); // 页码输入草稿（null = 显示当前页）
       const fileRef = useRef(null);
       // 搜索防抖：资产多时避免每个按键都过一遍全量过滤
       useEffect(() => {
         const t = setTimeout(() => setQDeb(search), 300);
         return () => clearTimeout(t);
       }, [search]);
-      useEffect(() => { setPage(0); }, [filter, qDeb, scope]);
+      useEffect(() => { setPage(0); setPageDraft(null); }, [filter, qDeb, scope]);
       useEffect(() => {
         probeCraft();
         let ok = true;
@@ -18209,6 +18246,19 @@ const DIRECTOR_KEY_HELP = [
       const pageCount = Math.max(1, Math.ceil(filtered.length / ASSET_PAGE_SIZE));
       const pageSafe = Math.min(Math.max(0, page), pageCount - 1);
       const shown = filtered.slice(pageSafe * ASSET_PAGE_SIZE, pageSafe * ASSET_PAGE_SIZE + ASSET_PAGE_SIZE);
+      /** 提交页码输入：回车/失焦；非法文本保持当前页，越界夹取（UI-RULES 第 15 条口径）。 */
+      const commitPageJump = () => {
+        const idx = assetsPageIndex(pageDraft, pageCount);
+        if (idx != null) setPage(idx);
+        setPageDraft(null);
+      };
+      /** 翻页：输入框有草稿时先以草稿为基准（避免 blur 提交与按钮翻页互相覆盖）。 */
+      const goPage = (delta) => {
+        const idx = pageDraft != null ? assetsPageIndex(pageDraft, pageCount) : null;
+        const base = idx != null ? idx : pageSafe;
+        setPage(Math.min(Math.max(0, base + delta), pageCount - 1));
+        setPageDraft(null);
+      };
       return [
         h('div', { key: 'chips', className: 'dshic-chips' },
           [{ id: 'all', label: T('catAll') }].concat(CATEGORIES.map((c) => ({ id: c, label: catLabel(c) }))).map((c) =>
@@ -18230,11 +18280,61 @@ const DIRECTOR_KEY_HELP = [
             .concat(S.projects.map((p) => ({ value: p.id, label: p.name }))),
           onChange: (v) => setScope(v),
         }),
-        h('button', { key: 'craftsync', type: 'button', className: 'dshic-mini', style: { alignSelf: 'flex-start' }, disabled: !craftOkCached(), title: craftOkCached() ? T('craftSyncAll') : T('craftUnreachable'), onClick: syncAll, onPointerDown: (e) => e.stopPropagation() }, Ic('upload', 11), T('craftSyncAll')),
-        h('button', { key: 'imp', type: 'button', className: 'dshic-mini', style: { alignSelf: 'flex-start' }, onClick: () => { if (fileRef.current) fileRef.current.click(); } }, Ic('upload', 11), T('import')),
-        h('label', { key: 'selall', style: { alignSelf: 'flex-start', display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, cursor: 'pointer' }, onPointerDown: (e) => e.stopPropagation() },
-          h('input', { type: 'checkbox', checked: allPageSel(), disabled: !shown.length, onChange: selectAllPage }),
-          T('assetsSelAllPage')),
+        // 工具栏（项目下一行）：所有操作按钮 + 分页集中在一行，窄窗口自动换行、分页始终靠右。
+        // 按钮统一「透明底 + 1px 线框 + 文字」（UI-RULES：禁止灰底色块）。
+        h('div', { key: 'toolbar', className: 'dshic-asset-toolbar', 'data-role': 'assets-toolbar' },
+          h('div', { className: 'dshic-asset-toolbar-main' },
+            h('button', {
+              type: 'button', className: 'dshic-toolbtn', 'data-action': 'assets-sync-all',
+              disabled: !craftOkCached(), title: craftOkCached() ? T('craftSyncAll') : T('craftUnreachable'),
+              onClick: syncAll, onPointerDown: (e) => e.stopPropagation(),
+            }, Ic('upload', 11), T('craftSyncAll')),
+            h('button', {
+              type: 'button', className: 'dshic-toolbtn', 'data-action': 'assets-import',
+              onClick: () => { if (fileRef.current) fileRef.current.click(); },
+            }, Ic('upload', 11), T('import')),
+            h('label', { className: 'dshic-asset-selall', onPointerDown: (e) => e.stopPropagation() },
+              h('input', { type: 'checkbox', checked: allPageSel(), disabled: !shown.length, onChange: selectAllPage }),
+              T('assetsSelAllPage')),
+            // 批量操作：选中 >0 时出现，与导入同一行（不另占一行）
+            selIds.size
+              ? h('div', { key: 'batchbar', className: 'dshic-asset-batch', 'data-role': 'assets-batch-bar' },
+                  h('button', { type: 'button', className: 'dshic-toolbtn', 'data-action': 'assets-add-selected', disabled: !addableList.length, onClick: addSelectedToCanvas, onPointerDown: (e) => e.stopPropagation() }, Ic('expandAll', 11), T('assetsAddToCanvas') + '（' + addableList.length + '）'),
+                  h('button', { type: 'button', className: 'dshic-toolbtn is-danger', 'data-action': 'assets-batch-delete', onClick: () => setBatchDel(true), onPointerDown: (e) => e.stopPropagation() }, T('doDelete') + '（' + selIds.size + '）'),
+                  h('button', { type: 'button', className: 'dshic-toolbtn', 'data-action': 'assets-clear-sel', onClick: clearSel, onPointerDown: (e) => e.stopPropagation() }, T('assetsClearSel')),
+                  audioN ? h('span', { className: 'dshic-asset-audiohint' }, T('assetsAudioSkip').replace('{n}', String(audioN))) : null,
+                )
+              : null,
+          ),
+          // 分页（客户端分页）：‹ [页码输入] / N › + 总数；Enter/失焦跳转，Esc 取消，越界夹取
+          h('div', { key: 'pager', className: 'dshic-asset-pager', 'data-role': 'assets-pager' },
+            h('button', {
+              type: 'button', className: 'dshic-toolbtn is-icon', 'data-action': 'assets-page-prev', title: T('pagePrev'),
+              disabled: pageSafe <= 0, onClick: () => goPage(-1), onPointerDown: (e) => e.stopPropagation(),
+            }, '‹'),
+            h('div', { className: 'dshic-asset-pagebox' },
+              h('input', {
+                className: 'dshic-asset-pageinput', type: 'text', inputMode: 'numeric',
+                'data-role': 'assets-page-input', 'aria-label': T('pageNumber'),
+                value: pageDraft != null ? pageDraft : String(pageSafe + 1),
+                onPointerDown: (e) => e.stopPropagation(),
+                onClick: (e) => e.stopPropagation(),
+                onChange: (e) => setPageDraft(e.target.value),
+                onBlur: commitPageJump,
+                onKeyDown: (e) => {
+                  if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); commitPageJump(); }
+                  else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); setPageDraft(null); }
+                },
+              }),
+              h('span', { className: 'dshic-asset-pagetotal', 'data-role': 'assets-page-total' }, '/ ' + pageCount),
+            ),
+            h('button', {
+              type: 'button', className: 'dshic-toolbtn is-icon', 'data-action': 'assets-page-next', title: T('pageNext'),
+              disabled: pageSafe >= pageCount - 1, onClick: () => goPage(1), onPointerDown: (e) => e.stopPropagation(),
+            }, '›'),
+            h('span', { className: 'dshic-asset-pagecount', 'data-role': 'assets-page-info' }, T('assetsTotalCount').replace('{n}', String(filtered.length))),
+          ),
+        ),
         h('input', { key: 'file', ref: fileRef, type: 'file', accept: 'image/*,video/*', multiple: true, style: { display: 'none' }, onChange: onImport }),
         loading && !assets.length
           ? h('div', { key: 'loading', className: 'dshic-hint' }, T('aiRunning'))
@@ -18248,27 +18348,6 @@ const DIRECTOR_KEY_HELP = [
                   checked: selIds.has(a.id), onToggleSel: toggleSel,
                 })),
               ),
-        // 批量操作条：选中 >0 时出现（一键按列导入画布 / 批量删除 / 清除选择）
-        selIds.size
-          ? h('div', { key: 'batchbar', 'data-role': 'assets-batch-bar', style: { display: 'flex', alignItems: 'center', gap: 8, alignSelf: 'flex-start', padding: '4px 0' } },
-              h('button', { type: 'button', className: 'dshic-mini', disabled: !addableList.length, onClick: addSelectedToCanvas, onPointerDown: (e) => e.stopPropagation() }, Ic('expandAll', 11), T('assetsAddToCanvas') + '（' + addableList.length + '）'),
-              h('button', { type: 'button', className: 'dshic-mini', style: { color: 'var(--dsw-alias-state-error-primary)', borderColor: 'var(--dsw-alias-state-error-primary)' }, onClick: () => setBatchDel(true), onPointerDown: (e) => e.stopPropagation() }, T('doDelete') + '（' + selIds.size + '）'),
-              h('button', { type: 'button', className: 'dshic-mini is-ghost', onClick: clearSel, onPointerDown: (e) => e.stopPropagation() }, T('assetsClearSel')),
-              audioN ? h('span', { style: { fontSize: 11, opacity: 0.75 } }, T('assetsAudioSkip').replace('{n}', String(audioN))) : null,
-            )
-          : null,
-        // 分页（客户端分页：资产数据源已是全量 assetsForPicker）
-        h('div', { key: 'pager', className: 'dshic-asset-pager' },
-          h('button', {
-            type: 'button', className: 'dshic-mini is-ghost', 'data-action': 'assets-page-prev',
-            disabled: pageSafe <= 0, onClick: () => setPage(pageSafe - 1), onPointerDown: (e) => e.stopPropagation(),
-          }, '‹ ' + T('pagePrev')),
-          h('span', { 'data-role': 'assets-page-info' }, (pageSafe + 1) + ' / ' + pageCount + ' · ' + filtered.length + ' / ' + assets.length),
-          h('button', {
-            type: 'button', className: 'dshic-mini is-ghost', 'data-action': 'assets-page-next',
-            disabled: pageSafe >= pageCount - 1, onClick: () => setPage(pageSafe + 1), onPointerDown: (e) => e.stopPropagation(),
-          }, T('pageNext') + ' ›'),
-        ),
         delTarget ? h(DeleteAssetModal, {
           key: 'delasset', target: delTarget, name: assetName, setName: setAssetName,
           onCancel: () => { setDelTarget(null); setAssetName(''); },
@@ -20664,6 +20743,8 @@ const DIRECTOR_KEY_HELP = [
             nextNodePosClient, addNodeAt,
             // 资产批量导入落点：现有节点最右侧之外按列铺开（一列 ≤5，零重叠），供回归测试直接断言
             layoutBatchColumns,
+            // 资产页分页跳转（页码输入 → 0-based 页；非法文本 null、越界夹取）
+            assetsPageIndex,
             // 历史条死条目裁剪 / 资产回链候选挑选与回链计划（纯函数，供回归测试直接断言）
             pruneDeadHistory, repairPickAsset, repairPlan,
             // 媒体节点指针空值保护（Host 合并不得用 null 覆盖本地有效 assetId/lastAssetId）

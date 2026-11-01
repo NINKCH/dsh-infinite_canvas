@@ -262,6 +262,29 @@ function cssRulesMatchingClass(name) {
   ok(/assetsForPicker\(/.test(assetsBody), '资产页数据源不是 assetsForPicker');
   ok(/ASSET_PAGE_SIZE/.test(assetsBody) && /dshic-asset-grid/.test(assetsBody), '资产页缺少分页或网格卡片');
   ok(/dshic-asset-pager/.test(assetsBody), '资产页缺少分页控件');
+  // 工具栏（项目下一行）：同步/导入/全选 + 批量操作 + 分页同排；按钮透明底线框
+  ok(/data-role['"]?\s*:\s*'assets-toolbar'/.test(assetsBody), '资产页操作按钮未收拢到项目下一行');
+  ok(/data-role['"]?\s*:\s*'assets-page-input'/.test(assetsBody), '资产分页缺少页码输入跳转');
+  const iTool = assetsBody.indexOf("'assets-toolbar'");
+  const iImp = assetsBody.indexOf("'assets-import'");
+  const iBatch = assetsBody.indexOf("'assets-batch-bar'");
+  const iPager = assetsBody.indexOf("'assets-pager'");
+  ok(iTool > 0 && iImp > iTool && iBatch > iTool && iPager > iTool, '导入/批量/分页必须同属一个工具栏');
+  ok(iPager > iImp && iPager > iBatch, '分页不在工具栏内（或位置不在批量操作之后）');
+  const assetsCss = LAYOUT.CSS || '';
+  ok(/\.dshic-toolbtn\{[^}]*background:transparent/.test(assetsCss), '工具栏按钮仍有底色（应为透明底 + 线框）');
+  ok(/\.dshic-toolbtn\{[^}]*border:1px solid/.test(assetsCss), '工具栏按钮缺少 1px 线框');
+  ok(/\.dshic-asset-pager\{[^}]*margin-left:auto/.test(assetsCss), '分页未靠右（缺 margin-left:auto）');
+  const jump = LAYOUT.assetsPageIndex;
+  ok(typeof jump === 'function', '缺少 assetsPageIndex 测试缝隙（页码跳转）');
+  if (typeof jump === 'function') {
+    eq(jump('2', 10), 1, '页码 2 → 第 2 页（0-based 1）');
+    eq(jump('0', 10), 0, '页码 0 夹到第 1 页');
+    eq(jump('99', 10), 9, '页码越界夹到末页');
+    eq(jump('abc', 10), null, '非法文本保持当前页');
+    eq(jump('1.5', 10), null, '小数不当作页码');
+    eq(jump('', 10), null, '空输入保持当前页');
+  }
   // 卡片结构：缩略图/首帧 + 名称 + 分类 + 时间（AssetCard 复用）
   const card = all(PANEL.AssetCard({
     a: { id: 'a1', kind: 'image', name: '角色图', category: 'character', createdAt: Date.now() },
