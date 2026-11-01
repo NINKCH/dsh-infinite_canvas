@@ -224,6 +224,30 @@ const barsOn = () => HDR() + FOOT();
       '资产卡片单击仍直接添加到画布（应改为切换选中）');
     ok(/dshic-asset-check\{[^}]*position:absolute/.test(src), '复选框需要绝对定位在卡片左上角');
   }
+  {
+    // 历史清理去破坏化 + 资产回链（预览丢失事故回归）
+    const PD = LAYOUT.pruneDeadHistory;
+    const RP = LAYOUT.repairPickAsset;
+    ok(typeof PD === 'function' && typeof RP === 'function', '缺少 pruneDeadHistory / repairPickAsset 测试缝隙');
+    if (typeof PD === 'function') {
+      const hist = [{ assetId: 'a1' }, { assetId: 'dead' }, { assetId: 'a2' }];
+      ok(PD(hist, new Set(['a1', 'a2', 'dead'])) === hist, '全活 → 原数组原样返回（无写回）');
+      const r2 = PD(hist, new Set(['a1', 'a2']));
+      ok(r2.length === 2 && r2.every((x) => x.assetId !== 'dead'), '死条目被裁剪');
+      ok(hist.length === 3, '原数组不被原地修改');
+      ok(/if \(!S\.store\) return;/.test(src) && /store 未就绪绝不清理/.test(src), '历史清理缺 store 卫语句（刷新竞态会误走 IDB 分支）');
+      ok(!/nd\.data\.assetId = next\.length \? next\[next\.length - 1\]\.assetId : null;/.test(src),
+        '历史清理不得再置空 data.assetId（破坏性回写是预览丢失事故的根因）');
+    }
+    if (typeof RP === 'function') {
+      const cands = [{ id: 'a_old', createdAt: 1 }, { id: 'a_new', createdAt: 2 }];
+      eq(RP(cands, new Set()).id, 'a_new', '回链取 createdAt 最新的资产');
+      eq(RP(cands, new Set(['a_new'])).id, 'a_old', '已被其他节点引用的候选跳过');
+      eq(RP(cands, new Set(['a_old', 'a_new'])), null, '全部被引用 → 不回链（宁缺勿错）');
+      eq(RP([], new Set()), null, '无候选 → 不回链');
+    }
+    ok(/scheduleRepair\(\)/.test(src), '缺少 repair 调度调用（画布载入后自愈）');
+  }
   const widePv = LAYOUT.sizeForRatio('21:9');
   ok(Math.max(widePv.w, widePv.h) <= LAYOUT.MEDIA_MAX_LONG, '超长比例（21:9）预览区长边必须 ≤ 800（实际 ' + JSON.stringify(widePv) + '）');
   ok(widePv.w > widePv.h, '21:9 预览区必须横向变长');

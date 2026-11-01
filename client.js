@@ -1172,6 +1172,7 @@ function revealCanvasInRight() {
       'assetsBatchDelWarn': '将从资产库删除所选资产；画布上引用它们的节点会解绑：',
       'assetsDeletedN': '已删除 {n} 个资产',
       'assetClickHint': '单击选择 / 双击直接添加到画布',
+      'assetsRelinked': '已自动回链 {n} 个节点的资产引用',
       'dataRootLabel': '数据根目录',
       'dataRootPlaceholder': '如 D:\\canvas-data',
       'dataRootHint': '资产与视频按项目落盘到该目录（不再占用 C 盘 IndexedDB）。留空 = 浏览器 IndexedDB。',
@@ -2117,6 +2118,7 @@ function revealCanvasInRight() {
       'assetsBatchDelWarn': 'Selected assets will be deleted from the library; canvas nodes referencing them will be unbound:',
       'assetsDeletedN': '{n} assets deleted',
       'assetClickHint': 'Click to select / double-click to add to canvas',
+      'assetsRelinked': 'Relinked {n} nodes to their assets',
       'dataRootLabel': 'Data root',
       'dataRootPlaceholder': 'e.g. D:\\canvas-data',
       'dataRootHint': 'Assets and videos are stored per project under this folder (no more C: IndexedDB). Empty = browser IndexedDB.',
@@ -3662,6 +3664,7 @@ body[data-ds-dark-theme] .dshic-pick-item.is-on{background:color-mix(in srgb,var
         V.x = s.graph.view.x; V.y = s.graph.view.y; V.scale = s.graph.view.scale;
         applyViewToDom();
       });
+      scheduleRepair(); // 载入/切画布后自愈被误置空的资产引用（幂等，每画布一次）
       history.stack = [];
       history.idx = -1;
       pushHistory();
@@ -8264,6 +8267,7 @@ function queueThumb(assetId) {
         }
       }
       if (isActiveCanvas) update((s) => { s.graph = { nodes, edges: keep, view: s.graph.view, tombstones: tombOut, edgeTombstones: local.edgeTombstones || [] }; s.assetsTick++; });
+      if (isActiveCanvas) scheduleRepair(); // 启动同步落图后自愈被误置空的资产引用
     }
     async function hostSyncTick() {
       if (hostSyncStopped) return;
@@ -9567,6 +9571,71 @@ function queueThumb(assetId) {
       }
       pushHistory();
       flushSave(); // 删除立即推送（不等 450ms 防抖）：同步把 Host 上的节点删掉，压缩"拉回复活"的时间窗
+    }
+    /** 历史条死条目裁剪（纯函数供回归）：返回去死后的新数组，无死时原样返回（调用方按引用判变化）。
+     *  【契约】只裁 history——绝不产生「清空当前 assetId」的语义（旧版清理曾把 assetId 置空落盘，
+     *  刷新/跨机误判时造成生成节点预览全部丢失）。 */
+    function pruneDeadHistory(history, aliveIds) {
+      const hasDead = (history || []).some((x) => !aliveIds.has(x.assetId));
+      if (!hasDead) return history;
+      return (history || []).filter((x) => aliveIds.has(x.assetId));
+    }
+    /** 资产回链候选挑选（纯函数供回归）：跳过已被其他节点引用的资产，取 createdAt 最新的一条；
+     *  无可用候选返回 null（宁缺勿错）。 */
+    function repairPickAsset(candidates, usedIds) {
+      const pool = (candidates || []).filter((c) => c && c.id && !(usedIds && usedIds.has(c.id)));
+      if (!pool.length) return null;
+      let best = null;
+      for (const c of pool) {
+        if (!best || (Number(c.createdAt) || 0) >= (Number(best.createdAt) || 0)) best = c;
+      }
+      return best;
+    }
+    // 修复：旧版清理在 store 未就绪（刷新竞态）/跨机打开（本地库无资产行）时会误把 assetId
+    // 置空并落盘 → 生成节点预览全部丢失（资产文件与资产库都还在，只有指针没了）。
+    // 每次载入项目/切画布后跑一次：按 nodeLabel 与节点 label 逐字唯一匹配回链最新资产（幂等）。
+    let repairDoneFor = '';
+    let repairTimer = null;
+    function scheduleRepair() {
+      if (repairTimer) clearTimeout(repairTimer);
+      repairTimer = setTimeout(() => { repairTimer = null; repairMissingAssetLinks().catch(() => { /* 静默 */ }); }, 1500);
+    }
+    async function repairMissingAssetLinks() {
+      if (!S.store || !S.activeId) return;
+      const key = S.activeId + '/' + activeCanvasId();
+      if (repairDoneFor === key) return;
+      repairDoneFor = key;
+      const nodes = Object.values(S.graph.nodes).filter((nd) => (nd.type === 'image' || nd.type === 'video')
+        && nd.data && nd.data.status === 'done' && !nd.data.assetId && String(nd.data.label || '').trim());
+      if (!nodes.length) return;
+      const recs = await idbByProject(S.activeId).catch(() => []);
+      if (!recs.length) return;
+      const usedIds = new Set(Object.values(S.graph.nodes).map((nd) => nd.data && nd.data.assetId).filter(Boolean));
+      const byLabel = new Map();
+      for (const rec of recs) {
+        if (rec.kind !== 'image' && rec.kind !== 'video') continue;
+        const lb = String(rec.nodeLabel || '').trim();
+        if (!lb) continue;
+        if (!byLabel.has(lb)) byLabel.set(lb, []);
+        byLabel.get(lb).push(rec);
+      }
+      const fixes = [];
+      for (const nd of nodes) {
+        const pick = repairPickAsset(byLabel.get(String(nd.data.label || '').trim()), usedIds);
+        if (!pick) continue;
+        fixes.push({ id: nd.id, assetId: pick.id });
+        usedIds.add(pick.id);
+      }
+      if (!fixes.length) return;
+      update((s) => {
+        for (const f of fixes) {
+          const nd = s.graph.nodes[f.id];
+          if (nd && nd.data && !nd.data.assetId) nd.data.assetId = f.assetId;
+        }
+        s.assetsTick++;
+      });
+      flushSave();
+      toast(T('assetsRelinked').replace('{n}', String(fixes.length)));
     }
     function duplicateSelection() {
       const clones = [];
@@ -12509,14 +12578,18 @@ function queueThumb(assetId) {
         return () => { cancelled = true; };
       }, [kind, n.data.assetId, n.data.label, S.assetsTick]);
       // 历史条自愈：已被删除的资产（渲染成 … 的幽灵格）自动从节点 history 剔除；
-      // 服务端不可达时跳过本轮（宁可不修剪，绝不误删有效历史）
+      // 【卫语句】store 未就绪绝不清理——sqlite 资产不在 IDB，误走 IDB 分支会把活资产
+      // 全部判死并置空 assetId（刷新竞态曾造成生成节点预览全部丢失，见 0.19.18 修复记录）。
+      // 【契约】清理只裁 history，绝不回写 data.assetId——当前资产指针是用户数据，
+      // 资产真被删时展示层已有缺失态兜底，节点仍可重生成/重连。
       useEffect(() => {
         const histList = n.data.history || [];
         if (!histList.length) return;
+        if (!S.store) return;
         let ok = true;
         (async () => {
           let alive = null;
-          if (S.store) {
+          if (S.store === 'sqlite') {
             const r = await hostRpc('assetsGet', { ids: histList.map((x) => x.assetId) }).catch(() => null);
             if (!r) return;
             alive = new Set((r.items || []).map((x) => x.id));
@@ -12525,15 +12598,12 @@ function queueThumb(assetId) {
             alive = new Set(histList.filter((_, i) => recs[i]).map((x) => x.assetId));
           }
           if (!ok) return;
-          const dead = histList.filter((x) => !alive.has(x.assetId)).map((x) => x.assetId);
-          if (!dead.length) return;
+          const next = pruneDeadHistory(n.data.history, alive);
+          if (next === n.data.history) return;
           update((s) => {
             const nd = s.graph.nodes[n.id];
             if (!nd || !Array.isArray(nd.data.history)) return;
-            const next = nd.data.history.filter((x) => !dead.includes(x.assetId));
-            if (next.length === nd.data.history.length) return;
             nd.data.history = next;
-            if (nd.data.assetId && dead.includes(nd.data.assetId)) nd.data.assetId = next.length ? next[next.length - 1].assetId : null;
           });
         })();
         return () => { ok = false; };
@@ -20482,6 +20552,8 @@ const DIRECTOR_KEY_HELP = [
             nextNodePosClient, addNodeAt,
             // 资产批量导入落点：现有节点最右侧之外按列铺开（一列 ≤5，零重叠），供回归测试直接断言
             layoutBatchColumns,
+            // 历史条死条目裁剪 / 资产回链候选挑选（纯函数，供回归测试直接断言）
+            pruneDeadHistory, repairPickAsset,
             graph: () => JSON.parse(JSON.stringify(S.graph)), // 建点结果断言用（与 SYNC.graph 同口径）
             addGraphNodes: (list) => { for (const n of (list || [])) S.graph.nodes[n.id] = n; }, // 测试播种（写入活状态）
             // 下拉自定义数值的纯函数：范围夹取 / 整数与小数口径（分镜数、单段上限共用）
