@@ -117,6 +117,7 @@ const COVERAGE = [
   // 0.19.20 已发布，历史提交清零。当前未发版：工作区内嵌项目 + 项目记忆层。
   { sha: '30910e4', keys: [/Workspace-embedded projects/i] },
   { sha: '5a17bb0', keys: [/Project memory store/i] },
+  { sha: '7b2e9a0', keys: [/Session↔canvas bindings/i] },
 ];
 for (const c of COVERAGE) {
   ok(c.keys.some((re) => re.test(coverageText)), '未发版提交 ' + c.sha + ' 在 CHANGELOG（Unreleased 或最新已发布段）里找不到对应记录（补记不全）');
