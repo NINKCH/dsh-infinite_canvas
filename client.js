@@ -967,7 +967,7 @@ function revealCanvasInRight() {
       'bindOccupied': '已被其他会话占用',
       'bindFail': '绑定失败',
       'bindCreating': '创建中…',
-      'bindChipBound': '第{n}集·{name}',
+      'bindChipBound': '{project}·{name}',
       // —— 记忆查看器（统一弹窗「记忆」页签）——
       'memViewerTab': '记忆',
       'memViewerEmpty': '项目还没有记忆。各集会话在创作中用 canvas_write_memory 回写后，这里能看到每一集的记忆索引与全文。',
@@ -1932,7 +1932,7 @@ function revealCanvasInRight() {
       'bindOccupied': 'Occupied by another session',
       'bindFail': 'Binding failed',
       'bindCreating': 'Creating…',
-      'bindChipBound': 'E{n} · {name}',
+      'bindChipBound': '{project} · {name}',
       // —— Memory viewer (studio modal "memory" tab) ——
       'memViewerTab': 'Memory',
       'memViewerEmpty': 'No memories yet. As episode sessions write back via canvas_write_memory, the per-episode index and full memory appear here.',
@@ -21156,7 +21156,10 @@ const DIRECTOR_KEY_HELP = [
         title: bound ? T('bindMenuTitle') : (b.project ? T('bindUnbound') : T('bindNewProject')),
         onClick: bound ? openBoundCanvasFromChip : (b.project ? openMenu : () => createWorkspaceProject(sessionId)),
       }, bound
-        ? TPL(T('bindChipBound'), { n: ep ? ep.n : '·', name: ep ? ep.name : String(b.binding.canvasId || '') })
+        ? TPL(T('bindChipBound'), {
+          project: (b.project && b.project.name) || b.project.id || '',
+          name: ep ? ep.name : String(b.binding.canvasId || ''),
+        })
         : (b.project ? T('bindUnbound') : (S.bindingCreating ? T('bindCreating') : T('bindNewProject'))));
       return h('div', { className: 'dshic-bind' },
         chip,

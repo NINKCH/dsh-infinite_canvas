@@ -125,7 +125,7 @@ const COVERAGE = [
   { sha: 'd84fdc8', keys: [/Memory viewer \(studio modal/i] },
   { sha: 'cf2bb1f', keys: [/Memory-first discipline/i] },
   { sha: '6b886e0', keys: [/Memory-first discipline|Composer canvas-binding chip|Memory viewer/i] },
-  { sha: 'a5283e2', keys: [/Review pass: five defects/i] },
+  { sha: 'a5283e2', keys: [/Review-pass hardenings|Composer chip's 建画布项目/i] },
 ];
 for (const c of COVERAGE) {
   ok(c.keys.some((re) => re.test(coverageText)), '未发版提交 ' + c.sha + ' 在 CHANGELOG（Unreleased 或最新已发布段）里找不到对应记录（补记不全）');

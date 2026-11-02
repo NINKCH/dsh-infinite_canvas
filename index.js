@@ -1180,7 +1180,8 @@ function wsProjectListEntry(rec) {
     origin: 'workspace', wsId: rec.wsId, wsPath: rec.wsPath,
   };
 }
-/** 删除工作区项目目录（.infinite-canvas 整目录）；工作区目录本身不动。 */
+/** 删除工作区项目目录（.infinite-canvas 整目录）；工作区目录本身不动。
+ *  watcher 只发现不创建 → 删除后不会复活，无需墓碑。 */
 function wsProjectRemove(pid) {
   const home = wsProjectHome(pid);
   if (!home) return false;
@@ -1188,40 +1189,10 @@ function wsProjectRemove(pid) {
   wsProjects.delete(String(pid));
   return true;
 }
-// —— 已删除工作区墓碑（评审 C1）：删除后 registry 条目仍在、标记没了，watcher 会按「无标记工作区」
-// 用新 pid 重建空项目（删除自败）。墓碑 = 配置里的路径清单：tick 见清单内路径不自动建项目；
-// 用户显式再建（chip「建画布项目」/ wsProjectCreateAt）时解除。
-function wsRemovedPathsAll() {
-  const cfg = readIcConfig();
-  return Array.isArray(cfg.wsProjectRemovedPaths) ? cfg.wsProjectRemovedPaths.map(String) : [];
-}
-function wsRemovedPathAdd(p) {
-  const s = String(p || '');
-  if (!s) return;
-  try {
-    const cfg = readIcConfig();
-    const list = Array.isArray(cfg.wsProjectRemovedPaths) ? cfg.wsProjectRemovedPaths.map(String) : [];
-    if (!list.includes(s)) list.push(s);
-    cfg.wsProjectRemovedPaths = list.slice(-200); // 上限防膨胀（工作区数量级远小于此）
-    writeIcConfig(cfg);
-  } catch { /* 配置写失败：退化为「可能复活」，不阻塞删除 */ }
-}
-function wsRemovedPathClear(p) {
-  const s = String(p || '');
-  if (!s) return;
-  try {
-    const cfg = readIcConfig();
-    if (Array.isArray(cfg.wsProjectRemovedPaths) && cfg.wsProjectRemovedPaths.map(String).includes(s)) {
-      cfg.wsProjectRemovedPaths = cfg.wsProjectRemovedPaths.map(String).filter((x) => x !== s);
-      writeIcConfig(cfg);
-    }
-  } catch { /* 清理失败不影响创建 */ }
-}
-/** 在工作区目录创建内嵌项目（watcher / RPC「建画布项目」共用）：默认画布「第1集」。 */
+/** 在工作区目录创建内嵌项目（RPC「建画布项目」/ 测试共用）：默认画布「第1集」。仅显式路径调用。 */
 function wsProjectCreateAt(w) {
   const dir = path.join(String(w.path), WS_APP_DIR);
   try { mkdirSync(dir, { recursive: true }); } catch { /* 已存在 */ }
-  wsRemovedPathClear(String(w.path)); // 显式创建解除删除墓碑（评审 C1）
   const pid = 'ws' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
   const name = (path.basename(w.path) || '画布项目').replace(/\s+/g, ' ').trim().slice(0, 80) || '画布项目';
   const doc = {
@@ -1244,38 +1215,13 @@ function wsRecOf(w) {
   if (!w) return null;
   return [...wsProjects.values()].find((r) => r.wsId === String(w.id || '') || r.wsPath === w.path) || null;
 }
-/** watcher 单次 tick：无标记工作区建项目 / 有标记采纳 / 首会话自动绑默认画布。
- *  首会话自动绑规则：项目绑定表为空 && 工作区**恰好一个**会话 → 绑默认画布；
- *  多会话同时在场时不猜谁算「第一个」（手动绑定兜底），避免绑错。 */
+/** watcher 单次 tick：**纯发现**——只扫描已带 `.infinite-canvas/project.json` 标记的工作区项目进缓存/列表。
+ *  不自动建项目、不自动绑会话（0.20.x 口径修正）：绑定必须是用户在 composer chip 里的显式动作，
+ *  编码等普通任务的工作区零打扰。目录消失的标记自然读不到 → 自动落榜，无需特殊处理。 */
 function wsWatchTick(list) {
   if (!Array.isArray(list)) return { skipped: true };
-  wsProjectsScan(list);
-  const created = [], adopted = [], bound = [];
-  for (const w of list) {
-    if (!w || typeof w.path !== 'string' || !w.path) continue;
-    try {
-      const st = statSync(w.path); // 目录消失（ENOENT）→ 跳过：不建项目也不删旧档
-      if (!st.isDirectory()) continue;
-    } catch { continue; }
-    let rec = wsRecOf(w);
-    if (!rec) {
-      if (wsRemovedPathsAll().includes(String(w.path))) continue; // 删除墓碑：不自动重建（评审 C1）
-      rec = wsProjectCreateAt(w); created.push(String(w.id || w.path));
-    }
-    else adopted.push(String(w.id || w.path));
-    const pdoc = readDocOrNull(rec.pid);
-    if (!pdoc) continue;
-    const defCid = defaultCanvasExists(pdoc) ? null : ((canvasRegistry(pdoc)[0] || {}).id || null);
-    const data = bindingsRead(rec.pid);
-    if (data.bindings.length === 0 && !data.suppressAutoBind && Array.isArray(w.sessionIds) && w.sessionIds.length === 1) {
-      const sid = String(w.sessionIds[0] || '').trim();
-      if (sid) {
-        const r = bindingSetSync(rec.pid, sid, defCid, () => true);
-        if (r && r.ok) bound.push(sid);
-      }
-    }
-  }
-  return { skipped: false, created, adopted, bound };
+  const scan = wsProjectsScan(list);
+  return { skipped: false, discovered: scan.map((r) => r.pid) };
 }
 // ---- 项目记忆（0.20.x）：每集画布一份记忆正文 + 项目级调度索引 ----
 // 落位：<项目家目录>/memory/index.json（索引：canvasId/标题/摘要/关键词/状态）+ memory/episodes/<canvasId>.md（正文）。
@@ -1410,6 +1356,21 @@ function toolBindingForSession(sid) {
   }
   return null;
 }
+/** 绑定的人类可读标签「项目名·画布名」（拒绝文案用）。 */
+function bindingLabelOf(b) {
+  try {
+    const doc = readDocOrNull(b.projectId) || {};
+    const cid = b.canvasId == null ? null : b.canvasId;
+    let cname = '默认画布';
+    if (cid != null) {
+      const hit = canvasRegistry(doc).find((c) => c.id === cid);
+      cname = (hit && hit.name) || String(cid);
+    } else if (defaultCanvasExists(doc)) {
+      cname = defaultCanvasNameOf(doc);
+    }
+    return (doc.name || String(b.projectId || '')) + '·' + cname;
+  } catch { return String(b.projectId || ''); }
+}
 /** 防御式嗅探工具执行身份：不同宿主版本 exec.agent 携带的会话字段可能不同
  *  （sessionId / session / id；cordis branded id 可能包一层 {value}）。拿不到 → null（走显式参数路径）。 */
 function toolExecSessionId(exec) {
@@ -1489,7 +1450,6 @@ function bindingSetSync(pid, sessionId, canvasId, aliveFn) {
     updatedAt: Date.now(),
     bindings: others.filter((b) => b !== occupant).concat([{ sessionId: sid, canvasId: cid, boundAt: Date.now() }]),
   };
-  delete next.suppressAutoBind; // 显式绑定 = 用户改主意：解除「解绑持久」抑制（评审 I2）
   writeBindingsAtomic(id, next);
   return { ok: true, projectId: id, sessionId: sid, canvasId: cid, replaced: !!(mine || occupant) };
 }
@@ -1497,16 +1457,16 @@ function bindingSetSync(pid, sessionId, canvasId, aliveFn) {
 async function bindingSet(pid, sessionId, canvasId, aliveFn) {
   return bindingSetSync(pid, sessionId, canvasId, aliveFn);
 }
-/** 解绑会话（幂等）。显式解绑写 suppressAutoBind：watcher 见标记不再自动绑回——
- *  否则单会话工作区的「仅会话」状态 5 秒即被推翻（评审 I2）。 */
+/** 解绑会话（幂等：无绑定返回 removed=false）。显式解绑即持久——watcher 只发现不绑定，不会绑回。 */
 async function bindingClear(pid, sessionId) {
   const id = String(pid || '');
   const sid = String(sessionId || '').trim();
   if (!id || !sid) return { ok: false, error: '缺少 projectId 或 sessionId' };
   const data = bindingsRead(id);
-  const next = { ...data, suppressAutoBind: true, updatedAt: Date.now(), bindings: data.bindings.filter((b) => b && b.sessionId !== sid) };
-  writeBindingsAtomic(id, next);
-  return { ok: true, removed: next.bindings.length < data.bindings.length };
+  const kept = data.bindings.filter((b) => b && b.sessionId !== sid);
+  const removed = kept.length < data.bindings.length;
+  if (removed) writeBindingsAtomic(id, { version: 1, updatedAt: Date.now(), bindings: kept });
+  return { ok: true, removed };
 }
 // ---- 默认画布（canvasId=null）：名字存项目文档 defaultCanvasName；删除后 defaultCanvasDeleted=true ----
 const DEFAULT_CANVAS_NAME = '默认画布';
@@ -1861,8 +1821,6 @@ async function projectsDelete(args) {
   let cleanup = null;
   if (isWsProject(id)) {
     // 工作区内嵌项目：删 .infinite-canvas 整目录（工作区目录本身不动），并清数据根媒体文件夹
-    const home = wsProjectHome(id);
-    if (home) wsRemovedPathAdd(path.dirname(home)); // 墓碑记工作区路径（tick 比对 w.path）；评审 C1
     cleanup = { ws: wsProjectRemove(id) };
     try { removeDataRootProject(id); } catch { /* 媒体清理失败不影响删除 */ }
   } else if (sqlActive()) {
@@ -3961,9 +3919,12 @@ export function apply(ctx) {
         const reg = (def) => {
           try {
             const inner = def.execute;
-            // 会话感知默认值（0.20.x）：绑定会话的 agent 不传 projectId/canvasId 时自动命中绑定画布。
-            // 只对 schema 声明了该参数的工具注入（additionalProperties:false 的工具不能多塞键）；
-            // 显式参数永远优先；嗅探失败（宿主不带会话身份）静默回退旧行为。
+            // 会话绑定（0.20.x）：绑定会话的 agent 被**代码级锁死**在本集画布——
+            //  ① projectId/canvasId 缺省 → 自动注入绑定值；
+            //  ② 显式传其他项目/画布（含同项目其他画布与默认画布）→ 直接拒绝（locked），文案指引先解绑；
+            //  ③ 未绑定会话不受任何限制（编码等普通任务零打扰）。
+            // 只对 schema 声明了该参数的工具生效（additionalProperties:false 的工具不能多塞键）；
+            // 嗅探失败（宿主不带会话身份）静默回退旧行为。
             const propDefs = (def.parameters && def.parameters.properties) || null;
             const allowProject = !!(propDefs && Object.prototype.hasOwnProperty.call(propDefs, 'projectId'));
             const allowCanvas = !!(propDefs && Object.prototype.hasOwnProperty.call(propDefs, 'canvasId'));
@@ -3975,8 +3936,21 @@ export function apply(ctx) {
                   const b = toolBindingForSession(sid);
                   if (b) {
                     a = (args && typeof args === 'object' && !Array.isArray(args)) ? args : {};
-                    if (allowProject && a.projectId == null && b.projectId != null) a.projectId = b.projectId;
-                    if (allowCanvas && a.canvasId == null && b.canvasId != null) a.canvasId = b.canvasId;
+                    const wantPid = b.projectId == null ? null : String(b.projectId);
+                    const wantCid = b.canvasId == null ? null : String(b.canvasId);
+                    const deny = (what) => {
+                      const label = bindingLabelOf(b);
+                      return stripUndefined({
+                        ok: false,
+                        locked: true,
+                        text: '本会话已绑定画布工作台「' + label + '」，代码级限制：' + what
+                          + '。一个会话只允许操作自己绑定的那一张画布；如需操作其他画布/项目，请先在对话输入行的画布选择器里解绑。',
+                      });
+                    };
+                    if (allowProject && a.projectId != null && String(a.projectId) !== wantPid) return deny('禁止跨项目操作');
+                    if (allowCanvas && a.canvasId != null && String(a.canvasId) !== wantCid) return deny('禁止跨画布操作（含同项目其他画布与默认画布）');
+                    if (allowProject && a.projectId == null && wantPid != null) a.projectId = b.projectId;
+                    if (allowCanvas && a.canvasId == null && wantCid != null) a.canvasId = b.canvasId;
                   }
                 }
               } catch { /* 默认解析失败 → 原参数路径 */ }
@@ -4480,7 +4454,7 @@ export function apply(ctx) {
         });
         reg({
           name: 'canvas_my_canvas',
-          description: '自证身份：返回当前会话绑定的画布项目与画布（第几集），以及本集记忆状态。【会话=画布工作台】开始任何创作前先调用它确认「我是哪一集」；此后所有 canvas_* 工具不传 projectId/canvasId 即默认作用于本集画布（显式传参仍优先，可跨集操作任意项目/画布的全部内容）。返回的记忆提示告知是否需要先读/写本集记忆。',
+          description: '自证身份：返回当前会话绑定的画布项目与画布（第几集），以及本集记忆状态。【会话=画布工作台】开始任何创作前先调用它确认「我是哪一集」；此后所有 canvas_* 工具不传 projectId/canvasId 即默认作用于本集画布。**代码级禁令**：绑定会话只能操作本集画布——显式传其他项目/画布（含同项目其他画布）会被工具直接拒绝，确需操作先请用户解绑；未绑定会话可自由操作任意项目/画布。返回的记忆提示告知是否需要先读/写本集记忆。',
           parameters: { type: 'object', properties: {}, additionalProperties: false },
           output: textOutput,
           timeoutMs: 15000,
@@ -4503,7 +4477,8 @@ export function apply(ctx) {
             const lines = [
               '本会话绑定：项目「' + (doc.name || b.projectId) + '」· 画布「' + name + '」' + (ep ? '（第' + ep + ' 集 / 共 ' + canvases.length + ' 集）' : ''),
               '记忆状态：' + (hasMem ? '已有本集记忆——开写前先 canvas_read_memory 读索引与本集正文' : '本集还没有记忆——创作告一段落必须 canvas_write_memory 回写'),
-              '本集画布节点：' + nodeCount + ' 个（画布全部内容可读写：canvas_write_node / canvas_create_node / canvas_connect / canvas_run_node / canvas_delete_node / canvas_get_bible / canvas_update_bible）',
+              '本集画布节点：' + nodeCount + ' 个（可读写：canvas_write_node / canvas_create_node / canvas_connect / canvas_run_node / canvas_delete_node / canvas_get_bible / canvas_update_bible）',
+              '代码级禁令：绑定会话禁止跨画布/跨项目操作（显式传其他 id 会被工具拒绝）；如需操作其他画布，请用户先在对话输入行解绑。',
             ];
             return { ok: true, projectId: b.projectId, canvasId: cid, name, text: lines.join('\n') };
           },

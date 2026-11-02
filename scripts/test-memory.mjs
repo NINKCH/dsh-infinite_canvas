@@ -154,7 +154,7 @@ I.wsProjectsScan([{ id: 'ws-aaaa', path: WS_DIR, title: 'ws-mem', sessionIds: []
   }
 }
 
-// ---------------- 8) 会话感知默认值：exec.agent 会话身份 → 绑定画布自动命中 ----------------
+// ---------------- 8) 会话感知默认值 + 代码级跨画布禁令 ----------------
 {
   // 工作区项目 + 绑定：ses_bound → cvS1（子画布）
   const made = await I.canvasCreate({ projectId: 'wsMem01', name: '第1集' });
@@ -167,6 +167,7 @@ I.wsProjectsScan([{ id: 'ws-aaaa', path: WS_DIR, title: 'ws-mem', sessionIds: []
   if (rd && cid) {
     // 预置该画布记忆，正文含标记词
     await I.memoryWrite('wsMem01', cid, { title: '第1集', summary: '嗅探默认值。', body: 'SNIFFED-BODY' });
+    await I.memoryWrite('wsMem01', 'cvOther', { title: '其他集', summary: 'x', body: 'OTHER-BODY' });
     // ① exec 带 agent.sessionId → 不传 projectId/canvasId 也命中绑定画布
     const r1 = await rd.execute({}, { agent: { sessionId: 'ses_bound' } });
     ok(r1 && r1.ok && /SNIFFED-BODY/.test(r1.text || ''), 'exec.agent.sessionId 嗅探未命中绑定画布');
@@ -176,20 +177,39 @@ I.wsProjectsScan([{ id: 'ws-aaaa', path: WS_DIR, title: 'ws-mem', sessionIds: []
     // ③ 无 exec → 行为不变（只回索引，不猜项目）
     const r3 = await rd.execute({});
     ok(r3 && r3.ok && !/SNIFFED-BODY/.test(r3.text || ''), '无 exec 时不应猜默认项目');
-    // ④ 显式参数优先：显式 canvasId 覆盖绑定
-    await I.memoryWrite('wsMem01', 'cvOther', { title: '其他集', summary: 'x', body: 'OTHER-BODY' });
+    // ④ 代码级禁令：绑定会话显式传**别的画布** → 拒绝（locked）
     const r4 = await rd.execute({ projectId: 'wsMem01', canvasId: 'cvOther' }, { agent: { sessionId: 'ses_bound' } });
-    ok(r4 && r4.ok && /OTHER-BODY/.test(r4.text || ''), '显式参数应覆盖绑定默认值');
+    ok(r4 && r4.ok === false && r4.locked === true, '跨画布显式操作未被拒绝（强限制缺失）');
+    ok(/解绑/.test(r4 && r4.text || ''), '拒绝文案缺「先解绑」指引');
+    // ⑤ 代码级禁令：显式传**别的项目** → 拒绝
+    const r5 = await rd.execute({ projectId: 'memP1', canvasId: 'cvE1' }, { agent: { sessionId: 'ses_bound' } });
+    ok(r5 && r5.ok === false && r5.locked === true, '跨项目显式操作未被拒绝（强限制缺失）');
+    // ⑥ 显式传绑定值本身 → 放行
+    const r6 = await rd.execute({ projectId: 'wsMem01', canvasId: cid }, { agent: { sessionId: 'ses_bound' } });
+    ok(r6 && r6.ok && /SNIFFED-BODY/.test(r6.text || ''), '显式传绑定值被误拒');
+    // ⑦ 解绑后恢复自由：显式跨画布放行
+    await I.bindingClear('wsMem01', 'ses_bound');
+    const r7 = await rd.execute({ projectId: 'wsMem01', canvasId: 'cvOther' }, { agent: { sessionId: 'ses_bound' } });
+    ok(r7 && r7.ok && /OTHER-BODY/.test(r7.text || ''), '解绑后未恢复跨画布自由');
+    // 重新绑定供 my_canvas 用例
+    await I.bindingSet('wsMem01', 'ses_bound', cid, () => true);
   }
-  // canvas_my_canvas：自证身份
+  // canvas_my_canvas：自证身份 + 禁令提示
   const my = tool('canvas_my_canvas');
   ok(!!my, '缺少 canvas_my_canvas 工具');
   if (my) {
     const m1 = await my.execute({}, { agent: { sessionId: 'ses_bound' } });
     ok(m1 && m1.ok && m1.projectId === 'wsMem01' && m1.canvasId === cid, 'canvas_my_canvas 未解析出绑定画布');
-    ok(/记忆/.test(m1.text || ''), 'canvas_my_canvas 输出缺记忆指引');
+    ok(/禁止跨/.test(m1.text || ''), 'canvas_my_canvas 输出缺跨画布禁令提示');
     const m2 = await my.execute({});
     ok(m2 && m2.ok === false, 'canvas_my_canvas 无 exec 应报「无法识别会话」');
+  }
+  // 绑定会话对其他工具同样被锁（以设定集写为例：跨项目 projectId → 拒绝）
+  const bible = tool('canvas_update_bible');
+  ok(!!bible, '缺少 canvas_update_bible 工具');
+  if (bible) {
+    const bx = await bible.execute({ projectId: 'memP1', bible: { style: 'x' } }, { agent: { sessionId: 'ses_bound' } });
+    ok(bx && bx.ok === false && bx.locked === true, '设定集写的跨项目操作未被拒绝');
   }
 }
 

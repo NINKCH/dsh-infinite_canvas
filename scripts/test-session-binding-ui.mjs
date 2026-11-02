@@ -104,6 +104,8 @@ for (const m of ['sessionBindingGet', 'sessionBindingSet', 'sessionBindingClear'
   ok(/canvas_write_memory/.test(skill), 'canvas-studio 缺 canvas_write_memory 指引');
   ok(/canvas_my_canvas/.test(skill), 'canvas-studio 缺 canvas_my_canvas 指引');
   ok(/会话[=＝]画布工作台|会话绑定/.test(skill), 'canvas-studio 缺「会话=画布工作台」口径');
+  ok(/禁止跨(画布|项目)/.test(skill), 'canvas-studio 缺代码级跨画布/跨项目禁令');
+  ok(/解绑/.test(skill), 'canvas-studio 缺「先解绑」指引');
   ok(/回写/.test(skill), 'canvas-studio 缺「回写」要求');
   ok(/bible/i.test(skill) && /记忆/.test(skill), '记忆与设定集（bible）分工口径缺失');
 }
