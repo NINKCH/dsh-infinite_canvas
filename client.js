@@ -956,6 +956,18 @@ function revealCanvasInRight() {
       'keysTitle': '快捷键与操作',
       'guideDesc': '在对话旁直接分镜、生成视频与成片',
       'hostTakenTitle': '画布已在另一侧打开',
+      // —— 会话↔画布绑定（composer 画布选择器）——
+      'bindNewProject': '建画布项目',
+      'bindUnbound': '绑画布',
+      'bindMenuTitle': '绑定画布（本会话）',
+      'bindSessionOnly': '仅会话（不绑定）',
+      'bindNewCanvas': '+ 新建画布…',
+      'bindNewCanvasPlaceholder': '第N集',
+      'bindUnbind': '解绑',
+      'bindOccupied': '已被其他会话占用',
+      'bindFail': '绑定失败',
+      'bindCreating': '创建中…',
+      'bindChipBound': '第{n}集·{name}',
       'hostTakenHint': '同一时刻画布只能在一处运行（共享同一份节点与生成状态），点击下方按钮把画布切换到这里。',
       'hostTakeOver': '把画布切换到这里',
       'keysHint': '点击按钮收起；Esc 也可关闭',
@@ -1904,6 +1916,18 @@ function revealCanvasInRight() {
       'keysTitle': 'Shortcuts & gestures',
       'guideDesc': 'Storyboard, generate and cut right beside the chat',
       'hostTakenTitle': 'The canvas is open elsewhere',
+      // —— Session↔canvas binding (composer canvas selector) ——
+      'bindNewProject': 'Create canvas project',
+      'bindUnbound': 'Bind canvas',
+      'bindMenuTitle': 'Bind canvas (this session)',
+      'bindSessionOnly': 'Session only (no binding)',
+      'bindNewCanvas': '+ New canvas…',
+      'bindNewCanvasPlaceholder': 'Episode N',
+      'bindUnbind': 'Unbind',
+      'bindOccupied': 'Occupied by another session',
+      'bindFail': 'Binding failed',
+      'bindCreating': 'Creating…',
+      'bindChipBound': 'E{n} · {name}',
       'hostTakenHint': 'The canvas runs in one place at a time (one shared node graph and generation state). Move it here with the button below.',
       'hostTakeOver': 'Move the canvas here',
       'keysHint': 'Click the button again to collapse; Esc also closes',
@@ -2994,6 +3018,25 @@ body[data-ds-dark-theme] .dshic-inline-input{border-color:var(--dsw-alias-border
   color:var(--dsw-alias-label-primary);font:inherit;font-size:13px;cursor:pointer;text-align:left;white-space:nowrap;}
 .dshic-menu-item:hover{background:var(--dsw-alias-interactive-bg-hover,color-mix(in srgb,var(--dsw-alias-label-primary) 8%,transparent));}
 body[data-ds-dark-theme] .dshic-menu{border-color:var(--dsw-alias-border-l2);}
+/* —— 会话↔画布绑定（composer 画布选择 chip）：透明底线框 chip + 就地下拉 —— */
+.dshic-bind{position:relative;display:inline-flex;align-items:center;gap:2px;}
+.dshic-bind-chip{display:inline-flex;align-items:center;height:24px;padding:0 10px;border-radius:999px;border:1px solid var(--dsw-alias-border-l1);
+  background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:12px;cursor:pointer;white-space:nowrap;max-width:200px;overflow:hidden;text-overflow:ellipsis;}
+.dshic-bind-chip:hover{border-color:var(--dsw-alias-brand-primary);color:var(--dsw-alias-label-primary);}
+.dshic-bind-chip.is-bound{color:var(--dsw-alias-brand-primary);border-color:color-mix(in srgb,var(--dsw-alias-brand-primary) 55%,transparent);}
+.dshic-bind-arrow{display:inline-flex;align-items:center;justify-content:center;width:18px;height:24px;border:none;border-radius:8px;background:transparent;
+  color:var(--dsw-alias-label-secondary);font-size:10px;cursor:pointer;}
+.dshic-bind-arrow:hover{color:var(--dsw-alias-label-primary);background:var(--dsw-alias-interactive-bg-hover,color-mix(in srgb,var(--dsw-alias-label-primary) 8%,transparent));}
+.dshic-bind-menu{position:absolute;top:calc(100% + 6px);left:0;z-index:70;max-height:320px;overflow:auto;min-width:230px;}
+.dshic-bind-menu-title{font-size:11px;color:var(--dsw-alias-label-secondary);padding:4px 10px 2px;}
+.dshic-bind-occ{color:var(--dsw-alias-label-secondary);font-size:11px;margin-left:auto;padding-left:12px;}
+.dshic-menu-item.is-dim{opacity:.55;cursor:not-allowed;}
+.dshic-menu-item.is-dim:hover{background:transparent;}
+.dshic-bind-newrow{display:flex;gap:6px;padding:4px 8px 6px;}
+.dshic-bind-newrow input{flex:1;min-width:0;height:26px;border:1px solid var(--dsw-alias-border-l1);border-radius:8px;background:transparent;color:var(--dsw-alias-label-primary);font:inherit;font-size:12px;padding:0 8px;box-sizing:border-box;}
+.dshic-bind-newrow button{height:26px;padding:0 10px;border:1px solid var(--dsw-alias-border-l1);border-radius:8px;background:transparent;color:var(--dsw-alias-label-primary);font:inherit;font-size:12px;cursor:pointer;white-space:nowrap;}
+.dshic-bind-newrow button:hover{border-color:var(--dsw-alias-brand-primary);}
+.dshic-bind-err{position:absolute;top:calc(100% + 4px);left:0;font-size:11px;color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-layer-1);border:1px solid var(--dsw-alias-border-l1);border-radius:8px;padding:2px 8px;z-index:70;max-width:260px;}
 .dshic-overlay{position:fixed;inset:0;z-index:50;background:transparent;}
 .dshic-empty{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none;}
 .dshic-empty-card{pointer-events:auto;text-align:center;display:flex;flex-direction:column;gap:10px;align-items:center;
@@ -9464,6 +9507,12 @@ function queueThumb(assetId) {
       keysOpen: false,       // 左上角快捷键面板是否展开（纯 UI 状态，不持久化）
       skillPalette: false,   // 创作技能浮层（Ctrl/⌘+Shift+K 打开；纯 UI 状态，不持久化）
       canvasHost: null,      // 画布当前宿主：'main'（全屏面板）| 'pane'（会话右栏页签）| null——同一时刻只允许一处实例
+      activeSessionId: null, // 当前活动会话（composer 画布 chip 上报）：会话↔画布绑定与面板跟随的锚点
+      sessionBinding: null,  // sessionBindingGet 结果缓存（活动会话的绑定态：workspace/project/binding/canvases/occupied）
+      bindingRev: 0,         // 绑定刷新信号：驱动画布面板跟随 effect
+      bindingMenuOpen: false,// chip 下拉开关
+      bindingError: null,    // 绑定动作失败提示
+      bindingCreating: false,// 「建画布项目」进行中
       // 3D 导演台（纯 UI 状态；场景数据存在节点/项目的 director 文档里，见 directorDoc）
       directorOpen: false,
       directorFull: false,          // 导演台是否全屏
@@ -20824,6 +20873,202 @@ const DIRECTOR_KEY_HELP = [
     }
 
     // ============================================================
+    // 会话↔画布绑定（0.20.x）：composer 画布选择 chip + 画布面板跟随
+    // ============================================================
+    const TPL = (tpl, vars) => String(tpl || '').replace(/\{(\w+)\}/g, (m, k) => (vars && vars[k] != null ? String(vars[k]) : m));
+    /** 拉取活动会话的绑定态（sessionBindingGet）。旧宿主 supported:false → chip 整体隐藏。 */
+    async function refreshSessionBinding(sessionId) {
+      if (!sessionId) return;
+      try {
+        const r = await hostRpc('sessionBindingGet', { sessionId });
+        update((s) => {
+          if (s.activeSessionId !== sessionId) return; // 会话已切走：丢弃过期回包
+          s.sessionBinding = Object.assign({ loaded: true }, r);
+          s.bindingRev = (s.bindingRev || 0) + 1;
+        });
+      } catch (e) {
+        update((s) => {
+          if (s.activeSessionId !== sessionId) return;
+          s.sessionBinding = { loaded: true, supported: false, error: String((e && e.message) || e) };
+          s.bindingRev = (s.bindingRev || 0) + 1;
+        });
+      }
+    }
+    /** 画布在绑定清单里的序位（默认画布算第 1 集）。 */
+    function canvasEpisodeOf(binding, canvasId) {
+      if (!binding) return null;
+      const cid = canvasId == null ? null : canvasId;
+      const list = Array.isArray(binding.canvases) ? binding.canvases : [];
+      const i = list.findIndex((c) => (c.id || null) === cid);
+      return i >= 0 ? { n: i + 1, total: list.length, name: list[i].name || '' } : null;
+    }
+    /** 绑定打开/跟随：切项目 → 切画布 → 拉远端文档。
+     *  opts.force=true（chip 显式动作）无视宿主守卫；否则仅 pane（会话旁画布）自动跟随。 */
+    function followBoundCanvas(opts) {
+      const b = S.sessionBinding;
+      if (!b || !b.loaded || !b.binding || !b.project) return false;
+      if (!(opts && opts.force === true) && S.canvasHost !== 'pane') return false;
+      const pid = b.project.id;
+      const cid = b.binding.canvasId == null ? null : b.binding.canvasId;
+      if (S.activeId !== pid) switchProject(pid);
+      if (activeCanvasId() !== cid) switchCanvas(cid, { skipFlush: true });
+      hydrateCanvasFromHost(pid, cid); // 远端兜底（本地缓存可能为空/过期；对默认画布 switchCanvas 不触发 hydrate）
+      return true;
+    }
+    /** chip 点击（已绑定态）：打开右栏画布并落到绑定画布。 */
+    function openBoundCanvasFromChip() {
+      try { revealCanvasInRight(); } catch { /* 布局服务缺失 → 仅切换不展开 */ }
+      followBoundCanvas({ force: true });
+    }
+    async function bindSessionToCanvas(sessionId, canvasId) {
+      const b = S.sessionBinding;
+      const projectId = b && b.project && b.project.id;
+      if (!sessionId || !projectId) return;
+      try {
+        const r = await hostRpc('sessionBindingSet', { sessionId, projectId, canvasId: canvasId == null ? null : canvasId });
+        if (!r || r.ok === false) {
+          update((s) => { s.bindingError = (r && (r.error || (r.occupied && T('bindOccupied')))) || T('bindFail'); });
+          return;
+        }
+        update((s) => { s.bindingError = null; s.bindingMenuOpen = false; });
+        await refreshSessionBinding(sessionId);
+        followBoundCanvas({ force: true });
+      } catch (e) {
+        update((s) => { s.bindingError = String((e && e.message) || e) || T('bindFail'); });
+      }
+    }
+    async function unbindSession(sessionId) {
+      try { await hostRpc('sessionBindingClear', { sessionId }); } catch { /* 旧宿主：忽略 */ }
+      update((s) => { s.bindingMenuOpen = false; });
+      await refreshSessionBinding(sessionId);
+    }
+    async function createWorkspaceProject(sessionId) {
+      update((s) => { s.bindingCreating = true; });
+      try {
+        const r = await hostRpc('workspaceProjectCreate', { sessionId });
+        update((s) => { s.bindingCreating = false; s.bindingMenuOpen = false; });
+        if (r && r.ok) {
+          refreshDataRoot().catch(() => { /* 项目清单下一轮 3s 同步也会带 */ });
+          await refreshSessionBinding(sessionId);
+          followBoundCanvas({ force: true });
+        } else {
+          update((s) => { s.bindingError = (r && r.error) || T('bindFail'); });
+        }
+      } catch (e) {
+        update((s) => { s.bindingCreating = false; s.bindingError = String((e && e.message) || e) || T('bindFail'); });
+      }
+    }
+    /** 新建画布并绑定（Host 先落登记，再刷新绑定清单保证集号算对）。 */
+    async function createCanvasAndBind(sessionId, rawName) {
+      const b = S.sessionBinding;
+      const projectId = b && b.project && b.project.id;
+      const name = String(rawName == null ? '' : rawName).trim();
+      if (!sessionId || !projectId) return;
+      if (!name) { update((s) => { s.bindingError = T('canvasNameRequired'); }); return; }
+      try {
+        const made = await hostRpc('canvasCreate', { projectId, name });
+        update((s) => { s.bindingError = null; });
+        if (made && made.ok && made.canvasId) {
+          await refreshSessionBinding(sessionId);
+          await bindSessionToCanvas(sessionId, made.canvasId);
+        } else {
+          update((s) => { s.bindingError = (made && made.error) || T('bindFail'); });
+        }
+      } catch (e) {
+        update((s) => { s.bindingError = String((e && e.message) || e); });
+      }
+    }
+    /** chip 下拉（占用标警、内联新建输入、Esc/外点关闭）。 */
+    function BindingMenu() {
+      const sessionId = S.activeSessionId;
+      const b = S.sessionBinding || {};
+      useEffect(() => {
+        const close = (e) => {
+          const t = e && e.target;
+          if (t && t.closest && t.closest('.dshic-bind-menu, .dshic-bind-chip, .dshic-bind-arrow')) return;
+          update((s) => { s.bindingMenuOpen = false; });
+        };
+        const esc = (e) => { if (e && e.key === 'Escape') update((s) => { s.bindingMenuOpen = false; }); };
+        document.addEventListener('pointerdown', close, true);
+        document.addEventListener('keydown', esc, true);
+        return () => {
+          document.removeEventListener('pointerdown', close, true);
+          document.removeEventListener('keydown', esc, true);
+        };
+      }, []);
+      const occ = b.occupied || {};
+      const rows = [];
+      if (b.binding && b.project) {
+        rows.push(h('button', { key: '__unbind__', type: 'button', className: 'dshic-menu-item', onClick: () => unbindSession(sessionId) }, T('bindUnbind')));
+      }
+      if (b.project) {
+        for (const c of (b.canvases || [])) {
+          const cid = c.id == null ? null : c.id;
+          const occupiedBy = occ[cid == null ? 'null' : cid] || null;
+          rows.push(h('button', {
+            key: String(cid) + ':' + c.name,
+            type: 'button',
+            className: 'dshic-menu-item' + (occupiedBy ? ' is-dim' : ''),
+            onClick: occupiedBy ? undefined : () => bindSessionToCanvas(sessionId, cid),
+          }, h('span', null, c.name || T('panel')), occupiedBy ? h('span', { className: 'dshic-bind-occ' }, T('bindOccupied')) : null));
+        }
+      }
+      return h('div', { className: 'dshic-menu dshic-bind-menu' },
+        h('div', { className: 'dshic-bind-menu-title' }, T('bindMenuTitle')),
+        rows,
+        b.project ? h('div', { className: 'dshic-bind-newrow' },
+          h('input', {
+            type: 'text', placeholder: T('bindNewCanvasPlaceholder'),
+            onInput: (e) => { bindingNewCanvasName = (e && e.target && e.target.value) || ''; },
+            onKeyDown: (e) => {
+              if (e && e.key === 'Enter' && bindingNewCanvasName.trim()) createCanvasAndBind(sessionId, bindingNewCanvasName);
+            },
+          }),
+          h('button', { type: 'button', onClick: () => createCanvasAndBind(sessionId, bindingNewCanvasName) }, T('bindNewCanvas')),
+        ) : null,
+        b.project ? h('button', { type: 'button', className: 'dshic-menu-item', onClick: () => { update((s) => { s.bindingMenuOpen = false; }); } }, T('bindSessionOnly')) : null,
+      );
+    }
+    let bindingNewCanvasName = ''; // 内联新建输入（非受控：菜单关闭即弃）
+    /** composer 画布选择 chip。session 作用域槽位的组件：props.sessionId 由 Runner 标准属性提供。 */
+    function SessionBindingChip(props) {
+      useApp();
+      const sessionId = props && props.sessionId;
+      useEffect(() => {
+        if (!sessionId) return undefined;
+        update((s) => {
+          const same = s.activeSessionId === sessionId;
+          s.activeSessionId = sessionId;
+          if (!same) s.sessionBinding = null; // 换会话：清旧绑定态（立即重拉）
+        });
+        refreshSessionBinding(sessionId);
+        return () => { /* 保留 binding 缓存：切回会话时秒显，refresh 会覆盖 */ };
+      }, [sessionId]);
+      if (!sessionId) return null; // 老 Runner 不给会话身份 → chip 缺席（绑定不可用，画布走全局行为）
+      const b = S.sessionBinding;
+      if (!b || !b.loaded) return null; // 加载中不渲染（避免闪「建画布项目」）
+      if (b.supported === false) return null; // 旧宿主：无工作区能力
+      const bound = !!(b.binding && b.project);
+      const ep = bound ? canvasEpisodeOf(b, b.binding.canvasId) : null;
+      const openMenu = () => update((s) => { s.bindingMenuOpen = !s.bindingMenuOpen; });
+      const chip = h('button', {
+        key: 'chip',
+        type: 'button',
+        className: 'dshic-bind-chip' + (bound ? ' is-bound' : ''),
+        title: bound ? T('bindMenuTitle') : (b.project ? T('bindUnbound') : T('bindNewProject')),
+        onClick: bound ? openBoundCanvasFromChip : openMenu,
+      }, bound
+        ? TPL(T('bindChipBound'), { n: ep ? ep.n : '·', name: ep ? ep.name : String(b.binding.canvasId || '') })
+        : (b.project ? T('bindUnbound') : (S.bindingCreating ? T('bindCreating') : T('bindNewProject'))));
+      return h('div', { className: 'dshic-bind' },
+        chip,
+        bound ? h('button', { key: 'arrow', type: 'button', className: 'dshic-bind-arrow', title: T('bindMenuTitle'), onClick: openMenu }, '▾') : null,
+        S.bindingMenuOpen ? h(BindingMenu, { key: 'menu' }) : null,
+        S.bindingError ? h('div', { key: 'err', className: 'dshic-bind-err' }, S.bindingError) : null,
+      );
+    }
+
+    // ============================================================
     // 插件入口
     // ============================================================
     return {
@@ -20875,6 +21120,16 @@ const DIRECTOR_KEY_HELP = [
           label: () => T('panel'),
           locale: NS,
         }, PanelIcon));
+        // —— 会话↔画布绑定：composer 画布选择 chip（session 作用域槽位，Runner 标准属性免费给 sessionId）——
+        // 旧 runner 没有 conversation.input.left 槽位：try/catch 静默降级（无 chip，画布面板走全局行为，功能缺席不炸插件）
+        try {
+          ctx.slots.inject('conversation.input.left', () => ctx.slots.register({
+            name: 'conversation.input.left',
+            id: 'infinite-canvas-binding',
+            order: 40,
+            locale: NS,
+          }, SessionBindingChip));
+        } catch { /* 旧 runner：绑定 chip 不可用（降级） */ }
         // 面板根：包一层错误边界——任何渲染期崩溃都不再白屏，而是显示可复制的错误卡片
         PanelErrorBoundary.__dshicClass = true; // 冒烟 walker 标记
     function PanelRoot() {
@@ -20895,6 +21150,12 @@ const DIRECTOR_KEY_HELP = [
         const CANVAS_TAB_ID = '@ninkch/dsh-infinite-canvas'; // = 注册 id = 槽位 key
         function CanvasHostedApp({ host }) {
           useApp();
+          const bindingRev = S.bindingRev; // 绑定刷新 → 跟随 effect 重跑（跟随守卫在 followBoundCanvas：仅 pane 自动）
+          useEffect(() => {
+            if (host !== 'pane') return; // 全屏面板不自动跟随（chip 显式动作走 force）
+            followBoundCanvas();
+            return undefined;
+          }, [host, bindingRev]);
           useEffect(() => {
             // 挂载即声明宿主（后开者接管）：在窄栏宿主里顺手收起画布自带的右侧栏（宽度不够）
             const takeover = S.canvasHost !== host;
