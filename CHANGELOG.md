@@ -18,13 +18,13 @@ GitHub Releases carry the same notes in English; maintainer-facing runbooks live
 - **Session↔canvas bindings (one session = one episode canvas).** A session binds to exactly one canvas of one project (`bindings.json` in the project home: `{sessionId, canvasId, boundAt}`); rebinding a session replaces its own entry. One canvas serves one session: binding onto a canvas held by a living session is rejected with `occupied` + the holder's id, while a holder that no longer exists (deleted session) is treated as an orphan and overridden. Unbind is idempotent. Canvas/project ids are validated before any file touch.
 
 ### Fixed
-- (无。)
+- **Review pass: five defects found by the whole-branch review.** ① Deleted workspace projects no longer resurrect: removal leaves a tombstone path so the watcher won't auto-create a fresh project in the same workspace; an explicit create (chip 建画布项目) clears the tombstone. ② Unbinding persists: explicit unbind writes `suppressAutoBind` into `bindings.json` and the watcher no longer re-binds a lone session the user just set to 仅会话; the next explicit bind clears the flag. ③ One session = one canvas is now GLOBAL: rebinding a session in another workspace project removes its stale binding there, so session-aware tool defaults can never land in the wrong project silently. ④ Workspace doc ids are re-validated through the `projectFile` charset check before mapping to `.infinite-canvas/...` paths (path-escape probe via `pid__cv__../../x` now reads as "project not found" instead of touching the filesystem), and `docExists` returns false for illegal ids instead of throwing. ⑤ The composer chip's 建画布项目 state now actually calls `workspaceProjectCreate` (it used to open an empty menu — a dead flow the watcher's 5s auto-create was masking).
 
 ### Changed
 - (无。)
 
 ### Internal
-- **Contract tests for workspace projects and the memory store** (`scripts/test-workspace-projects.mjs`, `scripts/test-memory.mjs`): marker discovery, document routing, list merge, workspace-project deletion, watch-tick degradation; memory roundtrip, index ordering/caps, backup-on-overwrite, workspace placement, concurrent-write serialization.
+- **Contract tests for workspace projects and the memory store** (`scripts/test-workspace-projects.mjs`, `scripts/test-memory.mjs`): marker discovery, document routing, list merge, workspace-project deletion, watch-tick degradation; memory roundtrip, index ordering/caps, backup-on-overwrite, workspace placement, concurrent-write serialization; review-pass regressions (§5b–5e: delete tombstone, unbind persistence, global session uniqueness, path-escape rejection).
 - **Binding-layer contract test** (`scripts/test-binding.mjs`): bind/rebind/occupancy/orphan-override/unbind idempotence, workspace placement, illegal-input rejection.
 - **Memory agent tools** `canvas_read_memory` / `canvas_write_memory` (`scripts/test-memory.mjs` §7): tool-plane write→read roundtrip, index rendering, body fetch, missing-canvasId rejection, discipline wording in descriptions.
 

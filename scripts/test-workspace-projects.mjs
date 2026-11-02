@@ -133,16 +133,81 @@ fs.mkdirSync(REGISTRY0[1].path, { recursive: true }); // 无标记的工作区�
   ok(threw === null, 'wsWatchTick(undefined) 不应抛错（老宿主降级），实际：' + (threw && threw.message));
 }
 
+// ---------------- 5b) 修复轮：删除后不被 watcher 复活（评审 C1） ----------------
+{
+  // 场景：工作区项目删除后，registry 条目还在、标记没了 → tick 不得原地重建
+  const wsDel = path.join(SANDBOX, 'ws-del');
+  fs.mkdirSync(wsDel, { recursive: true });
+  REGISTRY.push({ id: 'ws-del01', path: wsDel, title: 'ws-del', sessionIds: [] });
+  I.wsWatchTick(REGISTRY); // 建项目
+  const pidDel = JSON.parse(fs.readFileSync(path.join(wsDel, '.infinite-canvas', 'project.json'), 'utf8')).id;
+  await I.projectsDelete({ id: pidDel });
+  const r = I.wsWatchTick(REGISTRY);
+  ok(!fs.existsSync(path.join(wsDel, '.infinite-canvas', 'project.json')), '删除后 tick 复活了项目（评审 C1）');
+  // 显式再建（RPC 建项目路径）：墓碑解除，允许重建
+  const rec = I.wsProjectCreateAt({ id: 'ws-del01', path: wsDel });
+  ok(fs.existsSync(path.join(wsDel, '.infinite-canvas', 'project.json')), '显式创建应解除墓碑并建项目');
+  ok(!!rec && !!rec.pid, '显式创建返回缺失');
+}
+
+// ---------------- 5c) 修复轮：解绑持久（不被 tick 绑回，评审 I2） ----------------
+{
+  const wsUb = path.join(SANDBOX, 'ws-unbind');
+  fs.mkdirSync(wsUb, { recursive: true });
+  REGISTRY.push({ id: 'ws-unbind01', path: wsUb, title: 'ws-unbind', sessionIds: ['ses_only'] });
+  I.wsWatchTick(REGISTRY); // 建项目 + 首会话自动绑
+  const pidUb = JSON.parse(fs.readFileSync(path.join(wsUb, '.infinite-canvas', 'project.json'), 'utf8')).id;
+  const b1 = await I.bindingsRead(pidUb);
+  eq(b1.bindings.length, 1, '前置：首会话应已自动绑');
+  await I.bindingClear(pidUb, 'ses_only'); // 用户显式解绑
+  I.wsWatchTick(REGISTRY); // tick 不得绑回
+  const b2 = await I.bindingsRead(pidUb);
+  eq(b2.bindings.length, 0, '显式解绑后被 tick 绑回（评审 I2）');
+  // 显式再绑定 = 用户改主意：清除抑制标记
+  await I.bindingSet(pidUb, 'ses_only', null, () => true);
+  const raw = JSON.parse(fs.readFileSync(path.join(wsUb, '.infinite-canvas', 'bindings.json'), 'utf8'));
+  eq(raw.suppressAutoBind, undefined, '显式绑定后抑制标记未清除');
+}
+
+// ---------------- 5d) 修复轮：会话全局唯一绑定（评审 I3） ----------------
+{
+  // 同一会话先后绑到两个工作区项目：旧项目的绑定必须被移除（一会话一画布是全局约束）
+  const wsA = path.join(SANDBOX, 'ws-ga');
+  const wsB = path.join(SANDBOX, 'ws-gb');
+  fs.mkdirSync(wsA, { recursive: true }); fs.mkdirSync(wsB, { recursive: true });
+  REGISTRY.push({ id: 'ws-ga01', path: wsA, title: 'ws-ga', sessionIds: ['ses_roam'] });
+  REGISTRY.push({ id: 'ws-gb01', path: wsB, title: 'ws-gb', sessionIds: ['ses_roam'] });
+  I.wsWatchTick(REGISTRY); // 两项目建好；ses_roam 多会话在场不自动绑
+  const pidA = JSON.parse(fs.readFileSync(path.join(wsA, '.infinite-canvas', 'project.json'), 'utf8')).id;
+  const pidB = JSON.parse(fs.readFileSync(path.join(wsB, '.infinite-canvas', 'project.json'), 'utf8')).id;
+  await I.bindingSet(pidA, 'ses_roam', null, () => true);
+  const made = await I.canvasCreate({ projectId: pidB, name: '第2集' });
+  await I.bindingSet(pidB, 'ses_roam', made.canvasId, () => true);
+  const bA = await I.bindingsRead(pidA);
+  eq(bA.bindings.filter((x) => x.sessionId === 'ses_roam').length, 0, '跨项目重绑后旧项目绑定未清除（评审 I3）');
+  const bB = await I.bindingsRead(pidB);
+  eq(bB.bindings.filter((x) => x.sessionId === 'ses_roam').length, 1, '新项目绑定缺失');
+}
+
+// ---------------- 5e) 修复轮：wsDocFile 路径逃逸封堵（评审 I4） ----------------
+{
+  const evil = WS_PID + '__cv__../../../evil';
+  eq(I.docExists(evil), false, '路径逃逸 id 可探测文件存在（评审 I4）');
+  eq(I.wsProjectHome('wsX__cv__..%2f..%2fx'), null, '编码逃逸未被拒绝');
+  let threw = null;
+  try { await I.projectsGet({ id: evil }); } catch (e) { threw = e; }
+  ok(!!threw, '路径逃逸 id 未被项目不存在拦截');
+}
+
 // ---------------- 7) watcher：新工作区建项目 / 重复 tick 采纳 ----------------
 {
   const wsNew = path.join(SANDBOX, 'ws-new');
   fs.mkdirSync(wsNew, { recursive: true });
   REGISTRY.push({ id: 'ws-new01', path: wsNew, title: 'ws-new', sessionIds: [] });
   const r = I.wsWatchTick(REGISTRY);
-  // watcher 策略：所有无标记工作区都自动建项目（「新建工作区默认创建画布项目」）——empty-ws 也该建
-  ok(r && !r.skipped && Array.isArray(r.created) && r.created.length === 2
-     && r.created.includes('ws-22222222') && r.created.includes('ws-new01'),
-    'tick 应为两个无标记工作区各建一个项目（实际：' + JSON.stringify(r && r.created) + '）');
+  // watcher 策略：无标记工作区自动建项目（empty-ws 已在 §5b 的 tick 里建过 → 此处只剩 ws-new01）
+  ok(r && !r.skipped && Array.isArray(r.created) && r.created.length === 1 && r.created.includes('ws-new01'),
+    'tick 应为无标记工作区建项目（实际：' + JSON.stringify(r && r.created) + '）');
   const doc = JSON.parse(fs.readFileSync(path.join(wsNew, '.infinite-canvas', 'project.json'), 'utf8'));
   eq(doc.defaultCanvasName, '第1集', '新项目默认画布名应为「第1集」');
   ok(/^[A-Za-z0-9_-]{1,96}$/.test(doc.id), '新项目 id 不符合 projectFile 字符集');

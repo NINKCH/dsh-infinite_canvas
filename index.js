@@ -554,6 +554,7 @@ function readDocOrNull(id) {
 }
 function docExists(id) {
   if (wsDocFile(id)) return !!readDocOrNull(id);
+  try { projectFile(id); } catch { return false; } // 非法 id（含路径逃逸段）：一律视为不存在，不抛
   if (sqlActive()) {
     const db = getDb();
     return !!db.prepare('SELECT id FROM projects WHERE id = ?').get(id);
@@ -1156,6 +1157,7 @@ function wsProjectHome(pid) {
 /** 工作区文档 id → 物理文件：项目文档 = project.json；子画布文档 = canvases/<cid>.json；非工作区项目返回 null。 */
 function wsDocFile(id) {
   const s = String(id || '');
+  try { projectFile(s); } catch { return null; } // id 段合法性复用 projectFile 校验：封死 canvases/<cid> 路径逃逸（评审 I4）
   const ref = isCanvasDocId(s) ? splitCanvasDocId(s) : { projectId: s, canvasId: null };
   const home = wsProjectHome(ref.projectId);
   if (!home) return null;
@@ -1186,10 +1188,40 @@ function wsProjectRemove(pid) {
   wsProjects.delete(String(pid));
   return true;
 }
+// —— 已删除工作区墓碑（评审 C1）：删除后 registry 条目仍在、标记没了，watcher 会按「无标记工作区」
+// 用新 pid 重建空项目（删除自败）。墓碑 = 配置里的路径清单：tick 见清单内路径不自动建项目；
+// 用户显式再建（chip「建画布项目」/ wsProjectCreateAt）时解除。
+function wsRemovedPathsAll() {
+  const cfg = readIcConfig();
+  return Array.isArray(cfg.wsProjectRemovedPaths) ? cfg.wsProjectRemovedPaths.map(String) : [];
+}
+function wsRemovedPathAdd(p) {
+  const s = String(p || '');
+  if (!s) return;
+  try {
+    const cfg = readIcConfig();
+    const list = Array.isArray(cfg.wsProjectRemovedPaths) ? cfg.wsProjectRemovedPaths.map(String) : [];
+    if (!list.includes(s)) list.push(s);
+    cfg.wsProjectRemovedPaths = list.slice(-200); // 上限防膨胀（工作区数量级远小于此）
+    writeIcConfig(cfg);
+  } catch { /* 配置写失败：退化为「可能复活」，不阻塞删除 */ }
+}
+function wsRemovedPathClear(p) {
+  const s = String(p || '');
+  if (!s) return;
+  try {
+    const cfg = readIcConfig();
+    if (Array.isArray(cfg.wsProjectRemovedPaths) && cfg.wsProjectRemovedPaths.map(String).includes(s)) {
+      cfg.wsProjectRemovedPaths = cfg.wsProjectRemovedPaths.map(String).filter((x) => x !== s);
+      writeIcConfig(cfg);
+    }
+  } catch { /* 清理失败不影响创建 */ }
+}
 /** 在工作区目录创建内嵌项目（watcher / RPC「建画布项目」共用）：默认画布「第1集」。 */
 function wsProjectCreateAt(w) {
   const dir = path.join(String(w.path), WS_APP_DIR);
   try { mkdirSync(dir, { recursive: true }); } catch { /* 已存在 */ }
+  wsRemovedPathClear(String(w.path)); // 显式创建解除删除墓碑（评审 C1）
   const pid = 'ws' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
   const name = (path.basename(w.path) || '画布项目').replace(/\s+/g, ' ').trim().slice(0, 80) || '画布项目';
   const doc = {
@@ -1226,13 +1258,16 @@ function wsWatchTick(list) {
       if (!st.isDirectory()) continue;
     } catch { continue; }
     let rec = wsRecOf(w);
-    if (!rec) { rec = wsProjectCreateAt(w); created.push(String(w.id || w.path)); }
+    if (!rec) {
+      if (wsRemovedPathsAll().includes(String(w.path))) continue; // 删除墓碑：不自动重建（评审 C1）
+      rec = wsProjectCreateAt(w); created.push(String(w.id || w.path));
+    }
     else adopted.push(String(w.id || w.path));
     const pdoc = readDocOrNull(rec.pid);
     if (!pdoc) continue;
     const defCid = defaultCanvasExists(pdoc) ? null : ((canvasRegistry(pdoc)[0] || {}).id || null);
     const data = bindingsRead(rec.pid);
-    if (data.bindings.length === 0 && Array.isArray(w.sessionIds) && w.sessionIds.length === 1) {
+    if (data.bindings.length === 0 && !data.suppressAutoBind && Array.isArray(w.sessionIds) && w.sessionIds.length === 1) {
       const sid = String(w.sessionIds[0] || '').trim();
       if (sid) {
         const r = bindingSetSync(rec.pid, sid, defCid, () => true);
@@ -1438,11 +1473,23 @@ function bindingSetSync(pid, sessionId, canvasId, aliveFn) {
   if (occupant && alive(occupant.sessionId)) {
     return { ok: false, occupied: true, by: occupant.sessionId, error: '该画布已绑定其他会话' };
   }
+  // 会话全局唯一绑定（评审 I3）：会话改绑本项目时，清掉它在其他工作区项目里的绑定——
+  // 「一会话一画布」是全局约束，否则会话感知默认值可能落到错误项目且 agent 无感知。
+  for (const rec of wsProjects.values()) {
+    if (rec.pid === id) continue;
+    let ob = null;
+    try { ob = bindingsRead(rec.pid); } catch { continue; }
+    const kept = ob.bindings.filter((b) => b && b.sessionId !== sid);
+    if (kept.length !== ob.bindings.length) {
+      writeBindingsAtomic(rec.pid, { ...ob, updatedAt: Date.now(), bindings: kept });
+    }
+  }
   const next = {
     version: 1,
     updatedAt: Date.now(),
     bindings: others.filter((b) => b !== occupant).concat([{ sessionId: sid, canvasId: cid, boundAt: Date.now() }]),
   };
+  delete next.suppressAutoBind; // 显式绑定 = 用户改主意：解除「解绑持久」抑制（评审 I2）
   writeBindingsAtomic(id, next);
   return { ok: true, projectId: id, sessionId: sid, canvasId: cid, replaced: !!(mine || occupant) };
 }
@@ -1450,16 +1497,16 @@ function bindingSetSync(pid, sessionId, canvasId, aliveFn) {
 async function bindingSet(pid, sessionId, canvasId, aliveFn) {
   return bindingSetSync(pid, sessionId, canvasId, aliveFn);
 }
-/** 解绑会话（幂等：无绑定返回 removed=false）。 */
+/** 解绑会话（幂等）。显式解绑写 suppressAutoBind：watcher 见标记不再自动绑回——
+ *  否则单会话工作区的「仅会话」状态 5 秒即被推翻（评审 I2）。 */
 async function bindingClear(pid, sessionId) {
   const id = String(pid || '');
   const sid = String(sessionId || '').trim();
   if (!id || !sid) return { ok: false, error: '缺少 projectId 或 sessionId' };
   const data = bindingsRead(id);
-  const next = { ...data, updatedAt: Date.now(), bindings: data.bindings.filter((b) => b && b.sessionId !== sid) };
-  const removed = next.bindings.length < data.bindings.length;
-  if (removed) writeBindingsAtomic(id, next);
-  return { ok: true, removed };
+  const next = { ...data, suppressAutoBind: true, updatedAt: Date.now(), bindings: data.bindings.filter((b) => b && b.sessionId !== sid) };
+  writeBindingsAtomic(id, next);
+  return { ok: true, removed: next.bindings.length < data.bindings.length };
 }
 // ---- 默认画布（canvasId=null）：名字存项目文档 defaultCanvasName；删除后 defaultCanvasDeleted=true ----
 const DEFAULT_CANVAS_NAME = '默认画布';
@@ -1814,6 +1861,8 @@ async function projectsDelete(args) {
   let cleanup = null;
   if (isWsProject(id)) {
     // 工作区内嵌项目：删 .infinite-canvas 整目录（工作区目录本身不动），并清数据根媒体文件夹
+    const home = wsProjectHome(id);
+    if (home) wsRemovedPathAdd(path.dirname(home)); // 墓碑记工作区路径（tick 比对 w.path）；评审 C1
     cleanup = { ws: wsProjectRemove(id) };
     try { removeDataRootProject(id); } catch { /* 媒体清理失败不影响删除 */ }
   } else if (sqlActive()) {
@@ -3303,7 +3352,7 @@ async function updateInstall() {
 export const inject = ['webServer', 'tools'];
 
 // 仅供诊断 / 自动化测试（不属于 RPC 面，运行时行为不受影响）
-export const _internals = { THUMB_MAX_SIDE, thumbRelOf, isDerivedMedia, updateCheck, updateInstall, npmLatestVersion, cmpVer, findPnpm, NPM_REGISTRIES, pickUpdateRegistry, registryCacheValid, pnpmAddArgs, getProfileDir: () => PROFILE_DIR, getVersion: () => VERSION, dataRoot, setDataRoot, dataRootMigrate, dataRootImport, ensureProjectFolder, physicalRel, mirrorProjectToDataRoot, writeAssetIndex, removeAssetIndexEntry, readDataRootMeta, removeDataRootProject, sqlDeleteProjectRows, deletedProjectIds, addDeletedProjectId, clearDeletedProjectId, fetchProxyForward, storyboardConsistencyWarnings, readAssetIndexNames, safeJoin, mimeOf, pipeFile, getIcConfigPath: () => CONFIG_PATH, canvasCreateProject, canvasWriteNode, canvasConnect, canvasDeleteProject, canvasDeleteNode, canvasRunNode, canvasNodeStatus, canvasGetBible, canvasUpdateBible, canvasCreateNode, canvasOpen, canvasesList, canvasCreate, canvasRename, canvasDelete, canvasDocId, isCanvasDocId, splitCanvasDocId, normalizeCanvasId, canvasRegistry, sanitizeCanvases, wsProjectsScan, isWsProject, wsProjectHome, wsWatchTick, projectHomeDir, memoryRead, memoryWrite, bindingsRead, bindingSet, bindingClear, readCanvasDoc, writeCanvasDoc, deleteCanvasDocsForProject, projectsList, projectsPut, projectsGet, projectsDelete, projectsSync, sqliteAvailable: () => !!SQLITE, getDb, closeDb, dbAssetsList, dbAssetsGet, dbAssetNames, dbAssetCreate, dbAssetUpdate, dbAssetDelete, objectAbsFor, ftsReconcile, readDocOrNull, docExists, sqlActive, rpcMethods: () => _rpcMethods, canvasUpdateNode, canvasGenerateNode };
+export const _internals = { THUMB_MAX_SIDE, thumbRelOf, isDerivedMedia, updateCheck, updateInstall, npmLatestVersion, cmpVer, findPnpm, NPM_REGISTRIES, pickUpdateRegistry, registryCacheValid, pnpmAddArgs, getProfileDir: () => PROFILE_DIR, getVersion: () => VERSION, dataRoot, setDataRoot, dataRootMigrate, dataRootImport, ensureProjectFolder, physicalRel, mirrorProjectToDataRoot, writeAssetIndex, removeAssetIndexEntry, readDataRootMeta, removeDataRootProject, sqlDeleteProjectRows, deletedProjectIds, addDeletedProjectId, clearDeletedProjectId, fetchProxyForward, storyboardConsistencyWarnings, readAssetIndexNames, safeJoin, mimeOf, pipeFile, getIcConfigPath: () => CONFIG_PATH, canvasCreateProject, canvasWriteNode, canvasConnect, canvasDeleteProject, canvasDeleteNode, canvasRunNode, canvasNodeStatus, canvasGetBible, canvasUpdateBible, canvasCreateNode, canvasOpen, canvasesList, canvasCreate, canvasRename, canvasDelete, canvasDocId, isCanvasDocId, splitCanvasDocId, normalizeCanvasId, canvasRegistry, sanitizeCanvases, wsProjectsScan, isWsProject, wsProjectHome, wsWatchTick, wsProjectCreateAt, projectHomeDir, memoryRead, memoryWrite, bindingsRead, bindingSet, bindingClear, readCanvasDoc, writeCanvasDoc, deleteCanvasDocsForProject, projectsList, projectsPut, projectsGet, projectsDelete, projectsSync, sqliteAvailable: () => !!SQLITE, getDb, closeDb, dbAssetsList, dbAssetsGet, dbAssetNames, dbAssetCreate, dbAssetUpdate, dbAssetDelete, objectAbsFor, ftsReconcile, readDocOrNull, docExists, sqlActive, rpcMethods: () => _rpcMethods, canvasUpdateNode, canvasGenerateNode };
 
 function resolveModel(providers, want) {
   const byProvider = want && want.provider

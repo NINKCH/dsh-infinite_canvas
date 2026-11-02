@@ -21154,7 +21154,7 @@ const DIRECTOR_KEY_HELP = [
         type: 'button',
         className: 'dshic-bind-chip' + (bound ? ' is-bound' : ''),
         title: bound ? T('bindMenuTitle') : (b.project ? T('bindUnbound') : T('bindNewProject')),
-        onClick: bound ? openBoundCanvasFromChip : openMenu,
+        onClick: bound ? openBoundCanvasFromChip : (b.project ? openMenu : () => createWorkspaceProject(sessionId)),
       }, bound
         ? TPL(T('bindChipBound'), { n: ep ? ep.n : '·', name: ep ? ep.name : String(b.binding.canvasId || '') })
         : (b.project ? T('bindUnbound') : (S.bindingCreating ? T('bindCreating') : T('bindNewProject'))));

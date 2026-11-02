@@ -75,6 +75,10 @@ for (const m of ['sessionBindingGet', 'sessionBindingSet', 'sessionBindingClear'
 {
   ok(/occupied/.test(src), '绑定数据未消费 occupied 占用图');
   ok(src.includes("T('bindOccupied')"), '菜单缺「已被其他会话占用」提示');
+  // 评审 I1：无项目态必须直调 createWorkspaceProject（「建画布项目」不能是死流程）
+  const chipIdx = src.indexOf('function SessionBindingChip');
+  ok(chipIdx >= 0 && /createWorkspaceProject\(sessionId\)/.test(src.slice(chipIdx, chipIdx + 4200)),
+    '无项目态 chip 未直调 createWorkspaceProject（评审 I1：建画布项目死流程）');
 }
 
 // ---------------- 7) 记忆查看器（统一弹窗第三页签） ----------------
