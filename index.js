@@ -1363,6 +1363,33 @@ async function memoryRead(pid, canvasId) {
   }
   return { ok: true, projectId: id, index: idx, episode };
 }
+/** 会话 → 绑定 {projectId, canvasId}：只扫工作区项目缓存（绑定 UX 属工作区项目）。 */
+function toolBindingForSession(sid) {
+  const s = String(sid || '');
+  if (!s) return null;
+  for (const rec of wsProjects.values()) {
+    let data = null;
+    try { data = bindingsRead(rec.pid); } catch { continue; }
+    const hit = data.bindings.find((b) => b && b.sessionId === s);
+    if (hit) return { projectId: rec.pid, canvasId: hit.canvasId == null ? null : hit.canvasId };
+  }
+  return null;
+}
+/** 防御式嗅探工具执行身份：不同宿主版本 exec.agent 携带的会话字段可能不同
+ *  （sessionId / session / id；cordis branded id 可能包一层 {value}）。拿不到 → null（走显式参数路径）。 */
+function toolExecSessionId(exec) {
+  try {
+    const a = exec && exec.agent;
+    if (!a || typeof a !== 'object') return null;
+    const candidates = [a.sessionId, a.session, a.id];
+    if (a.ctx && typeof a.ctx === 'object') candidates.push(a.ctx.sessionId, a.ctx.session);
+    for (const v of candidates) {
+      if (typeof v === 'string' && v) return v;
+      if (v && typeof v === 'object' && typeof v.value === 'string' && v.value) return v.value;
+    }
+  } catch { /* 嗅探失败 → null */ }
+  return null;
+}
 // ---- 会话↔画布绑定（0.20.x）：一会话一画布、一画布一会话 ----
 // 落位：<项目家目录>/bindings.json：{ version:1, updatedAt, bindings:[{ sessionId, canvasId, boundAt }] }
 // 占用判定：目标画布已被其他会话绑定时，aliveFn(占用者) 为真 → 拒绝（occupied）；为假（会话已删的孤儿）→ 覆盖。
@@ -3885,7 +3912,27 @@ export function apply(ctx) {
         const reg = (def) => {
           try {
             const inner = def.execute;
-            def.execute = async (args, exec) => stripUndefined(await inner(args, exec));
+            // 会话感知默认值（0.20.x）：绑定会话的 agent 不传 projectId/canvasId 时自动命中绑定画布。
+            // 只对 schema 声明了该参数的工具注入（additionalProperties:false 的工具不能多塞键）；
+            // 显式参数永远优先；嗅探失败（宿主不带会话身份）静默回退旧行为。
+            const propDefs = (def.parameters && def.parameters.properties) || null;
+            const allowProject = !!(propDefs && Object.prototype.hasOwnProperty.call(propDefs, 'projectId'));
+            const allowCanvas = !!(propDefs && Object.prototype.hasOwnProperty.call(propDefs, 'canvasId'));
+            def.execute = async (args, exec) => {
+              let a = args;
+              try {
+                const sid = toolExecSessionId(exec);
+                if (sid && (allowProject || allowCanvas)) {
+                  const b = toolBindingForSession(sid);
+                  if (b) {
+                    a = (args && typeof args === 'object' && !Array.isArray(args)) ? args : {};
+                    if (allowProject && a.projectId == null && b.projectId != null) a.projectId = b.projectId;
+                    if (allowCanvas && a.canvasId == null && b.canvasId != null) a.canvasId = b.canvasId;
+                  }
+                }
+              } catch { /* 默认解析失败 → 原参数路径 */ }
+              return stripUndefined(await inner(a, exec));
+            };
             toolDisposers.push(ctx.tools.register(def));
           } catch { /* 单个工具失败不阻塞其余 */ }
         };
@@ -4380,6 +4427,36 @@ export function apply(ctx) {
             const r = await memoryWrite(args.projectId, args.canvasId, args);
             if (!r.ok) return { ok: false, text: r.error || '记忆写入失败' };
             return { ok: true, projectId: r.projectId, canvasId: r.canvasId, text: '✅ 记忆已写入索引（' + ((r.index && r.index.episodes.length) || 0) + ' 集）。' };
+          },
+        });
+        reg({
+          name: 'canvas_my_canvas',
+          description: '自证身份：返回当前会话绑定的画布项目与画布（第几集），以及本集记忆状态。【会话=画布工作台】开始任何创作前先调用它确认「我是哪一集」；此后所有 canvas_* 工具不传 projectId/canvasId 即默认作用于本集画布（显式传参仍优先，可跨集操作任意项目/画布的全部内容）。返回的记忆提示告知是否需要先读/写本集记忆。',
+          parameters: { type: 'object', properties: {}, additionalProperties: false },
+          output: textOutput,
+          timeoutMs: 15000,
+          async execute(args, exec) {
+            const sid = toolExecSessionId(exec);
+            if (!sid) return { ok: false, text: '无法识别当前会话（宿主未提供会话身份）：请显式指定 projectId/canvasId 操作画布。' };
+            const b = toolBindingForSession(sid);
+            if (!b) return { ok: false, text: '当前会话未绑定画布：在对话输入行的「绑画布」选择器里选择或新建画布后再试；或显式传 projectId/canvasId 直接操作。' };
+            const doc = readDocOrNull(b.projectId) || {};
+            const regList = canvasRegistry(doc);
+            const cid = b.canvasId == null ? null : b.canvasId;
+            const canvases = (defaultCanvasExists(doc) && !cid ? [{ id: null, name: defaultCanvasNameOf(doc) }] : regList.map((c) => ({ id: c.id, name: c.name })));
+            const idx = canvases.findIndex((c) => (c.id || null) === cid);
+            const ep = idx >= 0 ? idx + 1 : null;
+            const name = idx >= 0 ? canvases[idx].name : String(cid || '默认画布');
+            const mem = await memoryRead(b.projectId, cid);
+            const hasMem = !!(mem.episode && ((mem.episode.body || '').trim() || (mem.episode.summary || '').trim()));
+            let nodeCount = 0;
+            try { nodeCount = Object.keys((readCanvasDoc(b.projectId, cid) || {}).nodes || {}).length; } catch { /* 画布读取失败不阻塞自证 */ }
+            const lines = [
+              '本会话绑定：项目「' + (doc.name || b.projectId) + '」· 画布「' + name + '」' + (ep ? '（第' + ep + ' 集 / 共 ' + canvases.length + ' 集）' : ''),
+              '记忆状态：' + (hasMem ? '已有本集记忆——开写前先 canvas_read_memory 读索引与本集正文' : '本集还没有记忆——创作告一段落必须 canvas_write_memory 回写'),
+              '本集画布节点：' + nodeCount + ' 个（画布全部内容可读写：canvas_write_node / canvas_create_node / canvas_connect / canvas_run_node / canvas_delete_node / canvas_get_bible / canvas_update_bible）',
+            ];
+            return { ok: true, projectId: b.projectId, canvasId: cid, name, text: lines.join('\n') };
           },
         });
         reg({

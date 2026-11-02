@@ -154,6 +154,45 @@ I.wsProjectsScan([{ id: 'ws-aaaa', path: WS_DIR, title: 'ws-mem', sessionIds: []
   }
 }
 
+// ---------------- 8) 会话感知默认值：exec.agent 会话身份 → 绑定画布自动命中 ----------------
+{
+  // 工作区项目 + 绑定：ses_bound → cvS1（子画布）
+  const made = await I.canvasCreate({ projectId: 'wsMem01', name: '第1集' });
+  const cid = made && made.canvasId;
+  ok(!!cid, '会话感知用例建画布失败');
+  const bs = await I.bindingSet('wsMem01', 'ses_bound', cid, () => true);
+  ok(bs && bs.ok, '会话感知用例绑定失败');
+  const rd = tool('canvas_read_memory');
+  ok(!!rd, '缺少 canvas_read_memory 工具');
+  if (rd && cid) {
+    // 预置该画布记忆，正文含标记词
+    await I.memoryWrite('wsMem01', cid, { title: '第1集', summary: '嗅探默认值。', body: 'SNIFFED-BODY' });
+    // ① exec 带 agent.sessionId → 不传 projectId/canvasId 也命中绑定画布
+    const r1 = await rd.execute({}, { agent: { sessionId: 'ses_bound' } });
+    ok(r1 && r1.ok && /SNIFFED-BODY/.test(r1.text || ''), 'exec.agent.sessionId 嗅探未命中绑定画布');
+    // ② exec 带 branded id（{value}）
+    const r2 = await rd.execute({}, { agent: { session: { value: 'ses_bound' } } });
+    ok(r2 && r2.ok && /SNIFFED-BODY/.test(r2.text || ''), 'branded sessionId 嗅探失败');
+    // ③ 无 exec → 行为不变（只回索引，不猜项目）
+    const r3 = await rd.execute({});
+    ok(r3 && r3.ok && !/SNIFFED-BODY/.test(r3.text || ''), '无 exec 时不应猜默认项目');
+    // ④ 显式参数优先：显式 canvasId 覆盖绑定
+    await I.memoryWrite('wsMem01', 'cvOther', { title: '其他集', summary: 'x', body: 'OTHER-BODY' });
+    const r4 = await rd.execute({ projectId: 'wsMem01', canvasId: 'cvOther' }, { agent: { sessionId: 'ses_bound' } });
+    ok(r4 && r4.ok && /OTHER-BODY/.test(r4.text || ''), '显式参数应覆盖绑定默认值');
+  }
+  // canvas_my_canvas：自证身份
+  const my = tool('canvas_my_canvas');
+  ok(!!my, '缺少 canvas_my_canvas 工具');
+  if (my) {
+    const m1 = await my.execute({}, { agent: { sessionId: 'ses_bound' } });
+    ok(m1 && m1.ok && m1.projectId === 'wsMem01' && m1.canvasId === cid, 'canvas_my_canvas 未解析出绑定画布');
+    ok(/记忆/.test(m1.text || ''), 'canvas_my_canvas 输出缺记忆指引');
+    const m2 = await my.execute({});
+    ok(m2 && m2.ok === false, 'canvas_my_canvas 无 exec 应报「无法识别会话」');
+  }
+}
+
 // ---------------- 结果 ----------------
 if (errs.length) {
   console.error('✗ test-memory FAIL（' + errs.length + '）:');
