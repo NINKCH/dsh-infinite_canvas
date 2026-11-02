@@ -1314,6 +1314,73 @@ async function memoryRead(pid, canvasId) {
   }
   return { ok: true, projectId: id, index: idx, episode };
 }
+// ---- 会话↔画布绑定（0.20.x）：一会话一画布、一画布一会话 ----
+// 落位：<项目家目录>/bindings.json：{ version:1, updatedAt, bindings:[{ sessionId, canvasId, boundAt }] }
+// 占用判定：目标画布已被其他会话绑定时，aliveFn(占用者) 为真 → 拒绝（occupied）；为假（会话已删的孤儿）→ 覆盖。
+/** 读绑定文件；缺失/损坏容错为空。 */
+function bindingsRead(pid) {
+  const id = String(pid || '');
+  try { projectFile(id); } catch { return { version: 1, updatedAt: 0, bindings: [] }; }
+  const home = projectHomeDir(id);
+  if (!home) return { version: 1, updatedAt: 0, bindings: [] };
+  try {
+    const b = JSON.parse(readFileSync(path.join(home, 'bindings.json'), 'utf8'));
+    if (b && typeof b === 'object' && Array.isArray(b.bindings)) return b;
+  } catch { /* 缺失/损坏 → 空 */ }
+  return { version: 1, updatedAt: 0, bindings: [] };
+}
+function writeBindingsAtomic(pid, data) {
+  const home = projectHomeDir(pid);
+  if (!home) return false;
+  try { mkdirSync(home, { recursive: true }); } catch { /* 已存在 */ }
+  const f = path.join(home, 'bindings.json');
+  const tmp = f + '.' + process.pid + '.tmp';
+  writeFileSync(tmp, JSON.stringify(data, null, 1), 'utf8');
+  renameSync(tmp, f);
+  return true;
+}
+/** 绑定会话到画布（canvasId=null = 默认画布）。一会话一画布（换绑移除旧条目）；一画布一会话。 */
+async function bindingSet(pid, sessionId, canvasId, aliveFn) {
+  const id = String(pid || '');
+  const sid = String(sessionId || '').trim();
+  let cid = null;
+  try { cid = normalizeCanvasId(canvasId); } catch { return { ok: false, error: '非法画布 id' }; }
+  if (!id || !sid) return { ok: false, error: '缺少 projectId 或 sessionId' };
+  try { projectFile(id); } catch { return { ok: false, error: '非法项目 id' }; }
+  const projectDoc = readDocOrNull(id);
+  if (!projectDoc) return { ok: false, error: '项目不存在：' + id };
+  if (cid) {
+    if (!canvasRegistry(projectDoc).some((c) => c.id === cid)) return { ok: false, error: '画布不存在：' + cid };
+  } else if (!defaultCanvasExists(projectDoc)) {
+    return { ok: false, error: '默认画布已删除：请指定 canvasId' };
+  }
+  const alive = typeof aliveFn === 'function' ? aliveFn : () => true;
+  const data = bindingsRead(id);
+  const others = data.bindings.filter((b) => b && b.sessionId !== sid);
+  const mine = data.bindings.find((b) => b && b.sessionId === sid);
+  const occupant = others.find((b) => (b.canvasId || null) === cid);
+  if (occupant && alive(occupant.sessionId)) {
+    return { ok: false, occupied: true, by: occupant.sessionId, error: '该画布已绑定其他会话' };
+  }
+  const next = {
+    version: 1,
+    updatedAt: Date.now(),
+    bindings: others.filter((b) => b !== occupant).concat([{ sessionId: sid, canvasId: cid, boundAt: Date.now() }]),
+  };
+  writeBindingsAtomic(id, next);
+  return { ok: true, projectId: id, sessionId: sid, canvasId: cid, replaced: !!(mine || occupant) };
+}
+/** 解绑会话（幂等：无绑定返回 removed=false）。 */
+async function bindingClear(pid, sessionId) {
+  const id = String(pid || '');
+  const sid = String(sessionId || '').trim();
+  if (!id || !sid) return { ok: false, error: '缺少 projectId 或 sessionId' };
+  const data = bindingsRead(id);
+  const next = { ...data, updatedAt: Date.now(), bindings: data.bindings.filter((b) => b && b.sessionId !== sid) };
+  const removed = next.bindings.length < data.bindings.length;
+  if (removed) writeBindingsAtomic(id, next);
+  return { ok: true, removed };
+}
 // ---- 默认画布（canvasId=null）：名字存项目文档 defaultCanvasName；删除后 defaultCanvasDeleted=true ----
 const DEFAULT_CANVAS_NAME = '默认画布';
 /** 默认画布名：缺省 '默认画布'（旧项目无该字段 → 零迁移）。 */
@@ -3156,7 +3223,7 @@ async function updateInstall() {
 export const inject = ['webServer', 'tools'];
 
 // 仅供诊断 / 自动化测试（不属于 RPC 面，运行时行为不受影响）
-export const _internals = { THUMB_MAX_SIDE, thumbRelOf, isDerivedMedia, updateCheck, updateInstall, npmLatestVersion, cmpVer, findPnpm, NPM_REGISTRIES, pickUpdateRegistry, registryCacheValid, pnpmAddArgs, getProfileDir: () => PROFILE_DIR, getVersion: () => VERSION, dataRoot, setDataRoot, dataRootMigrate, dataRootImport, ensureProjectFolder, physicalRel, mirrorProjectToDataRoot, writeAssetIndex, removeAssetIndexEntry, readDataRootMeta, removeDataRootProject, sqlDeleteProjectRows, deletedProjectIds, addDeletedProjectId, clearDeletedProjectId, fetchProxyForward, storyboardConsistencyWarnings, readAssetIndexNames, safeJoin, mimeOf, pipeFile, getIcConfigPath: () => CONFIG_PATH, canvasCreateProject, canvasWriteNode, canvasConnect, canvasDeleteProject, canvasDeleteNode, canvasRunNode, canvasNodeStatus, canvasGetBible, canvasUpdateBible, canvasCreateNode, canvasOpen, canvasesList, canvasCreate, canvasRename, canvasDelete, canvasDocId, isCanvasDocId, splitCanvasDocId, normalizeCanvasId, canvasRegistry, sanitizeCanvases, wsProjectsScan, isWsProject, wsProjectHome, wsWatchTick, projectHomeDir, memoryRead, memoryWrite, readCanvasDoc, writeCanvasDoc, deleteCanvasDocsForProject, projectsList, projectsPut, projectsGet, projectsDelete, projectsSync, sqliteAvailable: () => !!SQLITE, getDb, closeDb, dbAssetsList, dbAssetsGet, dbAssetNames, dbAssetCreate, dbAssetUpdate, dbAssetDelete, objectAbsFor, ftsReconcile, readDocOrNull, docExists, sqlActive, rpcMethods: () => _rpcMethods, canvasUpdateNode, canvasGenerateNode };
+export const _internals = { THUMB_MAX_SIDE, thumbRelOf, isDerivedMedia, updateCheck, updateInstall, npmLatestVersion, cmpVer, findPnpm, NPM_REGISTRIES, pickUpdateRegistry, registryCacheValid, pnpmAddArgs, getProfileDir: () => PROFILE_DIR, getVersion: () => VERSION, dataRoot, setDataRoot, dataRootMigrate, dataRootImport, ensureProjectFolder, physicalRel, mirrorProjectToDataRoot, writeAssetIndex, removeAssetIndexEntry, readDataRootMeta, removeDataRootProject, sqlDeleteProjectRows, deletedProjectIds, addDeletedProjectId, clearDeletedProjectId, fetchProxyForward, storyboardConsistencyWarnings, readAssetIndexNames, safeJoin, mimeOf, pipeFile, getIcConfigPath: () => CONFIG_PATH, canvasCreateProject, canvasWriteNode, canvasConnect, canvasDeleteProject, canvasDeleteNode, canvasRunNode, canvasNodeStatus, canvasGetBible, canvasUpdateBible, canvasCreateNode, canvasOpen, canvasesList, canvasCreate, canvasRename, canvasDelete, canvasDocId, isCanvasDocId, splitCanvasDocId, normalizeCanvasId, canvasRegistry, sanitizeCanvases, wsProjectsScan, isWsProject, wsProjectHome, wsWatchTick, projectHomeDir, memoryRead, memoryWrite, bindingsRead, bindingSet, bindingClear, readCanvasDoc, writeCanvasDoc, deleteCanvasDocsForProject, projectsList, projectsPut, projectsGet, projectsDelete, projectsSync, sqliteAvailable: () => !!SQLITE, getDb, closeDb, dbAssetsList, dbAssetsGet, dbAssetNames, dbAssetCreate, dbAssetUpdate, dbAssetDelete, objectAbsFor, ftsReconcile, readDocOrNull, docExists, sqlActive, rpcMethods: () => _rpcMethods, canvasUpdateNode, canvasGenerateNode };
 
 function resolveModel(providers, want) {
   const byProvider = want && want.provider
