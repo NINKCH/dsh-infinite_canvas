@@ -91,6 +91,19 @@ for (const m of ['sessionBindingGet', 'sessionBindingSet', 'sessionBindingClear'
   ok(/ICONS\.memory|memory:\s*'M/.test(src), '缺 memory 图标');
 }
 
+// ---------------- 8) 记忆纪律门禁（canvas-studio 技能正文，防复活） ----------------
+{
+  const skillPath = path.join(ROOT, 'assets', 'canvas-studio', 'SKILL.md');
+  const skill = readFileSync(skillPath, 'utf8');
+  ok(/记忆先行/.test(skill), 'canvas-studio 缺「记忆先行」纪律');
+  ok(/canvas_read_memory/.test(skill), 'canvas-studio 缺 canvas_read_memory 指引');
+  ok(/canvas_write_memory/.test(skill), 'canvas-studio 缺 canvas_write_memory 指引');
+  ok(/canvas_my_canvas/.test(skill), 'canvas-studio 缺 canvas_my_canvas 指引');
+  ok(/会话[=＝]画布工作台|会话绑定/.test(skill), 'canvas-studio 缺「会话=画布工作台」口径');
+  ok(/回写/.test(skill), 'canvas-studio 缺「回写」要求');
+  ok(/bible/i.test(skill) && /记忆/.test(skill), '记忆与设定集（bible）分工口径缺失');
+}
+
 // ---------------- 结果 ----------------
 if (errs.length) {
   console.error('✗ test-session-binding-ui FAIL（' + errs.length + '）:');
