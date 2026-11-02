@@ -4325,6 +4325,64 @@ export function apply(ctx) {
           },
         });
         reg({
+          name: 'canvas_read_memory',
+          description: '读取项目记忆：不带 canvasId 返回**调度索引**（每集画布的标题/摘要/关键词/状态，一眼看到全项目各集记忆脉络）；带 canvasId 额外返回该集**完整记忆正文**（剧情决策/人物状态变化/伏笔账本）。【记忆先行】写第 N 集剧本或分镜之前必须先读本集记忆（canvasId 从画布清单或索引对上号）；跨集要伏笔/人物状态连续性时先读索引再读相关集正文。世界观/风格/角色场景设定不在记忆里——那些用 canvas_get_bible。',
+          parameters: {
+            type: 'object',
+            properties: {
+              projectId: { type: 'string', description: '项目 id' },
+              canvasId: { type: 'string', description: '画布 id（集）；缺省只回索引' },
+            },
+            required: ['projectId'],
+            additionalProperties: false,
+          },
+          output: textOutput,
+          timeoutMs: 30000,
+          async execute(args) {
+            const r = await memoryRead(args && args.projectId, args && args.canvasId);
+            const idx = r.index || { episodes: [] };
+            const lines = [];
+            if (!idx.episodes.length) lines.push('（项目记忆为空：本集是第一集或尚未回写过记忆。写完记得 canvas_write_memory。）');
+            else {
+              lines.push('记忆索引（' + idx.episodes.length + ' 集）——跨集连续性的总账：');
+              for (const e of idx.episodes) {
+                lines.push(' · [' + (e.canvasId || '-') + '] ' + (e.title || '未命名') + '（' + (e.status === 'done' ? '已完结' : ' drafting/进行中') + '）' + (e.summary ? '：' + e.summary : '') + (Array.isArray(e.keywords) && e.keywords.length ? '　关键词:' + e.keywords.join('/') : ''));
+              }
+            }
+            if (r.episode) {
+              lines.push('—— [' + r.episode.canvasId + '] ' + (r.episode.title || '未命名') + ' 的完整记忆 ——');
+              lines.push(r.episode.body || '（该集还没有记忆正文）');
+            }
+            return { ok: true, projectId: r.projectId, text: lines.join('\n') };
+          },
+        });
+        reg({
+          name: 'canvas_write_memory',
+          description: '写入某集（画布）的项目记忆并自动更新调度索引：title 集标题、summary 一句话摘要（≤120 字，进索引供其他集快速检索）、keywords 关键词、body 完整记忆正文（剧情决策/人物状态变化/伏笔账本/未回收的钩子）、status 进度。【会话收尾铁律】一集创作告一段落（每场定稿/全集完成）必须回写本集记忆——记忆是跨集连续性的唯一载体，不回写 = 下一集会重复创作、重复设定、丢伏笔。',
+          parameters: {
+            type: 'object',
+            properties: {
+              projectId: { type: 'string', description: '项目 id' },
+              canvasId: { type: 'string', description: '画布 id（集）——记忆按画布隔离' },
+              title: { type: 'string', description: '集标题（如「第3集 雨夜追踪」）' },
+              summary: { type: 'string', description: '一句话摘要（≤120 字，写入索引供跨集检索）' },
+              keywords: { type: 'array', items: { type: 'string' }, description: '关键词（人物/地点/伏笔标记，≤10 个）' },
+              body: { type: 'string', description: '完整记忆正文（markdown）：剧情决策、人物状态变化、伏笔登记与回收、生成要点' },
+              status: { type: 'string', enum: ['drafting', 'done'], description: '进度：进行中/已完结' },
+            },
+            required: ['projectId', 'canvasId', 'title', 'summary', 'body'],
+            additionalProperties: false,
+          },
+          output: textOutput,
+          timeoutMs: 30000,
+          async execute(args) {
+            if (!args || !String(args.canvasId || '').trim()) return { ok: false, text: '缺少 canvasId：记忆按画布（集）隔离，必须指定。' };
+            const r = await memoryWrite(args.projectId, args.canvasId, args);
+            if (!r.ok) return { ok: false, text: r.error || '记忆写入失败' };
+            return { ok: true, projectId: r.projectId, canvasId: r.canvasId, text: '✅ 记忆已写入索引（' + ((r.index && r.index.episodes.length) || 0) + ' 集）。' };
+          },
+        });
+        reg({
           name: 'canvas_create_node',
           description: '在项目画布上新建指定类型的节点（image 图片节点 / video 视频节点 / storyboard 分镜表 / finalcut 成片 / script 剧本 / text 文本）。图片与视频是**合并节点**：有 assetId 就是已有素材（资产），空节点在画布上点开生成面板填写提示词后生成；旧类型名 image-gen / image-asset / video-gen / video-asset 仍可用，会被自动映射为 image / video。【分镜必须用 type:"storyboard" 的分镜表节点，绝不要用剧本节点装分镜】。【工作流铁律】实际生成由节点完成：你只负责写提示词、连线（connectFrom）、canvas_run_node 触发，不要把成稿直接填进 output。分镜表用 connectFrom 连到上游剧本节点（内容来自连线，不要复制剧本全文）；image/video 没有上游提示词时才在 prompt 里写内容，有上游时靠连线取。',
           parameters: {

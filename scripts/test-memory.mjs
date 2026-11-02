@@ -38,6 +38,7 @@ try { mod.apply(fakeCtx); } catch (e) {
 }
 const I = mod._internals;
 if (!I) { console.error('✗ index.js 未导出 _internals'); process.exit(1); }
+const tool = (name) => tools.find((t) => t.name === name);
 
 // 数据根项目 + 工作区项目各一
 await I.projectsPut({ id: 'memP1', name: '记忆项目', doc: { nodes: {}, edges: [], view: { x: 0, y: 0, scale: 1 } } });
@@ -127,6 +128,30 @@ I.wsProjectsScan([{ id: 'ws-aaaa', path: WS_DIR, title: 'ws-mem', sessionIds: []
   const r1 = await I.memoryRead('memP1', 'cvC1');
   const r2 = await I.memoryRead('memP1', 'cvC2');
   ok(String(r1.episode && r1.episode.body).includes('甲') && String(r2.episode && r2.episode.body).includes('乙'), '并发写正文互相覆盖');
+}
+
+// ---------------- 7) Agent 工具：canvas_read_memory / canvas_write_memory ----------------
+{
+  const rd = tool('canvas_read_memory');
+  const wr = tool('canvas_write_memory');
+  ok(!!rd, '缺少 canvas_read_memory 工具');
+  ok(!!wr, '缺少 canvas_write_memory 工具');
+  if (rd && wr) {
+    ok(/记忆/.test(rd.description) && /先/.test(rd.description), 'read 工具描述缺「记忆先行」纪律');
+    ok(/回写|写回|write_memory/.test(wr.description), 'write 工具描述缺「回写」纪律');
+    // 写 → 读 roundtrip（工具面）
+    const w = await wr.execute({ projectId: 'memP1', canvasId: 'cvE1', title: '第1集', summary: '工具写摘要。', keywords: ['工具'], body: '工具正文', status: 'done' });
+    ok(w && w.ok, 'canvas_write_memory 执行失败');
+    const rIdx = await rd.execute({ projectId: 'memP1' });
+    ok(rIdx && rIdx.ok && /第1集/.test(rIdx.text) && /工具写摘要。/.test(rIdx.text), 'read 工具索引输出缺条目');
+    const rFull = await rd.execute({ projectId: 'memP1', canvasId: 'cvE1' });
+    ok(rFull && rFull.ok && /工具正文/.test(rFull.text), 'read 工具未回正文');
+    // 参数校验
+    const bad = await wr.execute({ projectId: 'memP1', title: 'x', summary: 'y', body: 'z' });
+    ok(bad && bad.ok === false, '缺 canvasId 未拒绝');
+    const bad2 = await rd.execute({ projectId: '不存在的项目', canvasId: 'cv1' });
+    ok(bad2 && (bad2.ok === true || bad2.ok === false), 'read 对未知项目应容错返回（空索引），不抛');
+  }
 }
 
 // ---------------- 结果 ----------------

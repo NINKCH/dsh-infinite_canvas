@@ -22,6 +22,7 @@ GitHub Releases carry the same notes in English; maintainer-facing runbooks live
 ### Internal
 - **Contract tests for workspace projects and the memory store** (`scripts/test-workspace-projects.mjs`, `scripts/test-memory.mjs`): marker discovery, document routing, list merge, workspace-project deletion, watch-tick degradation; memory roundtrip, index ordering/caps, backup-on-overwrite, workspace placement, concurrent-write serialization.
 - **Binding-layer contract test** (`scripts/test-binding.mjs`): bind/rebind/occupancy/orphan-override/unbind idempotence, workspace placement, illegal-input rejection.
+- **Memory agent tools** `canvas_read_memory` / `canvas_write_memory` (`scripts/test-memory.mjs` §7): tool-plane write→read roundtrip, index rendering, body fetch, missing-canvasId rejection, discipline wording in descriptions.
 
 ## [0.19.20] — 2026-11-02
 
