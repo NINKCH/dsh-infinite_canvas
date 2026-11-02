@@ -8,7 +8,7 @@
  */
 import { spawn } from 'node:child_process';
 import fs from 'node:fs/promises';
-import { createReadStream, createWriteStream, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, rmdirSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
+import { createReadStream, createWriteStream, copyFileSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, rmdirSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -1192,6 +1192,127 @@ function wsWatchTick(list) {
   if (!Array.isArray(list)) return { skipped: true };
   wsProjectsScan(list);
   return { skipped: false, created: [], adopted: [], bound: [] };
+}
+// ---- 项目记忆（0.20.x）：每集画布一份记忆正文 + 项目级调度索引 ----
+// 落位：<项目家目录>/memory/index.json（索引：canvasId/标题/摘要/关键词/状态）+ memory/episodes/<canvasId>.md（正文）。
+// 项目家目录：工作区项目 = <ws>/.infinite-canvas；数据根项目 = <数据根>/projects/<项目文件夹>。
+// 世界观/风格在 bible（project.json），记忆只记「动态」：剧情决策/人物状态变化/伏笔账本。
+/** 项目家目录：记忆/绑定等派生文件的落点。
+ *  工作区项目 = <ws>/.infinite-canvas；有数据根 = <数据根>/projects/<项目文件夹>；
+ *  无数据根（IndexedDB 模式）= PROJECTS_DIR/<pid>/（记忆功能不因数据根缺席而缺席）。 */
+function projectHomeDir(pid) {
+  const id = String(pid || '');
+  const ws = wsProjectHome(id);
+  if (ws) return ws;
+  const root = dataRoot();
+  if (root) {
+    let entry = readDataRootMeta().projects.find((p) => p.id === id);
+    if (!entry) {
+      // 从未登记过媒体文件夹的老项目：按需登记（目录随之创建）
+      try {
+        const doc = readDocOrNull(id);
+        const folder = ensureProjectFolder(id, (doc && doc.name) || id);
+        if (folder) entry = { folder };
+      } catch { /* 项目不存在等 → 走统一落点 */ }
+    }
+    return entry && entry.folder ? path.join(root, 'projects', entry.folder) : null;
+  }
+  try { projectFile(id); } catch { return null; } // 非法 id 拒绝（防路径逃逸）
+  return path.join(PROJECTS_DIR, id);
+}
+const MEMORY_CAP = { title: 80, summary: 120, keywords: 10, keyword: 24 };
+/** 同项目写串行链：并发 memoryWrite 顺序落盘，互不覆盖。 */
+const memoryWriteChains = new Map();
+function memoryDirOf(pid) {
+  const home = projectHomeDir(pid);
+  return home ? path.join(home, 'memory') : null;
+}
+/** 读调度索引；缺失/损坏一律容错为空索引（写路径会重建）。 */
+function readMemoryIndex(pid) {
+  const dir = memoryDirOf(pid);
+  if (dir) {
+    try {
+      const m = JSON.parse(readFileSync(path.join(dir, 'index.json'), 'utf8'));
+      if (m && typeof m === 'object' && Array.isArray(m.episodes)) return m;
+    } catch { /* 缺失/损坏 → 重建 */ }
+  }
+  return { version: 1, updatedAt: 0, episodes: [] };
+}
+/** 原子写索引；覆盖前留一份 index.backup.json（上次良好状态）。 */
+function writeMemoryIndexAtomic(pid, index) {
+  const dir = memoryDirOf(pid);
+  if (!dir) return;
+  mkdirSync(dir, { recursive: true });
+  const f = path.join(dir, 'index.json');
+  try { if (existsSync(f)) copyFileSync(f, path.join(dir, 'index.backup.json')); } catch { /* 备份失败不阻塞 */ }
+  const tmp = f + '.' + process.pid + '.tmp';
+  writeFileSync(tmp, JSON.stringify(index, null, 1), 'utf8');
+  renameSync(tmp, f);
+}
+/** 写一集记忆：正文落 episodes/<canvasId>.md（有内容才写），索引条目 upsert（保序）。 */
+async function memoryWrite(pid, canvasId, patch) {
+  const id = String(pid || '');
+  const cid = normalizeCanvasId(canvasId);
+  if (!id || !cid) return { ok: false, error: '缺少 projectId 或 canvasId' };
+  try { projectFile(id); } catch { return { ok: false, error: '非法项目 id' }; }
+  const p = patch || {};
+  const rec = {
+    canvasId: cid,
+    title: String(p.title || '').trim().slice(0, MEMORY_CAP.title) || ('画布 ' + cid),
+    summary: String(p.summary || '').trim().slice(0, MEMORY_CAP.summary),
+    keywords: (Array.isArray(p.keywords) ? p.keywords : [])
+      .map((k) => String(k || '').trim().slice(0, MEMORY_CAP.keyword)).filter(Boolean).slice(0, MEMORY_CAP.keywords),
+    status: p.status === 'done' ? 'done' : 'drafting',
+    updatedAt: Date.now(),
+  };
+  const body = String(p.body == null ? '' : p.body);
+  const job = (memoryWriteChains.get(id) || Promise.resolve()).catch(() => {}).then(() => {
+    const dir = memoryDirOf(id);
+    if (!dir) return { ok: false, error: '项目家目录不可用（未设置数据根且非工作区项目）' };
+    if (body.trim()) {
+      const epDir = path.join(dir, 'episodes');
+      try { mkdirSync(epDir, { recursive: true }); } catch { /* 已存在 */ }
+      const f = path.join(epDir, cid + '.md');
+      const tmp = f + '.' + process.pid + '.tmp';
+      writeFileSync(tmp, body, 'utf8');
+      renameSync(tmp, f);
+    }
+    const idx = readMemoryIndex(id);
+    const i = idx.episodes.findIndex((e) => e && e.canvasId === cid);
+    if (i >= 0) idx.episodes[i] = { ...idx.episodes[i], ...rec };
+    else idx.episodes.push(rec);
+    idx.version = 1;
+    idx.updatedAt = Date.now();
+    writeMemoryIndexAtomic(id, idx);
+    return { ok: true, projectId: id, canvasId: cid, index: idx };
+  });
+  memoryWriteChains.set(id, job);
+  return job;
+}
+/** 读记忆：无 canvasId 只回索引；有 canvasId 附该集正文（正文文件可独立于索引存在）。 */
+async function memoryRead(pid, canvasId) {
+  const id = String(pid || '');
+  const idx = readMemoryIndex(id);
+  const cid = normalizeCanvasId(canvasId);
+  let episode = null;
+  if (cid) {
+    const dir = memoryDirOf(id);
+    let body = null;
+    if (dir) {
+      try { body = readFileSync(path.join(dir, 'episodes', cid + '.md'), 'utf8'); } catch { /* 无正文 */ }
+    }
+    const meta = idx.episodes.find((e) => e && e.canvasId === cid) || null;
+    if (meta || body != null) {
+      episode = {
+        canvasId: cid,
+        title: meta ? meta.title : '', summary: meta ? meta.summary : '',
+        keywords: meta ? meta.keywords || [] : [], status: meta ? meta.status || 'drafting' : 'drafting',
+        updatedAt: meta ? meta.updatedAt || 0 : 0,
+        body: body == null ? '' : body,
+      };
+    }
+  }
+  return { ok: true, projectId: id, index: idx, episode };
 }
 // ---- 默认画布（canvasId=null）：名字存项目文档 defaultCanvasName；删除后 defaultCanvasDeleted=true ----
 const DEFAULT_CANVAS_NAME = '默认画布';
@@ -3035,7 +3156,7 @@ async function updateInstall() {
 export const inject = ['webServer', 'tools'];
 
 // 仅供诊断 / 自动化测试（不属于 RPC 面，运行时行为不受影响）
-export const _internals = { THUMB_MAX_SIDE, thumbRelOf, isDerivedMedia, updateCheck, updateInstall, npmLatestVersion, cmpVer, findPnpm, NPM_REGISTRIES, pickUpdateRegistry, registryCacheValid, pnpmAddArgs, getProfileDir: () => PROFILE_DIR, getVersion: () => VERSION, dataRoot, setDataRoot, dataRootMigrate, dataRootImport, ensureProjectFolder, physicalRel, mirrorProjectToDataRoot, writeAssetIndex, removeAssetIndexEntry, readDataRootMeta, removeDataRootProject, sqlDeleteProjectRows, deletedProjectIds, addDeletedProjectId, clearDeletedProjectId, fetchProxyForward, storyboardConsistencyWarnings, readAssetIndexNames, safeJoin, mimeOf, pipeFile, getIcConfigPath: () => CONFIG_PATH, canvasCreateProject, canvasWriteNode, canvasConnect, canvasDeleteProject, canvasDeleteNode, canvasRunNode, canvasNodeStatus, canvasGetBible, canvasUpdateBible, canvasCreateNode, canvasOpen, canvasesList, canvasCreate, canvasRename, canvasDelete, canvasDocId, isCanvasDocId, splitCanvasDocId, normalizeCanvasId, canvasRegistry, sanitizeCanvases, wsProjectsScan, isWsProject, wsProjectHome, wsWatchTick, readCanvasDoc, writeCanvasDoc, deleteCanvasDocsForProject, projectsList, projectsPut, projectsGet, projectsDelete, projectsSync, sqliteAvailable: () => !!SQLITE, getDb, closeDb, dbAssetsList, dbAssetsGet, dbAssetNames, dbAssetCreate, dbAssetUpdate, dbAssetDelete, objectAbsFor, ftsReconcile, readDocOrNull, docExists, sqlActive, rpcMethods: () => _rpcMethods, canvasUpdateNode, canvasGenerateNode };
+export const _internals = { THUMB_MAX_SIDE, thumbRelOf, isDerivedMedia, updateCheck, updateInstall, npmLatestVersion, cmpVer, findPnpm, NPM_REGISTRIES, pickUpdateRegistry, registryCacheValid, pnpmAddArgs, getProfileDir: () => PROFILE_DIR, getVersion: () => VERSION, dataRoot, setDataRoot, dataRootMigrate, dataRootImport, ensureProjectFolder, physicalRel, mirrorProjectToDataRoot, writeAssetIndex, removeAssetIndexEntry, readDataRootMeta, removeDataRootProject, sqlDeleteProjectRows, deletedProjectIds, addDeletedProjectId, clearDeletedProjectId, fetchProxyForward, storyboardConsistencyWarnings, readAssetIndexNames, safeJoin, mimeOf, pipeFile, getIcConfigPath: () => CONFIG_PATH, canvasCreateProject, canvasWriteNode, canvasConnect, canvasDeleteProject, canvasDeleteNode, canvasRunNode, canvasNodeStatus, canvasGetBible, canvasUpdateBible, canvasCreateNode, canvasOpen, canvasesList, canvasCreate, canvasRename, canvasDelete, canvasDocId, isCanvasDocId, splitCanvasDocId, normalizeCanvasId, canvasRegistry, sanitizeCanvases, wsProjectsScan, isWsProject, wsProjectHome, wsWatchTick, projectHomeDir, memoryRead, memoryWrite, readCanvasDoc, writeCanvasDoc, deleteCanvasDocsForProject, projectsList, projectsPut, projectsGet, projectsDelete, projectsSync, sqliteAvailable: () => !!SQLITE, getDb, closeDb, dbAssetsList, dbAssetsGet, dbAssetNames, dbAssetCreate, dbAssetUpdate, dbAssetDelete, objectAbsFor, ftsReconcile, readDocOrNull, docExists, sqlActive, rpcMethods: () => _rpcMethods, canvasUpdateNode, canvasGenerateNode };
 
 function resolveModel(providers, want) {
   const byProvider = want && want.provider
