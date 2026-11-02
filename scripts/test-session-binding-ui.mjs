@@ -77,6 +77,20 @@ for (const m of ['sessionBindingGet', 'sessionBindingSet', 'sessionBindingClear'
   ok(src.includes("T('bindOccupied')"), '菜单缺「已被其他会话占用」提示');
 }
 
+// ---------------- 7) 记忆查看器（统一弹窗第三页签） ----------------
+{
+  ok(/tabBtn\('memory'/.test(src), '统一弹窗缺「记忆」页签');
+  ok(/openStudioModal\('memory'\)/.test(src), '侧栏缺「记忆」入口按钮');
+  ok(/hostRpc\('memoryGet'/.test(src), '查看器未接 memoryGet RPC');
+  ok(/function MemoryTab/.test(src), '缺少 MemoryTab 组件');
+  for (const k of ['memViewerTab', 'memViewerEmpty', 'memRefresh', 'memViewerHint']) {
+    const re = new RegExp("('" + k + "')\\s*:");
+    ok(re.test(src.slice(src.search(/const DICT_ZH = \{/), src.search(/const DICT_EN = \{/))), 'DICT_ZH 缺 key：' + k);
+    ok(re.test(src.slice(src.search(/const DICT_EN = \{/))), 'DICT_EN 缺 key：' + k);
+  }
+  ok(/ICONS\.memory|memory:\s*'M/.test(src), '缺 memory 图标');
+}
+
 // ---------------- 结果 ----------------
 if (errs.length) {
   console.error('✗ test-session-binding-ui FAIL（' + errs.length + '）:');

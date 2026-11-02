@@ -227,7 +227,8 @@ function cssRulesMatchingClass(name) {
   const els = all(rail);
   const acts = els.filter((e) => e.props && e.props['data-action']).map((e) => e.props['data-action']);
   // 导演台（open-director）放在动作分区：它和"运行工作流"一样是工具，不是节点类型
-  eq(acts.join(','), 'add-text,add-script,add-storyboard,add-image,add-video,add-finalcut,open-assets,open-bible,open-director,run-workflow',
+  // 记忆查看器（open-memory，0.20.x 会话绑定/项目记忆）：跟在设定集之后，属「项目资料」分组
+  eq(acts.join(','), 'add-text,add-script,add-storyboard,add-image,add-video,add-finalcut,open-assets,open-bible,open-memory,open-director,run-workflow',
     '左侧图标列顺序/动作不符合要求');
   ok(/\.dshic-rail\{[^}]*position:absolute/.test((LAYOUT.CSS || '')), '图标列不再是绝对定位悬浮层');
   // 第 2 条：图标列整列垂直居中（内层绝对定位居中，不是贴左上角/撑满整列）
@@ -329,7 +330,7 @@ function cssRulesMatchingClass(name) {
   const modalEls = all(TABS.StudioModal());
   ok(modalEls.some((e) => e.props && e.props['data-role'] === 'studio-modal'), '统一弹窗未渲染');
   const tabIds = modalEls.filter((e) => e.props && e.props['data-tab']).map((e) => e.props['data-tab']);
-  eq(tabIds.join(','), 'bible,assets', '统一弹窗标签页顺序/数量不对（应为 设定集 / 资产）');
+  eq(tabIds.join(','), 'bible,assets,memory', '统一弹窗标签页顺序/数量不对（应为 设定集 / 资产 / 记忆）');
   ok((modalEls.find((e) => e.props['data-tab'] === 'assets').props.className || '').includes('is-active'), '资产页未处于激活态');
   ok(modalEls.some((e) => String(e.props && e.props.className || '').includes('dshic-modal-assets')), '资产页容器缺失');
   ok(modalEls.some((e) => e.type === TABS.AssetsTab), '资产页没有渲染 AssetsTab');

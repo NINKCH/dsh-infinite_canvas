@@ -968,6 +968,11 @@ function revealCanvasInRight() {
       'bindFail': '绑定失败',
       'bindCreating': '创建中…',
       'bindChipBound': '第{n}集·{name}',
+      // —— 记忆查看器（统一弹窗「记忆」页签）——
+      'memViewerTab': '记忆',
+      'memViewerEmpty': '项目还没有记忆。各集会话在创作中用 canvas_write_memory 回写后，这里能看到每一集的记忆索引与全文。',
+      'memRefresh': '刷新',
+      'memViewerHint': '点任一集查看完整记忆（只读）',
       'hostTakenHint': '同一时刻画布只能在一处运行（共享同一份节点与生成状态），点击下方按钮把画布切换到这里。',
       'hostTakeOver': '把画布切换到这里',
       'keysHint': '点击按钮收起；Esc 也可关闭',
@@ -1928,6 +1933,11 @@ function revealCanvasInRight() {
       'bindFail': 'Binding failed',
       'bindCreating': 'Creating…',
       'bindChipBound': 'E{n} · {name}',
+      // —— Memory viewer (studio modal "memory" tab) ——
+      'memViewerTab': 'Memory',
+      'memViewerEmpty': 'No memories yet. As episode sessions write back via canvas_write_memory, the per-episode index and full memory appear here.',
+      'memRefresh': 'Refresh',
+      'memViewerHint': 'Click an episode to read its full memory (read-only)',
       'hostTakenHint': 'The canvas runs in one place at a time (one shared node graph and generation state). Move it here with the button below.',
       'hostTakeOver': 'Move the canvas here',
       'keysHint': 'Click the button again to collapse; Esc also closes',
@@ -3037,6 +3047,21 @@ body[data-ds-dark-theme] .dshic-menu{border-color:var(--dsw-alias-border-l2);}
 .dshic-bind-newrow button{height:26px;padding:0 10px;border:1px solid var(--dsw-alias-border-l1);border-radius:8px;background:transparent;color:var(--dsw-alias-label-primary);font:inherit;font-size:12px;cursor:pointer;white-space:nowrap;}
 .dshic-bind-newrow button:hover{border-color:var(--dsw-alias-brand-primary);}
 .dshic-bind-err{position:absolute;top:calc(100% + 4px);left:0;font-size:11px;color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-layer-1);border:1px solid var(--dsw-alias-border-l1);border-radius:8px;padding:2px 8px;z-index:70;max-width:260px;}
+/* —— 记忆查看器（统一弹窗「记忆」页签）—— */
+.dshic-memtab{display:flex;flex-direction:column;gap:8px;height:100%;min-height:0;}
+.dshic-memtab-bar{display:flex;align-items:center;gap:10px;flex:none;}
+.dshic-memtab-hint{font-size:11px;color:var(--dsw-alias-label-secondary);}
+.dshic-memtab-empty{padding:26px 10px;text-align:center;font-size:12px;color:var(--dsw-alias-label-secondary);}
+.dshic-memtab-list{display:flex;flex-direction:column;gap:4px;overflow:auto;flex:1;min-height:0;}
+.dshic-memtab-row{display:flex;align-items:baseline;gap:8px;padding:7px 10px;border:1px solid var(--dsw-alias-border-l1);border-radius:10px;
+  background:transparent;color:var(--dsw-alias-label-primary);font:inherit;font-size:12px;cursor:pointer;text-align:left;flex-wrap:wrap;}
+.dshic-memtab-row:hover{border-color:var(--dsw-alias-brand-primary);}
+.dshic-memtab-row.is-open{border-color:var(--dsw-alias-brand-primary);}
+.dshic-memtab-row-title{font-weight:600;flex:none;}
+.dshic-memtab-row-status{flex:none;color:var(--dsw-alias-label-secondary);font-size:11px;}
+.dshic-memtab-row-sum{color:var(--dsw-alias-label-secondary);font-size:11px;}
+.dshic-memtab-body{flex:none;max-height:45%;overflow:auto;margin:0;padding:10px;border:1px solid var(--dsw-alias-border-l1);border-radius:10px;
+  background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);font-size:12px;line-height:1.6;white-space:pre-wrap;word-break:break-word;}
 .dshic-overlay{position:fixed;inset:0;z-index:50;background:transparent;}
 .dshic-empty{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none;}
 .dshic-empty-card{pointer-events:auto;text-align:center;display:flex;flex-direction:column;gap:10px;align-items:center;
@@ -9472,8 +9497,9 @@ function queueThumb(assetId) {
       rightTab: 'projects',
       // 多画布预留：当前项目下只有默认画布（null）；将来 = 子目录/子画布 id
       activeCanvasId: null,
-      // 统一弹窗（资产 + 设定集合并）：'bible' | 'assets' | null；纯 UI 状态
+      // 统一弹窗（资产 + 设定集 + 记忆）：'bible' | 'assets' | 'memory' | null；纯 UI 状态
       panelModal: null,
+      memoryViewer: null,    // 记忆查看器状态：{ loaded, index, open, body }（随项目切换重拉）
       // 工具栏项目下拉（位置由按钮真实矩形计算）：{left, top} | null；纯 UI 状态
       projectMenu: null,
       // 项目下拉的搜索与分页（最多 5 行/页，分页在列表底部、带页码输入框）；打开下拉时重置
@@ -11516,6 +11542,7 @@ function queueThumb(assetId) {
       keyboard: 'M3 6h18v12H3zM7 10h.01M10 10h.01M13 10h.01M16 10h.01M7 13h.01M10 13h.01M13 13h.01M16 13h.01M8 16h8',
       link: 'M10 13a5 5 0 007.1 0l2.4-2.4a5 5 0 00-7.1-7.1L11 4.9M14 11a5 5 0 00-7.1 0L4.5 13.4a5 5 0 007.1 7.1L13 19.1',
       camera: 'M4 8h3l1.5-2h7L17 8h3v11H4zM12 16a3 3 0 100-6 3 3 0 000 6z',
+      memory: 'M5 5h14M5 10h14M5 15h9M5 20h6M18 15v5M15.5 17.5h5',
     };
     function Ic(name, size) { return h(Icon, { d: ICONS[name], size: size || 14 }); }
 
@@ -14253,10 +14280,10 @@ function queueThumb(assetId) {
     // 统一弹窗 / 项目命名弹窗的状态与动作（供图标列、工具栏、测试缝共用）
     // ============================================================
     function openStudioModal(tab) {
-      update((s) => { s.panelModal = tab === 'assets' ? 'assets' : 'bible'; });
+      update((s) => { s.panelModal = tab === 'assets' ? 'assets' : (tab === 'memory' ? 'memory' : 'bible'); });
     }
     function setStudioModalTab(tab) {
-      update((s) => { if (s.panelModal) s.panelModal = tab === 'assets' ? 'assets' : 'bible'; });
+      update((s) => { if (s.panelModal) s.panelModal = tab === 'assets' ? 'assets' : (tab === 'memory' ? 'memory' : 'bible'); });
     }
     function closeStudioModal() {
       update((s) => { s.panelModal = null; });
@@ -17705,6 +17732,13 @@ const DIRECTOR_KEY_HELP = [
           'data-action': 'open-bible', title: T('bibleTab'),
           onClick: () => openStudioModal('bible'),
         }, Ic('script', 16)),
+        // 记忆查看器：项目级每集记忆索引 + 全文（只读；agent 经 canvas_write_memory 维护）
+        h('button', {
+          key: 'memory', type: 'button',
+          className: cls('dshic-rail-btn', S.panelModal === 'memory' && 'is-active'),
+          'data-action': 'open-memory', title: T('memViewerTab'),
+          onClick: () => openStudioModal('memory'),
+        }, Ic('memory', 16)),
         h('div', { key: 'sep-actions', className: 'dshic-rail-sep' }),
         // 3D 导演台：摆位 + 取景 + 导出镜头首帧（参考项目 BeefTV 的导演台能力，只借鉴设计、独立实现）
         h('button', {
@@ -17752,7 +17786,8 @@ const DIRECTOR_KEY_HELP = [
           h('div', { className: 'dshic-studio-head' },
             h('div', { className: 'dshic-studio-tabs' },
               tabBtn('bible', T('bibleTab')),
-              tabBtn('assets', T('assets'))),
+              tabBtn('assets', T('assets')),
+              tabBtn('memory', T('memViewerTab'))),
             h('span', { className: 'dshic-studio-title' }, proj ? proj.name : ''),
             h('button', {
               type: 'button', className: 'dshic-iconbtn', title: T('cancel'),
@@ -17761,8 +17796,71 @@ const DIRECTOR_KEY_HELP = [
           h('div', { className: 'dshic-studio-body' },
             tab === 'bible'
               ? h('div', { className: 'dshic-studio-bible' }, h(BibleTab))
-              : h('div', { className: 'dshic-modal-assets' }, h(AssetsTab, { variant: 'modal' }))),
+              : (tab === 'memory'
+                ? h('div', { className: 'dshic-studio-memory' }, h(MemoryTab))
+                : h('div', { className: 'dshic-modal-assets' }, h(AssetsTab, { variant: 'modal' })))),
         ));
+    }
+
+    // ============================================================
+    // 记忆查看器（统一弹窗「记忆」页签）：项目级每集记忆索引 + 全文（只读；
+    // 写入由 agent 经 canvas_write_memory 维护，人只看不改，避免与 agent 打架）
+    // ============================================================
+    async function loadMemoryIndex(pid) {
+      if (!pid) return;
+      try {
+        const r = await hostRpc('memoryGet', { projectId: pid });
+        update((s) => {
+          s.memoryViewer = { loaded: true, index: (r && r.index) || { episodes: [] }, open: null, body: null };
+        });
+      } catch {
+        update((s) => { s.memoryViewer = { loaded: true, index: { episodes: [] }, open: null, body: null }; });
+      }
+    }
+    async function loadMemoryBody(pid, canvasId) {
+      try {
+        const r = await hostRpc('memoryGet', { projectId: pid, canvasId });
+        update((s) => {
+          const prev = s.memoryViewer || { index: { episodes: [] } };
+          s.memoryViewer = {
+            loaded: true,
+            index: (r && r.index) || prev.index,
+            open: canvasId,
+            body: (r && r.episode && r.episode.body) || '',
+          };
+        });
+      } catch { /* 静默：正文拉取失败保持原状 */ }
+    }
+    function MemoryTab() {
+      useApp();
+      const pid = S.activeId;
+      useEffect(() => {
+        loadMemoryIndex(pid);
+        return undefined;
+      }, [pid]);
+      const st = S.memoryViewer || { loaded: false, index: { episodes: [] }, open: null, body: null };
+      const eps = (st.index && Array.isArray(st.index.episodes)) ? st.index.episodes : [];
+      return h('div', { className: 'dshic-memtab' },
+        h('div', { className: 'dshic-memtab-bar' },
+          h('button', { type: 'button', className: 'dshic-mini', onClick: () => loadMemoryIndex(pid) }, T('memRefresh')),
+          h('span', { className: 'dshic-memtab-hint' }, T('memViewerHint'))),
+        !st.loaded
+          ? h('div', { className: 'dshic-memtab-empty' }, '…')
+          : (!eps.length
+            ? h('div', { className: 'dshic-memtab-empty' }, T('memViewerEmpty'))
+            : h('div', { className: 'dshic-memtab-list' }, eps.map((e, i) => h('button', {
+              key: String(e.canvasId) + ':' + i,
+              type: 'button',
+              className: 'dshic-memtab-row' + (st.open === e.canvasId ? ' is-open' : ''),
+              onClick: () => loadMemoryBody(pid, e.canvasId),
+            },
+              h('span', { className: 'dshic-memtab-row-title' }, (i + 1) + '. ' + (e.title || e.canvasId || '')),
+              h('span', { className: 'dshic-memtab-row-status' }, e.status === 'done' ? '✓' : '…'),
+              h('span', { className: 'dshic-memtab-row-sum' }, e.summary || ''))))),
+        st.open != null && st.body != null
+          ? h('pre', { className: 'dshic-memtab-body' }, st.body)
+          : null,
+      );
     }
 
     // ============================================================
