@@ -3028,23 +3028,25 @@ body[data-ds-dark-theme] .dshic-inline-input{border-color:var(--dsw-alias-border
   color:var(--dsw-alias-label-primary);font:inherit;font-size:13px;cursor:pointer;text-align:left;white-space:nowrap;}
 .dshic-menu-item:hover{background:var(--dsw-alias-interactive-bg-hover,color-mix(in srgb,var(--dsw-alias-label-primary) 8%,transparent));}
 body[data-ds-dark-theme] .dshic-menu{border-color:var(--dsw-alias-border-l2);}
-/* —— 会话↔画布绑定（composer 画布选择 chip）：透明底线框 chip + 就地下拉 —— */
+/* —— 会话↔画布绑定（composer 画布选择 chip）：与宿主会话输入行 chip 同一视觉语言 —— */
 .dshic-bind{position:relative;display:inline-flex;align-items:center;gap:2px;}
-.dshic-bind-chip{display:inline-flex;align-items:center;height:24px;padding:0 10px;border-radius:999px;border:1px solid var(--dsw-alias-border-l1);
-  background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:12px;cursor:pointer;white-space:nowrap;max-width:200px;overflow:hidden;text-overflow:ellipsis;}
-.dshic-bind-chip:hover{border-color:var(--dsw-alias-brand-primary);color:var(--dsw-alias-label-primary);}
-.dshic-bind-chip.is-bound{color:var(--dsw-alias-brand-primary);border-color:color-mix(in srgb,var(--dsw-alias-brand-primary) 55%,transparent);}
-.dshic-bind-arrow{display:inline-flex;align-items:center;justify-content:center;width:18px;height:24px;border:none;border-radius:8px;background:transparent;
+.dshic-bind-chip{display:inline-flex;align-items:center;gap:5px;height:28px;padding:0 10px;border-radius:10px;border:1px solid transparent;
+  background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-secondary);font:inherit;font-size:13px;cursor:pointer;white-space:nowrap;max-width:220px;overflow:hidden;text-overflow:ellipsis;}
+.dshic-bind-chip:hover{background:var(--dsw-alias-interactive-bg-hover,var(--dsw-alias-bg-layer-3));color:var(--dsw-alias-label-primary);}
+.dshic-bind-chip.is-bound{color:var(--dsw-alias-label-primary);}
+.dshic-bind-ico{display:inline-flex;align-items:center;flex:none;opacity:.85;}
+.dshic-bind-arrow{display:inline-flex;align-items:center;justify-content:center;width:20px;height:28px;border:none;border-radius:10px;background:transparent;
   color:var(--dsw-alias-label-secondary);font-size:10px;cursor:pointer;}
-.dshic-bind-arrow:hover{color:var(--dsw-alias-label-primary);background:var(--dsw-alias-interactive-bg-hover,color-mix(in srgb,var(--dsw-alias-label-primary) 8%,transparent));}
-.dshic-bind-menu{position:absolute;top:calc(100% + 6px);left:0;z-index:70;max-height:320px;overflow:auto;min-width:230px;}
+.dshic-bind-arrow:hover{color:var(--dsw-alias-label-primary);background:var(--dsw-alias-interactive-bg-hover,var(--dsw-alias-bg-layer-3));}
+.dshic-bind-menu{position:absolute;top:calc(100% + 6px);left:0;z-index:70;max-height:320px;overflow:auto;min-width:230px;border-radius:10px;padding:4px;}
 .dshic-bind-menu-title{font-size:11px;color:var(--dsw-alias-label-secondary);padding:4px 10px 2px;}
 .dshic-bind-occ{color:var(--dsw-alias-label-secondary);font-size:11px;margin-left:auto;padding-left:12px;}
+.dshic-bind-check{color:var(--dsw-alias-brand-primary);font-size:12px;margin-left:auto;padding-left:12px;}
 .dshic-menu-item.is-dim{opacity:.55;cursor:not-allowed;}
 .dshic-menu-item.is-dim:hover{background:transparent;}
 .dshic-bind-newrow{display:flex;gap:6px;padding:4px 8px 6px;}
-.dshic-bind-newrow input{flex:1;min-width:0;height:26px;border:1px solid var(--dsw-alias-border-l1);border-radius:8px;background:transparent;color:var(--dsw-alias-label-primary);font:inherit;font-size:12px;padding:0 8px;box-sizing:border-box;}
-.dshic-bind-newrow button{height:26px;padding:0 10px;border:1px solid var(--dsw-alias-border-l1);border-radius:8px;background:transparent;color:var(--dsw-alias-label-primary);font:inherit;font-size:12px;cursor:pointer;white-space:nowrap;}
+.dshic-bind-newrow input{flex:1;min-width:0;height:28px;border:1px solid var(--dsw-alias-border-l1);border-radius:8px;background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);font:inherit;font-size:13px;padding:0 8px;box-sizing:border-box;}
+.dshic-bind-newrow button{height:28px;padding:0 10px;border:1px solid var(--dsw-alias-border-l1);border-radius:8px;background:transparent;color:var(--dsw-alias-label-primary);font:inherit;font-size:13px;cursor:pointer;white-space:nowrap;}
 .dshic-bind-newrow button:hover{border-color:var(--dsw-alias-brand-primary);}
 .dshic-bind-err{position:absolute;top:calc(100% + 4px);left:0;font-size:11px;color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-layer-1);border:1px solid var(--dsw-alias-border-l1);border-radius:8px;padding:2px 8px;z-index:70;max-width:260px;}
 /* —— 记忆查看器（统一弹窗「记忆」页签）—— */
@@ -21103,12 +21105,15 @@ const DIRECTOR_KEY_HELP = [
         for (const c of (b.canvases || [])) {
           const cid = c.id == null ? null : c.id;
           const occupiedBy = occ[cid == null ? 'null' : cid] || null;
+          const isCurrent = !!(b.binding && (b.binding.canvasId == null ? null : b.binding.canvasId) === cid);
           rows.push(h('button', {
             key: String(cid) + ':' + c.name,
             type: 'button',
             className: 'dshic-menu-item' + (occupiedBy ? ' is-dim' : ''),
             onClick: occupiedBy ? undefined : () => bindSessionToCanvas(sessionId, cid),
-          }, h('span', null, c.name || T('panel')), occupiedBy ? h('span', { className: 'dshic-bind-occ' }, T('bindOccupied')) : null));
+          }, h('span', null, c.name || T('panel')),
+            occupiedBy ? h('span', { className: 'dshic-bind-occ' }, T('bindOccupied'))
+              : (isCurrent ? h('span', { className: 'dshic-bind-check' }, '✓') : null)));
         }
       }
       return h('div', { className: 'dshic-menu dshic-bind-menu' },
@@ -21155,12 +21160,15 @@ const DIRECTOR_KEY_HELP = [
         className: 'dshic-bind-chip' + (bound ? ' is-bound' : ''),
         title: bound ? T('bindMenuTitle') : (b.project ? T('bindUnbound') : T('bindNewProject')),
         onClick: bound ? openBoundCanvasFromChip : (b.project ? openMenu : () => createWorkspaceProject(sessionId)),
-      }, bound
-        ? TPL(T('bindChipBound'), {
-          project: (b.project && b.project.name) || b.project.id || '',
-          name: ep ? ep.name : String(b.binding.canvasId || ''),
-        })
-        : (b.project ? T('bindUnbound') : (S.bindingCreating ? T('bindCreating') : T('bindNewProject'))));
+      }, [
+        h('span', { key: 'ico', className: 'dshic-bind-ico' }, Ic('image', 14)),
+        h('span', { key: 'label' }, bound
+          ? TPL(T('bindChipBound'), {
+            project: (b.project && b.project.name) || b.project.id || '',
+            name: ep ? ep.name : String(b.binding.canvasId || ''),
+          })
+          : (b.project ? T('bindUnbound') : (S.bindingCreating ? T('bindCreating') : T('bindNewProject')))),
+      ]);
       return h('div', { className: 'dshic-bind' },
         chip,
         bound ? h('button', { key: 'arrow', type: 'button', className: 'dshic-bind-arrow', title: T('bindMenuTitle'), onClick: openMenu }, '▾') : null,
