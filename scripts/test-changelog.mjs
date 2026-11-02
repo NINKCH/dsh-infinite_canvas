@@ -122,6 +122,7 @@ const COVERAGE = [
   { sha: '10e0d5b', keys: [/Memory agent tools/i] },
   { sha: 'c59a9a7', keys: [/Session-aware tool defaults/i] },
   { sha: 'eaedac4', keys: [/Composer canvas-binding chip/i] },
+  { sha: 'd84fdc8', keys: [/Memory viewer \(studio modal/i] },
 ];
 for (const c of COVERAGE) {
   ok(c.keys.some((re) => re.test(coverageText)), '未发版提交 ' + c.sha + ' 在 CHANGELOG（Unreleased 或最新已发布段）里找不到对应记录（补记不全）');
