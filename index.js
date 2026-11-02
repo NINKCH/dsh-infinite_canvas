@@ -8,7 +8,7 @@
  */
 import { spawn } from 'node:child_process';
 import fs from 'node:fs/promises';
-import { createReadStream, createWriteStream, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, renameSync, rmdirSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
+import { createReadStream, createWriteStream, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, rmdirSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -539,6 +539,11 @@ function dbAssetUpdate(id, patch) {
  *  引用计数回收（gcObjectIfUnreferenced）兜住，不需要独立的定期扫描入口。 */
 
 function readDocOrNull(id) {
+  // 工作区内嵌项目优先：文档在 <ws>/.infinite-canvas/，与数据根/SQLite 无关
+  const wsf = wsDocFile(id);
+  if (wsf) {
+    try { return JSON.parse(readFileSync(wsf, 'utf8')); } catch { return null; }
+  }
   if (sqlActive()) {
     const db = getDb();
     const row = db.prepare('SELECT doc FROM projects WHERE id = ?').get(id);
@@ -548,6 +553,7 @@ function readDocOrNull(id) {
   try { return JSON.parse(readFileSync(projectFile(id), 'utf8')); } catch { return null; }
 }
 function docExists(id) {
+  if (wsDocFile(id)) return !!readDocOrNull(id);
   if (sqlActive()) {
     const db = getDb();
     return !!db.prepare('SELECT id FROM projects WHERE id = ?').get(id);
@@ -1116,6 +1122,77 @@ function sanitizeCanvases(list) {
   }
   return out.slice(0, 200);
 }
+// ---- 工作区内嵌项目（0.20.x）：<工作区目录>/.infinite-canvas/ 即项目家目录 ----
+// 项目随工作区目录走（宿主侧 workspaceRegistry 发现）：project.json / canvases/ / memory/ / bindings.json
+// 全部内嵌目录自包含。文档读写与数据根/SQLite 完全解耦（wsDocFile 分发）；媒体仍走数据根管线
+//（ensureProjectFolder 统一登记媒体文件夹），拷工作区目录 = 带走全部设定/记忆/画布文档。
+const WS_APP_DIR = '.infinite-canvas';
+/** 工作区项目缓存：pid -> { pid, wsId, wsPath, home, doc }；wsProjectsScan 负责刷新。 */
+const wsProjects = new Map();
+/** 扫描工作区注册表 list（[{id,path,title,sessionIds}]），发现带 `.infinite-canvas/project.json` 标记的项目。
+ *  每次全量重扫（代价 = 每工作区读一个小 JSON），标记消失/目录消失自然落榜。 */
+function wsProjectsScan(list) {
+  const seen = Array.isArray(list) ? list : [];
+  wsProjects.clear();
+  for (const w of seen) {
+    if (!w || typeof w.path !== 'string' || !w.path) continue;
+    let doc = null;
+    try {
+      doc = JSON.parse(readFileSync(path.join(w.path, WS_APP_DIR, 'project.json'), 'utf8'));
+    } catch { /* 无标记/损坏 → 不算项目 */ }
+    if (!doc || typeof doc !== 'object' || !doc.id) continue;
+    const pid = String(doc.id);
+    wsProjects.set(pid, { pid, wsId: String(w.id || ''), wsPath: w.path, home: path.join(w.path, WS_APP_DIR), doc });
+  }
+  return [...wsProjects.values()];
+}
+/** 该 pid 是否工作区内嵌项目（按最近一次扫描缓存）。 */
+function isWsProject(pid) { return wsProjects.has(String(pid || '')); }
+/** 工作区项目家目录（<工作区>/.infinite-canvas）；非工作区项目返回 null。 */
+function wsProjectHome(pid) {
+  const r = wsProjects.get(String(pid || ''));
+  return r ? r.home : null;
+}
+/** 工作区文档 id → 物理文件：项目文档 = project.json；子画布文档 = canvases/<cid>.json；非工作区项目返回 null。 */
+function wsDocFile(id) {
+  const s = String(id || '');
+  const ref = isCanvasDocId(s) ? splitCanvasDocId(s) : { projectId: s, canvasId: null };
+  const home = wsProjectHome(ref.projectId);
+  if (!home) return null;
+  return ref.canvasId ? path.join(home, 'canvases', ref.canvasId + '.json') : path.join(home, 'project.json');
+}
+/** 工作区项目 → projectsList 条目（与数据根条目同形，另带 origin:'workspace' + wsId/wsPath）。 */
+function wsProjectListEntry(rec) {
+  const d = rec.doc || {};
+  const nodes = Object.values(d.nodes || {}).map((n) => ({
+    id: n.id, type: normalizeNodeType(n.type), label: (n.data && n.data.label) || '',
+    status: (n.data && n.data.status) || 'idle',
+    x: Number(n.x) || 0, y: Number(n.y) || 0, w: Number(n.w) || 0, h: Number(n.h) || 0,
+  }));
+  return {
+    id: d.id, name: d.name || rec.pid, createdAt: d.createdAt || 0, updatedAt: d.updatedAt || 0,
+    source: d.source || 'agent', nodeIds: Object.keys(d.nodes || {}), nodes,
+    tombstones: Array.isArray(d.tombstones) ? d.tombstones : [], bibleUpdatedAt: d.bibleUpdatedAt || 0,
+    canvases: canvasRegistry(d), defaultCanvasName: defaultCanvasNameForApi(d),
+    defaultCanvasDeleted: !defaultCanvasExists(d),
+    origin: 'workspace', wsId: rec.wsId, wsPath: rec.wsPath,
+  };
+}
+/** 删除工作区项目目录（.infinite-canvas 整目录）；工作区目录本身不动。 */
+function wsProjectRemove(pid) {
+  const home = wsProjectHome(pid);
+  if (!home) return false;
+  try { rmSync(home, { recursive: true, force: true }); } catch { /* 目录被占用：标记已无效，后续扫描自然落榜 */ }
+  wsProjects.delete(String(pid));
+  return true;
+}
+/** 工作区 watcher 单次 tick：list = workspaceRegistry.list()（老宿主无此服务 → undefined，直接跳过）。
+ *  Task4 起实现建项目/采纳/首会话自动绑；此处分发入口保证降级安全。 */
+function wsWatchTick(list) {
+  if (!Array.isArray(list)) return { skipped: true };
+  wsProjectsScan(list);
+  return { skipped: false, created: [], adopted: [], bound: [] };
+}
 // ---- 默认画布（canvasId=null）：名字存项目文档 defaultCanvasName；删除后 defaultCanvasDeleted=true ----
 const DEFAULT_CANVAS_NAME = '默认画布';
 /** 默认画布名：缺省 '默认画布'（旧项目无该字段 → 零迁移）。 */
@@ -1134,7 +1211,7 @@ function allCanvasNames(projectDoc) {
   const names = defaultCanvasExists(projectDoc) ? [defaultCanvasNameOf(projectDoc)] : [];
   return names.concat(canvasRegistry(projectDoc).map((c) => c.name));
 }
-function projectsList() {
+function projectsListDataRoot() {
   if (sqlActive()) {
     const db = getDb();
     const rows = db.prepare('SELECT id, name, created_at, updated_at, bible_updated_at, summary, tombstones FROM projects ORDER BY updated_at DESC').all()
@@ -1180,6 +1257,11 @@ function projectsList() {
     } catch { /* 单文件损坏跳过 */ }
   }
   return list.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+}
+/** 项目总列表 = 工作区内嵌项目 + 数据根项目，按更新时间合并排序（工作区缓存由 wsProjectsScan 刷新）。 */
+function projectsList() {
+  const ws = [...wsProjects.values()].map(wsProjectListEntry);
+  return ws.concat(projectsListDataRoot()).sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
 }
 async function projectsPut(args) {
   const id = String((args && args.id) || '');
@@ -1462,7 +1544,11 @@ function setDataRoot(raw) {
 async function projectsDelete(args) {
   const id = String((args && args.id) || '');
   let cleanup = null;
-  if (sqlActive()) {
+  if (isWsProject(id)) {
+    // 工作区内嵌项目：删 .infinite-canvas 整目录（工作区目录本身不动），并清数据根媒体文件夹
+    cleanup = { ws: wsProjectRemove(id) };
+    try { removeDataRootProject(id); } catch { /* 媒体清理失败不影响删除 */ }
+  } else if (sqlActive()) {
     // BLK-01：行 + FTS + 资产文件 + 镜像目录，一处收口（与 canvasDeleteProject 共用同一实现）
     cleanup = sqlDeleteProjectRows(getDb(), id, dataRoot());
   } else {
@@ -1839,30 +1925,35 @@ function canvasWriteNode(args) {
 }
 /** 读取项目文档：把"文件不存在/内容损坏"变成用户和模型都读得懂的报错（不泄漏绝对路径）。 */
 function readDoc(id) {
-  if (sqlActive()) {
-    const doc = readDocOrNull(id);
-    if (!doc) throw new Error('项目不存在：' + id + '（先用 canvas_list_projects 查看可用项目 id）');
+  const doc = readDocOrNull(id);
+  if (doc) {
     // 旧项目兼容：读入即归一旧节点类型（image-gen/image-asset → image，video-gen/video-asset → video）
     return normalizeDocNodes(doc);
   }
-  const f = projectFile(id);
-  let raw;
-  try {
-    raw = readFileSync(f, 'utf8');
-  } catch {
-    throw new Error('项目不存在：' + id + '（先用 canvas_list_projects 查看可用项目 id）');
-  }
-  try {
-    return normalizeDocNodes(JSON.parse(raw));
-  } catch {
+  // 文件模式区分「不存在」与「损坏」（损坏给重建提示）；SQL/工作区侧统一按不存在处理
+  if (!sqlActive() && !wsDocFile(id) && existsSync(projectFile(id))) {
     throw new Error('项目文件损坏，无法解析：' + id + '（可考虑重建该项目）');
   }
+  throw new Error('项目不存在：' + id + '（先用 canvas_list_projects 查看可用项目 id）');
 }
 /** 原子写项目/画布文档：SQL 模式走单行事务；文件模式先写临时文件再改名，避免半写导致项目"消失"。
  *  子画布文档（id 含 __cv__）不重复登记项目文件夹、不镜像 project.json——项目级 meta 只属于默认画布行。 */
 function writeIcDoc(id, doc) {
   const canvasRef = splitCanvasDocId(id);
   const isCanvas = isCanvasDocId(id);
+  // 工作区内嵌项目：文档直接落 <ws>/.infinite-canvas/（原子写）；不进 SQLite、不镜像数据根。
+  // 项目级文档顺带在数据根登记媒体文件夹（媒体仍走数据根管线），失败不阻塞。
+  const wsf = wsDocFile(id);
+  if (wsf) {
+    try { mkdirSync(path.dirname(wsf), { recursive: true }); } catch { /* 目录已存在 */ }
+    const tmp = wsf + '.' + process.pid + '.tmp';
+    writeFileSync(tmp, JSON.stringify(doc, null, 1), 'utf8');
+    renameSync(tmp, wsf);
+    if (!isCanvas) {
+      try { ensureProjectFolder(canvasRef.projectId, (doc && doc.name) || canvasRef.projectId); } catch { /* 媒体文件夹登记失败不阻塞文档 */ }
+    }
+    return;
+  }
   if (sqlActive()) {
     const db = getDb();
     db.prepare(`INSERT INTO projects (id, name, created_at, updated_at, bible_updated_at, summary, tombstones, doc)
@@ -1961,6 +2052,18 @@ function deleteCanvasDocsForProject(projectId) {
   const pid = String(projectId || '');
   if (!pid) return 0;
   let removed = 0;
+  // 工作区内嵌项目：清 <home>/canvases/ 目录
+  const home = wsProjectHome(pid);
+  if (home) {
+    const dir = path.join(home, 'canvases');
+    let files = [];
+    try { files = readdirSync(dir); } catch { return 0; }
+    for (const f of files) {
+      if (!f.endsWith('.json')) continue;
+      try { unlinkSync(path.join(dir, f)); removed++; } catch { /* 文件占用/已删 */ }
+    }
+    return removed;
+  }
   if (sqlActive()) {
     try {
       const db = getDb();
@@ -2932,7 +3035,7 @@ async function updateInstall() {
 export const inject = ['webServer', 'tools'];
 
 // 仅供诊断 / 自动化测试（不属于 RPC 面，运行时行为不受影响）
-export const _internals = { THUMB_MAX_SIDE, thumbRelOf, isDerivedMedia, updateCheck, updateInstall, npmLatestVersion, cmpVer, findPnpm, NPM_REGISTRIES, pickUpdateRegistry, registryCacheValid, pnpmAddArgs, getProfileDir: () => PROFILE_DIR, getVersion: () => VERSION, dataRoot, setDataRoot, dataRootMigrate, dataRootImport, ensureProjectFolder, physicalRel, mirrorProjectToDataRoot, writeAssetIndex, removeAssetIndexEntry, readDataRootMeta, removeDataRootProject, sqlDeleteProjectRows, deletedProjectIds, addDeletedProjectId, clearDeletedProjectId, fetchProxyForward, storyboardConsistencyWarnings, readAssetIndexNames, safeJoin, mimeOf, pipeFile, getIcConfigPath: () => CONFIG_PATH, canvasCreateProject, canvasWriteNode, canvasConnect, canvasDeleteProject, canvasDeleteNode, canvasRunNode, canvasNodeStatus, canvasGetBible, canvasUpdateBible, canvasCreateNode, canvasOpen, canvasesList, canvasCreate, canvasRename, canvasDelete, canvasDocId, isCanvasDocId, splitCanvasDocId, normalizeCanvasId, canvasRegistry, sanitizeCanvases, readCanvasDoc, writeCanvasDoc, deleteCanvasDocsForProject, projectsList, projectsPut, projectsGet, projectsDelete, projectsSync, sqliteAvailable: () => !!SQLITE, getDb, closeDb, dbAssetsList, dbAssetsGet, dbAssetNames, dbAssetCreate, dbAssetUpdate, dbAssetDelete, objectAbsFor, ftsReconcile, readDocOrNull, docExists, sqlActive, rpcMethods: () => _rpcMethods, canvasUpdateNode, canvasGenerateNode };
+export const _internals = { THUMB_MAX_SIDE, thumbRelOf, isDerivedMedia, updateCheck, updateInstall, npmLatestVersion, cmpVer, findPnpm, NPM_REGISTRIES, pickUpdateRegistry, registryCacheValid, pnpmAddArgs, getProfileDir: () => PROFILE_DIR, getVersion: () => VERSION, dataRoot, setDataRoot, dataRootMigrate, dataRootImport, ensureProjectFolder, physicalRel, mirrorProjectToDataRoot, writeAssetIndex, removeAssetIndexEntry, readDataRootMeta, removeDataRootProject, sqlDeleteProjectRows, deletedProjectIds, addDeletedProjectId, clearDeletedProjectId, fetchProxyForward, storyboardConsistencyWarnings, readAssetIndexNames, safeJoin, mimeOf, pipeFile, getIcConfigPath: () => CONFIG_PATH, canvasCreateProject, canvasWriteNode, canvasConnect, canvasDeleteProject, canvasDeleteNode, canvasRunNode, canvasNodeStatus, canvasGetBible, canvasUpdateBible, canvasCreateNode, canvasOpen, canvasesList, canvasCreate, canvasRename, canvasDelete, canvasDocId, isCanvasDocId, splitCanvasDocId, normalizeCanvasId, canvasRegistry, sanitizeCanvases, wsProjectsScan, isWsProject, wsProjectHome, wsWatchTick, readCanvasDoc, writeCanvasDoc, deleteCanvasDocsForProject, projectsList, projectsPut, projectsGet, projectsDelete, projectsSync, sqliteAvailable: () => !!SQLITE, getDb, closeDb, dbAssetsList, dbAssetsGet, dbAssetNames, dbAssetCreate, dbAssetUpdate, dbAssetDelete, objectAbsFor, ftsReconcile, readDocOrNull, docExists, sqlActive, rpcMethods: () => _rpcMethods, canvasUpdateNode, canvasGenerateNode };
 
 function resolveModel(providers, want) {
   const byProvider = want && want.provider
