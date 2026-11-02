@@ -75,6 +75,15 @@ The canvas is not a separate window you have to switch to. It opens as a **tab i
 
 > One live canvas at a time (shared node graph and generation state): opening it in the pane while the full-page panel is also open **moves** the canvas rather than duplicating it — the other side shows a "move the canvas here" button.
 
+## Session ↔ canvas binding + project memory (multi-episode series)
+
+Built for long-running series: **one workspace = one project, one session = one episode.**
+
+- **Bind in the composer.** A small chip in the chat input row (next to the mode selector) binds the current session to a canvas: workspaces without a project show **建画布项目** (one click creates a project under `<workspace>/.infinite-canvas/` with episode 1 and binds this session to it); bound sessions show **第N集·画布名** — clicking jumps the canvas pane to that episode. The first session of a new workspace is bound automatically; every further session picks its own episode from the dropdown (occupied canvases are marked; unbinding is one click away).
+- **The chat agent operates the whole bound canvas.** With the bundled「媒体创作」preset, the agent self-identifies via `canvas_my_canvas` ("this session = episode N of project X") and every `canvas_*` tool defaults to the bound canvas — write/connect/run/delete any node, update the bible, manage canvases — without repeating ids. Explicit args still reach any other project or episode.
+- **Project memory keeps 100 episodes continuous.** Each episode's canvas has its own memory (plot decisions, character-state changes, foreshadowing ledger) plus a project-level scheduling index (titles / summaries / keywords / status). The agent is bound by skill discipline to read the index before writing an episode and write its memory back at every milestone, so episode 47 never re-invents what episode 12 decided. Browse any episode's memory in the canvas's **记忆** tab.
+- **Everything lives in the workspace.** `project.json`, `canvases/`, `memory/`, `bindings.json` sit inside `<workspace>/.infinite-canvas/` — copy the folder, move the series. (Media files stay in the plugin's data root.)
+
 ## 3D Director Stage (previz)
 
 A blocking & previz workspace that lives inside the same project: place real glTF characters and set dressing, frame them with real cameras, and send the result back to the canvas as an image or video node.
