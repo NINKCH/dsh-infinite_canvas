@@ -10,6 +10,15 @@ GitHub Releases carry the same notes in English; maintainer-facing runbooks live
 - **Workspace-embedded projects (`<workspace>/.infinite-canvas/`).** A workspace directory can host a project home: `project.json`, `canvases/`, `memory/`, `bindings.json` live under `.infinite-canvas/` inside the workspace, discovered by a host-side workspace-registry scan (marker file, stable id inside the doc — re-adding the directory re-adopts the same project). The document layer routes transparently (`readDocOrNull`/`writeIcDoc`), so every tool and RPC works on workspace projects unchanged; `projectsList` merges both sources (workspace entries carry `origin:"workspace"` + `wsId`/`wsPath`); deleting a workspace project removes `.infinite-canvas/` only, never the workspace itself. Media keeps flowing through the data-root pipeline (known trade-off: copying the workspace carries all docs/memory/canvas documents, media stays in the data root). Old hosts without a workspace registry degrade to no-op.
 - **Project memory store (per-episode memory + scheduling index).** Each canvas (one episode) gets a memory body `memory/episodes/<canvasId>.md` plus a project-level index `memory/index.json` (title / ≤120-char summary / keywords / drafting-done status), written atomically with a same-project write chain and an `index.backup.json` of the last good state; corrupt or missing indexes rebuild as empty instead of failing. Memory homes follow the project: workspace projects embed it in `.infinite-canvas/memory/`, data-root projects use the project folder, and with no data root at all it lands in `PROJECTS_DIR/<pid>/` — the feature never goes missing for IndexedDB users.
 
+### Fixed
+- (无。)
+
+### Changed
+- (无。)
+
+### Internal
+- **Contract tests for workspace projects and the memory store** (`scripts/test-workspace-projects.mjs`, `scripts/test-memory.mjs`): marker discovery, document routing, list merge, workspace-project deletion, watch-tick degradation; memory roundtrip, index ordering/caps, backup-on-overwrite, workspace placement, concurrent-write serialization.
+
 ## [0.19.20] — 2026-11-02
 
 ### Added
