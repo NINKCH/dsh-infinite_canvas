@@ -1186,12 +1186,61 @@ function wsProjectRemove(pid) {
   wsProjects.delete(String(pid));
   return true;
 }
-/** 工作区 watcher 单次 tick：list = workspaceRegistry.list()（老宿主无此服务 → undefined，直接跳过）。
- *  Task4 起实现建项目/采纳/首会话自动绑；此处分发入口保证降级安全。 */
+/** 在工作区目录创建内嵌项目（watcher / RPC「建画布项目」共用）：默认画布「第1集」。 */
+function wsProjectCreateAt(w) {
+  const dir = path.join(String(w.path), WS_APP_DIR);
+  try { mkdirSync(dir, { recursive: true }); } catch { /* 已存在 */ }
+  const pid = 'ws' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+  const name = (path.basename(w.path) || '画布项目').replace(/\s+/g, ' ').trim().slice(0, 80) || '画布项目';
+  const doc = {
+    id: pid, name, createdAt: Date.now(), updatedAt: Date.now(), source: 'agent',
+    nodes: {}, edges: [], view: { x: 60, y: 40, scale: 1 },
+    defaultCanvasName: '第1集',
+  };
+  const rec = { pid, wsId: String(w.id || ''), wsPath: String(w.path), home: dir, doc };
+  wsProjects.set(pid, rec); // 先登记再写：writeIcDoc 的 ws 分发靠 wsProjectHome 命中
+  try {
+    writeIcDoc(pid, doc); // ws 分发 → <dir>/project.json
+  } catch (e) {
+    wsProjects.delete(pid); // 写失败不留幽灵缓存
+    throw e;
+  }
+  return rec;
+}
+/** 工作区注册表条目 → 已登记项目缓存记录（wsId/wsPath 双口径匹配）。 */
+function wsRecOf(w) {
+  if (!w) return null;
+  return [...wsProjects.values()].find((r) => r.wsId === String(w.id || '') || r.wsPath === w.path) || null;
+}
+/** watcher 单次 tick：无标记工作区建项目 / 有标记采纳 / 首会话自动绑默认画布。
+ *  首会话自动绑规则：项目绑定表为空 && 工作区**恰好一个**会话 → 绑默认画布；
+ *  多会话同时在场时不猜谁算「第一个」（手动绑定兜底），避免绑错。 */
 function wsWatchTick(list) {
   if (!Array.isArray(list)) return { skipped: true };
   wsProjectsScan(list);
-  return { skipped: false, created: [], adopted: [], bound: [] };
+  const created = [], adopted = [], bound = [];
+  for (const w of list) {
+    if (!w || typeof w.path !== 'string' || !w.path) continue;
+    try {
+      const st = statSync(w.path); // 目录消失（ENOENT）→ 跳过：不建项目也不删旧档
+      if (!st.isDirectory()) continue;
+    } catch { continue; }
+    let rec = wsRecOf(w);
+    if (!rec) { rec = wsProjectCreateAt(w); created.push(String(w.id || w.path)); }
+    else adopted.push(String(w.id || w.path));
+    const pdoc = readDocOrNull(rec.pid);
+    if (!pdoc) continue;
+    const defCid = defaultCanvasExists(pdoc) ? null : ((canvasRegistry(pdoc)[0] || {}).id || null);
+    const data = bindingsRead(rec.pid);
+    if (data.bindings.length === 0 && Array.isArray(w.sessionIds) && w.sessionIds.length === 1) {
+      const sid = String(w.sessionIds[0] || '').trim();
+      if (sid) {
+        const r = bindingSetSync(rec.pid, sid, defCid, () => true);
+        if (r && r.ok) bound.push(sid);
+      }
+    }
+  }
+  return { skipped: false, created, adopted, bound };
 }
 // ---- 项目记忆（0.20.x）：每集画布一份记忆正文 + 项目级调度索引 ----
 // 落位：<项目家目录>/memory/index.json（索引：canvasId/标题/摘要/关键词/状态）+ memory/episodes/<canvasId>.md（正文）。
@@ -1340,7 +1389,7 @@ function writeBindingsAtomic(pid, data) {
   return true;
 }
 /** 绑定会话到画布（canvasId=null = 默认画布）。一会话一画布（换绑移除旧条目）；一画布一会话。 */
-async function bindingSet(pid, sessionId, canvasId, aliveFn) {
+function bindingSetSync(pid, sessionId, canvasId, aliveFn) {
   const id = String(pid || '');
   const sid = String(sessionId || '').trim();
   let cid = null;
@@ -1369,6 +1418,10 @@ async function bindingSet(pid, sessionId, canvasId, aliveFn) {
   };
   writeBindingsAtomic(id, next);
   return { ok: true, projectId: id, sessionId: sid, canvasId: cid, replaced: !!(mine || occupant) };
+}
+/** 异步包装（watcher 用同步核心以准确回报；RPC 走此包装）。 */
+async function bindingSet(pid, sessionId, canvasId, aliveFn) {
+  return bindingSetSync(pid, sessionId, canvasId, aliveFn);
 }
 /** 解绑会话（幂等：无绑定返回 removed=false）。 */
 async function bindingClear(pid, sessionId) {
@@ -3384,6 +3437,21 @@ export function apply(ctx) {
       return _directorEngine;
     };
 
+    // ---- 会话↔画布绑定：会话所在工作区解析（ctx 闭包内：需要 workspaceRegistry 服务）----
+    /** 解析 sessionId 所在工作区与活会话判定；老宿主无 workspaceRegistry → supported:false（全链降级）。 */
+    const wsSessionContext = (sessionId) => {
+      let reg = null;
+      try { reg = ctx.get && ctx.get('workspaceRegistry'); } catch { reg = null; }
+      const list = reg && typeof reg.list === 'function' ? reg.list() : null;
+      if (!Array.isArray(list)) return { supported: false, list: null, ws: null, isAlive: () => true };
+      const sid = String(sessionId || '');
+      const ws = list.find((w) => w && Array.isArray(w.sessionIds) && w.sessionIds.map(String).includes(sid)) || null;
+      const isAlive = (t) => list.some((w) => w && Array.isArray(w.sessionIds) && w.sessionIds.map(String).includes(String(t)));
+      return { supported: true, list, ws, isAlive };
+    };
+    /** 工作区注册表条目的对外视图（不泄漏内部字段）。 */
+    const wsView = (w) => ({ id: w && w.id, path: w && w.path, title: (w && w.title) || '' });
+
     const methods = {
       async ping() { return { ok: true, version: VERSION }; },
       async llmOptions() { return listLlmOptions(); },
@@ -3684,10 +3752,119 @@ export function apply(ctx) {
           text: String(text ?? ((def && typeof def === 'object') ? JSON.stringify(def) : '')).slice(0, 80000),
         };
       },
+      // ---- 会话↔画布绑定 RPC（0.20.x）：composer 画布选择器与画布面板跟随的数据面 ----
+      async sessionBindingGet(args) {
+        const sid = String((args && args.sessionId) || '');
+        if (!sid) return { ok: false, error: '缺少 sessionId' };
+        const sc = wsSessionContext(sid);
+        if (!sc.supported) return { ok: true, supported: false };
+        if (!sc.ws) return { ok: true, supported: true, workspace: null, project: null, binding: null, canvasId: null, canvases: [], occupied: {} };
+        let rec = wsRecOf(sc.ws);
+        if (!rec && sc.list) {
+          // watcher 可能还没轮到：按**完整** registry 补扫一次（单工作区补扫会清掉其他工作区缓存）
+          wsProjectsScan(sc.list);
+          rec = wsRecOf(sc.ws);
+        }
+        if (!rec) return { ok: true, supported: true, workspace: wsView(sc.ws), project: null, binding: null, canvasId: null, canvases: [], occupied: {} };
+        const data = bindingsRead(rec.pid);
+        const binding = data.bindings.find((b) => b && b.sessionId === sid) || null;
+        const pdoc = readDocOrNull(rec.pid) || {};
+        const reg = canvasRegistry(pdoc);
+        const canvases = (defaultCanvasExists(pdoc) ? [{ id: null, name: defaultCanvasNameOf(pdoc) }] : [])
+          .concat(reg.map((c) => ({ id: c.id, name: c.name })));
+        const occupied = {};
+        for (const b of data.bindings) if (b && b.sessionId !== sid && b.canvasId) occupied[b.canvasId] = b.sessionId;
+        return {
+          ok: true, supported: true,
+          workspace: wsView(sc.ws),
+          project: { id: rec.pid, name: pdoc.name || rec.pid },
+          binding: binding ? { canvasId: binding.canvasId, boundAt: binding.boundAt || 0 } : null,
+          canvasId: binding ? binding.canvasId : null,
+          defaultCanvasName: defaultCanvasNameForApi(pdoc),
+          canvases, occupied,
+        };
+      },
+      async sessionBindingSet(args) {
+        const sid = String((args && args.sessionId) || '');
+        if (!sid) return { ok: false, error: '缺少 sessionId' };
+        const sc = wsSessionContext(sid);
+        if (!sc.supported) return { ok: false, unsupported: true, error: '当前宿主无工作区能力，无法绑定画布' };
+        let pid = String((args && args.projectId) || '');
+        if (!pid) {
+          if (!sc.ws) return { ok: false, error: '会话不在任何工作区，无法解析项目' };
+          const rec = wsRecOf(sc.ws);
+          if (!rec) return { ok: false, error: '该工作区还没有画布项目' };
+          pid = rec.pid;
+        }
+        if (!isWsProject(pid)) return { ok: false, error: '只允许绑定工作区画布项目' };
+        const alive = (t) => sc.isAlive(t);
+        return bindingSet(pid, sid, (args && args.canvasId) ?? null, alive);
+      },
+      async sessionBindingClear(args) {
+        const sid = String((args && args.sessionId) || '');
+        if (!sid) return { ok: false, error: '缺少 sessionId' };
+        const sc = wsSessionContext(sid);
+        if (!sc.supported) return { ok: false, unsupported: true, error: '当前宿主无工作区能力' };
+        let pid = String((args && args.projectId) || '');
+        if (!pid && sc.ws) {
+          const rec = wsRecOf(sc.ws);
+          if (rec) pid = rec.pid;
+        }
+        if (!pid) return { ok: true, removed: false };
+        return bindingClear(pid, sid);
+      },
+      async workspaceProjectCreate(args) {
+        const sid = String((args && args.sessionId) || '');
+        if (!sid) return { ok: false, error: '缺少 sessionId' };
+        const sc = wsSessionContext(sid);
+        if (!sc.supported) return { ok: false, unsupported: true, error: '当前宿主无工作区能力' };
+        if (!sc.ws) return { ok: false, error: '会话不在任何工作区（仅会话无法挂画布项目）' };
+        let rec = wsRecOf(sc.ws);
+        let createdNow = false;
+        if (!rec && sc.list) {
+          wsProjectsScan(sc.list); // 完整补扫（语义同上：不清其他工作区的账）
+          rec = wsRecOf(sc.ws);
+        }
+        if (!rec) { rec = wsProjectCreateAt(sc.ws); createdNow = true; }
+        const name = String((args && args.name) || '').trim();
+        if (createdNow && name) {
+          try { patchProjectDoc(rec.pid, { name: name.slice(0, 80) }); } catch { /* 改名失败不阻塞 */ }
+        }
+        // 只在**新建**时自动绑默认画布（复用既有项目时不强行绑定：绑定走选择器，避免占用冲突）
+        let bound = null;
+        if (createdNow) bound = await bindingSet(rec.pid, sid, null, sc.isAlive);
+        return {
+          ok: true, projectId: rec.pid, created: createdNow,
+          bound: !!(bound && bound.ok), occupied: !!(bound && bound.occupied),
+          bindError: bound && !bound.ok ? (bound.error || null) : null,
+        };
+      },
+      async memoryGet(args) {
+        return memoryRead(args && args.projectId, args && args.canvasId);
+      },
+      async memoryPut(args) {
+        return memoryWrite(args && args.projectId, args && args.canvasId, args || {});
+      },
       
     };
 
     const toolDisposers = [];
+    // 工作区 watcher：5s 轮询 workspaceRegistry（老宿主无该服务 → list 不可得 → tick 直接跳过）。
+    // 不把 workspaceRegistry 放进 export const inject：cordis 的 inject 语义是「服务不存在则插件挂起等待」，
+    // 老宿主会让我们整个插件起不来——防御式 get + 轮询才是可降级的接法。
+    ctx.effect(() => {
+      const tick = () => {
+        try {
+          const reg = ctx.get && ctx.get('workspaceRegistry');
+          const list = reg && typeof reg.list === 'function' ? reg.list() : null;
+          wsWatchTick(list);
+        } catch { /* registry 漂移/服务缺失 → 下轮再试 */ }
+      };
+      tick(); // 启动即扫一次（工作区项目立即可见，不等首个 5s）
+      const timer = setInterval(tick, 5000);
+      if (timer && typeof timer.unref === 'function') timer.unref(); // 不阻塞进程退出
+      return () => clearInterval(timer);
+    }, 'infinite-canvas: workspace watcher');
     try {
       if (ctx.tools && typeof ctx.tools.register === 'function') {
         /** 深度剥掉 undefined 值：DSH 对工具结果做"无损 JSON"校验（snapshotJsonValue），
