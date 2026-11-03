@@ -129,6 +129,7 @@ const COVERAGE = [
   { sha: 'd45bf83', keys: [/Explicit-only binding|Code-level cross-canvas ban|Binding chip label/i] },
   { sha: '0c8634f', keys: [/Binding chip and menu now match the host session UI/i] },
   { sha: '29b2444', keys: [/Binding chip is a single integrated dropdown/i] },
+  { sha: 'e423754', keys: [/Session-only is a real choice in every state/i] },
 ];
 for (const c of COVERAGE) {
   ok(c.keys.some((re) => re.test(coverageText)), '未发版提交 ' + c.sha + ' 在 CHANGELOG（Unreleased 或最新已发布段）里找不到对应记录（补记不全）');
