@@ -30,8 +30,8 @@ const ok = (c, m) => { if (!c) errs.push(m); };
 
 // ---------------- 2) 三态 + i18n 双语 ----------------
 const KEYS = [
-  'bindChipSelect', 'bindSessionOnly', 'bindCreateProjectAction', 'bindOpenCanvas', 'bindNewCanvas',
-  'bindNewCanvasPlaceholder', 'bindOccupied', 'bindFail', 'bindCreating', 'bindChipBound',
+  'bindSessionOnly', 'bindCreateProjectAction', 'bindOpenCanvas', 'bindNewCanvas',
+  'bindNewCanvasPlaceholder', 'bindOccupied', 'bindFail', 'bindCreating', 'bindHostStale', 'bindChipBound',
 ];
 {
   const mZh = /const DICT_ZH = \{/.exec(src);
@@ -50,9 +50,12 @@ const KEYS = [
     ok(bindLines.length > 0, '找不到绑定文案行');
     for (const l of bindLines) ok(!/[（(]/.test(l), '绑定文案含括号注释：' + l.trim());
   }
-  for (const k of ['bindChipSelect', 'bindSessionOnly', 'bindOpenCanvas', 'bindChipBound']) {
+  for (const k of ['bindSessionOnly', 'bindOpenCanvas', 'bindChipBound', 'bindHostStale']) {
     ok(src.includes("T('" + k + "')"), 'key ' + k + ' 未在渲染代码中使用');
   }
+  // 未绑定态 chip 显示当前选中值「仅会话」（禁止显示提示语「选择画布」）
+  ok(/S\.bindingCreating \? T\('bindCreating'\) : T\('bindSessionOnly'\)/.test(src), '未绑定态 chip 未显示「仅会话」选中值');
+  ok(!/'bindChipSelect'/.test(src), 'bindChipSelect 提示语残留（chip 必须显示选中值）');
 }
 
 // ---------------- 3) RPC 数据面 ----------------
@@ -103,6 +106,11 @@ for (const m of ['sessionBindingGet', 'sessionBindingSet', 'sessionBindingClear'
   // 一体式下拉（与宿主「选择工作区」选择器同构）：chip 内置 ⌄，禁止拆分独立箭头按钮
   ok(!/dshic-bind-arrow/.test(src), 'chip 与箭头不得拆成两个按钮（一体式下拉）');
   ok(/dshic-bind-caret/.test(src), 'chip 缺内置 ⌄ 指示');
+  // 版本/能力握手：旧宿主（进程未重启）必须显式提示并拦截，不得静默失败
+  ok(/hostRpc\('bindingCapabilities'/.test(src), '缺 bindingCapabilities 探针（旧宿主无法识别）');
+  ok(/hostBindingStale/.test(src), '缺旧宿主状态标记');
+  ok(/bindingStaleGuard\(\)/.test(src), '绑定动作缺旧宿主拦截守卫');
+  ok(/dshic-bind-warn/.test(src), '菜单缺旧宿主置顶警告');
 }
 
 // ---------------- 7) 记忆查看器（统一弹窗第三页签） ----------------

@@ -254,6 +254,8 @@ fs.mkdirSync(REGISTRY0[1].path, { recursive: true }); // 无标记的工作区�
   // —— 两级菜单数据面：bindableProjects 混排两类来源，每项带画布清单 ——
   const bp = await M.bindableProjects();
   ok(bp && bp.ok && Array.isArray(bp.projects), 'bindableProjects 失败');
+  const cap = await M.bindingCapabilities();
+  ok(cap && cap.ok && cap.rev >= 2 && cap.anyProject === true, 'bindingCapabilities 探针缺失或版本不足');
   const wsProj = bp.projects.find((p) => p.id === g.project.id);
   const drProj = bp.projects.find((p) => p.id === 'plain1');
   ok(!!wsProj && wsProj.origin === 'workspace' && Array.isArray(wsProj.canvases) && wsProj.canvases.length >= 1, 'bindableProjects 缺工作区项目或画布清单');

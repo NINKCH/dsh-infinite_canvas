@@ -957,7 +957,6 @@ function revealCanvasInRight() {
       'guideDesc': '在对话旁直接分镜、生成视频与成片',
       'hostTakenTitle': '画布已在另一侧打开',
       // —— 会话↔画布绑定（composer 画布选择器）——
-      'bindChipSelect': '选择画布',
       'bindSessionOnly': '仅会话',
       'bindCreateProjectAction': '创建项目',
       'bindNewCanvas': '新建子画布',
@@ -966,6 +965,7 @@ function revealCanvasInRight() {
       'bindOccupied': '占用中',
       'bindFail': '绑定失败',
       'bindCreating': '创建中…',
+      'bindHostStale': '宿主插件是旧版本：请完全退出并重启 DeepSeek Harness 后再试',
       'bindChipBound': '{project}·{name}',
       // —— 记忆查看器（统一弹窗「记忆」页签）——
       'memViewerTab': '记忆',
@@ -1921,7 +1921,6 @@ function revealCanvasInRight() {
       'guideDesc': 'Storyboard, generate and cut right beside the chat',
       'hostTakenTitle': 'The canvas is open elsewhere',
       // —— Session↔canvas binding (composer canvas selector) ——
-      'bindChipSelect': 'Select canvas',
       'bindSessionOnly': 'Session only',
       'bindCreateProjectAction': 'Create project',
       'bindNewCanvas': 'New sub-canvas',
@@ -1930,6 +1929,7 @@ function revealCanvasInRight() {
       'bindOccupied': 'Occupied',
       'bindFail': 'Binding failed',
       'bindCreating': 'Creating…',
+      'bindHostStale': 'The host plugin is outdated: fully quit and restart DeepSeek Harness, then retry.',
       'bindChipBound': '{project} · {name}',
       // —— Memory viewer (studio modal "memory" tab) ——
       'memViewerTab': 'Memory',
@@ -3051,6 +3051,7 @@ body[data-ds-dark-theme] .dshic-menu{border-color:var(--dsw-alias-border-l2);}
 .dshic-bind-newrow button:hover{border-color:var(--dsw-alias-brand-primary);}
 .dshic-bind-err{position:absolute;top:calc(100% + 4px);left:0;font-size:11px;color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-layer-1);border:1px solid var(--dsw-alias-border-l1);border-radius:8px;padding:2px 8px;z-index:70;max-width:260px;}
 .dshic-bind-err-inmenu{font-size:11px;color:var(--dsw-alias-label-primary);padding:6px 10px;margin-top:4px;border-top:1px solid var(--dsw-alias-border-l1);white-space:pre-wrap;word-break:break-word;}
+.dshic-bind-warn{font-size:11px;color:var(--dsw-alias-label-primary);padding:6px 10px;margin-bottom:4px;border-bottom:1px solid var(--dsw-alias-border-l1);white-space:pre-wrap;word-break:break-word;}
 /* —— 记忆查看器（统一弹窗「记忆」页签）—— */
 .dshic-memtab{display:flex;flex-direction:column;gap:8px;height:100%;min-height:0;}
 .dshic-memtab-bar{display:flex;align-items:center;gap:10px;flex:none;}
@@ -9546,6 +9547,7 @@ function queueThumb(assetId) {
       bindingNewFor: null,   // 正在内联「新建子画布」的项目 id
       bindingError: null,    // 绑定动作失败提示
       bindingCreating: false,// 「创建项目」进行中
+      hostBindingStale: false, // 宿主进程为旧版（缺 bindingCapabilities rev>=2）→ 菜单提示重启并拦截动作
       // 3D 导演台（纯 UI 状态；场景数据存在节点/项目的 director 文档里，见 directorDoc）
       directorOpen: false,
       directorFull: false,          // 导演台是否全屏
@@ -21044,8 +21046,24 @@ const DIRECTOR_KEY_HELP = [
         }].concat(s.projects || []);
       });
     }
+    /** 绑定能力探针：识别宿主进程是否仍是旧版（旧宿主无此 RPC → 抛错 → stale=true）。 */
+    async function refreshBindingCapabilities() {
+      try {
+        const r = await hostRpc('bindingCapabilities');
+        update((s) => { s.hostBindingStale = !(r && r.ok && Number(r.rev) >= 2); });
+      } catch {
+        update((s) => { s.hostBindingStale = true; });
+      }
+    }
+    /** 旧宿主守卫：所有绑定动作统一拦截并给出重启提示（不再静默失败）。 */
+    function bindingStaleGuard() {
+      if (!S.hostBindingStale) return false;
+      update((s) => { s.bindingError = T('bindHostStale'); });
+      return true;
+    }
     async function bindSessionToCanvas(sessionId, projectId, canvasId) {
       if (!sessionId || !projectId) return;
+      if (bindingStaleGuard()) return;
       try {
         const r = await hostRpc('sessionBindingSet', { sessionId, projectId, canvasId: canvasId == null ? null : canvasId });
         if (!r || r.ok === false) {
@@ -21078,12 +21096,14 @@ const DIRECTOR_KEY_HELP = [
       }
     }
     async function unbindSession(sessionId) {
+      if (bindingStaleGuard()) return;
       try { await hostRpc('sessionBindingClear', { sessionId }); } catch { /* 旧宿主：忽略 */ }
       update((s) => { s.bindingMenuOpen = false; });
       await refreshSessionBinding(sessionId);
     }
     /** 「创建项目」：优先工作区内嵌项目；会话未挂工作区等失败场景退回普通建项目通道，然后绑定。 */
     async function createWorkspaceProject(sessionId) {
+      if (bindingStaleGuard()) return;
       update((s) => { s.bindingCreating = true; s.bindingError = null; });
       const formerName = () => {
         const ws = S.sessionBinding && S.sessionBinding.workspace;
@@ -21125,6 +21145,7 @@ const DIRECTOR_KEY_HELP = [
     }
     /** 新建子画布并绑定（Host 先落登记；projectId 显式传入——未绑定态的项目二级菜单也能用）。 */
     async function createCanvasAndBind(sessionId, projectId, rawName) {
+      if (bindingStaleGuard()) return;
       const name = String(rawName == null ? '' : rawName).trim();
       if (!sessionId || !projectId) return;
       if (!name) { update((s) => { s.bindingError = T('canvasNameRequired'); }); return; }
@@ -21195,6 +21216,8 @@ const DIRECTOR_KEY_HELP = [
         : row('newbtn:' + pid, Ic('plus', 14), T('bindNewCanvas'),
           () => update((s) => { s.bindingNewFor = pid; s.bindingMenuProject = pid; }), { indent }));
       const rows = [];
+      // 旧宿主警告：绑定能力探针失败时置顶提示，所有绑定动作已被拦截
+      if (S.hostBindingStale) rows.push(h('div', { key: '__stale__', className: 'dshic-bind-warn' }, T('bindHostStale')));
       // 项目列表数据源 = 客户端项目表（与画布管理器同源，老项目必现）；宿主 bindableProjects 仅补充合并
       const localProjects = Array.isArray(S.projects) ? S.projects : [];
       const seenPids = new Set();
@@ -21270,6 +21293,7 @@ const DIRECTOR_KEY_HELP = [
           if (!same) s.sessionBinding = null; // 换会话：清旧绑定态（立即重拉）
         });
         refreshSessionBinding(sessionId);
+        refreshBindingCapabilities();
         return () => { /* 保留 binding 缓存：切回会话时秒显，refresh 会覆盖 */ };
       }, [sessionId]);
       if (!sessionId) return null; // 老 Runner 不给会话身份 → chip 缺席（绑定不可用，画布走全局行为）
@@ -21284,7 +21308,7 @@ const DIRECTOR_KEY_HELP = [
           project: (b.project && b.project.name) || b.project.id || '',
           name: ep ? ep.name : String(b.binding.canvasId || ''),
         })
-        : (S.bindingCreating ? T('bindCreating') : T('bindChipSelect'));
+        : (S.bindingCreating ? T('bindCreating') : T('bindSessionOnly'));
       const chip = h('button', {
         key: 'chip',
         type: 'button',

@@ -3799,6 +3799,10 @@ export function apply(ctx) {
         };
       },
       // ---- 会话↔画布绑定 RPC（0.20.x）：composer 画布选择器与画布面板跟随的数据面 ----
+      /** 绑定能力探针：客户端用它识别「宿主进程仍是旧版」（旧宿主无此方法 → 返回 400 → 客户端提示重启）。 */
+      async bindingCapabilities() {
+        return { ok: true, rev: 2, anyProject: true };
+      },
       async sessionBindingGet(args) {
         const sid = String((args && args.sessionId) || '');
         if (!sid) return { ok: false, error: '缺少 sessionId' };
