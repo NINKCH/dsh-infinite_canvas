@@ -2531,6 +2531,7 @@ body[data-ds-dark-theme] .dshic-studio-modal{border-color:var(--dsw-alias-border
 /* 弹窗内部再开确认框/PhotoCraft：层级必须高于统一弹窗（否则被遮罩盖住点不到） */
 .dshic-studio-overlay .dshic-modal-overlay{z-index:340;}
 .dshic-studio-bible{display:flex;flex-direction:column;gap:8px;width:100%;max-width:820px;margin:0 auto;}
+.dshic-studio-memory{display:flex;flex-direction:column;min-height:0;width:100%;max-width:820px;margin:0 auto;}
 /* ── 3D 导演台：三栏（对象 / 视口 / 属性）；视口是纯 Canvas2D 软件渲染（见 directorRenderScene） ── */
 .dshic-dir-modal{width:min(1220px,calc(100vw - 40px));height:min(820px,calc(100vh - 40px));}
 .dshic-dir-body{flex:1;min-height:0;display:flex;gap:0;overflow:hidden;}
