@@ -106,6 +106,13 @@ for (const m of ['sessionBindingGet', 'sessionBindingSet', 'sessionBindingClear'
   // 一体式下拉（与宿主「选择工作区」选择器同构）：chip 内置 ⌄，禁止拆分独立箭头按钮
   ok(!/dshic-bind-arrow/.test(src), 'chip 与箭头不得拆成两个按钮（一体式下拉）');
   ok(/dshic-bind-caret/.test(src), 'chip 缺内置 ⌄ 指示');
+  // 会话侧建子画布必须本地登记（项目树立即可见，不能只写宿主）
+  const ccIdx = src.indexOf('async function createCanvasAndBind');
+  ok(ccIdx >= 0 && /registerLocalCanvas\(/.test(src.slice(ccIdx, ccIdx + 1800)), '会话建画布未本地登记（项目树看不到新画布）');
+  ok(/function registerLocalCanvas/.test(src), '缺 registerLocalCanvas 本地登记实现');
+  // 折叠只折叠下方画布列表：搜索行不得随折叠消失
+  ok(!/proj && !collapsed/.test(src), '折叠把搜索行一起隐藏（折叠只应折叠下方列表）');
+  ok(/data-role': 'canvas-searchbar'/.test(src), '搜索行缺失');
   // 版本/能力握手：旧宿主（进程未重启）必须显式提示并拦截，不得静默失败
   ok(/hostRpc\('bindingCapabilities'/.test(src), '缺 bindingCapabilities 探针（旧宿主无法识别）');
   ok(/hostBindingStale/.test(src), '缺旧宿主状态标记');

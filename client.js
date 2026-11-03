@@ -18320,7 +18320,8 @@ const DIRECTOR_KEY_HELP = [
               T('emptyProjectHint'))
           : null,
         // 项目区域顶部：一行「+ 新建画布（纯图标）」+ 搜索框（放大镜内嵌在输入框右侧）
-        proj && !collapsed
+        // 折叠只折叠**下方画布列表**：搜索行始终可见（折叠不能把上方工具行一起吞掉）
+        proj
           ? h('div', { key: 'searchbar', className: 'dshic-canvas-searchbar', 'data-role': 'canvas-searchbar' },
               h('button', {
                 key: 'add', type: 'button', className: 'dshic-canvas-add',
@@ -21143,6 +21144,24 @@ const DIRECTOR_KEY_HELP = [
         }
       }
     }
+    /** 会话侧新建子画布后的本地登记：项目树/画布列表立即出现（与画布管理器同一数据源）。 */
+    function registerLocalCanvas(projectId, canvasId, name) {
+      const pid = String(projectId || '');
+      const cid = String(canvasId || '');
+      const cname = String(name || '').slice(0, 80);
+      if (!pid || !cid) return;
+      update((s) => {
+        const pp = s.projects.find((x) => x.id === pid);
+        if (!pp) return;
+        const list = Array.isArray(pp.canvases) ? pp.canvases : [];
+        if (!list.some((c) => c.id === cid)) {
+          pp.canvases = [...list, { id: cid, name: cname, createdAt: Date.now() }];
+        }
+      });
+      lsSet(LS_PROJECTS, S.projects);
+      if (!loadGraphDoc(pid, cid)) saveGraphDoc(pid, emptyGraph(), cid); // 新画布首入空白
+      scheduleSave();
+    }
     /** 新建子画布并绑定（Host 先落登记；projectId 显式传入——未绑定态的项目二级菜单也能用）。 */
     async function createCanvasAndBind(sessionId, projectId, rawName) {
       if (bindingStaleGuard()) return;
@@ -21153,6 +21172,7 @@ const DIRECTOR_KEY_HELP = [
         const made = await hostRpc('canvasCreate', { projectId, name });
         update((s) => { s.bindingError = null; });
         if (made && made.ok && made.canvasId) {
+          registerLocalCanvas(projectId, made.canvasId, made.name || name); // 本地先登记：项目树立即可见
           await bindSessionToCanvas(sessionId, projectId, made.canvasId);
         } else {
           update((s) => { s.bindingError = (made && made.error) || T('bindFail'); });
