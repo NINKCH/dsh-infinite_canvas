@@ -31,7 +31,7 @@ const ok = (c, m) => { if (!c) errs.push(m); };
 // ---------------- 2) 三态 + i18n 双语 ----------------
 const KEYS = [
   'bindNewProject', 'bindUnbound', 'bindMenuTitle', 'bindSessionOnly', 'bindNewCanvas',
-  'bindNewCanvasPlaceholder', 'bindUnbind', 'bindOccupied', 'bindFail', 'bindCreating', 'bindChipBound',
+  'bindNewCanvasPlaceholder', 'bindOpenCanvas', 'bindUnbind', 'bindOccupied', 'bindFail', 'bindCreating', 'bindChipBound',
 ];
 {
   const mZh = /const DICT_ZH = \{/.exec(src);
@@ -79,6 +79,10 @@ for (const m of ['sessionBindingGet', 'sessionBindingSet', 'sessionBindingClear'
   const chipIdx = src.indexOf('function SessionBindingChip');
   ok(chipIdx >= 0 && /createWorkspaceProject\(sessionId\)/.test(src.slice(chipIdx, chipIdx + 4200)),
     '无项目态 chip 未直调 createWorkspaceProject（评审 I1：建画布项目死流程）');
+  // 一体式下拉（与宿主「工作区内修改」选择器同构）：chip 内置 ⌄，禁止拆分独立箭头按钮
+  ok(!/dshic-bind-arrow/.test(src), 'chip 与箭头不得拆成两个按钮（一体式下拉）');
+  ok(/dshic-bind-caret/.test(src), 'chip 缺内置 ⌄ 指示');
+  ok(/T\('bindOpenCanvas'\)/.test(src), '已绑定态下拉缺「打开本集画布」首行');
 }
 
 // ---------------- 7) 记忆查看器（统一弹窗第三页签） ----------------

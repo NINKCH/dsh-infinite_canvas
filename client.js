@@ -963,6 +963,7 @@ function revealCanvasInRight() {
       'bindSessionOnly': '仅会话（不绑定）',
       'bindNewCanvas': '+ 新建画布…',
       'bindNewCanvasPlaceholder': '第N集',
+      'bindOpenCanvas': '打开本集画布',
       'bindUnbind': '解绑',
       'bindOccupied': '已被其他会话占用',
       'bindFail': '绑定失败',
@@ -1928,6 +1929,7 @@ function revealCanvasInRight() {
       'bindSessionOnly': 'Session only (no binding)',
       'bindNewCanvas': '+ New canvas…',
       'bindNewCanvasPlaceholder': 'Episode N',
+      'bindOpenCanvas': 'Open this canvas',
       'bindUnbind': 'Unbind',
       'bindOccupied': 'Occupied by another session',
       'bindFail': 'Binding failed',
@@ -3035,9 +3037,8 @@ body[data-ds-dark-theme] .dshic-menu{border-color:var(--dsw-alias-border-l2);}
 .dshic-bind-chip:hover{background:var(--dsw-alias-interactive-bg-hover,var(--dsw-alias-bg-layer-3));color:var(--dsw-alias-label-primary);}
 .dshic-bind-chip.is-bound{color:var(--dsw-alias-label-primary);}
 .dshic-bind-ico{display:inline-flex;align-items:center;flex:none;opacity:.85;}
-.dshic-bind-arrow{display:inline-flex;align-items:center;justify-content:center;width:20px;height:28px;border:none;border-radius:10px;background:transparent;
-  color:var(--dsw-alias-label-secondary);font-size:10px;cursor:pointer;}
-.dshic-bind-arrow:hover{color:var(--dsw-alias-label-primary);background:var(--dsw-alias-interactive-bg-hover,var(--dsw-alias-bg-layer-3));}
+.dshic-bind-label{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.dshic-bind-caret{font-size:10px;opacity:.75;flex:none;margin-left:2px;}
 .dshic-bind-menu{position:absolute;top:calc(100% + 6px);left:0;z-index:70;max-height:320px;overflow:auto;min-width:230px;border-radius:10px;padding:4px;}
 .dshic-bind-menu-title{font-size:11px;color:var(--dsw-alias-label-secondary);padding:4px 10px 2px;}
 .dshic-bind-occ{color:var(--dsw-alias-label-secondary);font-size:11px;margin-left:auto;padding-left:12px;}
@@ -21085,7 +21086,7 @@ const DIRECTOR_KEY_HELP = [
       useEffect(() => {
         const close = (e) => {
           const t = e && e.target;
-          if (t && t.closest && t.closest('.dshic-bind-menu, .dshic-bind-chip, .dshic-bind-arrow')) return;
+          if (t && t.closest && t.closest('.dshic-bind-menu, .dshic-bind-chip')) return;
           update((s) => { s.bindingMenuOpen = false; });
         };
         const esc = (e) => { if (e && e.key === 'Escape') update((s) => { s.bindingMenuOpen = false; }); };
@@ -21099,6 +21100,10 @@ const DIRECTOR_KEY_HELP = [
       const occ = b.occupied || {};
       const rows = [];
       if (b.binding && b.project) {
+        rows.push(h('button', {
+          key: '__open__', type: 'button', className: 'dshic-menu-item',
+          onClick: () => { update((s) => { s.bindingMenuOpen = false; }); openBoundCanvasFromChip(); },
+        }, T('bindOpenCanvas')));
         rows.push(h('button', { key: '__unbind__', type: 'button', className: 'dshic-menu-item', onClick: () => unbindSession(sessionId) }, T('bindUnbind')));
       }
       if (b.project) {
@@ -21159,19 +21164,20 @@ const DIRECTOR_KEY_HELP = [
         type: 'button',
         className: 'dshic-bind-chip' + (bound ? ' is-bound' : ''),
         title: bound ? T('bindMenuTitle') : (b.project ? T('bindUnbound') : T('bindNewProject')),
-        onClick: bound ? openBoundCanvasFromChip : (b.project ? openMenu : () => createWorkspaceProject(sessionId)),
+        // 一体式下拉（与左侧「工作区内修改」选择器同构）：整颗胶囊点击 = 开下拉；无项目时一键建项目
+        onClick: (bound || b.project) ? openMenu : () => createWorkspaceProject(sessionId),
       }, [
         h('span', { key: 'ico', className: 'dshic-bind-ico' }, Ic('image', 14)),
-        h('span', { key: 'label' }, bound
+        h('span', { key: 'label', className: 'dshic-bind-label' }, bound
           ? TPL(T('bindChipBound'), {
             project: (b.project && b.project.name) || b.project.id || '',
             name: ep ? ep.name : String(b.binding.canvasId || ''),
           })
           : (b.project ? T('bindUnbound') : (S.bindingCreating ? T('bindCreating') : T('bindNewProject')))),
+        h('span', { key: 'caret', className: 'dshic-bind-caret' }, '▾'),
       ]);
       return h('div', { className: 'dshic-bind' },
         chip,
-        bound ? h('button', { key: 'arrow', type: 'button', className: 'dshic-bind-arrow', title: T('bindMenuTitle'), onClick: openMenu }, '▾') : null,
         S.bindingMenuOpen ? h(BindingMenu, { key: 'menu' }) : null,
         S.bindingError ? h('div', { key: 'err', className: 'dshic-bind-err' }, S.bindingError) : null,
       );
