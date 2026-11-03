@@ -84,8 +84,19 @@ for (const m of ['sessionBindingGet', 'sessionBindingSet', 'sessionBindingClear'
   ok(/T\('bindCreateProjectAction'\)/.test(src), '无项目态缺「创建项目」菜单行');
   ok(/T\('bindSessionOnly'\)/.test(src), '缺「仅会话」常驻行');
   ok(/unbindSession\(sessionId\)/.test(src), '「仅会话」在已绑定态未执行解绑');
-  // 两级菜单：未绑定列项目（懒加载 bindableProjects）+ 展开二级子画布
-  ok(/hostRpc\('bindableProjects'/.test(src), '未绑定态缺可绑定项目懒加载（bindableProjects）');
+  // 项目列表数据源 = 客户端项目表（老项目必现）；宿主 RPC 仅补充
+  const menuIdx = src.indexOf('function BindingMenu');
+  const menuSeg = menuIdx >= 0 ? src.slice(menuIdx, menuIdx + 5200) : '';
+  ok(/S\.projects/.test(menuSeg), '菜单未使用客户端项目表（老项目会看不到）');
+  ok(/canvasesFromProject/.test(menuSeg), '菜单画布清单未用客户端注册表兜底');
+  ok(/dshic-bind-err-inmenu/.test(src), '菜单内缺失败原因显示');
+  // 绑定成功即乐观更新 chip（不等宿主回读）
+  const bindIdx = src.indexOf('async function bindSessionToCanvas');
+  ok(bindIdx >= 0 && /s\.sessionBinding = \{/.test(src.slice(bindIdx, bindIdx + 2600)), '绑定后未乐观更新 chip（选了位置不变）');
+  // 创建项目双通道：工作区内嵌失败 → 普通建项目通道
+  ok(/hostRpc\('canvasCreateProject'/.test(src), '缺普通建项目通道兜底（会话未挂工作区时无法创建）');
+  // 两级菜单：未绑定列项目（客户端表为主 + bindableProjects 补充）+ 展开二级子画布
+  ok(/hostRpc\('bindableProjects'/.test(src), '缺可绑定项目补充来源（bindableProjects）');
   ok(/S\.bindingMenuProject/.test(src), '缺项目展开状态（两级菜单）');
   ok(/is-selected/.test(src), '菜单缺选中行高亮（宿主选择器格式）');
   ok(/T\('bindOpenCanvas'\)/.test(src), '已绑定态缺「打开画布」行');

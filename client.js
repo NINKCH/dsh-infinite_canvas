@@ -3050,6 +3050,7 @@ body[data-ds-dark-theme] .dshic-menu{border-color:var(--dsw-alias-border-l2);}
 .dshic-bind-newrow button{height:28px;padding:0 10px;border:1px solid var(--dsw-alias-border-l1);border-radius:8px;background:transparent;color:var(--dsw-alias-label-primary);font:inherit;font-size:13px;cursor:pointer;white-space:nowrap;}
 .dshic-bind-newrow button:hover{border-color:var(--dsw-alias-brand-primary);}
 .dshic-bind-err{position:absolute;top:calc(100% + 4px);left:0;font-size:11px;color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-layer-1);border:1px solid var(--dsw-alias-border-l1);border-radius:8px;padding:2px 8px;z-index:70;max-width:260px;}
+.dshic-bind-err-inmenu{font-size:11px;color:var(--dsw-alias-label-primary);padding:6px 10px;margin-top:4px;border-top:1px solid var(--dsw-alias-border-l1);white-space:pre-wrap;word-break:break-word;}
 /* —— 记忆查看器（统一弹窗「记忆」页签）—— */
 .dshic-memtab{display:flex;flex-direction:column;gap:8px;height:100%;min-height:0;}
 .dshic-memtab-bar{display:flex;align-items:center;gap:10px;flex:none;}
@@ -21025,6 +21026,24 @@ const DIRECTOR_KEY_HELP = [
       try { revealCanvasInRight(); } catch { /* 布局服务缺失 → 仅切换不展开 */ }
       followBoundCanvas({ force: true });
     }
+    /** 客户端项目条目 → 画布清单（默认画布 id=null 在前；与画布管理器同源）。 */
+    function canvasesFromProject(proj) {
+      if (!proj) return [];
+      const list = proj.defaultCanvasDeleted ? [] : [{ id: null, name: proj.defaultCanvasName || '默认画布' }];
+      return list.concat((proj.canvases || []).map((c) => ({ id: c.id, name: c.name })));
+    }
+    /** 确保项目在客户端项目表里（绑定到尚未同步的项目时本地先可见）。 */
+    function ensureLocalProject(id, name) {
+      const pid = String(id || '');
+      if (!pid) return;
+      if ((S.projects || []).some((p) => p.id === pid)) return;
+      update((s) => {
+        s.projects = [{
+          id: pid, name: name || pid, canvases: [], defaultCanvasName: '默认画布',
+          createdAt: Date.now(), updatedAt: Date.now(),
+        }].concat(s.projects || []);
+      });
+    }
     async function bindSessionToCanvas(sessionId, projectId, canvasId) {
       if (!sessionId || !projectId) return;
       try {
@@ -21033,7 +21052,25 @@ const DIRECTOR_KEY_HELP = [
           update((s) => { s.bindingError = (r && (r.error || (r.occupied && T('bindOccupied')))) || T('bindFail'); });
           return;
         }
-        update((s) => { s.bindingError = null; s.bindingMenuOpen = false; s.bindingMenuProject = null; s.bindingNewFor = null; });
+        // 乐观更新：绑定成功立即用本地项目表显示「项目·画布」，不等宿主回读
+        const local = (Array.isArray(S.projects) ? S.projects : []).find((p) => p.id === projectId);
+        ensureLocalProject(projectId, (local && local.name) || projectId);
+        update((s) => {
+          const prev = s.sessionBinding || {};
+          s.sessionBinding = {
+            loaded: true, supported: true,
+            workspace: prev.workspace || null,
+            project: { id: projectId, name: (local && local.name) || projectId },
+            binding: { canvasId: canvasId == null ? null : canvasId, boundAt: Date.now() },
+            canvasId: canvasId == null ? null : canvasId,
+            canvases: canvasesFromProject(local),
+            occupied: prev.occupied || {},
+            defaultCanvasName: (local && local.defaultCanvasName) || '默认画布',
+          };
+          s.bindingRev = (s.bindingRev || 0) + 1;
+          s.bindingError = null;
+          s.bindingMenuOpen = false; s.bindingMenuProject = null; s.bindingNewFor = null;
+        });
         await refreshSessionBinding(sessionId);
         followBoundCanvas({ force: true });
       } catch (e) {
@@ -21045,20 +21082,45 @@ const DIRECTOR_KEY_HELP = [
       update((s) => { s.bindingMenuOpen = false; });
       await refreshSessionBinding(sessionId);
     }
+    /** 「创建项目」：优先工作区内嵌项目；会话未挂工作区等失败场景退回普通建项目通道，然后绑定。 */
     async function createWorkspaceProject(sessionId) {
-      update((s) => { s.bindingCreating = true; });
+      update((s) => { s.bindingCreating = true; s.bindingError = null; });
+      const formerName = () => {
+        const ws = S.sessionBinding && S.sessionBinding.workspace;
+        const seg = ws && ws.path ? String(ws.path).split(/[\\/]/).filter(Boolean).pop() : '';
+        return (seg || '画布项目') + ' ' + new Date().toISOString().slice(0, 16).replace('T', ' ');
+      };
+      const fallbackCreate = async () => {
+        const name = formerName();
+        const cp = await hostRpc('canvasCreateProject', { name });
+        if (!cp || !cp.ok || !cp.projectId) throw new Error((cp && cp.error) || T('bindFail'));
+        ensureLocalProject(cp.projectId, cp.name || name);
+        update((s) => { s.bindingCreating = false; });
+        refreshDataRoot().catch(() => { /* 下一轮 3s 同步也会带 */ });
+        await bindSessionToCanvas(sessionId, cp.projectId, null);
+      };
       try {
         const r = await hostRpc('workspaceProjectCreate', { sessionId });
-        update((s) => { s.bindingCreating = false; s.bindingMenuOpen = false; });
         if (r && r.ok) {
+          update((s) => { s.bindingCreating = false; s.bindingMenuOpen = false; });
+          ensureLocalProject(r.projectId, (S.sessionBinding && S.sessionBinding.project && S.sessionBinding.project.name) || '');
           refreshDataRoot().catch(() => { /* 项目清单下一轮 3s 同步也会带 */ });
           await refreshSessionBinding(sessionId);
+          const sb = S.sessionBinding;
+          if (!(sb && sb.binding && sb.project && sb.project.id === r.projectId)) {
+            await bindSessionToCanvas(sessionId, r.projectId, null); // 宿主未自动绑定时本地补绑
+          }
           followBoundCanvas({ force: true });
-        } else {
-          update((s) => { s.bindingError = (r && r.error) || T('bindFail'); });
+          return;
         }
+        // 工作区通道失败（如会话未挂工作区）：退回普通建项目通道
+        await fallbackCreate();
       } catch (e) {
-        update((s) => { s.bindingCreating = false; s.bindingError = String((e && e.message) || e) || T('bindFail'); });
+        try {
+          await fallbackCreate();
+        } catch {
+          update((s) => { s.bindingCreating = false; s.bindingError = String((e && e.message) || e) || T('bindFail'); });
+        }
       }
     }
     /** 新建子画布并绑定（Host 先落登记；projectId 显式传入——未绑定态的项目二级菜单也能用）。 */
@@ -21133,11 +21195,28 @@ const DIRECTOR_KEY_HELP = [
         : row('newbtn:' + pid, Ic('plus', 14), T('bindNewCanvas'),
           () => update((s) => { s.bindingNewFor = pid; s.bindingMenuProject = pid; }), { indent }));
       const rows = [];
+      // 项目列表数据源 = 客户端项目表（与画布管理器同源，老项目必现）；宿主 bindableProjects 仅补充合并
+      const localProjects = Array.isArray(S.projects) ? S.projects : [];
+      const seenPids = new Set();
+      const menuProjects = [];
+      for (const p of localProjects) {
+        if (!p || !p.id || seenPids.has(p.id)) continue;
+        seenPids.add(p.id);
+        menuProjects.push({ id: p.id, name: p.name || p.id, canvases: canvasesFromProject(p), updatedAt: p.updatedAt || 0 });
+      }
+      for (const p of (Array.isArray(S.bindableProjects) ? S.bindableProjects : [])) {
+        if (!p || !p.id || seenPids.has(p.id)) continue;
+        seenPids.add(p.id);
+        menuProjects.push({ id: p.id, name: p.name || p.id, canvases: p.canvases || [], updatedAt: p.updatedAt || 0 });
+      }
+      menuProjects.sort((a, z) => (z.updatedAt || 0) - (a.updatedAt || 0));
       if (b.binding && b.project) {
-        // —— 已绑定：项目锁定，只列本项目的子画布 ——
+        // —— 已绑定：项目锁定，只列本项目的子画布（宿主回读缺失时用本地项目表兜底）——
         rows.push(row('__open__', Ic('image', 14), T('bindOpenCanvas'), () => { close(); openBoundCanvasFromChip(); }));
         rows.push(sep('s1'));
-        for (const c of (b.canvases || [])) {
+        const boundLocal = localProjects.find((p) => p && p.id === b.project.id);
+        const boundCanvases = (Array.isArray(b.canvases) && b.canvases.length) ? b.canvases : canvasesFromProject(boundLocal);
+        for (const c of boundCanvases) {
           const cid = c.id == null ? null : c.id;
           const isCurrent = (b.binding.canvasId == null ? null : b.binding.canvasId) === cid;
           const occupiedBy = (b.occupied || {})[cid == null ? 'null' : cid] || null;
@@ -21154,14 +21233,12 @@ const DIRECTOR_KEY_HELP = [
       } else {
         // —— 未绑定：仅会话 / 创建项目 / 已有项目（项目展开二级子画布 + 新建子画布）——
         rows.push(row('__only__', Ic('chat', 14), T('bindSessionOnly'), close, { selected: true }));
-        rows.push(row('__create__', Ic('plus', 14), T('bindCreateProjectAction'),
-          () => { close(); createWorkspaceProject(sessionId); }));
+        rows.push(row('__create__', Ic('plus', 14), T('bindCreateProjectAction'), () => createWorkspaceProject(sessionId)));
         rows.push(sep('s1'));
-        const projects = S.bindableProjects;
-        if (projects === null) {
+        if (!menuProjects.length && S.bindableProjects === null) {
           rows.push(row('__loading__', null, '…', null, { dim: true }));
         } else {
-          for (const p of projects) {
+          for (const p of menuProjects) {
             const expanded = S.bindingMenuProject === p.id;
             rows.push(row('p:' + p.id, Ic('folder', 14), p.name || p.id,
               () => update((s) => { s.bindingMenuProject = expanded ? null : p.id; s.bindingNewFor = null; }),
@@ -21177,6 +21254,8 @@ const DIRECTOR_KEY_HELP = [
           }
         }
       }
+      // 失败原因显示在菜单内（保持菜单打开，用户能看到为什么没生效）
+      if (S.bindingError) rows.push(h('div', { key: '__err__', className: 'dshic-bind-err-inmenu' }, S.bindingError));
       return h('div', { className: 'dshic-menu dshic-bind-menu' }, rows);
     }
     /** composer 画布选择 chip。session 作用域槽位的组件：props.sessionId 由 Runner 标准属性提供。 */
@@ -21222,7 +21301,7 @@ const DIRECTOR_KEY_HELP = [
       return h('div', { className: 'dshic-bind' },
         chip,
         S.bindingMenuOpen ? h(BindingMenu, { key: 'menu' }) : null,
-        S.bindingError ? h('div', { key: 'err', className: 'dshic-bind-err' }, S.bindingError) : null,
+        S.bindingError && !S.bindingMenuOpen ? h('div', { key: 'err', className: 'dshic-bind-err' }, S.bindingError) : null,
       );
     }
 
