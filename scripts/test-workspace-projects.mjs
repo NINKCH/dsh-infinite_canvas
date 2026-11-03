@@ -265,6 +265,11 @@ fs.mkdirSync(REGISTRY0[1].path, { recursive: true }); // 无标记的工作区�
   ok(dp && dp.ok, '数据根项目绑定失败');
   const dpGet = await M.sessionBindingGet({ sessionId: 'ses_second' });
   ok(dpGet && dpGet.project && dpGet.project.id === 'plain1', 'bindable 绑定回读不符');
+  // 解绑必须命中**实际绑定项目**（全局查找）：数据根项目的绑定也能被仅会话清除
+  const dc = await M.sessionBindingClear({ sessionId: 'ses_second' });
+  ok(dc && dc.ok && dc.removed === true, '数据根项目解绑未命中（仅会话点了无效）');
+  const dpGet2 = await M.sessionBindingGet({ sessionId: 'ses_second' });
+  ok(!(dpGet2 && dpGet2.binding), '解绑后仍回读为已绑定');
 }
 
 // ---------------- 结果 ----------------

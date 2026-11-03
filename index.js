@@ -3860,6 +3860,11 @@ export function apply(ctx) {
         const sc = wsSessionContext(sid);
         if (!sc.supported) return { ok: false, unsupported: true, error: '当前宿主无工作区能力' };
         let pid = String((args && args.projectId) || '');
+        if (!pid) {
+          // 绑定查找是全局的：先找会话**实际绑定**的项目（绑定可指向数据根老项目）
+          const hit = toolBindingForSession(sid);
+          if (hit) pid = hit.projectId;
+        }
         if (!pid && sc.ws) {
           const rec = wsRecOf(sc.ws);
           if (rec) pid = rec.pid;

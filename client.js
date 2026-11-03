@@ -21098,8 +21098,25 @@ const DIRECTOR_KEY_HELP = [
     }
     async function unbindSession(sessionId) {
       if (bindingStaleGuard()) return;
-      try { await hostRpc('sessionBindingClear', { sessionId }); } catch { /* 旧宿主：忽略 */ }
-      update((s) => { s.bindingMenuOpen = false; });
+      // 乐观清态：chip 立即回「仅会话」（回到可重新选项目的状态），宿主清除随后回读校正
+      update((s) => {
+        const prev = s.sessionBinding || {};
+        s.sessionBinding = {
+          loaded: true, supported: true,
+          workspace: prev.workspace || null,
+          project: null, binding: null, canvasId: null,
+          canvases: [], occupied: {},
+        };
+        s.bindingRev = (s.bindingRev || 0) + 1;
+        s.bindingError = null;
+        s.bindingMenuOpen = false; s.bindingMenuProject = null; s.bindingNewFor = null;
+      });
+      try {
+        const r = await hostRpc('sessionBindingClear', { sessionId });
+        if (r && r.ok === false) update((s) => { s.bindingError = r.error || T('bindFail'); });
+      } catch (e) {
+        update((s) => { s.bindingError = String((e && e.message) || e) || T('bindFail'); });
+      }
       await refreshSessionBinding(sessionId);
     }
     /** 「创建项目」：优先工作区内嵌项目；会话未挂工作区等失败场景退回普通建项目通道，然后绑定。 */
