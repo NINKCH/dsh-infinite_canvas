@@ -132,6 +132,7 @@ const COVERAGE = [
   { sha: 'e423754', keys: [/Canvas selector: host-format/i] },
   { sha: '592e290', keys: [/Canvas selector: host-format|Bindings can target any project/i] },
   { sha: 'fa7494d', keys: [/Canvas selector actually shows your projects/i] },
+  { sha: '281ee98', keys: [/Chip shows the selected value, and a stale host is called out/i] },
 ];
 for (const c of COVERAGE) {
   ok(c.keys.some((re) => re.test(coverageText)), '未发版提交 ' + c.sha + ' 在 CHANGELOG（Unreleased 或最新已发布段）里找不到对应记录（补记不全）');
