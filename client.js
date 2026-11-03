@@ -961,6 +961,7 @@ function revealCanvasInRight() {
       'bindUnbound': '绑画布',
       'bindMenuTitle': '绑定画布（本会话）',
       'bindSessionOnly': '仅会话（不绑定）',
+      'bindCreateProjectAction': '创建画布项目（并绑定本会话）',
       'bindNewCanvas': '+ 新建画布…',
       'bindNewCanvasPlaceholder': '第N集',
       'bindOpenCanvas': '打开本集画布',
@@ -1927,6 +1928,7 @@ function revealCanvasInRight() {
       'bindUnbound': 'Bind canvas',
       'bindMenuTitle': 'Bind canvas (this session)',
       'bindSessionOnly': 'Session only (no binding)',
+      'bindCreateProjectAction': 'Create canvas project (binds this session)',
       'bindNewCanvas': '+ New canvas…',
       'bindNewCanvasPlaceholder': 'Episode N',
       'bindOpenCanvas': 'Open this canvas',
@@ -21104,7 +21106,12 @@ const DIRECTOR_KEY_HELP = [
           key: '__open__', type: 'button', className: 'dshic-menu-item',
           onClick: () => { update((s) => { s.bindingMenuOpen = false; }); openBoundCanvasFromChip(); },
         }, T('bindOpenCanvas')));
-        rows.push(h('button', { key: '__unbind__', type: 'button', className: 'dshic-menu-item', onClick: () => unbindSession(sessionId) }, T('bindUnbind')));
+      } else if (!b.project) {
+        // 无项目态也要给选择：建项目（会绑定）或仅会话，不能点一下就替用户决定
+        rows.push(h('button', {
+          key: '__create__', type: 'button', className: 'dshic-menu-item',
+          onClick: () => { update((s) => { s.bindingMenuOpen = false; }); createWorkspaceProject(sessionId); },
+        }, T('bindCreateProjectAction')));
       }
       if (b.project) {
         for (const c of (b.canvases || [])) {
@@ -21134,7 +21141,14 @@ const DIRECTOR_KEY_HELP = [
           }),
           h('button', { type: 'button', onClick: () => createCanvasAndBind(sessionId, bindingNewCanvasName) }, T('bindNewCanvas')),
         ) : null,
-        b.project ? h('button', { type: 'button', className: 'dshic-menu-item', onClick: () => { update((s) => { s.bindingMenuOpen = false; }); } }, T('bindSessionOnly')) : null,
+        // 仅会话：任何状态都可选——已绑定 = 解绑（回到仅会话）；未绑定/无项目 = 保持不绑定（关闭菜单）
+        h('button', {
+          type: 'button', className: 'dshic-menu-item',
+          onClick: () => {
+            if (b.binding) unbindSession(sessionId);
+            else update((s) => { s.bindingMenuOpen = false; });
+          },
+        }, T('bindSessionOnly')),
       );
     }
     let bindingNewCanvasName = ''; // 内联新建输入（非受控：菜单关闭即弃）
@@ -21164,8 +21178,9 @@ const DIRECTOR_KEY_HELP = [
         type: 'button',
         className: 'dshic-bind-chip' + (bound ? ' is-bound' : ''),
         title: bound ? T('bindMenuTitle') : (b.project ? T('bindUnbound') : T('bindNewProject')),
-        // 一体式下拉（与左侧「工作区内修改」选择器同构）：整颗胶囊点击 = 开下拉；无项目时一键建项目
-        onClick: (bound || b.project) ? openMenu : () => createWorkspaceProject(sessionId),
+        // 一体式下拉（与左侧「工作区内修改」选择器同构）：整颗胶囊点击 = 开下拉；
+        // 无项目态也先开菜单给选择（创建并绑定 / 仅会话），绝不点一下替用户决定
+        onClick: openMenu,
       }, [
         h('span', { key: 'ico', className: 'dshic-bind-ico' }, Ic('image', 14)),
         h('span', { key: 'label', className: 'dshic-bind-label' }, bound

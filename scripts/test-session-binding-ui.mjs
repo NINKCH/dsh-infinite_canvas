@@ -31,7 +31,7 @@ const ok = (c, m) => { if (!c) errs.push(m); };
 // ---------------- 2) 三态 + i18n 双语 ----------------
 const KEYS = [
   'bindNewProject', 'bindUnbound', 'bindMenuTitle', 'bindSessionOnly', 'bindNewCanvas',
-  'bindNewCanvasPlaceholder', 'bindOpenCanvas', 'bindUnbind', 'bindOccupied', 'bindFail', 'bindCreating', 'bindChipBound',
+  'bindNewCanvasPlaceholder', 'bindCreateProjectAction', 'bindOpenCanvas', 'bindOccupied', 'bindFail', 'bindCreating', 'bindChipBound',
 ];
 {
   const mZh = /const DICT_ZH = \{/.exec(src);
@@ -46,7 +46,7 @@ const KEYS = [
       ok(re.test(src.slice(enStart)), 'DICT_EN 缺 key：' + k);
     }
   }
-  for (const k of ['bindNewProject', 'bindUnbound', 'bindUnbind', 'bindChipBound']) {
+  for (const k of ['bindNewProject', 'bindUnbound', 'bindSessionOnly', 'bindChipBound']) {
     ok(src.includes("T('" + k + "')"), 'key ' + k + ' 未在渲染代码中使用');
   }
 }
@@ -75,10 +75,11 @@ for (const m of ['sessionBindingGet', 'sessionBindingSet', 'sessionBindingClear'
 {
   ok(/occupied/.test(src), '绑定数据未消费 occupied 占用图');
   ok(src.includes("T('bindOccupied')"), '菜单缺「已被其他会话占用」提示');
-  // 评审 I1：无项目态必须直调 createWorkspaceProject（「建画布项目」不能是死流程）
-  const chipIdx = src.indexOf('function SessionBindingChip');
-  ok(chipIdx >= 0 && /createWorkspaceProject\(sessionId\)/.test(src.slice(chipIdx, chipIdx + 4200)),
-    '无项目态 chip 未直调 createWorkspaceProject（评审 I1：建画布项目死流程）');
+  // 无项目态也必须给选择（评审 I1 + 「仅会话选不了」回归）：菜单里提供「创建并绑定」与「仅会话」
+  ok(/createWorkspaceProject\(sessionId\)/.test(src), '无项目态缺「创建画布项目」动作');
+  ok(/T\('bindCreateProjectAction'\)/.test(src), '无项目态缺「创建画布项目」菜单行');
+  ok(/if \(b\.binding\) unbindSession\(sessionId\)/.test(src), '「仅会话」在已绑定态未执行解绑（选不了/选了无效）');
+  ok(/T\('bindSessionOnly'\)/.test(src), '缺「仅会话（不绑定）」常驻行');
   // 一体式下拉（与宿主「工作区内修改」选择器同构）：chip 内置 ⌄，禁止拆分独立箭头按钮
   ok(!/dshic-bind-arrow/.test(src), 'chip 与箭头不得拆成两个按钮（一体式下拉）');
   ok(/dshic-bind-caret/.test(src), 'chip 缺内置 ⌄ 指示');
