@@ -211,6 +211,12 @@ I.wsProjectsScan([{ id: 'ws-aaaa', path: WS_DIR, title: 'ws-mem', sessionIds: []
     const bx = await bible.execute({ projectId: 'memP1', bible: { style: 'x' } }, { agent: { sessionId: 'ses_bound' } });
     ok(bx && bx.ok === false && bx.locked === true, '设定集写的跨项目操作未被拒绝');
   }
+  // 数据根项目也可绑定：全局查找 + 工具默认值同样命中
+  const plainBind = await I.bindingSet('memP1', 'ses_plain', null, () => true);
+  ok(plainBind && plainBind.ok, '数据根项目绑定失败');
+  const rp = await rd.execute({}, { agent: { sessionId: 'ses_plain' } });
+  ok(rp && rp.ok && /第1集/.test(rp.text || ''), '数据根项目绑定未被工具默认值命中（全局查找缺失）');
+  await I.bindingClear('memP1', 'ses_plain');
 }
 
 // ---------------- 结果 ----------------

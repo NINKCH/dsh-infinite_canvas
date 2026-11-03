@@ -251,6 +251,18 @@ fs.mkdirSync(REGISTRY0[1].path, { recursive: true }); // 无标记的工作区�
   ok(mg && mg.ok && String(mg.episode && mg.episode.body).includes('正文X'), 'memoryGet RPC 失败');
   const mgIdx = await M.memoryGet({ projectId: g.project.id });
   ok(mgIdx && mgIdx.ok && mgIdx.index.episodes.length === 1, 'memoryGet 索引条目不符');
+  // —— 两级菜单数据面：bindableProjects 混排两类来源，每项带画布清单 ——
+  const bp = await M.bindableProjects();
+  ok(bp && bp.ok && Array.isArray(bp.projects), 'bindableProjects 失败');
+  const wsProj = bp.projects.find((p) => p.id === g.project.id);
+  const drProj = bp.projects.find((p) => p.id === 'plain1');
+  ok(!!wsProj && wsProj.origin === 'workspace' && Array.isArray(wsProj.canvases) && wsProj.canvases.length >= 1, 'bindableProjects 缺工作区项目或画布清单');
+  ok(!!drProj && drProj.origin === 'dataRoot', 'bindableProjects 缺数据根项目');
+  // 数据根项目也可绑定（RPC 面）
+  const dp = await M.sessionBindingSet({ sessionId: 'ses_second', projectId: 'plain1', canvasId: null });
+  ok(dp && dp.ok, '数据根项目绑定失败');
+  const dpGet = await M.sessionBindingGet({ sessionId: 'ses_second' });
+  ok(dpGet && dpGet.project && dpGet.project.id === 'plain1', 'bindable 绑定回读不符');
 }
 
 // ---------------- 结果 ----------------

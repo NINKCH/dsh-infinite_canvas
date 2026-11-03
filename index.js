@@ -1344,17 +1344,29 @@ async function memoryRead(pid, canvasId) {
   }
   return { ok: true, projectId: id, index: idx, episode };
 }
-/** 会话 → 绑定 {projectId, canvasId}：只扫工作区项目缓存（绑定 UX 属工作区项目）。 */
+/** 会话 → 绑定 {projectId, canvasId}：扫**全部项目**（工作区内嵌 + 数据根）的绑定表。 */
 function toolBindingForSession(sid) {
   const s = String(sid || '');
   if (!s) return null;
-  for (const rec of wsProjects.values()) {
+  for (const pid of allBoundProjectIds()) {
     let data = null;
-    try { data = bindingsRead(rec.pid); } catch { continue; }
+    try { data = bindingsRead(pid); } catch { continue; }
     const hit = data.bindings.find((b) => b && b.sessionId === s);
-    if (hit) return { projectId: rec.pid, canvasId: hit.canvasId == null ? null : hit.canvasId };
+    if (hit) return { projectId: pid, canvasId: hit.canvasId == null ? null : hit.canvasId };
   }
   return null;
+}
+/** 可承载绑定的项目 id 全集：工作区内嵌项目 + 数据根项目（绑定可跨来源，菜单列表同口径）。 */
+function allBoundProjectIds() {
+  const ids = new Set(wsProjects.keys());
+  try { for (const p of projectsListDataRoot()) ids.add(String(p.id)); } catch { /* 无数据根：只留工作区项目 */ }
+  return [...ids];
+}
+/** 文档 → 画布清单（默认画布 id=null 在前）。 */
+function canvasesOfDoc(doc) {
+  const list = defaultCanvasExists(doc) ? [{ id: null, name: defaultCanvasNameOf(doc) }] : [];
+  for (const c of canvasRegistry(doc)) list.push({ id: c.id, name: c.name });
+  return list;
 }
 /** 绑定的人类可读标签「项目名·画布名」（拒绝文案用）。 */
 function bindingLabelOf(b) {
@@ -1434,15 +1446,15 @@ function bindingSetSync(pid, sessionId, canvasId, aliveFn) {
   if (occupant && alive(occupant.sessionId)) {
     return { ok: false, occupied: true, by: occupant.sessionId, error: '该画布已绑定其他会话' };
   }
-  // 会话全局唯一绑定（评审 I3）：会话改绑本项目时，清掉它在其他工作区项目里的绑定——
+  // 会话全局唯一绑定（评审 I3）：会话改绑本项目时，清掉它在**其他任何项目**（含数据根）里的绑定——
   // 「一会话一画布」是全局约束，否则会话感知默认值可能落到错误项目且 agent 无感知。
-  for (const rec of wsProjects.values()) {
-    if (rec.pid === id) continue;
+  for (const otherPid of allBoundProjectIds()) {
+    if (otherPid === id) continue;
     let ob = null;
-    try { ob = bindingsRead(rec.pid); } catch { continue; }
+    try { ob = bindingsRead(otherPid); } catch { continue; }
     const kept = ob.bindings.filter((b) => b && b.sessionId !== sid);
     if (kept.length !== ob.bindings.length) {
-      writeBindingsAtomic(rec.pid, { ...ob, updatedAt: Date.now(), bindings: kept });
+      writeBindingsAtomic(otherPid, { ...ob, updatedAt: Date.now(), bindings: kept });
     }
   }
   const next = {
@@ -3792,26 +3804,30 @@ export function apply(ctx) {
         if (!sid) return { ok: false, error: '缺少 sessionId' };
         const sc = wsSessionContext(sid);
         if (!sc.supported) return { ok: true, supported: false };
-        if (!sc.ws) return { ok: true, supported: true, workspace: null, project: null, binding: null, canvasId: null, canvases: [], occupied: {} };
-        let rec = wsRecOf(sc.ws);
-        if (!rec && sc.list) {
-          // watcher 可能还没轮到：按**完整** registry 补扫一次（单工作区补扫会清掉其他工作区缓存）
-          wsProjectsScan(sc.list);
-          rec = wsRecOf(sc.ws);
+        // 绑定查找是**全局**的（工作区内嵌 + 数据根项目都可被绑定）：先找会话现绑的项目；
+        // 未绑定时再退回会话所在工作区项目（仅供上下文/画布清单，不产生绑定）。
+        const boundHit = toolBindingForSession(sid);
+        let pid = boundHit ? boundHit.projectId : null;
+        if (!pid && sc.ws) {
+          let rec = wsRecOf(sc.ws);
+          if (!rec && sc.list) {
+            // watcher 可能还没轮到：按**完整** registry 补扫一次（单工作区补扫会清掉其他工作区缓存）
+            wsProjectsScan(sc.list);
+            rec = wsRecOf(sc.ws);
+          }
+          if (rec) pid = rec.pid;
         }
-        if (!rec) return { ok: true, supported: true, workspace: wsView(sc.ws), project: null, binding: null, canvasId: null, canvases: [], occupied: {} };
-        const data = bindingsRead(rec.pid);
-        const binding = data.bindings.find((b) => b && b.sessionId === sid) || null;
-        const pdoc = readDocOrNull(rec.pid) || {};
-        const reg = canvasRegistry(pdoc);
-        const canvases = (defaultCanvasExists(pdoc) ? [{ id: null, name: defaultCanvasNameOf(pdoc) }] : [])
-          .concat(reg.map((c) => ({ id: c.id, name: c.name })));
+        if (!pid) return { ok: true, supported: true, workspace: sc.ws ? wsView(sc.ws) : null, project: null, binding: null, canvasId: null, canvases: [], occupied: {} };
+        const data = bindingsRead(pid);
+        const binding = boundHit ? (data.bindings.find((b) => b && b.sessionId === sid) || null) : null;
+        const pdoc = readDocOrNull(pid) || {};
+        const canvases = canvasesOfDoc(pdoc);
         const occupied = {};
         for (const b of data.bindings) if (b && b.sessionId !== sid && b.canvasId) occupied[b.canvasId] = b.sessionId;
         return {
           ok: true, supported: true,
-          workspace: wsView(sc.ws),
-          project: { id: rec.pid, name: pdoc.name || rec.pid },
+          workspace: sc.ws ? wsView(sc.ws) : null,
+          project: { id: pid, name: pdoc.name || pid },
           binding: binding ? { canvasId: binding.canvasId, boundAt: binding.boundAt || 0 } : null,
           canvasId: binding ? binding.canvasId : null,
           defaultCanvasName: defaultCanvasNameForApi(pdoc),
@@ -3830,7 +3846,7 @@ export function apply(ctx) {
           if (!rec) return { ok: false, error: '该工作区还没有画布项目' };
           pid = rec.pid;
         }
-        if (!isWsProject(pid)) return { ok: false, error: '只允许绑定工作区画布项目' };
+        // 项目必须是真实存在的画布项目（工作区内嵌或数据根均可）；存在性由 bindingSet 校验
         const alive = (t) => sc.isAlive(t);
         return bindingSet(pid, sid, (args && args.canvasId) ?? null, alive);
       },
@@ -3847,8 +3863,30 @@ export function apply(ctx) {
         if (!pid) return { ok: true, removed: false };
         return bindingClear(pid, sid);
       },
-      async workspaceProjectCreate(args) {
-        const sid = String((args && args.sessionId) || '');
+      /** 可绑定的项目清单（画布选择器未绑定态用）：工作区内嵌 + 数据根混排，按更新时间倒序，每项带画布清单。 */
+      async bindableProjects() {
+        const out = [];
+        try {
+          for (const rec of wsProjects.values()) {
+            const doc = readDocOrNull(rec.pid) || {};
+            out.push({
+              id: rec.pid, name: doc.name || rec.pid, origin: 'workspace',
+              updatedAt: doc.updatedAt || 0, canvases: canvasesOfDoc(doc),
+            });
+          }
+        } catch { /* 单个项目读取失败跳过 */ }
+        try {
+          for (const p of projectsListDataRoot()) {
+            if (wsProjects.has(p.id)) continue;
+            const canvases = (p.defaultCanvasDeleted ? [] : [{ id: null, name: p.defaultCanvasName || '默认画布' }])
+              .concat((p.canvases || []).map((c) => ({ id: c.id, name: c.name })));
+            out.push({ id: p.id, name: p.name, origin: 'dataRoot', updatedAt: p.updatedAt || 0, canvases });
+          }
+        } catch { /* 无数据根：仅工作区项目 */ }
+        out.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+        return { ok: true, projects: out.slice(0, 100) };
+      },
+      async workspaceProjectCreate(args) {        const sid = String((args && args.sessionId) || '');
         if (!sid) return { ok: false, error: '缺少 sessionId' };
         const sc = wsSessionContext(sid);
         if (!sc.supported) return { ok: false, unsupported: true, error: '当前宿主无工作区能力' };

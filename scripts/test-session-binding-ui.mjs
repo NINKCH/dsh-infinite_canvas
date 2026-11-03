@@ -30,8 +30,8 @@ const ok = (c, m) => { if (!c) errs.push(m); };
 
 // ---------------- 2) 三态 + i18n 双语 ----------------
 const KEYS = [
-  'bindNewProject', 'bindUnbound', 'bindMenuTitle', 'bindSessionOnly', 'bindNewCanvas',
-  'bindNewCanvasPlaceholder', 'bindCreateProjectAction', 'bindOpenCanvas', 'bindOccupied', 'bindFail', 'bindCreating', 'bindChipBound',
+  'bindChipSelect', 'bindSessionOnly', 'bindCreateProjectAction', 'bindOpenCanvas', 'bindNewCanvas',
+  'bindNewCanvasPlaceholder', 'bindOccupied', 'bindFail', 'bindCreating', 'bindChipBound',
 ];
 {
   const mZh = /const DICT_ZH = \{/.exec(src);
@@ -45,8 +45,12 @@ const KEYS = [
       ok(re.test(src.slice(zhStart, enStart)), 'DICT_ZH 缺 key：' + k);
       ok(re.test(src.slice(enStart)), 'DICT_EN 缺 key：' + k);
     }
+    // 绑定文案禁止括号注释（「这是功能，不是草稿纸」）：绑定 key 的值里不得出现中文/英文括号
+    const bindLines = src.slice(zhStart, enStart).split('\n').filter((l) => /'bind[A-Z]/.test(l));
+    ok(bindLines.length > 0, '找不到绑定文案行');
+    for (const l of bindLines) ok(!/[（(]/.test(l), '绑定文案含括号注释：' + l.trim());
   }
-  for (const k of ['bindNewProject', 'bindUnbound', 'bindSessionOnly', 'bindChipBound']) {
+  for (const k of ['bindChipSelect', 'bindSessionOnly', 'bindOpenCanvas', 'bindChipBound']) {
     ok(src.includes("T('" + k + "')"), 'key ' + k + ' 未在渲染代码中使用');
   }
 }
@@ -71,19 +75,23 @@ for (const m of ['sessionBindingGet', 'sessionBindingSet', 'sessionBindingClear'
   }
 }
 
-// ---------------- 5) 占用提示 ----------------
+// ---------------- 5) 占用提示 + 两级菜单（宿主选择器格式） ----------------
 {
   ok(/occupied/.test(src), '绑定数据未消费 occupied 占用图');
-  ok(src.includes("T('bindOccupied')"), '菜单缺「已被其他会话占用」提示');
-  // 无项目态也必须给选择（评审 I1 + 「仅会话选不了」回归）：菜单里提供「创建并绑定」与「仅会话」
-  ok(/createWorkspaceProject\(sessionId\)/.test(src), '无项目态缺「创建画布项目」动作');
-  ok(/T\('bindCreateProjectAction'\)/.test(src), '无项目态缺「创建画布项目」菜单行');
-  ok(/if \(b\.binding\) unbindSession\(sessionId\)/.test(src), '「仅会话」在已绑定态未执行解绑（选不了/选了无效）');
-  ok(/T\('bindSessionOnly'\)/.test(src), '缺「仅会话（不绑定）」常驻行');
-  // 一体式下拉（与宿主「工作区内修改」选择器同构）：chip 内置 ⌄，禁止拆分独立箭头按钮
+  ok(src.includes("T('bindOccupied')"), '菜单缺「占用中」提示');
+  // 无项目态也必须给选择：菜单里提供「创建项目」与「仅会话」
+  ok(/createWorkspaceProject\(sessionId\)/.test(src), '无项目态缺「创建项目」动作');
+  ok(/T\('bindCreateProjectAction'\)/.test(src), '无项目态缺「创建项目」菜单行');
+  ok(/T\('bindSessionOnly'\)/.test(src), '缺「仅会话」常驻行');
+  ok(/unbindSession\(sessionId\)/.test(src), '「仅会话」在已绑定态未执行解绑');
+  // 两级菜单：未绑定列项目（懒加载 bindableProjects）+ 展开二级子画布
+  ok(/hostRpc\('bindableProjects'/.test(src), '未绑定态缺可绑定项目懒加载（bindableProjects）');
+  ok(/S\.bindingMenuProject/.test(src), '缺项目展开状态（两级菜单）');
+  ok(/is-selected/.test(src), '菜单缺选中行高亮（宿主选择器格式）');
+  ok(/T\('bindOpenCanvas'\)/.test(src), '已绑定态缺「打开画布」行');
+  // 一体式下拉（与宿主「选择工作区」选择器同构）：chip 内置 ⌄，禁止拆分独立箭头按钮
   ok(!/dshic-bind-arrow/.test(src), 'chip 与箭头不得拆成两个按钮（一体式下拉）');
   ok(/dshic-bind-caret/.test(src), 'chip 缺内置 ⌄ 指示');
-  ok(/T\('bindOpenCanvas'\)/.test(src), '已绑定态下拉缺「打开本集画布」首行');
 }
 
 // ---------------- 7) 记忆查看器（统一弹窗第三页签） ----------------
