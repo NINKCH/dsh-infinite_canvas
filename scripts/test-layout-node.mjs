@@ -103,10 +103,52 @@ await throws(() => I.canvasLayoutNode({ projectId: pid, nodes: [{ nodeId: n1.nod
   ok(g.bounds.maxX - g.bounds.minX < 6000, 'relayout 横向展开过度（带高打包失效）');
 }
 
+// 6) 星型簇（一上游连多个下游）：同深度兄弟纵排、**任意两节点零重叠**
+{
+  const pid3 = (await byName.get('canvas_create_project').execute({ name: '星型测试' }, {})).projectId;
+  const sc = I.canvasCreateNode({ projectId: pid3, type: 'script', name: '剧本', prompt: 'x' });
+  for (let i = 1; i <= 6; i++) I.canvasCreateNode({ projectId: pid3, type: 'storyboard', name: '场' + i + '分镜表', connectFrom: sc.nodeId });
+  I.canvasRelayout({ projectId: pid3 });
+  const g = I.canvasLayoutGet({ projectId: pid3 });
+  eq(g.count, 7, '星型节点数不符');
+  const pairs = overlapPairs(g.nodes);
+  eq(pairs, 0, '星型重排后仍存在重叠（' + pairs + ' 对）');
+  const ys = g.nodes.filter((n) => /场\d分镜表/.test(n.name)).map((n) => n.y).sort((a, b) => a - b);
+  eq(new Set(ys).size, 6, '同深度兄弟未纵向错开（仍有同 y 的节点）');
+}
+
+// 7) pinned 作为障碍物：重排不得覆盖钉住的节点
+{
+  const pid4 = (await byName.get('canvas_create_project').execute({ name: '钉住避让' }, {})).projectId;
+  const a = I.canvasCreateNode({ projectId: pid4, type: 'text', name: '普通A' });
+  const b = I.canvasCreateNode({ projectId: pid4, type: 'text', name: '普通B' });
+  const c = I.canvasCreateNode({ projectId: pid4, type: 'text', name: '钉住C' });
+  // 把 C 钉在第一带正中间（80,300）——未钉节点重排时必须避开它
+  I.canvasLayoutNode({ projectId: pid4, nodes: [{ nodeId: c.nodeId, x: 80, y: 300, pinned: true }] });
+  I.canvasRelayout({ projectId: pid4 });
+  const g = I.canvasLayoutGet({ projectId: pid4 });
+  eq(g.nodes.find((n) => n.nodeId === c.nodeId).x, 80, 'pinned 节点 x 被移动');
+  eq(g.nodes.find((n) => n.nodeId === c.nodeId).y, 300, 'pinned 节点 y 被移动');
+  eq(overlapPairs(g.nodes), 0, '重排覆盖了 pinned 节点（存在重叠）');
+  void a; void b;
+}
+
 await fs.rm(SANDBOX, { recursive: true, force: true }).catch(() => {});
 if (errs.length) {
   console.error('✗ test-layout-node FAIL（' + errs.length + '）:');
   for (const m of errs) console.error('  - ' + m);
   process.exit(1);
 }
-console.log('✓ test-layout-node PASS（几何视图 / 批量精摆 / 尺寸校验 / pinned 保护 / 分带不再一列）');
+console.log('✓ test-layout-node PASS（几何视图 / 批量精摆 / 比例校验 / pinned 保护+避让 / 分带 / 星型零重叠）');
+
+/** 任意两节点矩形相交的对数（零重叠不变量）。 */
+function overlapPairs(nodes) {
+  let n = 0;
+  for (let i = 0; i < nodes.length; i++) {
+    for (let j = i + 1; j < nodes.length; j++) {
+      const a = nodes[i], b = nodes[j];
+      if (a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h) n++;
+    }
+  }
+  return n;
+}

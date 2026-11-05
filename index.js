@@ -2632,19 +2632,59 @@ function canvasRelayout(args) {
   const colX = new Map();
   let cx = 80;
   for (const d of [...colW.keys()].sort((a, b) => a - b)) { colX.set(d, cx); cx += (colW.get(d) || 280) + 60; }
-  // 分带排列（0.20.0）：一行 = 一个横向连通簇；行自上而下堆，堆到带高上限就把后续行换到右边新带。
-  // 旧实现所有行都从 x=80 自上而下排，多簇画布（簇间无横向连线）会被拍成一整列。
-  const MAX_BAND_H = 1800, BAND_GAP = 160, ROW_GAP = 40;
+  // 分带排列（0.20.0）：一行 = 一个横向连通簇；行内按深度分列，**同深度的兄弟节点纵向堆叠**
+  // （行高 = 各列堆叠高度的最大值），避让 pinned 节点；行自上而下堆，超过带高上限换右边新带。
+  // 旧实现行内所有节点同一个 y → 分支结构（一上游连多个下游）会整叠重合。
+  const MAX_BAND_H = 1800, BAND_GAP = 160, ROW_GAP = 40, SIB_GAP = 24;
+  // pinned 作为障碍物：并列摆放时不得覆盖它们
+  const obstacles = all
+    .filter((n) => n.data && n.data.pinned)
+    .map((n) => ({ x: Number(n.x) || 0, y: Number(n.y) || 0, w: Number(n.w) || 360, h: Number(n.h) || 360 }));
   let bandX = 80, bandY = 40, bandMaxW = 0, bandH = 0;
   let moved = 0;
   for (const row of rowList) {
     const rowW = Math.max(...row.ids.map((n) => (colX.get(depth.get(n.id) || 0) || 80) + (Number(n.w) || 280))) - 80;
-    const rowH = Math.max(200, ...row.ids.map((n) => Number(n.h) || 200));
-    if (bandH > 0 && bandH + ROW_GAP + rowH > MAX_BAND_H) { bandX += bandMaxW + BAND_GAP; bandY = 40; bandH = 0; bandMaxW = 0; }
+    // 行内按深度分列；每列内部按原 y 顺序堆叠
+    const lanes = new Map();
     for (const n of row.ids) {
-      n.x = bandX + ((colX.get(depth.get(n.id) || 0) || 80) - 80);
-      n.y = bandY;
-      moved++;
+      const d = depth.get(n.id) || 0;
+      if (!lanes.has(d)) lanes.set(d, []);
+      lanes.get(d).push(n);
+    }
+    for (const lane of lanes.values()) lane.sort((a, b) => ((Number(a.y) || 0) - (Number(b.y) || 0)) || ((Number(a.x) || 0) - (Number(b.x) || 0)));
+    let rowH = 200;
+    for (const lane of lanes.values()) {
+      const hSum = lane.reduce((a, n) => a + (Number(n.h) || 200) + SIB_GAP, 0) - SIB_GAP;
+      rowH = Math.max(rowH, hSum);
+    }
+    // 避让钉住节点：整行下移，直到与任何 pinned 矩形不相交（上限 20 次防死循环）
+    for (let guard = 0; guard < 20; guard++) {
+      const bad = obstacles.some((o) => bandX < o.x + o.w && o.x < bandX + rowW && bandY < o.y + o.h && o.y < bandY + rowH);
+      if (!bad) break;
+      const pushTo = Math.max(...obstacles
+        .filter((o) => bandX < o.x + o.w && o.x < bandX + rowW && bandY < o.y + o.h && o.y < bandY + rowH)
+        .map((o) => o.y + o.h + ROW_GAP));
+      bandY = pushTo;
+    }
+    if (bandH > 0 && bandH + ROW_GAP + rowH > MAX_BAND_H) {
+      bandX += bandMaxW + BAND_GAP; bandY = 40; bandH = 0; bandMaxW = 0;
+      // 新带起点也可能压在 pinned 上：同样下移避让
+      for (let guard = 0; guard < 20; guard++) {
+        const bad = obstacles.some((o) => bandX < o.x + o.w && o.x < bandX + rowW && bandY < o.y + o.h && o.y < bandY + rowH);
+        if (!bad) break;
+        bandY = Math.max(...obstacles
+          .filter((o) => bandX < o.x + o.w && o.x < bandX + rowW && bandY < o.y + o.h && o.y < bandY + rowH)
+          .map((o) => o.y + o.h + ROW_GAP));
+      }
+    }
+    for (const [d, lane] of lanes) {
+      let ly = bandY;
+      for (const n of lane) {
+        n.x = bandX + ((colX.get(d) || 80) - 80);
+        n.y = ly;
+        ly += (Number(n.h) || 200) + SIB_GAP;
+        moved++;
+      }
     }
     bandY += rowH + ROW_GAP;
     bandH += rowH + ROW_GAP;
