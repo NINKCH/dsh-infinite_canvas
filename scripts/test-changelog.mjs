@@ -121,6 +121,7 @@ const COVERAGE = [
   { sha: 'c6b1e43', keys: [/M3 runner design|auto-creation-design/i] },
   { sha: 'e9e4f03', keys: [/Settings card for the auto-creation switch/i] },
   { sha: '0a96fe0', keys: [/canvas-studio.*rewritten as a flow manual/i] },
+  { sha: '2e62a0b', keys: [/Production stage row in the projects tab/i] },
 ];
 for (const c of COVERAGE) {
   ok(c.keys.some((re) => re.test(coverageText)), '未发版提交 ' + c.sha + ' 在 CHANGELOG（Unreleased 或最新已发布段）里找不到对应记录（补记不全）');
