@@ -116,6 +116,7 @@ if (unrelHasEntries) {
 const COVERAGE = [
   // 0.19.21 已发布：历史行随发版清零（记录已在 0.19.21 段）。当前未发版：0.20.0 制作阶段机 + 多智能体自动创作。
   { sha: '891870b', keys: [/Production stage machine \+ six code gates/i] },
+  { sha: 'f452b39', keys: [/Auto-creation mode: the A1 two-phase data plane/i] },
 ];
 for (const c of COVERAGE) {
   ok(c.keys.some((re) => re.test(coverageText)), '未发版提交 ' + c.sha + ' 在 CHANGELOG（Unreleased 或最新已发布段）里找不到对应记录（补记不全）');
