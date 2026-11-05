@@ -3612,6 +3612,11 @@ export function apply(ctx) {
     };
     /** 工作区注册表条目的对外视图（不泄漏内部字段）。 */
     const wsView = (w) => ({ id: w && w.id, path: w && w.path, title: (w && w.title) || '' });
+    /** 自动创作开关（实验，默认关闭）：关闭时所有 auto* RPC 一律拒绝——零成本、零干扰。 */
+    const autoEnabled = () => {
+      try { const cfg = readIcConfig(); return !!(cfg.ui && cfg.ui.autoMode); } catch { return false; }
+    };
+    const autoDisabled = () => ({ ok: false, disabled: true, error: '自动创作处于关闭状态（实验功能）：请先在画布设置里打开「多智能体自动创作（实验）」' });
 
     const methods = {
       async ping() { return { ok: true, version: VERSION }; },
@@ -3940,6 +3945,56 @@ export function apply(ctx) {
         if (!pid) return { ok: false, error: '缺少 projectId' };
         try { projectFile(pid); } catch (e) { return { ok: false, error: String((e && e.message) || e) }; }
         return PROD.advance(pid, toolCanvasId(args), String((args && args.to) || ''), String((args && args.reason) || ''), 'user');
+      },
+      // ---- 自动创作（实验，A1 两段式）：开关默认关；关闭时所有 auto* 一律拒绝 ----
+      /** 开关状态 + 能力（multiAgent 取决于宿主是否暴露会话服务，M0 探针）。 */
+      async autoModeGet() {
+        const cfg = readIcConfig();
+        const enabled = !!(cfg.ui && cfg.ui.autoMode);
+        return { ok: true, enabled, caps: await methods.productionCapabilities() };
+      },
+      /** 打开/关闭自动创作。默认关闭；打开只是"允许入口"，不启动任何创作、不花钱。 */
+      async autoModeSet(args) {
+        const enabled = !!(args && args.enabled);
+        const cfg = readIcConfig();
+        cfg.ui = { ...(cfg.ui || {}), autoMode: enabled };
+        writeIcConfig(cfg);
+        return { ok: true, enabled };
+      },
+      /** 预算单（免费段终点）：场/镜/秒数/视频调用次数（+配置了单价时的估算金额）。 */
+      async autoQuote(args) {
+        if (!autoEnabled()) return autoDisabled();
+        const pid = String((args && args.projectId) || '');
+        if (!pid) return { ok: false, error: '缺少 projectId' };
+        const cfg = readIcConfig();
+        const price = Number(args && args.unitPricePerSecond);
+        const configured = Number(cfg.production && cfg.production.videoUnitPricePerSecond);
+        return PROD.quote(pid, toolCanvasId(args), Number.isFinite(price) && price > 0 ? price : configured);
+      },
+      /** 批准付费段：一次性令牌，绑定预算指纹；镜头/时长一变即失效（须重新复核）。 */
+      async autoApprove(args) {
+        if (!autoEnabled()) return autoDisabled();
+        const pid = String((args && args.projectId) || '');
+        if (!pid) return { ok: false, error: '缺少 projectId' };
+        const cfg = readIcConfig();
+        const price = Number(cfg.production && cfg.production.videoUnitPricePerSecond);
+        return PROD.approve(pid, toolCanvasId(args), String((args && args.quoteId) || ''), String((args && args.confirm) || ''), price);
+      },
+      /** 自动创作总状态：开关 / 阶段 / 当前批准是否仍有效 / 下一步。 */
+      async autoStatus(args) {
+        const cfg = readIcConfig();
+        const enabled = !!(cfg.ui && cfg.ui.autoMode);
+        const caps = await methods.productionCapabilities();
+        const pid = String((args && args.projectId) || '');
+        if (!enabled || !pid) return { ok: true, enabled, caps, stage: null, approval: null };
+        const price = Number(cfg.production && cfg.production.videoUnitPricePerSecond);
+        const st = PROD.status(pid, toolCanvasId(args));
+        return {
+          ok: true, enabled, caps,
+          stage: st.stage, ready: st.ready, blockers: st.blockers,
+          approval: PROD.approvalOf(pid, toolCanvasId(args), price),
+          quote: PROD.quote(pid, toolCanvasId(args), price),
+        };
       },
       async sessionBindingGet(args) {
         const sid = String((args && args.sessionId) || '');

@@ -180,6 +180,84 @@ export function createProduction(deps) {
     writeState(pid, cid, state);
   }
 
+  // ── A1 两段式：预算单与一次性批准令牌 ────────────────────────────────
+
+  /** 稳定指纹：同样的镜头/时长/单价 → 同一个 quoteId；任何一项变了 → 指纹变（旧批准自动失效）。 */
+  function fingerprint(payload) {
+    let h = 5381;
+    const s = JSON.stringify(payload);
+    for (let i = 0; i < s.length; i++) h = ((h * 33) ^ s.charCodeAt(i)) >>> 0;
+    return 'q' + h.toString(36) + '-' + s.length.toString(36);
+  }
+
+  /**
+   * 预算单（免费段终点）：只统计"将要花钱"的东西——每个分镜表一次视频调用、总秒数、场/镜数。
+   * 单价由调用方传入（画布设置里的单价，未配置则不给金额，只给调用次数与秒数）。
+   */
+  function quote(pid, cid, unitPricePerSecond) {
+    const st = stageOf(pid, cid);
+    const doc = st.doc || { nodes: {} };
+    const nodes = Object.values(doc.nodes || {});
+    const sbs = nodes.filter((n) => n.type === 'storyboard' && Array.isArray(n.data && n.data.shots) && n.data.shots.length);
+    const videoNodes = nodes.filter((n) => n.type === 'video');
+    let totalSeconds = 0;
+    const scenes = sbs.map((n, i) => {
+      const shots = n.data.shots || [];
+      const secs = shots.reduce((a, s) => a + (Number(s && s.duration) || 0), 0);
+      totalSeconds += secs;
+      return {
+        scene: i + 1,
+        storyboardId: n.id,
+        name: String((n.data && n.data.label) || n.id),
+        shots: shots.length,
+        seconds: Math.round(secs * 10) / 10,
+        hasVideo: videoNodes.some((v) => (doc.edges || []).some((e) => e.fromNode === n.id && e.toNode === v.id)),
+      };
+    });
+    const pending = scenes.filter((s) => !s.hasVideo).length;
+    const price = Number(unitPricePerSecond);
+    const payload = { pid, cid: keyOf(cid), scenes: scenes.map((s) => [s.storyboardId, s.shots, s.seconds]), pending };
+    return {
+      ok: true, quoteId: fingerprint(payload),
+      projectId: pid, canvasId: keyOf(cid) === 'default' ? null : keyOf(cid),
+      stage: st.stage,
+      scenes, sceneCount: scenes.length, shotCount: scenes.reduce((a, s) => a + s.shots, 0),
+      totalSeconds: Math.round(totalSeconds * 10) / 10,
+      videoCalls: pending,
+      unitPricePerSecond: Number.isFinite(price) && price > 0 ? price : null,
+      estimatedCost: Number.isFinite(price) && price > 0 ? Math.round(price * totalSeconds * 100) / 100 : null,
+      note: pending === 0 ? '全部分镜表都已有视频节点：本次只做重生成，不产生新调用' : '批准后只按差分镜表各调用一次视频接口（按秒计费）',
+    };
+  }
+
+  /** 批准（一次性令牌）：quoteId 必须与当前文档指纹一致，否则拒绝（镜头变了就得重新看预算）。 */
+  function approve(pid, cid, quoteId, confirm, unitPricePerSecond) {
+    const q = quote(pid, cid, unitPricePerSecond);
+    const given = String(quoteId || '').trim();
+    if (!given) return { ok: false, error: '缺少 quoteId：先调 autoQuote 生成预算单，用户看过后再批准' };
+    if (given !== q.quoteId) return { ok: false, expired: true, error: '预算单已过期（镜头/时长/新增分镜表发生了变化）——请重新 autoQuote 并让用户复核后再批准', current: q.quoteId };
+    const words = String(confirm || '').trim();
+    if (!words) return { ok: false, error: '缺少 confirm：批准付费生成必须携带用户确认原话（审计要求）' };
+    const cur = stageOf(pid, cid);
+    const state = cur.state || {
+      version: 1, projectId: pid, canvasKey: keyOf(cid),
+      floor: cur.inferred, explicit: null, createdAt: Date.now(), updatedAt: 0, history: [], overrides: [],
+    };
+    state.approval = { quoteId: q.quoteId, at: Date.now(), by: 'user', confirm: words.slice(0, 200), videoCalls: q.videoCalls, totalSeconds: q.totalSeconds };
+    state.updatedAt = Date.now();
+    writeState(pid, cid, state);
+    return { ok: true, approved: true, quoteId: q.quoteId, videoCalls: q.videoCalls, totalSeconds: q.totalSeconds };
+  }
+
+  /** 当前批准是否仍然有效（预算指纹未变）；返回 null 表示没有批准。 */
+  function approvalOf(pid, cid, unitPricePerSecond) {
+    const state = readState(pid, cid);
+    if (!state || !state.approval) return null;
+    const q = quote(pid, cid, unitPricePerSecond);
+    const valid = state.approval.quoteId === q.quoteId;
+    return { ...state.approval, valid, currentQuoteId: q.quoteId };
+  }
+
   // ── 闸门 ────────────────────────────────────────────────────────────────
 
   /**
@@ -342,6 +420,7 @@ export function createProduction(deps) {
   return {
     readState, writeState, inferStage, stageOf, noteStage, advance, recordOverride, status,
     gateBible, gateStoryboard, gateStage, gateShotNodeName, gateOneVideoPerStoryboard,
+    quote, approve, approvalOf,
     stageIndex: (name) => STAGE_INDEX[name], stageName: (idx) => PRODUCTION_STAGES[idx] || null,
   };
 }

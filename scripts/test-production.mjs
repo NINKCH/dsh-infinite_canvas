@@ -204,6 +204,57 @@ let sbNodeId = '';
   eq(caps.multiAgent, false, 'capabilities: 无宿主会话服务时 multiAgent 应为 false（M0 探针降级）');
 }
 
+// 自动创作（A1 两段式）：开关默认关 + 预算单 + 一次性批准令牌
+{
+  const M = I.rpcMethods();
+  const g0 = await M.autoModeGet();
+  eq(g0.enabled, false, '自动创作开关默认应为关闭');
+  const q0 = await M.autoQuote({ projectId });
+  ok(q0 && q0.ok === false && q0.disabled === true, '关闭状态下 autoQuote 未被拒绝');
+  await M.autoModeSet({ enabled: true });
+  eq((await M.autoModeGet()).enabled, true, '打开开关失败');
+
+  // 第二个分镜表（无视频）→ 预算单应有 1 次待调用
+  const sb2 = await byName.get('canvas_create_node').execute({ projectId, type: 'storyboard', name: '第二节分镜表' }, {});
+  ok(sb2 && sb2.ok, '预算夹具：建第二个分镜表失败');
+  const shots2 = JSON.stringify({ shots: [
+    { title: '镜1', visual: '近景，陈拾推门', motion: '跟拍', duration: 4, seg: 'opening', tail: '手按门把', cam: '跟拍向前' },
+    { title: '镜2', visual: '大特写，门缝里的字条', motion: '缓推', duration: 1, seg: 'closeup', tail: '字条定格', cam: '推进到位' },
+  ] });
+  await byName.get('canvas_write_node').execute({ projectId, nodeId: sb2.nodeId, target: 'output', text: shots2, overwrite: true }, {});
+
+  const q = await M.autoQuote({ projectId, unitPricePerSecond: 2 });
+  ok(q && q.ok === true, 'autoQuote 失败');
+  ok(q.sceneCount >= 2 && q.shotCount >= 4, '预算单场/镜计数不符：' + q.sceneCount + '/' + q.shotCount);
+  ok(q.totalSeconds >= 10, '预算单总秒数不符：' + q.totalSeconds);
+  eq(q.videoCalls, 1, '预算单待调用次数应为 1（第二个分镜表尚无视频）');
+  eq(q.estimatedCost, 20, '预算单估算金额应为 秒数×单价');
+  ok(!!q.quoteId, '预算单缺 quoteId');
+
+  // 错误令牌 → 拒绝；正确令牌 + 用户原话 → 批准
+  const bad = await M.autoApprove({ projectId, quoteId: 'q-deadbeef-1', confirm: '好' });
+  ok(bad && bad.ok === false && bad.expired === true, '过期/伪造 quoteId 未被拒绝');
+  const noWords = await M.autoApprove({ projectId, quoteId: q.quoteId });
+  ok(noWords && noWords.ok === false, '无用户原话的批准未被拒绝');
+  const ap = await M.autoApprove({ projectId, quoteId: q.quoteId, confirm: '用户：就按这个预算开机' });
+  ok(ap && ap.ok === true && ap.approved === true, '按预算批准失败');
+  const st1 = await M.autoStatus({ projectId });
+  ok(st1.approval && st1.approval.valid === true, '批准后 approval.valid 应为 true');
+
+  // 镜头变了 → 旧批准自动失效（必须重新复核预算）
+  const docNow = await I.projectsGet({ id: projectId });
+  const curShots = docNow.nodes[sb2.nodeId].data.shots;
+  const longer = JSON.stringify({ shots: curShots.concat([{ title: '镜3', visual: '全景，雨幕压城', motion: '拉升', duration: 2, seg: 'scene_change', tail: '雨幕压城', cam: '拉升' }]) });
+  await byName.get('canvas_write_node').execute({ projectId, nodeId: sb2.nodeId, target: 'output', text: longer, overwrite: true }, {});
+  const st2 = await M.autoStatus({ projectId });
+  ok(st2.approval && st2.approval.valid === false, '镜头变化后旧批准仍然有效（令牌未绑定预算指纹）');
+
+  // 关掉开关 → 立即拒绝
+  await M.autoModeSet({ enabled: false });
+  const q2 = await M.autoQuote({ projectId });
+  ok(q2 && q2.ok === false && q2.disabled === true, '关闭开关后 autoQuote 未被拒绝');
+}
+
 // ---------------- 工具 ----------------
 async function findNode(type) {
   const doc = await I.projectsGet({ id: projectId });
