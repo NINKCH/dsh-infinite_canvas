@@ -327,11 +327,15 @@ try {
   let wiredBlocked = false;
   try { await byName.get('canvas_write_node').execute({ projectId, nodeId: sb.nodeId, target: 'output', text: '手写剧本来源', overwrite: true }, {}); } catch { wiredBlocked = true; }
   if (!wiredBlocked) errs.push('已连线的分镜表被写入了粘贴的剧本来源（应拒绝，连线与粘贴二选一）');
-  // shots JSON 写入不受二选一限制（这是分镜的输出通道）：落到 data.shots 而非 output
-  const shotsJson = JSON.stringify({ shots: [{ title: '镜1', visual: '中景', motion: '推', characters: ['陈拾'], scene: '巷口', props: [], duration: 5 }] });
+  // shots JSON 写入不受二选一限制（这是分镜的输出通道）：落到 data.shots 而非 output。
+  // 夹具必须通过 G2 质量闸门（时长/画面/景别/大特写/衔接字段），否则后续建视频节点会被闸门拒绝
+  const shotsJson = JSON.stringify({ shots: [
+    { title: '镜1', visual: '中景，雨夜巷口，陈拾收伞回望', motion: '横移跟随', characters: ['陈拾'], scene: '巷口', props: [], duration: 3, seg: 'opening', tail: '陈拾转身欲走', cam: '横移回正', start: '' },
+    { title: '镜2', visual: '大特写，火漆信上的邮戳裂开', motion: '缓推', characters: [], scene: '巷口', props: ['火漆信'], duration: 2, seg: 'closeup', tail: '邮戳裂开定格', cam: '推进到位', start: '特写起幅' },
+  ] });
   await byName.get('canvas_write_node').execute({ projectId, nodeId: sb.nodeId, target: 'output', text: shotsJson, overwrite: true }, {});
   const docSb3 = await mod._internals.projectsGet({ id: projectId });
-  if (!docSb3.nodes[sb.nodeId] || !Array.isArray(docSb3.nodes[sb.nodeId].data.shots) || docSb3.nodes[sb.nodeId].data.shots.length !== 1) errs.push('shots JSON 未写入分镜节点的 data.shots');
+  if (!docSb3.nodes[sb.nodeId] || !Array.isArray(docSb3.nodes[sb.nodeId].data.shots) || docSb3.nodes[sb.nodeId].data.shots.length !== 2) errs.push('shots JSON 未写入分镜节点的 data.shots');
   // 连线工具：剧本 → 分镜表（工作流的核心，必须有边且类型校验生效）
   const scriptNode = Object.values(docSb3.nodes).find((n) => n.type === 'script' && n.data.label === '第一节剧本');
   const conn = await byName.get('canvas_connect').execute({ projectId, fromNode: scriptNode.id, toNode: sb.nodeId }, {});
@@ -355,14 +359,15 @@ try {
   if (!vgEdge) errs.push('video 未自动连线到上游分镜表（多镜头一次性生成工作流失效）');
   if (vgEdge && vgEdge.fromNode !== sb.nodeId) errs.push('video 自动连线未优先选择有镜头的分镜表');
   if (docVg.nodes[vg.nodeId] && String(docVg.nodes[vg.nodeId].data.prompt || '').trim()) errs.push('已连线的 video 仍写入了 prompt（连线与提示词未二选一）');
-  // 显式 prompt 的 video（旧名 video-gen 兼容）：分镜表已拆解镜头 → **结构性强制**连线分镜表、prompt 忽略（多镜头铁律封死旁路）
+  // G3 一表一视频：同一分镜表的第二个视频节点被拒绝（改参数走 canvas_update_node，不新建）
   const vg2 = await byName.get('canvas_create_node').execute({ projectId, type: 'video-gen', name: '第二节单镜头视频', prompt: '固定镜头，猫跳上柜台' }, {});
-  const docVg2 = await mod._internals.projectsGet({ id: projectId });
-  const vg2Edge = (docVg2.edges || []).find((e) => e.toNode === vg2.nodeId && e.toPort === 'prompt');
-  if (!vg2Edge || vg2Edge.fromNode !== sb.nodeId) errs.push('显式 prompt 的 video（旧名 video-gen）未被强制连线到分镜表（多镜头铁律的结构性强制失效）');
-  if (docVg2.nodes[vg2.nodeId] && String(docVg2.nodes[vg2.nodeId].data.prompt || '').trim()) errs.push('强制连线的 video 仍保留手写 prompt');
-  // 连线工具可用性：手动连 sb2 → vg2（单线输入端口替换语义）
-  const connSbVg = await byName.get('canvas_connect').execute({ projectId, fromNode: sb2.nodeId, toNode: vg2.nodeId }, {});
+  if (!vg2 || vg2.ok !== false || vg2.gate !== 'G3') errs.push('同一分镜表的第二个 video 未被 G3 拒绝（一表一视频闸门失效）');
+  if (vg2 && !vg2.existingVideoId) errs.push('G3 拒绝结果未指回既有视频节点（existingVideoId）');
+  // G3/G2 逃生舱：override（用户显式 + 原话）放行——用户明确要求时永远可以，但必须留审计
+  const vgOv = await byName.get('canvas_create_node').execute({ projectId, type: 'video', name: '第二节 override 版本', override: { by: 'user-explicit', quote: '用户：我就要再建一个版本对比着看' } }, {});
+  if (!vgOv || vgOv.ok !== true || !vgOv.nodeId) errs.push('G3 override 未放行（用户显式指令应优先）');
+  // 连线工具可用性：手动连 sb2 → override 版视频（单线输入端口替换语义）
+  const connSbVg = await byName.get('canvas_connect').execute({ projectId, fromNode: sb2.nodeId, toNode: vgOv.nodeId }, {});
   if (!connSbVg || !connSbVg.edgeId) errs.push('分镜表 → 视频生成 连线被拒（storyboard 应有文本输出口）');
 } catch (e) {
   errs.push('剧本节点语义校验失败 → ' + ((e && e.message) || e));
@@ -371,7 +376,7 @@ await run('canvas_write_node', { projectId, nodeId, text: '成稿内容……', 
 await run('canvas_run_node', { projectId, nodeId });
 await run('canvas_node_status', { projectId, nodeId });
 await run('canvas_open', { projectId });
-await run('canvas_delete_node', { projectId, nodeId });
+await run('canvas_delete_node', { projectId, nodeId, confirm: '清理这个测试节点' });
 // 删除的节点必须留墓碑（否则客户端按本地内容推送会把它复活）
 try {
   const afterDel = await mod._internals.projectsGet({ id: projectId });
@@ -380,7 +385,7 @@ try {
 } catch (e) {
   errs.push('墓碑校验失败 → ' + ((e && e.message) || e));
 }
-await run('canvas_delete_project', { projectId });
+await run('canvas_delete_project', { projectId, confirm: '删除整个测试项目' });
 
 // 运行/打开请求与删除通知必须一次性消费（projectsSync 读走即清空）
 try {

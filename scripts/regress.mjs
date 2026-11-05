@@ -114,6 +114,7 @@ const SUITE = [
   { name: 'test-node-layout.mjs', desc: '节点尺寸/画面比例、点击任意位置开面板、面板 520 nowrap' },
   { name: 'test-panel-layout.mjs', desc: '面板结构：返回图标/图标列居中/统一弹窗/项目名双击改名/右上角纯图标/多画布目录树' },
   { name: 'test-multi-canvas.mjs', desc: '多画布：默认画布零迁移 / 子画布独立文档 / 登记与 RPC / 工具 canvasId / 删项目清画布' },
+  { name: 'test-production.mjs', desc: '制作阶段机：阶段推断/抬升/回退 + 六道闸门(G1-G6) + 逃生舱审计 + ready 汇报语义' },
   { name: 'test-llm-stream.mjs', desc: 'LLM 流式与推理重试' },
   { name: 'test-sync-bible.mjs', desc: '设定集同步合并 / 边墓碑防复活' },
   { name: 'test-user-scenarios.mjs', desc: '用户实测场景定向复验' },

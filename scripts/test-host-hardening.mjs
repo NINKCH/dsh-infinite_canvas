@@ -113,7 +113,7 @@ const i = mod._internals;
   const after = await i.projectsGet({ id: pid });
   ok(!!after.nodes[created.nodeId], '客户端全量推送把对话刚建的节点抹掉了（projectsPut 未合并 Host 独有节点）');
   // 墓碑：删除后陈旧推送不得复活
-  i.canvasDeleteNode({ projectId: pid, nodeId: created.nodeId });
+  i.canvasDeleteNode({ projectId: pid, nodeId: created.nodeId, confirm: '删除测试节点' });
   await i.projectsPut({ id: pid, name: '硬化测试', doc: { ...doc, nodes: { ...doc.nodes, [created.nodeId]: doc.nodes[created.nodeId] } } });
   const after2 = await i.projectsGet({ id: pid });
   ok(!after2.nodes[created.nodeId], '被墓碑标记的节点被陈旧推送复活了');

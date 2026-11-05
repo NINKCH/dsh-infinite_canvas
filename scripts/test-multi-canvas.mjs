@@ -106,8 +106,10 @@ const tool = (name) => tools.find((t) => t.name === name);
   eq((cDoc3.edges || []).length, 1, '子画布连线未写入子画布文档');
 
   const del = tool('canvas_delete_node');
-  const dn = await del.execute({ projectId: 'p1', canvasId: cid, nodeId: n2.nodeId });
+  const dn = await del.execute({ projectId: 'p1', canvasId: cid, nodeId: n2.nodeId, confirm: '测试删除该分镜表节点' });
   ok(dn && dn.ok, 'canvas_delete_node 不支持 canvasId');
+  const blocked = await del.execute({ projectId: 'p1', canvasId: cid, nodeId: n2.nodeId });
+  ok(blocked && blocked.ok === false && blocked.gate === 'G5', '无 confirm 的删除未被 G5 拒绝');
 
   // 画布清单 RPC
   const cl = await I.canvasesList({ projectId: 'p1' });

@@ -39,6 +39,7 @@
   "files": [
     "index.js",
     "client.js",
+    "production.js",
     "icon.svg",
     "cordis.patch.yml",
     "locale/*.json",

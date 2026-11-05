@@ -118,7 +118,7 @@ ok(bystanderStats.n === 2, '前置失败：旁观项目应有 2 个文件，实�
   const ftsBefore = ftsHit('待删项目');
   ok(ftsBefore > 0, '前置失败：删除前 FTS 应能命中待删项目资产');
 
-  const res = await I.canvasDeleteProject({ projectId: 'p_del1' });
+  const res = await I.canvasDeleteProject({ confirm: '测试删除该项目', projectId: 'p_del1' });
   ok(res.ok === true, 'canvasDeleteProject 返回失败');
   ok(res.disk && typeof res.disk === 'object', '返回值未带磁盘清理结果（失败不可见）');
 
@@ -136,7 +136,7 @@ ok(bystanderStats.n === 2, '前置失败：旁观项目应有 2 个文件，实�
   ok(ftsCount() === assetCount(), '判据10：assets_fts(' + ftsCount() + ') != assets(' + assetCount() + ')');
   // 判据 5：幂等
   let again = null;
-  try { again = await I.canvasDeleteProject({ projectId: 'p_del1' }); } catch (e) { again = { error: String((e && e.message) || e) }; }
+  try { again = await I.canvasDeleteProject({ confirm: '测试删除该项目', projectId: 'p_del1' }); } catch (e) { again = { error: String((e && e.message) || e) }; }
   ok(again && again.ok === true, '判据5：重复删除未幂等成功：' + JSON.stringify(again));
 }
 
@@ -154,7 +154,7 @@ ok(bystanderStats.n === 2, '前置失败：旁观项目应有 2 个文件，实�
 {
   const p = await makeProject('p_del3', '待删项目三', { noMetaFolder: true });
   ok(p.dir.endsWith('p_del3'), '前置失败：无 meta 条目时目录名应为项目 id');
-  const res = await I.canvasDeleteProject({ projectId: 'p_del3' });
+  const res = await I.canvasDeleteProject({ confirm: '测试删除该项目', projectId: 'p_del3' });
   ok(res.ok === true, 'judge9：删除返回失败');
   ok(!fs.existsSync(p.dir), '判据9：meta 无 folder 条目时目录仍残留（静默跳过未修）');
 }
@@ -162,7 +162,7 @@ ok(bystanderStats.n === 2, '前置失败：旁观项目应有 2 个文件，实�
 // ---------- 判据 4：重建同名项目不读到旧文件 ----------
 {
   const first = await makeProject('p_del4', '同名项目');
-  await I.canvasDeleteProject({ projectId: 'p_del4' });
+  await I.canvasDeleteProject({ confirm: '测试删除该项目', projectId: 'p_del4' });
   ok(!fs.existsSync(first.dir), '判据4 前置：旧目录未删');
   const second = await makeProject('p_del5', '同名项目');
   const stats = countFiles(second.dir);
@@ -173,7 +173,7 @@ ok(bystanderStats.n === 2, '前置失败：旁观项目应有 2 个文件，实�
   ok(!fs.existsSync(oldImg) && !fs.existsSync(oldTxt), '判据4：重建同名项目后仍能读到旧项目的产物文件');
   ok(fs.existsSync(path.join(second.dir, 'image', 'p_del5-pic.png')), '判据4：新项目产物未落盘（前置失败）');
   // 收尾：清掉
-  await I.canvasDeleteProject({ projectId: 'p_del5' });
+  await I.canvasDeleteProject({ confirm: '测试删除该项目', projectId: 'p_del5' });
 }
 
 // ---------- 判据 10 最终态 ----------

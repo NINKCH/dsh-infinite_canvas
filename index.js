@@ -16,6 +16,15 @@ import { createRequire } from 'node:module';
 import { normalizeSkillProfile, DEFAULT_SKILL_PROFILE } from './index-core-skill-profile.js';
 import { initPackBase, packInventory, allowedIds } from './skill-pack-loader.js';
 import { buildSkillPack, SKILL_CATALOG, renderInventory, renderProfile } from './skill-pack.js';
+import { createProduction, PRODUCTION_STAGES, PRODUCTION_STAGE_ZH } from './production.js';
+
+/** 制作阶段机与流程闸门（0.20.0）：deps 全是本模块的函数声明（已提升，运行时才调用）。 */
+const PROD = createProduction({
+  projectHomeDir,
+  readToolDoc,
+  readDoc,
+  normalizeCanvasId,
+});
 
 const NAME = 'infinite-canvas';
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -2430,6 +2439,8 @@ async function canvasUpdateBible(args) {
   } catch { /* 重算失败不影响设定集写入 */ }
   writeIcDoc(id, doc);
   markDocChanged(id);
+  // 阶段机：设定集落盘 → 本画布阶段 ≥ bible（只抬高，不回退）
+  try { PROD.noteStage(id, toolCanvasId(args), 'bible', 'update_bible'); } catch { /* 阶段机故障不阻塞主流程 */ }
   return { projectId: id, bible: doc.bible, bibleUpdatedAt: doc.bibleUpdatedAt };
 }
 /** 通用建节点（供对话建角色/场景/道具参考图等）；支持 script/text/image/video/storyboard/finalcut。
@@ -2446,6 +2457,11 @@ function canvasCreateNode(args) {
   const label = args && args.name ? String(args.name).slice(0, 40) : '';
   const prompt = String((args && args.prompt) || '');
   const connectFrom = String((args && args.connectFrom) || '');
+  // G4 禁止逐镜节点：一致性靠参考图资产，不靠逐镜建点（高频走错路，这里直接封死）
+  const g4 = PROD.gateShotNodeName(label, type);
+  if (!g4.ok) {
+    return { ok: false, gate: g4.code, projectId: id, ...(canvasId ? { canvasId } : {}), error: g4.error, fix: '改用规范资产命名（角色-<名> 设定图 / 场景-<名> / 道具-<名>），或为开场首帧建「<场次>-首帧」节点；确属用户明确要求逐镜节点时，向用户说明后果后再传 override:{by:\'user-explicit\',quote:\'用户原话\'} 重试' };
+  }
   // 媒体节点：空态按「预览区比例 + 标题栏」给外框（没有操作栏就不加 NODE_FOOT_H），
   // 布点时用真实外框做碰撞检测，避免按 360×360 估小后与同列邻居重叠。
   const mediaSize = (type === 'image' || type === 'video')
@@ -2454,6 +2470,7 @@ function canvasCreateNode(args) {
   const pos = nextNodePos(doc, type, connectFrom, mediaSize);
   let connected = null;
   let autoConnected = null;
+  let shotsGatePass = false; // 目标分镜表 shots 已过质量闸门（建点成功后据此抬升 shots_ready）
   let node;
   if (type === 'image') {
     node = agentNode('text', '', pos.x, pos.y, label || '图片节点');
@@ -2477,6 +2494,30 @@ function canvasCreateNode(args) {
       forced = hasPrompt;
     } else if (!hasPrompt && sbEmpty) {
       autoConnectId = sbEmpty.id; // 分镜表存在但 shots 为空：先连线占位（生成前需先拆解镜头）
+    }
+    // G2/G3：建视频节点前，目标分镜表的 shots 必须过质量闸门；且一个分镜表只允许一个视频节点。
+    // 逃生舱：override:{by:'user-explicit',quote:'用户原话'}——用户明确要求时放行并记入审计。
+    const sbTargetId = (connectFrom && doc.nodes[connectFrom] && doc.nodes[connectFrom].type === 'storyboard')
+      ? connectFrom
+      : autoConnectId;
+    if (sbTargetId) {
+      const ov = args && args.override;
+      const ovOk = ov && ov.by === 'user-explicit' && String(ov.quote || '').trim();
+      const g3 = PROD.gateOneVideoPerStoryboard(doc, sbTargetId);
+      if (!g3.ok && !ovOk) {
+        return { ok: false, gate: g3.code, projectId: id, ...(canvasId ? { canvasId } : {}), error: g3.error, existingVideoId: g3.existingVideoId, fix: '用 canvas_update_node 改现有视频节点的参数后重新生成；确需并排多个版本时，向用户说明后传 override:{by:\'user-explicit\',quote:\'用户原话\'}' };
+      }
+      const sbNode = doc.nodes[sbTargetId];
+      const shots = sbNode && Array.isArray(sbNode.data && sbNode.data.shots) ? sbNode.data.shots : [];
+      if (shots.length) {
+        const g2 = PROD.gateStoryboard(shots);
+        if (g2.ok) shotsGatePass = true;
+        if (!g2.ok && !ovOk) {
+          return { ok: false, gate: g2.code, projectId: id, ...(canvasId ? { canvasId } : {}), error: '分镜质量闸门未通过（' + g2.fails.length + ' 项）——分镜重生成不花钱，视频按秒计费，绝不带病生成', fails: g2.fails, warns: g2.warns || [], fix: 'canvas_run_node 重生成该分镜表，或 canvas_update_node 整表替换 shots 修复上述每一项；用户明确要求继续时传 override:{by:\'user-explicit\',quote:\'用户原话\'}' };
+        }
+        if (!g2.ok && ovOk) PROD.recordOverride(id, canvasId, 'G2', ov.quote, { node: label });
+      }
+      if (!g3.ok && ovOk) PROD.recordOverride(id, canvasId, 'G3', ov.quote, { node: label, storyboardId: sbTargetId });
     }
     node.data = { ...node.data, status: 'idle', error: null, prompt: autoConnectId ? '' : prompt, assetId: null, demo: false, duration: Number(args && args.duration) || 5, resolution: (args && args.resolution) || '720P', ratio: (args && args.ratio) || '16:9' };
     autoConnected = autoConnectId ? { from: autoConnectId, ignoredPrompt: forced && hasPrompt, emptyShots: !sbWithShots && !!sbEmpty } : null;
@@ -2519,6 +2560,13 @@ function canvasCreateNode(args) {
   }
   doc.updatedAt = Date.now();
   writeToolDoc(args, doc);
+  // 阶段机：剧本/分镜表节点落盘 → 阶段 ≥ script / storyboard（只抬高；shots_ready 由运行/状态汇报再抬）
+  try {
+    if (type === 'script') PROD.noteStage(id, canvasId, 'script', 'create_script_node');
+    else if (type === 'storyboard') PROD.noteStage(id, canvasId, 'storyboard', 'create_storyboard_node');
+    // 建视频节点时目标分镜表已过质量闸门 → shots_ready（这是"分镜定稿"的机器证据）
+    if (type === 'video' && shotsGatePass) PROD.noteStage(id, canvasId, 'shots_ready', 'create_video_gate_pass');
+  } catch { /* 阶段机故障不阻塞建点 */ }
   const note = autoConnected && autoConnected.ignoredPrompt
     ? (type === 'video'
       ? '⚠️ 已强制连线到分镜表（多镜头工作流：一个分镜表 = 一个完整视频，镜头清单从分镜表读取），传入的 prompt 已忽略——不要手写视频提示词绕过分镜表。'
@@ -2592,6 +2640,12 @@ function canvasRelayout(args) {
 }
 async function canvasDeleteProject(args) {
   const id = String((args && args.projectId) || '');
+  // G5 破坏性操作确认：删项目不可逆（全部画布/资产/记忆）。必须携带用户确认原话，写入审计。
+  const g5quote = String((args && args.confirm) || '').trim();
+  if (!g5quote) {
+    return { ok: false, gate: 'G5', projectId: id, error: '删除项目是破坏性操作（全部画布、资产与记忆一并删除，不可恢复）。仅当用户明确要求删除整个项目时才执行：调用时必须携带 confirm 参数（填用户的确认原话）。', fix: '向用户确认后，携带 confirm 重试同一调用' };
+  }
+  try { PROD.recordOverride(id, null, 'G5', g5quote, { op: 'delete_project' }); } catch { /* 审计失败不阻塞 */ }
   let name = id;
   const prevDoc = readDocOrNull(id);
   if (prevDoc && prevDoc.name) name = prevDoc.name;
@@ -2621,6 +2675,12 @@ async function canvasDeleteNode(args) {
   const id = String((args && args.projectId) || '');
   const nodeId = String((args && args.nodeId) || '');
   const canvasId = toolCanvasId(args);
+  // G5 破坏性操作确认：删除不可逆（连带连线）。必须携带用户确认原话，写入审计。
+  const g5quote = String((args && args.confirm) || '').trim();
+  if (!g5quote) {
+    return { ok: false, gate: 'G5', projectId: id, ...(canvasId ? { canvasId } : {}), nodeId, error: '删除是破坏性操作（节点连同连线，不可恢复）。仅当用户明确要求删除时才执行：调用时必须携带 confirm 参数（填用户的确认原话，如 confirm:\'把这场视频删掉\'）。改内容/改参数请用 canvas_update_node，不需要删除。', fix: '向用户确认后，携带 confirm 重试同一调用' };
+  }
+  try { PROD.recordOverride(id, canvasId, 'G5', g5quote, { op: 'delete_node', nodeId }); } catch { /* 审计失败不阻塞 */ }
   const doc = readToolDoc(args);
   if (!doc.nodes[nodeId]) throw new Error('节点不存在: ' + nodeId);
   delete doc.nodes[nodeId];
@@ -2639,9 +2699,43 @@ async function canvasRunNode(args) {
   const doc = readToolDoc(args);
   const node = doc.nodes[nodeId];
   if (!node) throw new Error('节点不存在: ' + nodeId);
+  // ── 流程闸门（0.20.0）：只拦"生成"与"花钱"，不拦节点搭建。逃生舱见各 fix 字段。 ──
+  {
+    const ov = args && args.override;
+    const ovOk = ov && ov.by === 'user-explicit' && String(ov.quote || '').trim();
+    // G1 设定集先行：剧本/分镜表**生成内容**前必须有世界观+风格+≥1 角色
+    if (node.type === 'script' || node.type === 'storyboard') {
+      const g1 = PROD.gateBible(doc.bible);
+      if (!g1.ok && !ovOk) {
+        return { ok: false, gate: g1.code, projectId: pid, ...(canvasId ? { canvasId } : {}), nodeId, missing: g1.missing, error: '设定集先行：' + g1.missing.join('、') + ' 尚未补全——先 canvas_get_bible 读现状、canvas_update_bible 补全后再生成。跨镜一致性全靠它。', fix: 'canvas_update_bible 补全缺失项（用户已给创意按其创意写，不要另起一套）；用户明确说"先随便生成"时传 override:{by:\'user-explicit\',quote:\'用户原话\'}' };
+      }
+      if (!g1.ok && ovOk) PROD.recordOverride(pid, canvasId, 'G1', ov.quote, { node: node.type });
+    }
+    // G2/G6 视频生成：镜头清单必须来自已过闸门的分镜表；自由 prompt 视频（无分镜上游）不受此限
+    if (node.type === 'video') {
+      const sbEdge = (doc.edges || []).filter((e) => e && e.toNode === nodeId && doc.nodes[e.fromNode] && doc.nodes[e.fromNode].type === 'storyboard').pop();
+      const sbNode = sbEdge ? doc.nodes[sbEdge.fromNode] : null;
+      if (sbNode) {
+        const shots = Array.isArray(sbNode.data && sbNode.data.shots) ? sbNode.data.shots : [];
+        const g2 = PROD.gateStoryboard(shots);
+        if (!g2.ok && !ovOk) {
+          return { ok: false, gate: g2.code, projectId: pid, ...(canvasId ? { canvasId } : {}), nodeId, error: '分镜质量闸门未通过（' + g2.fails.length + ' 项）——分镜重生成不花钱，视频按秒计费，绝不带病生成', fails: g2.fails, warns: g2.warns || [], fix: 'canvas_run_node 重生成该分镜表，或 canvas_update_node 整表替换 shots；用户明确要求继续时传 override:{by:\'user-explicit\',quote:\'用户原话\'}' };
+        }
+        if (!g2.ok && ovOk) PROD.recordOverride(pid, canvasId, 'G2', ov.quote, { nodeId });
+        if (g2.ok) { try { PROD.noteStage(pid, canvasId, 'shots_ready', 'storyboard_gate_pass'); } catch { /* 忽略 */ } }
+        const g6 = PROD.gateStage(pid, canvasId, 'shots_ready');
+        if (!g6.ok && !ovOk) {
+          return { ok: false, gate: g6.code, projectId: pid, ...(canvasId ? { canvasId } : {}), nodeId, error: '阶段越序：当前阶段「' + g6.at + '」尚未到达「shots_ready」——先完成分镜并通过质量闸门，再触发视频生成（视频按秒计费）。', fix: '用 canvas_production_status 查看缺口；用户明确要求跳过时传 override:{by:\'user-explicit\',quote:\'用户原话\'}' };
+        }
+        if (!g6.ok && ovOk) PROD.recordOverride(pid, canvasId, 'G6', ov.quote, { nodeId });
+      }
+    }
+  }
   const cfg = readIcConfig();
   cfg.ui = { ...(cfg.ui || {}), runRequest: { projectId: pid, canvasId, nodeId, at: Date.now() } };
   writeIcConfig(cfg);
+  // 阶段机：视频触发 → ≥ generating
+  try { if (node.type === 'video') PROD.noteStage(pid, canvasId, 'generating', 'video_run'); } catch { /* 忽略 */ }
   return { ok: true, projectId: pid, ...(canvasId ? { canvasId } : {}), nodeId, type: node.type, label: (node.data && node.data.label) || '' };
 }
 /** 读取节点运行状态与产物（画布执行完成后会把结果推回 Host 文档）。 */
@@ -2744,10 +2838,29 @@ async function canvasNodeStatus(args) {
     }))
     : undefined;
   const d = n.data || {};
+  // 阶段机：读取即观测——分镜出镜头且过质量闸 → shots_ready；剧本有成稿 → script；视频完成 → qc；成片完成 → post。
+  // stage 随每次状态轮询返回：模型随时知道"自己在哪一步"，不需要额外调用。
+  let productionStage = null;
+  try {
+    if (n.type === 'storyboard' && Array.isArray(d.shots) && d.shots.length && PROD.gateStoryboard(d.shots).ok) {
+      PROD.noteStage(pid, canvasId, 'shots_ready', 'storyboard_shots_ok');
+    } else if (n.type === 'script' && String(d.output || '').trim()) {
+      PROD.noteStage(pid, canvasId, 'script', 'script_output');
+    } else if (n.type === 'video' && String(d.status) === 'done') {
+      PROD.noteStage(pid, canvasId, 'qc', 'video_done');
+    } else if (n.type === 'finalcut' && String(d.status) === 'done') {
+      PROD.noteStage(pid, canvasId, 'post', 'finalcut_done');
+    }
+    const st = PROD.stageOf(pid, canvasId);
+    productionStage = { stage: st.stage, stageZh: PRODUCTION_STAGE_ZH[st.stage] || st.stage };
+  } catch { /* 阶段机故障不影响状态读取 */ }
   return {
     projectId: pid, ...(canvasId ? { canvasId } : {}), nodeId, type: n.type, label: d.label || '',
     status: d.status || 'idle',
     aiStatus: d.aiStatus || 'idle',
+    // 制作阶段（0.20.0 阶段机）：brief/bible/assets/script/storyboard/shots_ready/generating/qc/post/delivered
+    stage: productionStage ? productionStage.stage : undefined,
+    stageZh: productionStage ? productionStage.stageZh : undefined,
     // 布局事实：坐标与外框尺寸只读透出（改布局走 canvas_relayout；canvas_update_node 仍禁改结构字段）
     x: Number(n.x) || 0,
     y: Number(n.y) || 0,
@@ -2876,6 +2989,8 @@ async function canvasGenerateNode(args) {
   const baseline = await canvasNodeStatus({ projectId: pid, canvasId, nodeId }).catch(() => null);
   const baseUpdatedAt = Number(baseline && baseline.docUpdatedAt) || 0;
   const run = await canvasRunNode({ projectId: pid, canvasId, nodeId });
+  // 闸门拒绝（G1/G2/G6）原样透传：调用方拿到 gate/fails/fix 结构化字段
+  if (run && run.ok === false) return run;
   if (!waitSec) {
     return { ok: true, triggered: true, finished: false, projectId: pid, nodeId, type: run.type, label: run.label, status: 'running', note: '已触发执行；画布需处于打开状态才会真正执行，可用 canvas_node_status 查询进度' };
   }
@@ -3322,7 +3437,7 @@ async function updateInstall() {
 export const inject = ['webServer', 'tools'];
 
 // 仅供诊断 / 自动化测试（不属于 RPC 面，运行时行为不受影响）
-export const _internals = { THUMB_MAX_SIDE, thumbRelOf, isDerivedMedia, updateCheck, updateInstall, npmLatestVersion, cmpVer, findPnpm, NPM_REGISTRIES, pickUpdateRegistry, registryCacheValid, pnpmAddArgs, getProfileDir: () => PROFILE_DIR, getVersion: () => VERSION, dataRoot, setDataRoot, dataRootMigrate, dataRootImport, ensureProjectFolder, physicalRel, mirrorProjectToDataRoot, writeAssetIndex, removeAssetIndexEntry, readDataRootMeta, removeDataRootProject, sqlDeleteProjectRows, deletedProjectIds, addDeletedProjectId, clearDeletedProjectId, fetchProxyForward, storyboardConsistencyWarnings, readAssetIndexNames, safeJoin, mimeOf, pipeFile, getIcConfigPath: () => CONFIG_PATH, canvasCreateProject, canvasWriteNode, canvasConnect, canvasDeleteProject, canvasDeleteNode, canvasRunNode, canvasNodeStatus, canvasGetBible, canvasUpdateBible, canvasCreateNode, canvasOpen, canvasesList, canvasCreate, canvasRename, canvasDelete, canvasDocId, isCanvasDocId, splitCanvasDocId, normalizeCanvasId, canvasRegistry, sanitizeCanvases, wsProjectsScan, isWsProject, wsProjectHome, wsWatchTick, wsProjectCreateAt, projectHomeDir, memoryRead, memoryWrite, bindingsRead, bindingSet, bindingClear, readCanvasDoc, writeCanvasDoc, deleteCanvasDocsForProject, projectsList, projectsPut, projectsGet, projectsDelete, projectsSync, sqliteAvailable: () => !!SQLITE, getDb, closeDb, dbAssetsList, dbAssetsGet, dbAssetNames, dbAssetCreate, dbAssetUpdate, dbAssetDelete, objectAbsFor, ftsReconcile, readDocOrNull, docExists, sqlActive, rpcMethods: () => _rpcMethods, canvasUpdateNode, canvasGenerateNode };
+export const _internals = { THUMB_MAX_SIDE, thumbRelOf, isDerivedMedia, updateCheck, updateInstall, npmLatestVersion, cmpVer, findPnpm, NPM_REGISTRIES, pickUpdateRegistry, registryCacheValid, pnpmAddArgs, getProfileDir: () => PROFILE_DIR, getVersion: () => VERSION, dataRoot, setDataRoot, dataRootMigrate, dataRootImport, ensureProjectFolder, physicalRel, mirrorProjectToDataRoot, writeAssetIndex, removeAssetIndexEntry, readDataRootMeta, removeDataRootProject, sqlDeleteProjectRows, deletedProjectIds, addDeletedProjectId, clearDeletedProjectId, fetchProxyForward, storyboardConsistencyWarnings, readAssetIndexNames, safeJoin, mimeOf, pipeFile, getIcConfigPath: () => CONFIG_PATH, canvasCreateProject, canvasWriteNode, canvasConnect, canvasDeleteProject, canvasDeleteNode, canvasRunNode, canvasNodeStatus, canvasGetBible, canvasUpdateBible, canvasCreateNode, canvasOpen, canvasesList, canvasCreate, canvasRename, canvasDelete, canvasDocId, isCanvasDocId, splitCanvasDocId, normalizeCanvasId, canvasRegistry, sanitizeCanvases, wsProjectsScan, isWsProject, wsProjectHome, wsWatchTick, wsProjectCreateAt, projectHomeDir, memoryRead, memoryWrite, bindingsRead, bindingSet, bindingClear, readCanvasDoc, writeCanvasDoc, deleteCanvasDocsForProject, projectsList, projectsPut, projectsGet, projectsDelete, projectsSync, sqliteAvailable: () => !!SQLITE, getDb, closeDb, dbAssetsList, dbAssetsGet, dbAssetNames, dbAssetCreate, dbAssetUpdate, dbAssetDelete, objectAbsFor, ftsReconcile, readDocOrNull, docExists, sqlActive, rpcMethods: () => _rpcMethods, canvasUpdateNode, canvasGenerateNode, production: PROD, productionStages: PRODUCTION_STAGES };
 
 function resolveModel(providers, want) {
   const byProvider = want && want.provider
@@ -3803,6 +3918,29 @@ export function apply(ctx) {
       async bindingCapabilities() {
         return { ok: true, rev: 2, anyProject: true };
       },
+      // ---- 制作阶段机 RPC（0.20.0）：阶段/闸门/汇报语义的数据面 ----
+      /** 制作能力探针（M0）：stageMachine/qualityGate 恒真；multiAgent = 宿主是否暴露会话服务
+       *  （sessionController/agents，懒探测不加 inject——与 workspaceRegistry 同一安全模式）。
+       *  multiAgent:false 时客户端隐藏「自动创作」入口，auto* RPC 一律拒绝。 */
+      async productionCapabilities() {
+        const svc = (name) => { try { return !!(ctx.get && ctx.get(name)); } catch { return false; } };
+        const multiAgent = svc('sessionController') || svc('agents');
+        return { ok: true, rev: 1, stageMachine: true, qualityGate: true, multiAgent, autoMode: multiAgent, version: VERSION, stages: PRODUCTION_STAGES };
+      },
+      /** 制作状态汇报：模型宣称"完成/可交付"前必须以 ready:true 为据；next 给当前阶段的下一步。 */
+      async productionStatus(args) {
+        const pid = String((args && args.projectId) || '');
+        if (!pid) return { ok: false, error: '缺少 projectId' };
+        try { projectFile(pid); } catch (e) { return { ok: false, error: String((e && e.message) || e) }; }
+        return PROD.status(pid, toolCanvasId(args));
+      },
+      /** 显式推进/回退（返工）：必须带 reason（审计）；回退会下调 floor，随后按工具事件重新抬升。 */
+      async productionAdvance(args) {
+        const pid = String((args && args.projectId) || '');
+        if (!pid) return { ok: false, error: '缺少 projectId' };
+        try { projectFile(pid); } catch (e) { return { ok: false, error: String((e && e.message) || e) }; }
+        return PROD.advance(pid, toolCanvasId(args), String((args && args.to) || ''), String((args && args.reason) || ''), 'user');
+      },
       async sessionBindingGet(args) {
         const sid = String((args && args.sessionId) || '');
         if (!sid) return { ok: false, error: '缺少 sessionId' };
@@ -4113,6 +4251,10 @@ export function apply(ctx) {
           timeoutMs: 30000,
           async execute(args) {
             const r = await canvasRunNode(args);
+            if (r && r.ok === false) {
+              const det = r.fails ? '\n· ' + r.fails.join('\n· ') : '';
+              return { ok: false, gate: r.gate, projectId: r.projectId, nodeId: r.nodeId, missing: r.missing || undefined, fails: r.fails || undefined, warns: r.warns || undefined, fix: r.fix || undefined, text: '⛔ [' + r.gate + '] ' + (r.error || '流程闸门未通过') + det + (r.fix ? '\n出路：' + r.fix : '') };
+            }
             return { ok: true, projectId: r.projectId, nodeId: r.nodeId, text: '🚀 已触发执行[' + r.type + ']「' + (r.label || r.nodeId) + '」。画布将在数秒内开始，可用 canvas_node_status 查询进度与结果。' };
           },
         });
@@ -4261,6 +4403,10 @@ export function apply(ctx) {
           timeoutMs: 660000,
           async execute(args) {
             const r = await canvasGenerateNode(args);
+            if (r && r.ok === false && r.gate) {
+              const det = r.fails ? '\n· ' + r.fails.join('\n· ') : '';
+              return { ok: false, gate: r.gate, projectId: r.projectId, nodeId: r.nodeId, text: '⛔ [' + r.gate + '] ' + (r.error || '流程闸门未通过') + det + (r.fix ? '\n出路：' + r.fix : '') };
+            }
             const head = '🚀 已触发[' + r.type + ']「' + (r.label || r.nodeId) + '」';
             const tail = r.finished
               ? (r.ok ? '✅ 已完成（状态 ' + r.status + (r.assetId ? '，产物资产 ' + r.assetId : '') + '）' : '❌ 失败：' + (r.error || r.status))
@@ -4281,6 +4427,7 @@ export function apply(ctx) {
           timeoutMs: 30000,
           async execute(args) {
             const r = await canvasDeleteNode(args);
+            if (r && r.ok === false) return { ok: false, gate: r.gate, projectId: r.projectId, nodeId: r.nodeId, text: '⛔ [' + r.gate + '] ' + (r.error || '') + (r.fix ? '\n出路：' + r.fix : '') };
             return { ok: true, projectId: r.projectId, nodeId: r.nodeId, text: '🗑 已删除节点 ' + r.nodeId + '。' };
           },
         });
@@ -4378,6 +4525,7 @@ export function apply(ctx) {
           timeoutMs: 30000,
           async execute(args) {
             const r = await canvasDeleteProject(args);
+            if (r && r.ok === false && r.gate) return { ok: false, gate: r.gate, projectId: r.projectId, text: '⛔ [' + r.gate + '] ' + (r.error || '') + (r.fix ? '\n出路：' + r.fix : '') };
             // 磁盘清理失败必须可见：rmrf 部分失败（文件锁）时目录残留，同名重建会继承旧文件
             const diskErrs = r.disk && Array.isArray(r.disk.errors) ? r.disk.errors : [];
             const warn = diskErrs.length ? '⚠ 磁盘清理有 ' + diskErrs.length + ' 项失败：' + diskErrs.join('；') : '';
@@ -4531,6 +4679,58 @@ export function apply(ctx) {
           },
         });
         reg({
+          name: 'canvas_production_status',
+          description: '制作状态汇报（阶段机）：返回本集画布当前所处阶段（brief/bible/assets/script/storyboard/shots_ready/generating/qc/post/delivered）、各闸门（设定集 G1 / 分镜质量 G2）的通过情况与缺失清单、证据计数（剧本/镜头/资产/视频完成数）、以及当前阶段的下一步建议。【铁律】宣称"完成/可以交付"之前必须先调它：只有 ready:true 或用户明确验收才允许说完成；blockers 非空时逐条修复后再继续。开工、卡住、汇报前都应调用。',
+          parameters: {
+            type: 'object',
+            properties: {
+              projectId: { type: 'string', description: '项目 id' },
+              canvasId: { type: 'string', description: '可选：画布 id（缺省 = 项目默认画布）' },
+            },
+            required: ['projectId'],
+            additionalProperties: false,
+          },
+          output: textOutput,
+          timeoutMs: 15000,
+          async execute(args) {
+            const r = await productionStatus(args);
+            if (!r.ok) return { ok: false, text: '❌ ' + (r.error || '状态读取失败') };
+            const lines = [
+              '阶段：' + r.stageZh + '（' + r.stage + '）' + (r.explicit ? ' · 显式设定' : ' · 自动推进') + '　推断基线：' + r.inferred,
+              '闸门：G1 设定集 ' + (r.gates.bible.ok ? '✅' : '❌ 缺 ' + r.gates.bible.missing.join('、')) + '；G2 分镜 ' + (r.gates.storyboard.ok ? '✅' : '❌ ' + r.gates.storyboard.fails.length + ' 项'),
+            ];
+            if ((r.gates.storyboard.warns || []).length) lines.push('G2 建议：' + r.gates.storyboard.warns.slice(0, 4).join('；'));
+            if (r.blockers.length) lines.push('阻塞：' + r.blockers.map((b) => b.gate).join('、') + '——逐条修复后再继续');
+            const e = r.evidence;
+            lines.push('证据：角色 ' + e.characters + ' · 场景 ' + e.scenes + ' · 剧本 ' + e.scriptsDone + '/' + e.scripts + ' · 分镜表 ' + e.storyboardsWithShots + '/' + e.storyboards + '（镜头 ' + e.shotsTotal + '）· 图 ' + e.imagesDone + '/' + e.images + ' · 视频 ' + e.videosDone + '/' + e.videos);
+            lines.push('下一步：' + r.next);
+            lines.push('ready=' + (r.ready ? 'true（可宣称完成/进入下一步）' : 'false（不得宣称完成）'));
+            return { ok: true, projectId: r.projectId, ...(r.canvasId ? { canvasId: r.canvasId } : {}), stage: r.stage, ready: r.ready, blockers: r.blockers, text: lines.join('\n') };
+          },
+        });
+        reg({
+          name: 'canvas_production_advance',
+          description: '显式推进/回退制作阶段（阶段机）：仅在两种情况使用——① 用户明确要求跳过某一步（如实说明后果后）；② 返工（如"这集分镜推倒重来"回退到 storyboard）。日常推进是自动的，不需要调它。必须携带 reason（写进审计），回退会同时下调阶段基线，后续按工具事件重新抬升。',
+          parameters: {
+            type: 'object',
+            properties: {
+              projectId: { type: 'string', description: '项目 id' },
+              canvasId: { type: 'string', description: '可选：画布 id（缺省 = 项目默认画布）' },
+              to: { type: 'string', enum: ['brief', 'bible', 'assets', 'script', 'storyboard', 'shots_ready', 'generating', 'qc', 'post', 'delivered'], description: '目标阶段' },
+              reason: { type: 'string', description: '原因（必填，进审计日志）' },
+            },
+            required: ['projectId', 'to', 'reason'],
+            additionalProperties: false,
+          },
+          output: textOutput,
+          timeoutMs: 15000,
+          async execute(args) {
+            const r = await productionAdvance(args);
+            if (!r.ok) return { ok: false, text: '❌ ' + (r.error || '推进失败') };
+            return { ok: true, projectId: args.projectId, stage: r.to, text: '✅ 阶段 ' + r.from + ' → ' + r.to + '（已记入审计）。' };
+          },
+        });
+        reg({
           name: 'canvas_create_node',
           description: '在项目画布上新建指定类型的节点（image 图片节点 / video 视频节点 / storyboard 分镜表 / finalcut 成片 / script 剧本 / text 文本）。图片与视频是**合并节点**：有 assetId 就是已有素材（资产），空节点在画布上点开生成面板填写提示词后生成；旧类型名 image-gen / image-asset / video-gen / video-asset 仍可用，会被自动映射为 image / video。【分镜必须用 type:"storyboard" 的分镜表节点，绝不要用剧本节点装分镜】。【工作流铁律】实际生成由节点完成：你只负责写提示词、连线（connectFrom）、canvas_run_node 触发，不要把成稿直接填进 output。分镜表用 connectFrom 连到上游剧本节点（内容来自连线，不要复制剧本全文）；image/video 没有上游提示词时才在 prompt 里写内容，有上游时靠连线取。',
           parameters: {
@@ -4558,6 +4758,10 @@ export function apply(ctx) {
           timeoutMs: 30000,
           async execute(args) {
             const r = canvasCreateNode(args);
+            if (r && r.ok === false && r.gate) {
+              const det = r.fails ? '\n· ' + r.fails.join('\n· ') : '';
+              return { ok: false, gate: r.gate, projectId: r.projectId, existingVideoId: r.existingVideoId || undefined, fails: r.fails || undefined, warns: r.warns || undefined, text: '⛔ [' + r.gate + '] ' + (r.error || '流程闸门未通过') + det + (r.fix ? '\n出路：' + r.fix : '') };
+            }
             const kindHint = r.type === 'image'
               ? '（图片节点：有 assetId 即资产；空节点在画布上点开生成面板写提示词后生成）'
               : r.type === 'video'
