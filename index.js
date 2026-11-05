@@ -4750,6 +4750,11 @@ export function apply(ctx) {
           async execute(args) {
             const r = await productionStatus(args);
             if (!r.ok) return { ok: false, text: '❌ ' + (r.error || '状态读取失败') };
+            let capsLine = '';
+            try {
+              const caps = await productionCapabilities();
+              capsLine = '\n多智能体能力：' + (caps.multiAgent ? '可用（宿主已暴露会话服务）' : '不可用（宿主未暴露会话服务——自动创作保持休眠）');
+            } catch { /* 探针失败不影响状态输出 */ }
             const lines = [
               '阶段：' + r.stageZh + '（' + r.stage + '）' + (r.explicit ? ' · 显式设定' : ' · 自动推进') + '　推断基线：' + r.inferred,
               '闸门：G1 设定集 ' + (r.gates.bible.ok ? '✅' : '❌ 缺 ' + r.gates.bible.missing.join('、')) + '；G2 分镜 ' + (r.gates.storyboard.ok ? '✅' : '❌ ' + r.gates.storyboard.fails.length + ' 项'),
@@ -4760,7 +4765,8 @@ export function apply(ctx) {
             lines.push('证据：角色 ' + e.characters + ' · 场景 ' + e.scenes + ' · 剧本 ' + e.scriptsDone + '/' + e.scripts + ' · 分镜表 ' + e.storyboardsWithShots + '/' + e.storyboards + '（镜头 ' + e.shotsTotal + '）· 图 ' + e.imagesDone + '/' + e.images + ' · 视频 ' + e.videosDone + '/' + e.videos);
             lines.push('下一步：' + r.next);
             lines.push('ready=' + (r.ready ? 'true（可宣称完成/进入下一步）' : 'false（不得宣称完成）'));
-            return { ok: true, projectId: r.projectId, ...(r.canvasId ? { canvasId: r.canvasId } : {}), stage: r.stage, ready: r.ready, blockers: r.blockers, text: lines.join('\n') };
+            if (capsLine) lines.push(capsLine.trim());
+            return { ok: true, projectId: r.projectId, ...(r.canvasId ? { canvasId: r.canvasId } : {}), stage: r.stage, ready: r.ready, blockers: r.blockers, multiAgent: (() => { try { return capsLine.includes('可用（'); } catch { return undefined; } })(), text: lines.join('\n') };
           },
         });
         reg({
