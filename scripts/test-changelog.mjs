@@ -118,6 +118,8 @@ const COVERAGE = [
   { sha: '891870b', keys: [/Production stage machine \+ six code gates/i] },
   { sha: 'f452b39', keys: [/Auto-creation mode: the A1 two-phase data plane/i] },
   { sha: 'd6e17f7', keys: [/multi-agent capability/i] },
+  { sha: 'c6b1e43', keys: [/M3 runner design|auto-creation-design/i] },
+  { sha: 'e9e4f03', keys: [/Settings card for the auto-creation switch/i] },
 ];
 for (const c of COVERAGE) {
   ok(c.keys.some((re) => re.test(coverageText)), '未发版提交 ' + c.sha + ' 在 CHANGELOG（Unreleased 或最新已发布段）里找不到对应记录（补记不全）');
