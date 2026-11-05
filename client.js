@@ -1225,6 +1225,11 @@ function revealCanvasInRight() {
       'autoAbortBtn': '中止（保留已产出）',
       'autoRunState': '进度',
       'autoRunFailed': '失败',
+      'autoBudget': '预算单',
+      'autoCalls': '视频调用',
+      'autoApproveBtn': '批准付费段（按预算）',
+      'autoGenerateBtn': '开始生成（按预算计费）',
+      'autoPaid': '付费段',
       'stageCurrent': '制作阶段',
       'stageReadyYes': '可交付',
       'stageReadyNo': '未就绪',
@@ -2208,6 +2213,11 @@ function revealCanvasInRight() {
       'autoAbortBtn': 'Abort (keep outputs)',
       'autoRunState': 'Progress',
       'autoRunFailed': 'failed',
+      'autoBudget': 'Budget',
+      'autoCalls': 'video calls',
+      'autoApproveBtn': 'Approve paid phase (per budget)',
+      'autoGenerateBtn': 'Start generating (billed per budget)',
+      'autoPaid': 'Paid phase',
       'stageCurrent': 'Stage',
       'stageReadyYes': 'deliverable',
       'stageReadyNo': 'not ready',
@@ -19859,6 +19869,31 @@ const DIRECTOR_KEY_HELP = [
                     disabled: !brief.trim(), onPointerDown: (e) => e.stopPropagation(), onClick: startRun,
                   }, T('autoStartBtn')),
               runLine ? h('div', { className: 'dshic-hint', style: { marginTop: 4 }, 'data-role': 'auto-run-status' }, runLine) : null,
+              run && run.budget && run.status === 'done'
+                ? h('div', { style: { marginTop: 6 }, 'data-role': 'auto-budget' },
+                    h('div', { className: 'dshic-hint' }, T('autoBudget') + '：' + run.budget.sceneCount + ' 场 · ' + run.budget.shotCount + ' 镜 · ' + run.budget.totalSeconds + 's · ' + T('autoCalls') + ' ' + run.budget.videoCalls + (run.budget.estimatedCost != null ? ' · ≈' + run.budget.estimatedCost : '')),
+                    run.approval && run.approval.valid
+                      ? h('button', {
+                          type: 'button', className: 'dshic-mini', style: { marginTop: 4 },
+                          disabled: run.paid === 'running', onPointerDown: (e) => e.stopPropagation(),
+                          onClick: async () => {
+                            try { await hostRpc('autoGenerate', { projectId: S.activeId, canvasId: activeCanvasId() === DEFAULT_CANVAS_ID ? null : activeCanvasId() }); } catch { /* 状态轮询展示 */ }
+                          },
+                        }, run.paid === 'running' ? T('autoRunState') : T('autoGenerateBtn'))
+                      : h('button', {
+                          type: 'button', className: 'dshic-mini', style: { marginTop: 4 },
+                          onPointerDown: (e) => e.stopPropagation(),
+                          onClick: async () => {
+                            try {
+                              await hostRpc('autoApprove', { projectId: S.activeId, canvasId: activeCanvasId() === DEFAULT_CANVAS_ID ? null : activeCanvasId(), quoteId: run.budget.quoteId, confirm: '用户：在设置卡点击批准，按预算付费生成' });
+                            } catch { /* 状态轮询展示 */ }
+                          },
+                        }, T('autoApproveBtn')),
+                  )
+                : null,
+              run && run.paid && run.paid !== 'done'
+                ? h('div', { className: 'dshic-hint', style: { marginTop: 4 }, 'data-role': 'auto-paid' }, T('autoPaid') + '：' + run.paid + (run.paidPhase ? '（' + run.paidPhase + '）' : '') + (run.paidError ? ' · ' + run.paidError : ''))
+                : null,
             )
           : null,
       );

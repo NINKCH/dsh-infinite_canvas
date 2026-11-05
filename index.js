@@ -3795,6 +3795,44 @@ export function apply(ctx) {
       run.log.push({ at: Date.now(), role, summary: String(raw || '').slice(0, 160) });
       return parsed || raw;
     }
+    /** 画布执行适配器：自动打开画布 → 触发节点 → 轮询终态。测试可注入桩（__auto.setCanvasRunner）。 */
+    const sleepMs = (ms) => new Promise((r) => setTimeout(r, ms));
+    let canvasExec = async (pid, cid, nodeId, opts) => {
+      await canvasOpen({ projectId: pid, canvasId: cid }); // 自动打开画布（用户不用点面板）
+      await sleepMs(600); // 给客户端一个同步周期消费 openRequest
+      const r = await canvasRunNode({ projectId: pid, canvasId: cid, nodeId });
+      if (r && r.ok === false) throw new Error('[' + (r.gate || 'GATE') + '] ' + (r.error || '闸门拒绝'));
+      const deadline = Date.now() + (Number(opts && opts.timeoutMs) || 8 * 60 * 1000);
+      while (Date.now() < deadline) {
+        await sleepMs(2000);
+        let st = null;
+        try { st = await canvasNodeStatus({ projectId: pid, canvasId: cid, nodeId }); } catch { continue; }
+        const ai = String(st.aiStatus || '');
+        const s = String(st.status || '');
+        if (ai === 'error' || s === 'error') throw new Error(st.error || st.aiError || '生成失败');
+        if (st.type === 'script' || st.type === 'storyboard') {
+          if (ai !== 'running' && (String(st.output || '').trim() || (Array.isArray(st.shots) && st.shots.length))) return st;
+        } else if (s === 'done') return st;
+      }
+      throw new Error('等待生成超时（画布需保持打开）');
+    };
+    /** 按【场N】拆分剧本成稿；没有标记就整段当一场。 */
+    function splitScenes(text) {
+      const src = String(text || '');
+      const lines = src.split(/\r?\n/);
+      const out = [];
+      let cur = null;
+      for (const line of lines) {
+        const m = /^\s*【场\s*(\d+)\s*】/.exec(line);
+        if (m) {
+          if (cur && cur.lines.join('').trim()) out.push(cur);
+          cur = { no: Number(m[1]) || out.length + 1, head: line.trim(), lines: [] };
+        } else if (cur) cur.lines.push(line);
+      }
+      if (cur && cur.lines.join('').trim()) out.push(cur);
+      if (!out.length) return [{ no: 1, head: '【场1】', lines: [src] }];
+      return out.map((s, i) => ({ no: s.no || i + 1, text: (s.head + '\n' + s.lines.join('\n')).trim() }));
+    }
     async function autoRoom(pid, cid, brief) {
       const runKey = runKeyOf(pid, cid);
       const run = AUTO_RUNS.get(runKey);
@@ -3838,20 +3876,93 @@ export function apply(ctx) {
         // scriptIdea 兼容两处：监制按指示写在根级，写歪时落到 bible 里（模型照抄示例的结构错误要容忍）
         const idea = String(dec.scriptIdea || bi.scriptIdea || dec.logline || brief).slice(0, 4000);
         const sc = canvasCreateNode({ projectId: pid, canvasId: cid, type: 'script', name: '第1节剧本', prompt: idea });
-        try { await canvasRunNode({ projectId: pid, canvasId: cid, nodeId: sc.nodeId }); } catch { /* 画布未开时触发排队，不阻塞 */ }
+        // ⑥ 剧本自动生成 → 按场拆分 → 逐场分镜表（tail→prev 串联）→ 生成 → G2 校验
+        run.phase = 'script';
+        const st = await canvasExec(pid, cid, sc.nodeId, { timeoutMs: 10 * 60 * 1000 });
+        const scenes = splitScenes(st.output);
+        const boards = [];
+        let prevBoard = null;
+        for (let i = 0; i < scenes.length; i++) {
+          run.phase = 'boards ' + (i + 1) + '/' + scenes.length;
+          const txt = canvasCreateNode({ projectId: pid, canvasId: cid, type: 'text', name: '场' + scenes[i].no + '文本' });
+          canvasWriteNode({ projectId: pid, canvasId: cid, nodeId: txt.nodeId, target: 'output', text: scenes[i].text, overwrite: true });
+          const sb = canvasCreateNode({ projectId: pid, canvasId: cid, type: 'storyboard', name: '场' + scenes[i].no + '分镜表', connectFrom: txt.nodeId });
+          if (prevBoard) { try { canvasConnect({ projectId: pid, canvasId: cid, fromNode: prevBoard, toNode: sb.nodeId, fromPort: 'tail', toPort: 'prev' }); } catch { /* 端口异常不阻塞 */ } }
+          prevBoard = sb.nodeId;
+          let sbSt = await canvasExec(pid, cid, sb.nodeId, { timeoutMs: 10 * 60 * 1000 });
+          let gate = PROD.gateStoryboard(sbSt.shots);
+          if (!gate.ok) { // 不过闸自动重生成一次（分镜重生成不花钱）
+            run.log.push({ at: Date.now(), role: 'runner', summary: '场' + scenes[i].no + ' G2 未过，自动重生成：' + gate.fails.slice(0, 2).join('；') });
+            sbSt = await canvasExec(pid, cid, sb.nodeId, { timeoutMs: 10 * 60 * 1000 });
+            gate = PROD.gateStoryboard(sbSt.shots);
+          }
+          boards.push({ no: scenes[i].no, storyboardId: sb.nodeId, gate: gate.ok, fails: gate.fails });
+          run.log.push({ at: Date.now(), role: 'runner', summary: '场' + scenes[i].no + ' 分镜：' + (gate.ok ? '过闸' : '仍有 ' + gate.fails.length + ' 项') });
+        }
+        // ⑦ 预算单（免费段终点）
+        const cfg = readIcConfig();
+        const price = Number(cfg.production && cfg.production.videoUnitPricePerSecond);
+        run.budget = PROD.quote(pid, cid, price);
+        run.boards = boards;
         run.meetingNodeId = meet.nodeId;
         run.scriptNodeId = sc.nodeId;
         run.status = 'done';
-        run.phase = 'done';
-        run.log.push({ at: Date.now(), role: 'runner', summary: '免费段完成：设定集+剧本 idea 已落盘；打开画布生成剧本后可进入分镜阶段' });
+        run.phase = 'budget';
+        run.log.push({ at: Date.now(), role: 'runner', summary: '免费段完成：' + scenes.length + ' 场分镜 + 预算单（' + run.budget.videoCalls + ' 次视频调用 / ' + run.budget.totalSeconds + ' 秒）' });
       } catch (e) {
         run.status = String((e && e.message) || e) === 'aborted' ? 'aborted' : 'failed';
         run.error = String((e && e.message) || e);
         run.log.push({ at: Date.now(), role: 'runner', summary: '失败：' + run.error });
       }
     }
+    /** 付费段 v1：批准后逐分镜表建视频节点 → 生成 → 轮询（失败重试 2 次）→ 成片节点。 */
+    async function autoPaid(pid, cid) {
+      const cfg = readIcConfig();
+      const price = Number(cfg.production && cfg.production.videoUnitPricePerSecond);
+      const ap = PROD.approvalOf(pid, cid, price);
+      if (!ap || !ap.valid) return { ok: false, error: '没有有效的付费批准：先用 canvas_auto_budget 生成预算单，用户批准后重试' };
+      const run = AUTO_RUNS.get(runKeyOf(pid, cid));
+      if (!run || run.status !== 'done') return { ok: false, error: '免费段尚未完成（没有分镜与预算）' };
+      if (run.paid === 'running') return { ok: false, error: '付费段已在运行' };
+      run.paid = 'running';
+      run.paidLog = [{ at: Date.now(), text: '付费段启动（已批准预算 ' + ap.quoteId + '）' }];
+      (async () => {
+        try {
+          const doc = readToolDoc({ projectId: pid, canvasId: cid });
+          const boards = Object.values(doc.nodes || {}).filter((n) => n.type === 'storyboard' && Array.isArray(n.data && n.data.shots) && n.data.shots.length);
+          let lastVideo = null;
+          for (let i = 0; i < boards.length; i++) {
+            const sb = boards[i];
+            run.paidPhase = 'video ' + (i + 1) + '/' + boards.length;
+            const hasVideo = (doc.edges || []).some((e) => e.fromNode === sb.id && doc.nodes[e.toNode] && doc.nodes[e.toNode].type === 'video');
+            if (hasVideo) continue;
+            const label = String((sb.data && sb.data.label) || ('场' + (i + 1))).replace(/分镜表$/, '') + '视频';
+            const v = canvasCreateNode({ projectId: pid, canvasId: cid, type: 'video', name: label.slice(0, 40), connectFrom: sb.id });
+            if (v && v.ok === false) throw new Error('[' + v.gate + '] ' + v.error);
+            let done = false; let err = null;
+            for (let attempt = 0; attempt < 2 && !done; attempt++) {
+              try { await canvasExec(pid, cid, v.nodeId, { timeoutMs: 15 * 60 * 1000 }); done = true; }
+              catch (e) { err = e; run.paidLog.push({ at: Date.now(), text: label + ' 第 ' + (attempt + 1) + ' 次失败：' + String((e && e.message) || e) }); }
+            }
+            if (!done) throw err;
+            lastVideo = v.nodeId;
+            run.paidLog.push({ at: Date.now(), text: label + ' 完成' });
+          }
+          if (lastVideo) {
+            const fc = canvasCreateNode({ projectId: pid, canvasId: cid, type: 'finalcut', name: '成片', connectFrom: lastVideo });
+            if (fc && fc.nodeId) run.finalcutNodeId = fc.nodeId;
+          }
+          run.paid = 'done'; run.paidPhase = 'done';
+          run.paidLog.push({ at: Date.now(), text: lastVideo ? '全部视频完成，已建成片节点' : '没有待生成的视频' });
+        } catch (e) {
+          run.paid = 'failed'; run.paidError = String((e && e.message) || e);
+        }
+      })();
+      return { ok: true, status: 'running', quoteId: ap.quoteId };
+    }
     __autoApi.runs = AUTO_RUNS;
     __autoApi.setRoomLlm = (fn) => { roomLlm = fn; };
+    __autoApi.setCanvasRunner = (fn) => { canvasExec = fn; };
 
     const methods = {
       async ping() { return { ok: true, version: VERSION }; },
@@ -4215,6 +4326,13 @@ export function apply(ctx) {
         const price = Number(cfg.production && cfg.production.videoUnitPricePerSecond);
         return PROD.approve(pid, toolCanvasId(args), String((args && args.quoteId) || ''), String((args && args.confirm) || ''), price);
       },
+      /** 付费段：批准后逐分镜表生成视频（真实计费）；失败重试，全部完成建成片节点。 */
+      async autoGenerate(args) {
+        if (!autoEnabled()) return autoDisabled();
+        const pid = String((args && args.projectId) || '');
+        if (!pid) return { ok: false, error: '缺少 projectId' };
+        return autoPaid(pid, toolCanvasId(args));
+      },
       /** 自动创作总状态：开关 / 阶段 / 当前批准是否仍有效 / 编剧室运行状态 / 下一步。 */
       async autoStatus(args) {
         const cfg = readIcConfig();
@@ -4223,7 +4341,9 @@ export function apply(ctx) {
         const pid = String((args && args.projectId) || '');
         const run = pid ? AUTO_RUNS.get(runKeyOf(pid, toolCanvasId(args))) : null;
         const runView = run ? { status: run.status, phase: run.phase, error: run.error || null,
-          log: run.log.slice(-6), meetingNodeId: run.meetingNodeId || null, scriptNodeId: run.scriptNodeId || null, startedAt: run.startedAt } : null;
+          log: run.log.slice(-6), meetingNodeId: run.meetingNodeId || null, scriptNodeId: run.scriptNodeId || null, startedAt: run.startedAt,
+          budget: run.budget || null, boards: run.boards || [], paid: run.paid || null, paidPhase: run.paidPhase || null, paidError: run.paidError || null,
+          paidLog: (run.paidLog || []).slice(-6), finalcutNodeId: run.finalcutNodeId || null } : null;
         if (!enabled || !pid) return { ok: true, enabled, caps, stage: null, approval: null, run: runView };
         const price = Number(cfg.production && cfg.production.videoUnitPricePerSecond);
         const st = PROD.status(pid, toolCanvasId(args));
@@ -5118,6 +5238,97 @@ export function apply(ctx) {
             const r = await productionAdvance(args);
             if (!r.ok) return { ok: false, text: '❌ ' + (r.error || '推进失败') };
             return { ok: true, projectId: args.projectId, stage: r.to, text: '✅ 阶段 ' + r.from + ' → ' + r.to + '（已记入审计）。' };
+          },
+        });
+        reg({
+          name: 'canvas_auto_status',
+          description: '自动创作总状态：开关是否开启、宿主多智能体能力、编剧室运行进度（阶段/日志）、免费段预算单（场/镜/秒/待调用次数/估算金额）、付费段进度与成片节点。【自动模式开场先调它】它决定你走全自动分支还是引导式工作坊。',
+          parameters: { type: 'object', properties: {
+            projectId: { type: 'string', description: '项目 id' },
+            canvasId: { type: 'string', description: '可选：画布 id（缺省 = 项目默认画布）' },
+          }, required: ['projectId'], additionalProperties: false },
+          output: textOutput,
+          timeoutMs: 15000,
+          async execute(args) {
+            const r = await methods.autoStatus(args);
+            if (!r.ok) return { ok: false, text: '❌ ' + (r.error || '状态读取失败') };
+            const lines = ['自动创作：' + (r.enabled ? '已开启' : '已关闭') + ' · 多智能体：' + (r.caps && r.caps.multiAgent ? '可用' : '不可用')];
+            if (r.stage) lines.push('制作阶段：' + r.stage);
+            if (r.run) {
+              lines.push('编剧室：' + r.run.status + (r.run.phase ? '（' + r.run.phase + '）' : '') + (r.run.error ? ' · 错误：' + r.run.error : ''));
+              if (r.run.budget) lines.push('预算单：' + r.run.budget.sceneCount + ' 场 / ' + r.run.budget.shotCount + ' 镜 / ' + r.run.budget.totalSeconds + ' 秒 / 待调用 ' + r.run.budget.videoCalls + ' 次' + (r.run.budget.estimatedCost != null ? ' / 估算 ' + r.run.budget.estimatedCost : ''));
+              if (r.run.boards && r.run.boards.length) lines.push('分镜：' + r.run.boards.map((b) => '场' + b.no + (b.gate ? '✅' : '⚠' + b.fails.length)).join(' '));
+              if (r.run.paid) lines.push('付费段：' + r.run.paid + (r.run.paidPhase ? '（' + r.run.paidPhase + '）' : '') + (r.run.paidError ? ' · ' + r.run.paidError : ''));
+              if (r.run.log && r.run.log.length) lines.push('最近：' + r.run.log[r.run.log.length - 1].summary);
+            }
+            if (r.approval) lines.push('批准：' + (r.approval.valid ? '有效（' + r.approval.quoteId + '）' : '无/已过期'));
+            return { ok: true, enabled: r.enabled, caps: r.caps, run: r.run, budget: r.run && r.run.budget || null, approval: r.approval, text: lines.join('\n') };
+          },
+        });
+        reg({
+          name: 'canvas_auto_start',
+          description: '启动全自动创作免费段（零付费）：自动打开画布 → 调研 → 编剧A/B 独立提案 → 互评 → 监制决策 → 设定集 → 剧本生成 → 按场拆分 → 逐场分镜表 → G2 校验 → 预算单。仅当自动创作开关已开启时可用。**自动模式下用户给出创意后直接调用它，不要逐步提问。**',
+          parameters: { type: 'object', properties: {
+            projectId: { type: 'string', description: '项目 id' },
+            canvasId: { type: 'string', description: '可选：画布 id（缺省 = 项目默认画布）' },
+            brief: { type: 'string', description: '一句话创意（拍什么/给谁看/什么情绪）——剧情走向的唯一源头' },
+          }, required: ['projectId', 'brief'], additionalProperties: false },
+          output: textOutput,
+          timeoutMs: 30000,
+          async execute(args) {
+            try { await canvasOpen({ projectId: args.projectId, canvasId: args.canvasId }); } catch { /* 打开失败不阻塞启动 */ }
+            const r = await methods.autoStart(args);
+            if (!r.ok) return { ok: false, text: '❌ ' + (r.error || '启动失败') };
+            return { ok: true, projectId: args.projectId, status: r.status, text: '🚀 免费段已启动（自动打开画布 + 调研/提案/互评/决策/剧本/分镜/预算单）。用 canvas_auto_status 查看进度。' };
+          },
+        });
+        reg({
+          name: 'canvas_auto_budget',
+          description: '生成/查看免费段的预算单：场数、镜数、总秒数、待调用视频次数、配置单价时的估算金额。批准付费前必须先用它出单。',
+          parameters: { type: 'object', properties: {
+            projectId: { type: 'string', description: '项目 id' },
+            canvasId: { type: 'string', description: '可选：画布 id（缺省 = 项目默认画布）' },
+            unitPricePerSecond: { type: 'number', description: '可选：每秒单价（不传则用画布设置里的单价）' },
+          }, required: ['projectId'], additionalProperties: false },
+          output: textOutput,
+          timeoutMs: 15000,
+          async execute(args) {
+            const r = await methods.autoQuote(args);
+            if (!r.ok) return { ok: false, text: '❌ ' + (r.error || '预算单生成失败') };
+            const lines = ['预算单 ' + r.quoteId, '场 ' + r.sceneCount + ' / 镜 ' + r.shotCount + ' / ' + r.totalSeconds + ' 秒 / 待调用 ' + r.videoCalls + ' 次'];
+            if (r.estimatedCost != null) lines.push('估算金额：' + r.estimatedCost + '（单价 ' + r.unitPricePerSecond + '/秒）');
+            lines.push('批准：调用 autoApprove 或在设置卡点「批准付费段」（必须带用户原话）');
+            return { ok: true, quoteId: r.quoteId, budget: r, text: lines.join('\n') };
+          },
+        });
+        reg({
+          name: 'canvas_auto_generate',
+          description: '付费段：仅在有有效批准后可用——逐分镜表创建视频节点并真实生成（按秒计费），失败重试 2 次，全部完成后创建「成片」节点。没有批准会被拒绝。',
+          parameters: { type: 'object', properties: {
+            projectId: { type: 'string', description: '项目 id' },
+            canvasId: { type: 'string', description: '可选：画布 id（缺省 = 项目默认画布）' },
+          }, required: ['projectId'], additionalProperties: false },
+          output: textOutput,
+          timeoutMs: 30000,
+          async execute(args) {
+            const r = await methods.autoGenerate(args);
+            if (!r.ok) return { ok: false, text: '❌ ' + (r.error || '付费段启动失败') };
+            return { ok: true, projectId: args.projectId, status: r.status, text: '🎬 付费段已启动（逐场建视频节点并生成，失败重试 2 次）。用 canvas_auto_status 查看进度。' };
+          },
+        });
+        reg({
+          name: 'canvas_auto_abort',
+          description: '中止正在运行的自动创作（免费段或付费段），保留已产出内容（会议记录/设定集/节点）。',
+          parameters: { type: 'object', properties: {
+            projectId: { type: 'string', description: '项目 id' },
+            canvasId: { type: 'string', description: '可选：画布 id（缺省 = 项目默认画布）' },
+          }, required: ['projectId'], additionalProperties: false },
+          output: textOutput,
+          timeoutMs: 15000,
+          async execute(args) {
+            const r = await methods.autoAbort(args);
+            if (!r.ok) return { ok: false, text: '❌ ' + (r.error || '中止失败') };
+            return { ok: true, projectId: args.projectId, text: '⏹ 已中止（保留已产出内容）。' };
           },
         });
         reg({

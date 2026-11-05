@@ -259,6 +259,7 @@ let sbNodeId = '';
 {
   const M = I.rpcMethods();
   await M.autoModeSet({ enabled: true });
+  const roomPid = (await byName.get('canvas_create_project').execute({ name: '自动创作测试' }, {})).projectId;
   const fake = async ({ system }) => {
     const s = String(system || '');
     if (s.includes('调研员')) return JSON.stringify({ themes: [{ name: '时空邮差', why: 't' }], styles: ['写实电影感'] });
@@ -271,31 +272,74 @@ let sbNodeId = '';
     return '{}';
   };
   I.__auto.setRoomLlm(fake);
+  // 画布执行桩：模拟"画布已打开并完成生成"——脚本产出两场、分镜产出合规 shots、视频直接完成
+  const goodShots = JSON.stringify({ shots: [
+    { title: '镜1', visual: '中景，陈拾收伞回望', motion: '横移跟随', duration: 3, seg: 'opening', tail: '转身欲走', cam: '横移回正' },
+    { title: '镜2', visual: '大特写，邮戳裂开', motion: '缓推', duration: 2, seg: 'closeup', tail: '裂开定格', cam: '推进到位' },
+  ] });
+  I.__auto.setCanvasRunner(async (pid2, cid2, nodeId) => {
+    const doc = await I.projectsGet({ id: pid2, ...(cid2 ? { canvasId: cid2 } : {}) });
+    const n = doc.nodes[nodeId];
+    if (!n) throw new Error('桩：节点不存在');
+    if (n.type === 'script') {
+      await I.canvasWriteNode({ projectId: pid2, canvasId: cid2 || undefined, nodeId, target: 'output', text: '【场1】巷口\n雨夜，陈拾收伞。\n【场2】邮局\n清晨，邮戳裂开。', overwrite: true });
+      return { type: 'script', output: '【场1】巷口\n雨夜，陈拾收伞。\n【场2】邮局\n清晨，邮戳裂开。' };
+    }
+    if (n.type === 'storyboard') {
+      await I.canvasWriteNode({ projectId: pid2, canvasId: cid2 || undefined, nodeId, target: 'output', text: goodShots, overwrite: true });
+      return { type: 'storyboard', shots: JSON.parse(goodShots).shots };
+    }
+    return { type: n.type, status: 'done' };
+  });
 
-  const noBrief = await M.autoStart({ projectId });
+  const noBrief = await M.autoStart({ projectId: roomPid });
   ok(noBrief && noBrief.ok === false, '缺 brief 未被拒');
-  const started = await M.autoStart({ projectId, brief: '雨夜邮差与一封无法投递的信' });
+  const started = await M.autoStart({ projectId: roomPid, brief: '雨夜邮差与一封无法投递的信' });
   ok(started && started.ok === true && started.status === 'running', 'autoStart 未启动');
-  const dup = await M.autoStart({ projectId, brief: '再试一次' });
+  const dup = await M.autoStart({ projectId: roomPid, brief: '再试一次' });
   ok(dup && dup.ok === false, '运行中重复启动未被拒');
   // 等流水线完成（假 LLM 即时返回；最多 5s）
   let runView = null;
   for (let i = 0; i < 50; i++) {
     await new Promise((r) => setTimeout(r, 100));
-    runView = (await M.autoStatus({ projectId })).run;
+    runView = (await M.autoStatus({ projectId: roomPid })).run;
     if (runView && (runView.status === 'done' || runView.status === 'failed')) break;
   }
   ok(runView && runView.status === 'done', '编剧室流水线未完成（status=' + (runView && runView.status) + ' error=' + (runView && runView.error) + '）');
-  // 落盘三件套：会议节点 + 设定集 + 剧本 idea
-  const doc = await I.projectsGet({ id: projectId });
+  // 落盘：会议节点 + 设定集 + 剧本 + 两场分镜 + 预算单
+  const doc = await I.projectsGet({ id: roomPid });
   const meet = Object.values(doc.nodes).find((n) => n.type === 'text' && /编剧室会议/.test(n.data.label || ''));
   ok(!!meet && String(meet.data.text || '').includes('监制决策'), '会议记录节点缺失或无决策内容');
-  const bible = await I.canvasGetBible({ projectId });
+  const bible = await I.canvasGetBible({ projectId: roomPid });
   ok(bible.bible && bible.bible.worldview === '测试世界观：时空邮局' && (bible.bible.characters || []).length >= 1, '编剧室决策未写进设定集');
   const script = Object.values(doc.nodes).find((n) => n.type === 'script' && /第1节剧本/.test(n.data.label || ''));
   ok(!!script && String(script.data.idea || '').includes('因果钩子'), '剧本 idea 未落盘');
+  const boards = Object.values(doc.nodes).filter((n) => n.type === 'storyboard');
+  ok(boards.length === 2, '未按【场N】拆出两场分镜表（实际 ' + boards.length + '）');
+  ok(boards.every((b) => Array.isArray(b.data.shots) && b.data.shots.length >= 2), '分镜表未生成 shots');
+  ok(runView.budget && runView.budget.sceneCount === 2 && runView.budget.videoCalls === 2, '预算单口径不符：' + JSON.stringify(runView.budget && { s: runView.budget.sceneCount, calls: runView.budget.videoCalls }));
+  // 付费段：未批准 → 拒绝；批准 → 逐场视频 + 成片节点
+  const paid0 = await M.autoGenerate({ projectId: roomPid });
+  ok(paid0 && paid0.ok === false, '未批准时付费段未被拒绝');
+  const q2 = await M.autoQuote({ projectId: roomPid, unitPricePerSecond: 2 });
+  const ap2 = await M.autoApprove({ projectId: roomPid, quoteId: q2.quoteId, confirm: '用户：按这个预算开机' });
+  ok(ap2 && ap2.ok === true, '付费批准失败');
+  const paid = await M.autoGenerate({ projectId: roomPid });
+  ok(paid && paid.ok === true, '付费段启动失败');
+  let paidView = null;
+  for (let i = 0; i < 100; i++) {
+    await new Promise((r) => setTimeout(r, 100));
+    paidView = (await M.autoStatus({ projectId: roomPid })).run;
+    if (paidView && (paidView.paid === 'done' || paidView.paid === 'failed')) break;
+  }
+  ok(paidView && paidView.paid === 'done', '付费段未完成（' + (paidView && paidView.paidError) + '）');
+  const doc2 = await I.projectsGet({ id: roomPid });
+  const videos = Object.values(doc2.nodes).filter((n) => n.type === 'video');
+  const fcs = Object.values(doc2.nodes).filter((n) => n.type === 'finalcut');
+  ok(videos.length === 2, '付费段应创建 2 个视频节点（实际 ' + videos.length + '）');
+  ok(fcs.length === 1, '付费段应创建 1 个成片节点（实际 ' + fcs.length + '）');
   // autoAbort：非运行态应拒绝
-  const ab = await M.autoAbort({ projectId });
+  const ab = await M.autoAbort({ projectId: roomPid });
   ok(ab && ab.ok === false, '非运行态 autoAbort 应拒绝');
 }
 
