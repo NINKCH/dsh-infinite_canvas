@@ -1205,7 +1205,11 @@ function wsProjectCreateAt(w) {
   const dir = path.join(String(w.path), WS_APP_DIR);
   try { mkdirSync(dir, { recursive: true }); } catch { /* 已存在 */ }
   const pid = 'ws' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
-  const name = (path.basename(w.path) || '画布项目').replace(/\s+/g, ' ').trim().slice(0, 80) || '画布项目';
+  // 名字优先取工作区**显示名**（title，如 composer 里的 test-2），其次目录名，最后兜底。
+  // 旧实现只用 basename(path)：目录名是随机 id（wsmw3hao7et2ll）时项目名就成了乱码。
+  const titleName = String(w.title || '').replace(/\s+/g, ' ').trim().slice(0, 80);
+  const folderName = (path.basename(String(w.path || '')) || '').replace(/\s+/g, ' ').trim().slice(0, 80);
+  const name = titleName || folderName || '画布项目';
   const doc = {
     id: pid, name, createdAt: Date.now(), updatedAt: Date.now(), source: 'agent',
     nodes: {}, edges: [], view: { x: 60, y: 40, scale: 1 },
@@ -4495,6 +4499,18 @@ export function apply(ctx) {
           rec = wsRecOf(sc.ws);
         }
         if (!rec) { rec = wsProjectCreateAt(sc.ws); createdNow = true; }
+        // 存量修正：机器生成的项目名（= 目录名 / 项目 id / ws* 随机串）→ 改用工作区显示名。
+        // 用户手动改过名的项目（既不等于目录名也不像 id）绝不覆盖。
+        const wsTitle = String((sc.ws && sc.ws.title) || '').replace(/\s+/g, ' ').trim().slice(0, 80);
+        if (rec && wsTitle) {
+          try {
+            const doc = readDoc(rec.pid);
+            const cur = String(doc.name || '').trim();
+            const folder = (path.basename(String((sc.ws && sc.ws.path) || '')) || '').trim();
+            const machineNamed = !cur || cur === folder || cur === rec.pid || /^ws[a-z0-9]{8,}$/i.test(cur);
+            if (machineNamed && cur !== wsTitle) patchProjectDoc(rec.pid, { name: wsTitle });
+          } catch { /* 修正失败不阻塞创建/绑定 */ }
+        }
         const name = String((args && args.name) || '').trim();
         if (createdNow && name) {
           try { patchProjectDoc(rec.pid, { name: name.slice(0, 80) }); } catch { /* 改名失败不阻塞 */ }
@@ -4504,6 +4520,7 @@ export function apply(ctx) {
         if (createdNow) bound = await bindingSet(rec.pid, sid, null, sc.isAlive);
         return {
           ok: true, projectId: rec.pid, created: createdNow,
+          name: (() => { try { return String(readDoc(rec.pid).name || '').trim() || undefined; } catch { return undefined; } })(),
           bound: !!(bound && bound.ok), occupied: !!(bound && bound.occupied),
           bindError: bound && !bound.ok ? (bound.error || null) : null,
         };

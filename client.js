@@ -21227,9 +21227,11 @@ const DIRECTOR_KEY_HELP = [
       const pid = String(id || '');
       if (!pid) return;
       if ((S.projects || []).some((p) => p.id === pid)) return;
+      // 名字未知（旧宿主 / 竞态）→ 交给宿主下一次同步补登记；绝不把项目 id 当名字写进本地表
+      if (!String(name || '').trim()) return;
       update((s) => {
         s.projects = [{
-          id: pid, name: name || pid, canvases: [], defaultCanvasName: '默认画布',
+          id: pid, name: String(name).trim(), canvases: [], defaultCanvasName: '默认画布',
           createdAt: Date.now(), updatedAt: Date.now(),
         }].concat(s.projects || []);
       });
@@ -21328,7 +21330,7 @@ const DIRECTOR_KEY_HELP = [
         const r = await hostRpc('workspaceProjectCreate', { sessionId });
         if (r && r.ok) {
           update((s) => { s.bindingCreating = false; s.bindingMenuOpen = false; });
-          ensureLocalProject(r.projectId, (S.sessionBinding && S.sessionBinding.project && S.sessionBinding.project.name) || '');
+          ensureLocalProject(r.projectId, r.name || '');
           refreshDataRoot().catch(() => { /* 项目清单下一轮 3s 同步也会带 */ });
           await refreshSessionBinding(sessionId);
           const sb = S.sessionBinding;
