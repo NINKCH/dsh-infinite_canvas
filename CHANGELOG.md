@@ -15,6 +15,7 @@ GitHub Releases carry the same notes in English; maintainer-facing runbooks live
 
 ### Changed
 - **Deletion RPCs now require `confirm`.** `canvas_delete_node` and `canvas_delete_project` refuse without it and return `gate: "G5"` with the fix spelled out — the model can no longer delete "to reset" a node on its own initiative.
+- **`canvas-studio` rewritten as a flow manual (M2).** 415+ lines of百科 prose → 168 lines led by the stage machine and the six gates: the manual now opens with 阶段机/闸门/逃生舱 (the enforcement this release adds), keeps every hard rule (bible-first, project dedupe, one-script-node idea+output, storyboard granularity, `tail→prev` continuity, lip-sync, four continuation fields, G2 self-check, multi-canvas, memory-first discipline) in compressed form, and hands craft detail to `canvas-craft` / `canvas-director` / `canvas-layout` instead of duplicating it. All 23 `canvas_*` tools remain referenced; the skill-pack slices are untouched (they read manifest cards, not this prose). The skill grew *shorter* so the model actually reads it — adherence is enforced by the gates, not by the length of the manual.
 
 ### Internal
 - **Gate refusals are structured results, not thrown errors.** `canvasCreateNode` / `canvasRunNode` / `canvasGenerateNode` return `{ ok:false, gate, missing|fails, fix }`, and every tool wrapper propagates those fields instead of reporting success.
