@@ -255,6 +255,50 @@ let sbNodeId = '';
   ok(q2 && q2.ok === false && q2.disabled === true, '关闭开关后 autoQuote 未被拒绝');
 }
 
+// 自动创作编剧室（免费段）：假 LLM 注入 → 全流水线落盘
+{
+  const M = I.rpcMethods();
+  await M.autoModeSet({ enabled: true });
+  const fake = async ({ system }) => {
+    const s = String(system || '');
+    if (s.includes('调研员')) return JSON.stringify({ themes: [{ name: '时空邮差', why: 't' }], styles: ['写实电影感'] });
+    if (s.includes('编剧A')) return JSON.stringify({ logline: 'A案故事线', beats: ['b1', 'b2', 'b3'] });
+    if (s.includes('编剧B')) return JSON.stringify({ logline: 'B案故事线', beats: ['c1', 'c2', 'c3'] });
+    if (s.includes('剧评人')) return JSON.stringify({ critA: ['冲突可加强'], critB: ['动机可信'] });
+    if (s.includes('监制')) return JSON.stringify({ decision: 'merge', rationale: '取A冲突+B动机', logline: '雨夜邮差的最后一封信', beats: ['x', 'y', 'z'],
+      bible: { worldview: '测试世界观：时空邮局', style: '写实电影感', characters: [{ name: '陈拾', desc: '24 岁，旧邮差制服' }], scenes: [{ name: '褶皱巷', desc: '雨夜窄巷' }], props: [{ name: '火漆信', desc: '火漆印' }],
+        scriptIdea: '写第一节剧本：雨夜邮差陈拾接到一封无法投递的信……每场结尾留因果钩子，每场至少一个冲突点。' } });
+    return '{}';
+  };
+  I.__auto.setRoomLlm(fake);
+
+  const noBrief = await M.autoStart({ projectId });
+  ok(noBrief && noBrief.ok === false, '缺 brief 未被拒');
+  const started = await M.autoStart({ projectId, brief: '雨夜邮差与一封无法投递的信' });
+  ok(started && started.ok === true && started.status === 'running', 'autoStart 未启动');
+  const dup = await M.autoStart({ projectId, brief: '再试一次' });
+  ok(dup && dup.ok === false, '运行中重复启动未被拒');
+  // 等流水线完成（假 LLM 即时返回；最多 5s）
+  let runView = null;
+  for (let i = 0; i < 50; i++) {
+    await new Promise((r) => setTimeout(r, 100));
+    runView = (await M.autoStatus({ projectId })).run;
+    if (runView && (runView.status === 'done' || runView.status === 'failed')) break;
+  }
+  ok(runView && runView.status === 'done', '编剧室流水线未完成（status=' + (runView && runView.status) + ' error=' + (runView && runView.error) + '）');
+  // 落盘三件套：会议节点 + 设定集 + 剧本 idea
+  const doc = await I.projectsGet({ id: projectId });
+  const meet = Object.values(doc.nodes).find((n) => n.type === 'text' && /编剧室会议/.test(n.data.label || ''));
+  ok(!!meet && String(meet.data.text || '').includes('监制决策'), '会议记录节点缺失或无决策内容');
+  const bible = await I.canvasGetBible({ projectId });
+  ok(bible.bible && bible.bible.worldview === '测试世界观：时空邮局' && (bible.bible.characters || []).length >= 1, '编剧室决策未写进设定集');
+  const script = Object.values(doc.nodes).find((n) => n.type === 'script' && /第1节剧本/.test(n.data.label || ''));
+  ok(!!script && String(script.data.idea || '').includes('因果钩子'), '剧本 idea 未落盘');
+  // autoAbort：非运行态应拒绝
+  const ab = await M.autoAbort({ projectId });
+  ok(ab && ab.ok === false, '非运行态 autoAbort 应拒绝');
+}
+
 // ---------------- 工具 ----------------
 async function findNode(type) {
   const doc = await I.projectsGet({ id: projectId });

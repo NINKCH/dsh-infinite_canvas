@@ -29,6 +29,8 @@ const PROD = createProduction({
 const NAME = 'infinite-canvas';
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 initPackBase(HERE); // 技能包加载器需要知道插件根目录
+/** 自动创作测试挂点（apply 内赋值）：runs=运行表引用，setRoomLlm=注入假 LLM 通道。 */
+const __autoApi = { runs: null, setRoomLlm: null };
 
 // 版本单一来源 = 当前副本的 package.json（硬编码常量曾与包版本漂移）
 let VERSION = '0.0.0';
@@ -3437,7 +3439,8 @@ async function updateInstall() {
 export const inject = ['webServer', 'tools'];
 
 // 仅供诊断 / 自动化测试（不属于 RPC 面，运行时行为不受影响）
-export const _internals = { THUMB_MAX_SIDE, thumbRelOf, isDerivedMedia, updateCheck, updateInstall, npmLatestVersion, cmpVer, findPnpm, NPM_REGISTRIES, pickUpdateRegistry, registryCacheValid, pnpmAddArgs, getProfileDir: () => PROFILE_DIR, getVersion: () => VERSION, dataRoot, setDataRoot, dataRootMigrate, dataRootImport, ensureProjectFolder, physicalRel, mirrorProjectToDataRoot, writeAssetIndex, removeAssetIndexEntry, readDataRootMeta, removeDataRootProject, sqlDeleteProjectRows, deletedProjectIds, addDeletedProjectId, clearDeletedProjectId, fetchProxyForward, storyboardConsistencyWarnings, readAssetIndexNames, safeJoin, mimeOf, pipeFile, getIcConfigPath: () => CONFIG_PATH, canvasCreateProject, canvasWriteNode, canvasConnect, canvasDeleteProject, canvasDeleteNode, canvasRunNode, canvasNodeStatus, canvasGetBible, canvasUpdateBible, canvasCreateNode, canvasOpen, canvasesList, canvasCreate, canvasRename, canvasDelete, canvasDocId, isCanvasDocId, splitCanvasDocId, normalizeCanvasId, canvasRegistry, sanitizeCanvases, wsProjectsScan, isWsProject, wsProjectHome, wsWatchTick, wsProjectCreateAt, projectHomeDir, memoryRead, memoryWrite, bindingsRead, bindingSet, bindingClear, readCanvasDoc, writeCanvasDoc, deleteCanvasDocsForProject, projectsList, projectsPut, projectsGet, projectsDelete, projectsSync, sqliteAvailable: () => !!SQLITE, getDb, closeDb, dbAssetsList, dbAssetsGet, dbAssetNames, dbAssetCreate, dbAssetUpdate, dbAssetDelete, objectAbsFor, ftsReconcile, readDocOrNull, docExists, sqlActive, rpcMethods: () => _rpcMethods, canvasUpdateNode, canvasGenerateNode, production: PROD, productionStages: PRODUCTION_STAGES };
+export const _internals = { THUMB_MAX_SIDE, thumbRelOf, isDerivedMedia, updateCheck, updateInstall, npmLatestVersion, cmpVer, findPnpm, NPM_REGISTRIES, pickUpdateRegistry, registryCacheValid, pnpmAddArgs, getProfileDir: () => PROFILE_DIR, getVersion: () => VERSION, dataRoot, setDataRoot, dataRootMigrate, dataRootImport, ensureProjectFolder, physicalRel, mirrorProjectToDataRoot, writeAssetIndex, removeAssetIndexEntry, readDataRootMeta, removeDataRootProject, sqlDeleteProjectRows, deletedProjectIds, addDeletedProjectId, clearDeletedProjectId, fetchProxyForward, storyboardConsistencyWarnings, readAssetIndexNames, safeJoin, mimeOf, pipeFile, getIcConfigPath: () => CONFIG_PATH, canvasCreateProject, canvasWriteNode, canvasConnect, canvasDeleteProject, canvasDeleteNode, canvasRunNode, canvasNodeStatus, canvasGetBible, canvasUpdateBible, canvasCreateNode, canvasOpen, canvasesList, canvasCreate, canvasRename, canvasDelete, canvasDocId, isCanvasDocId, splitCanvasDocId, normalizeCanvasId, canvasRegistry, sanitizeCanvases, wsProjectsScan, isWsProject, wsProjectHome, wsWatchTick, wsProjectCreateAt, projectHomeDir, memoryRead, memoryWrite, bindingsRead, bindingSet, bindingClear, readCanvasDoc, writeCanvasDoc, deleteCanvasDocsForProject, projectsList, projectsPut, projectsGet, projectsDelete, projectsSync, sqliteAvailable: () => !!SQLITE, getDb, closeDb, dbAssetsList, dbAssetsGet, dbAssetNames, dbAssetCreate, dbAssetUpdate, dbAssetDelete, objectAbsFor, ftsReconcile, readDocOrNull, docExists, sqlActive, rpcMethods: () => _rpcMethods, canvasUpdateNode, canvasGenerateNode, production: PROD, productionStages: PRODUCTION_STAGES,
+  __auto: __autoApi };
 
 function resolveModel(providers, want) {
   const byProvider = want && want.provider
@@ -3617,6 +3620,99 @@ export function apply(ctx) {
       try { const cfg = readIcConfig(); return !!(cfg.ui && cfg.ui.autoMode); } catch { return false; }
     };
     const autoDisabled = () => ({ ok: false, disabled: true, error: '自动创作处于关闭状态（实验功能）：请先在画布设置里打开「多智能体自动创作（实验）」' });
+
+    // ---- 自动创作 runner（免费段·编剧室）：进程内执行器 ----
+    // 角色分工 = 独立系统提示词的轮次（调研 → 编剧A/B 独立提案 → 互评 → 监制决策 → 落盘）。
+    // 全程零付费（不触发生成接口）；讨论记录落盘为画布文本节点；剧情走向只来自用户 brief。
+    const AUTO_RUNS = new Map(); // runKey(pid::cid) → { status:'running'|'done'|'failed'|'aborted', phase, log:[{at,role,summary}], error, brief, startedAt, meetingNodeId }
+    const runKeyOf = (pid, cid) => String(pid) + '::' + (cid || 'default');
+    /** 测试注入口：默认走插件内 LLM 通道；测试注入假通道以覆盖全流水线。 */
+    let roomLlm = async ({ system, user }) => {
+      const r = await complete({ system, user });
+      return (r && r.text) || '';
+    };
+    /** 从模型输出提取第一个平衡的 JSON 对象（容忍 ```json 围栏与前后闲话）。 */
+    function roomJson(text) {
+      const s = String(text || '');
+      const fence = s.match(/```(?:json)?\s*([\s\S]*?)```/i);
+      const src = fence ? fence[1] : s;
+      const start = src.indexOf('{');
+      if (start < 0) return null;
+      let depth = 0, inStr = false, esc = false;
+      for (let i = start; i < src.length; i++) {
+        const ch = src[i];
+        if (inStr) { if (esc) esc = false; else if (ch === '\\') esc = true; else if (ch === '"') inStr = false; continue; }
+        if (ch === '"') inStr = true;
+        else if (ch === '{') depth++;
+        else if (ch === '}') { depth--; if (depth === 0) { try { return JSON.parse(src.slice(start, i + 1)); } catch { return null; } } }
+      }
+      return null;
+    }
+    async function autoRoomStep(run, role, system, user, needJson) {
+      if (run.status !== 'running') throw new Error('aborted');
+      const raw = await roomLlm({ system, user });
+      const parsed = needJson ? (roomJson(raw) || {}) : null;
+      if (needJson && !Object.keys(parsed).length) throw new Error(role + ' 输出不是可用 JSON');
+      run.log.push({ at: Date.now(), role, summary: String(raw || '').slice(0, 160) });
+      return parsed || raw;
+    }
+    async function autoRoom(pid, cid, brief) {
+      const runKey = runKeyOf(pid, cid);
+      const run = AUTO_RUNS.get(runKey);
+      const BASE = '你是短剧创作团队的一员。流程与格式是硬要求；剧情创意只来自用户 brief，绝不套模板。输出只给 JSON。';
+      try {
+        // ① 调研（离线知识；联网调研随会话执行器上线）
+        run.phase = 'research';
+        const research = await autoRoomStep(run, '调研', BASE + '\n你是题材调研员（当前离线：基于既有知识，标注「离线调研」）。给出 3 个与 brief 相关的热门题材方向与 3 种视觉风格建议。',
+          '用户 brief：' + brief, true);
+        // ② 编剧 A / B 独立提案（互不可见）
+        run.phase = 'pitch';
+        const ctxUser = '用户 brief：' + brief + '\n调研建议：' + JSON.stringify(research).slice(0, 1200);
+        const pitchA = await autoRoomStep(run, '编剧A', BASE + '\n你是编剧A（强冲突/强反转取向）。给出 logline（≤40字）与 3 个节拍。',
+          ctxUser + '\n输出 {"logline":"…","beats":["…","…","…"]}', true);
+        const pitchB = await autoRoomStep(run, '编剧B', BASE + '\n你是编剧B（人物动机/情感真实取向）。给出 logline（≤40字）与 3 个节拍。与常规方案反着来。',
+          ctxUser, true);
+        // ③ 互评
+        run.phase = 'critique';
+        const crit = await autoRoomStep(run, '互评', BASE + '\n你是剧评人。分别评 A、B 两案各 ≤3 条（冲突强度/动机可信/成本可行性）。',
+          'A案：' + JSON.stringify(pitchA).slice(0, 800) + '\nB案：' + JSON.stringify(pitchB).slice(0, 800), true);
+        // ④ 监制决策
+        run.phase = 'decide';
+        const dec = await autoRoomStep(run, '监制', BASE + '\n你是监制。择一或融合，给出决策与理由，并把世界观/风格/角色/场景/道具写成设定集草案（描述要可生成：年龄/发型/服装/材质/光线）。',
+          ctxUser + '\nA案：' + JSON.stringify(pitchA).slice(0, 800) + '\nB案：' + JSON.stringify(pitchB).slice(0, 800) + '\n互评：' + JSON.stringify(crit).slice(0, 800) +
+          '\n输出 {"decision":"A|B|merge","rationale":"…","logline":"…","beats":["…"],"scriptIdea":"（写给剧本节点的创作提示词，含两条叙事硬约束：每场结尾因果钩子、每场至少一个冲突点）","bible":{"worldview":"…","style":"…","characters":[{"name":"…","desc":"…"}],"scenes":[{"name":"…","desc":"…"}],"props":[{"name":"…","desc":"…"}]}}', true);
+        // ⑤ 落盘：讨论记录节点 + 设定集 + 剧本 idea
+        run.phase = 'writeback';
+        const transcript = [
+          '用户 brief：' + brief,
+          '调研（离线）：' + JSON.stringify(research),
+          '编剧A提案：' + JSON.stringify(pitchA),
+          '编剧B提案：' + JSON.stringify(pitchB),
+          '互评：' + JSON.stringify(crit),
+          '监制决策：' + dec.decision + '——' + (dec.rationale || ''),
+          '定稿 logline：' + (dec.logline || ''),
+        ].join('\n\n');
+        const meet = canvasCreateNode({ projectId: pid, canvasId: cid, type: 'text', name: '编剧室会议' });
+        canvasWriteNode({ projectId: pid, canvasId: cid, nodeId: meet.nodeId, target: 'output', text: transcript.slice(0, 60000), overwrite: true });
+        const bi = dec.bible || {};
+        await canvasUpdateBible({ projectId: pid, bible: bi });
+        // scriptIdea 兼容两处：监制按指示写在根级，写歪时落到 bible 里（模型照抄示例的结构错误要容忍）
+        const idea = String(dec.scriptIdea || bi.scriptIdea || dec.logline || brief).slice(0, 4000);
+        const sc = canvasCreateNode({ projectId: pid, canvasId: cid, type: 'script', name: '第1节剧本', prompt: idea });
+        try { await canvasRunNode({ projectId: pid, canvasId: cid, nodeId: sc.nodeId }); } catch { /* 画布未开时触发排队，不阻塞 */ }
+        run.meetingNodeId = meet.nodeId;
+        run.scriptNodeId = sc.nodeId;
+        run.status = 'done';
+        run.phase = 'done';
+        run.log.push({ at: Date.now(), role: 'runner', summary: '免费段完成：设定集+剧本 idea 已落盘；打开画布生成剧本后可进入分镜阶段' });
+      } catch (e) {
+        run.status = String((e && e.message) || e) === 'aborted' ? 'aborted' : 'failed';
+        run.error = String((e && e.message) || e);
+        run.log.push({ at: Date.now(), role: 'runner', summary: '失败：' + run.error });
+      }
+    }
+    __autoApi.runs = AUTO_RUNS;
+    __autoApi.setRoomLlm = (fn) => { roomLlm = fn; };
 
     const methods = {
       async ping() { return { ok: true, version: VERSION }; },
@@ -3980,13 +4076,16 @@ export function apply(ctx) {
         const price = Number(cfg.production && cfg.production.videoUnitPricePerSecond);
         return PROD.approve(pid, toolCanvasId(args), String((args && args.quoteId) || ''), String((args && args.confirm) || ''), price);
       },
-      /** 自动创作总状态：开关 / 阶段 / 当前批准是否仍有效 / 下一步。 */
+      /** 自动创作总状态：开关 / 阶段 / 当前批准是否仍有效 / 编剧室运行状态 / 下一步。 */
       async autoStatus(args) {
         const cfg = readIcConfig();
         const enabled = !!(cfg.ui && cfg.ui.autoMode);
         const caps = await methods.productionCapabilities();
         const pid = String((args && args.projectId) || '');
-        if (!enabled || !pid) return { ok: true, enabled, caps, stage: null, approval: null };
+        const run = pid ? AUTO_RUNS.get(runKeyOf(pid, toolCanvasId(args))) : null;
+        const runView = run ? { status: run.status, phase: run.phase, error: run.error || null,
+          log: run.log.slice(-6), meetingNodeId: run.meetingNodeId || null, scriptNodeId: run.scriptNodeId || null, startedAt: run.startedAt } : null;
+        if (!enabled || !pid) return { ok: true, enabled, caps, stage: null, approval: null, run: runView };
         const price = Number(cfg.production && cfg.production.videoUnitPricePerSecond);
         const st = PROD.status(pid, toolCanvasId(args));
         return {
@@ -3994,7 +4093,44 @@ export function apply(ctx) {
           stage: st.stage, ready: st.ready, blockers: st.blockers,
           approval: PROD.approvalOf(pid, toolCanvasId(args), price),
           quote: PROD.quote(pid, toolCanvasId(args), price),
+          run: runView,
         };
+      },
+      /** 启动免费段（编剧室）：调研 → 编剧A/B 独立提案 → 互评 → 监制决策 → 设定集+剧本 idea 落盘。
+       *  全程零付费；讨论记录写进「编剧室会议」文本节点；剧情走向只来自 brief。 */
+      async autoStart(args) {
+        if (!autoEnabled()) return autoDisabled();
+        const pid = String((args && args.projectId) || '');
+        if (!pid) return { ok: false, error: '缺少 projectId' };
+        const brief = String((args && args.brief) || '').trim();
+        if (brief.length < 4) return { ok: false, error: '缺少 brief：请给一句话创意（至少 4 个字），它是剧情走向的唯一源头' };
+        const cid = toolCanvasId(args);
+        const runKey = runKeyOf(pid, cid);
+        const prev = AUTO_RUNS.get(runKey);
+        if (prev && prev.status === 'running') return { ok: false, error: '该画布已有自动创作在跑（阶段 ' + prev.phase + '）：先 autoAbort 或等待完成' };
+        const run = { status: 'running', phase: 'start', log: [{ at: Date.now(), role: 'runner', summary: '启动：' + brief.slice(0, 60) }], error: null, brief, startedAt: Date.now(), meetingNodeId: null, scriptNodeId: null };
+        AUTO_RUNS.set(runKey, run);
+        // brief 记进制作状态（status 可见；重启后仍能查到这一集的创意源头）
+        try {
+          const ps = PROD.readState(pid, cid) || { version: 1, projectId: pid, canvasKey: (cid || 'default'), floor: 0, explicit: null, createdAt: Date.now(), updatedAt: 0, history: [], overrides: [] };
+          ps.brief = brief;
+          ps.updatedAt = Date.now();
+          PROD.writeState(pid, cid, ps);
+        } catch { /* 状态写入失败不阻塞启动 */ }
+        autoRoom(pid, cid, brief).catch(() => { /* 兜底：autoRoom 内部已捕获并落状态 */ });
+        return { ok: true, runId: runKey, status: 'running', note: '免费段已启动（调研→提案→互评→决策→落盘）；用 autoStatus 查看进度' };
+      },
+      /** 中止运行中的编剧室：保留已产出内容（讨论节点/设定集/节点），不再继续后续步骤。 */
+      async autoAbort(args) {
+        if (!autoEnabled()) return autoDisabled();
+        const pid = String((args && args.projectId) || '');
+        if (!pid) return { ok: false, error: '缺少 projectId' };
+        const run = AUTO_RUNS.get(runKeyOf(pid, toolCanvasId(args)));
+        if (!run || run.status !== 'running') return { ok: false, error: '该画布没有正在运行的自动创作' };
+        run.status = 'aborted';
+        run.error = null;
+        run.log.push({ at: Date.now(), role: 'runner', summary: '已中止（保留已产出内容）' });
+        return { ok: true, status: 'aborted' };
       },
       async sessionBindingGet(args) {
         const sid = String((args && args.sessionId) || '');

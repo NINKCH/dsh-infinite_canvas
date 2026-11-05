@@ -1219,6 +1219,12 @@ function revealCanvasInRight() {
       'autoCapsOk': '多智能体：可用',
       'autoCapsNo': '多智能体：宿主未暴露会话服务（暂不可用）',
       'autoOldHost': '宿主插件是旧版本（不支持自动创作开关）：完全重启 Harness 后可用',
+      'autoBriefLabel': '一句话创意',
+      'autoBriefPh': '拍什么、给谁看、什么情绪……（剧情走向的唯一源头）',
+      'autoStartBtn': '启动免费段（不花钱）',
+      'autoAbortBtn': '中止（保留已产出）',
+      'autoRunState': '进度',
+      'autoRunFailed': '失败',
       'stageCurrent': '制作阶段',
       'stageReadyYes': '可交付',
       'stageReadyNo': '未就绪',
@@ -2196,6 +2202,12 @@ function revealCanvasInRight() {
       'autoCapsOk': 'Multi-agent: available',
       'autoCapsNo': 'Multi-agent: host does not expose session services (unavailable)',
       'autoOldHost': 'The plugin backend is older and lacks the auto-creation switch — fully restart Harness to enable',
+      'autoBriefLabel': 'One-line idea',
+      'autoBriefPh': 'What to shoot, for whom, what feeling… (the sole source of the story)',
+      'autoStartBtn': 'Start free phase (no cost)',
+      'autoAbortBtn': 'Abort (keep outputs)',
+      'autoRunState': 'Progress',
+      'autoRunFailed': 'failed',
       'stageCurrent': 'Stage',
       'stageReadyYes': 'deliverable',
       'stageReadyNo': 'not ready',
@@ -19767,6 +19779,8 @@ const DIRECTOR_KEY_HELP = [
     /** 自动创作开关卡片（实验，默认关闭）：开关 + 能力显示 + 旧宿主提示。挂设置页。 */
     function AutoModeCard() {
       const [st, setSt] = useState(null); // null = 读取中；{ enabled, caps, oldHost, busy }
+      const [brief, setBrief] = useState('');
+      const [run, setRun] = useState(null);
       const refresh = async () => {
         try {
           const r = await hostRpc('autoModeGet');
@@ -19776,6 +19790,22 @@ const DIRECTOR_KEY_HELP = [
         }
       };
       useEffect(() => { refresh(); }, []);
+      // 运行状态轮询：开启时每 3s 拉一次 autoStatus（含 run 进度）
+      useEffect(() => {
+        if (!st || !st.enabled || st.oldHost) return undefined;
+        const tick = async () => {
+          try {
+            const pid = S.activeId;
+            if (!pid) return;
+            const cid = activeCanvasId() === DEFAULT_CANVAS_ID ? null : activeCanvasId();
+            const r = await hostRpc('autoStatus', { projectId: pid, canvasId: cid });
+            setRun(r.run || null);
+          } catch { /* 旧宿主忽略 */ }
+        };
+        tick();
+        const t = setInterval(tick, 3000);
+        return () => clearInterval(t);
+      }, [st && st.enabled, st && st.oldHost, S.activeId, S.activeCanvasId]);
       const toggle = async () => {
         if (!st || st.busy || st.oldHost) return;
         setSt({ ...st, busy: true });
@@ -19785,6 +19815,16 @@ const DIRECTOR_KEY_HELP = [
         } catch {
           setSt({ ...st, busy: false }); // 失败保持原状态；下次刷新校正
         }
+      };
+      const startRun = async () => {
+        const pid = S.activeId;
+        if (!pid || !brief.trim()) return;
+        try { await hostRpc('autoStart', { projectId: pid, canvasId: activeCanvasId() === DEFAULT_CANVAS_ID ? null : activeCanvasId(), brief: brief.trim() }); setRun({ status: 'running', phase: 'start' }); } catch { /* 失败由状态轮询展示 */ }
+      };
+      const abortRun = async () => {
+        const pid = S.activeId;
+        if (!pid) return;
+        try { await hostRpc('autoAbort', { projectId: pid, canvasId: activeCanvasId() === DEFAULT_CANVAS_ID ? null : activeCanvasId() }); } catch { /* 忽略 */ }
       };
       const row = h('div', { className: 'dshic-row' },
         Ic('spark', 12),
@@ -19804,10 +19844,23 @@ const DIRECTOR_KEY_HELP = [
         const multi = st.caps ? !!st.caps.multiAgent : false;
         lines.push(multi ? T('autoCapsOk') : T('autoCapsNo'));
       }
+      const runLine = run ? (T('autoRunState') + '：' + (run.status === 'running' ? (run.phase || '…') : (run.error ? T('autoRunFailed') + ' ' + run.error : run.status))) : '';
       return h('div', { className: 'dshic-card' },
         row,
         h('div', { className: 'dshic-hint', style: { marginTop: 4 } }, T('autoHint')),
         h('div', { className: 'dshic-hint', style: { marginTop: 2 }, 'data-role': 'auto-mode-status' }, lines.join(' · ')),
+        st && st.enabled && !st.oldHost
+          ? h('div', { style: { marginTop: 6 }, 'data-role': 'auto-run' },
+              h(Field, { label: T('autoBriefLabel'), value: brief, onChange: (v) => setBrief(v), placeholder: T('autoBriefPh') }),
+              run && run.status === 'running'
+                ? h('button', { type: 'button', className: 'dshic-mini is-ghost', style: { marginTop: 6 }, onPointerDown: (e) => e.stopPropagation(), onClick: abortRun }, T('autoAbortBtn'))
+                : h('button', {
+                    type: 'button', className: 'dshic-mini', style: { marginTop: 6 },
+                    disabled: !brief.trim(), onPointerDown: (e) => e.stopPropagation(), onClick: startRun,
+                  }, T('autoStartBtn')),
+              runLine ? h('div', { className: 'dshic-hint', style: { marginTop: 4 }, 'data-role': 'auto-run-status' }, runLine) : null,
+            )
+          : null,
       );
     }
 

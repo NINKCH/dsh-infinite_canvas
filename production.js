@@ -396,6 +396,7 @@ export function createProduction(deps) {
       gates: { bible: g1, storyboard: g2 },
       blockers,
       ready: st.idx >= STAGE_INDEX.shots_ready && g1.ok && g2.ok,
+      brief: st.state && st.state.brief,
       evidence: {
         characters: (bible.characters || []).length,
         scenes: (bible.scenes || []).length,
