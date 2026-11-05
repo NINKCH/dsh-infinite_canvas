@@ -1235,6 +1235,14 @@ function cssRulesMatchingClass(name) {
   ok(/function ProductionStageRow\(/.test(src) && /data-role': 'production-stage'/.test(src), '缺制作阶段行（ProjectsTab 阶段显示）');
   ok(/hostRpc\('productionStatus'/.test(src), '阶段行未接 productionStatus RPC');
   ok(src.includes("'stageCurrent'") && src.includes("'stageBlockers'"), '缺阶段行 i18n 键');
+  // 绑定 chip 必须是可收缩的（否则长项目名把 composer 右侧按钮挤出边框）
+  ok(/\.dshic-bind\{[^}]*min-width:0[^}]*\}/.test(src) && /\.dshic-bind\{[^}]*flex:0 1 auto[^}]*\}/.test(src), '.dshic-bind 缺 flex:0 1 auto / min-width:0（绑定态会挤爆 composer）');
+  ok(/\.dshic-bind-chip\{[^}]*max-width:100%[^}]*\}/.test(src), '.dshic-bind-chip 缺 max-width:100%');
+  // dsh-image-gen 桥接
+  ok(/function ImageGenBridgeCard\(/.test(src) && /data-role': 'image-gen-bridge'/.test(src), '缺 ImageGenBridgeCard（dsh-image-gen 图片模型卡）');
+  ok(/h\(ImageGenBridgeCard, \{ key: 'imagegenbridge' \}\)/.test(src), 'ImageGenBridgeCard 未挂进设置页');
+  ok(/\/plugins\/dsh-image-gen\/studio/.test(src) && /function apiGenBridge\(/.test(src), '缺 dsh-image-gen /studio 桥接（模型探测或生图）');
+  ok(/bridgeOn\s*\?\s*await apiGenBridge/.test(src), '图片生成未接入 dsh-image-gen 桥接分支');
 }
 
 if (errs.length) {

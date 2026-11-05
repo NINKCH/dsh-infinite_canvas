@@ -1234,6 +1234,11 @@ function revealCanvasInRight() {
       'stageReadyYes': '可交付',
       'stageReadyNo': '未就绪',
       'stageBlockers': '阻塞',
+      'imageGenTitle': '图片模型（来自 dsh-image-gen）',
+      'imageGenHint': '检测到 dsh-image-gen：可直接选用它配置好的服务商与模型生图，画布无需再填 API。',
+      'imageGenMissing': '未检测到 dsh-image-gen（安装并配置后这里会出现它的模型列表）。',
+      'imageGenNoProvider': 'dsh-image-gen 尚未配置任何已就绪的服务商（请先到它的设置里填好 Key）。',
+      'imageGenNoModel': '（未选择模型）',
       'dataRootSaved': '数据根目录已设置',
       'storageInfo': '存储',
       'storageDetails': '存储详情',
@@ -2222,6 +2227,11 @@ function revealCanvasInRight() {
       'stageReadyYes': 'deliverable',
       'stageReadyNo': 'not ready',
       'stageBlockers': 'blocked',
+      'imageGenTitle': 'Image models (via dsh-image-gen)',
+      'imageGenHint': 'dsh-image-gen detected: pick its configured provider and model — no API config needed in the canvas.',
+      'imageGenMissing': 'dsh-image-gen not detected (install and configure it to see its models here).',
+      'imageGenNoProvider': 'dsh-image-gen has no ready provider yet (set its API key first).',
+      'imageGenNoModel': '(no model)',
       'dataRootSaved': 'Data root set',
       'storageInfo': 'Storage',
       'storageDetails': 'Storage details',
@@ -3076,13 +3086,13 @@ body[data-ds-dark-theme] .dshic-inline-input{border-color:var(--dsw-alias-border
 .dshic-menu-item:hover{background:var(--dsw-alias-interactive-bg-hover,color-mix(in srgb,var(--dsw-alias-label-primary) 8%,transparent));}
 body[data-ds-dark-theme] .dshic-menu{border-color:var(--dsw-alias-border-l2);}
 /* —— 会话↔画布绑定（composer 画布选择 chip）：与宿主会话输入行 chip 同一视觉语言 —— */
-.dshic-bind{position:relative;display:inline-flex;align-items:center;gap:2px;}
+.dshic-bind{position:relative;display:inline-flex;align-items:center;gap:2px;flex:0 1 auto;min-width:0;max-width:180px;}
 .dshic-bind-chip{display:inline-flex;align-items:center;gap:5px;height:28px;padding:0 10px;border-radius:10px;border:1px solid transparent;
-  background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-secondary);font:inherit;font-size:13px;cursor:pointer;white-space:nowrap;max-width:220px;overflow:hidden;text-overflow:ellipsis;}
+  background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-secondary);font:inherit;font-size:13px;cursor:pointer;white-space:nowrap;max-width:100%;min-width:0;overflow:hidden;text-overflow:ellipsis;}
 .dshic-bind-chip:hover{background:var(--dsw-alias-interactive-bg-hover,var(--dsw-alias-bg-layer-3));color:var(--dsw-alias-label-primary);}
 .dshic-bind-chip.is-bound{color:var(--dsw-alias-label-primary);}
 .dshic-bind-ico{display:inline-flex;align-items:center;flex:none;opacity:.85;}
-.dshic-bind-label{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.dshic-bind-label{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;}
 .dshic-bind-caret{font-size:10px;opacity:.75;flex:none;margin-left:2px;}
 .dshic-bind-menu{position:absolute;top:calc(100% + 6px);left:0;z-index:70;max-height:340px;overflow:auto;min-width:240px;border-radius:12px;padding:4px;}
 .dshic-bind-sep{height:1px;background:var(--dsw-alias-border-l1);margin:4px 6px;}
@@ -3602,6 +3612,8 @@ body[data-ds-dark-theme] .dshic-pick-item.is-on{background:color-mix(in srgb,var
         videoProviders: Array.isArray(s.videoProviders) ? s.videoProviders : [],
         imageStar: s.imageStar || '',
         videoStar: s.videoStar || '',
+        // dsh-image-gen 桥接：启用后画布不自配图片 API，直接走它的 /studio（密钥留在它宿主侧）
+        imageGen: { enabled: !!(s.imageGen && s.imageGen.enabled), provider: (s.imageGen && s.imageGen.provider) || '', model: (s.imageGen && s.imageGen.model) || '' },
         ttsApis: Array.isArray(s.ttsApis) ? s.ttsApis : [],
         ttsApiId: s.ttsApiId || '',
         lang: s.lang || '',
@@ -5887,6 +5899,46 @@ function queueThumb(assetId) {
       return null;
     }
 
+    /** dsh-image-gen 桥接生图：走它的 /studio 路由（密钥留在它宿主侧，前端零配置）。
+     *  GET 取模型清单由探测函数负责；这里只做 POST 生成 + 取图。返回 Blob（与 apiImage 同契约）。 */
+    async function apiGenBridge(prompt, refBlobs, g, opts) {
+      const cfg = g || {};
+      if (!cfg.provider || !cfg.model) throw new Error('dsh-image-gen 未选择服务商/模型（设置 → 图片模型 → 来自 dsh-image-gen）');
+      const refs = [];
+      for (const b of (refBlobs || []).slice(0, 4)) {
+        try {
+          const dataUrl = await blobToDataUrl(b);
+          const m = /^data:([^;]+);base64,(.+)$/.exec(String(dataUrl || ''));
+          if (m) refs.push({ mediaType: m[1], data: m[2] });
+        } catch { /* 单张参考图转换失败不阻塞 */ }
+      }
+      const body = {
+        mode: refs.length ? 'edit' : 'generate',
+        provider: cfg.provider,
+        model: cfg.model,
+        prompt: String(prompt || ''),
+        ratio: String((opts && opts.ratio) || '1:1'),
+        quality: String((opts && opts.quality) || 'high'),
+      };
+      if (refs.length) body.references = refs;
+      const res = await fetch('/plugins/dsh-image-gen/studio', {
+        method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body),
+      });
+      const raw = await res.text();
+      let json = null;
+      try { json = JSON.parse(raw); } catch { /* 非 JSON（网关页/空响应）走下面的错误 */ }
+      if (!res.ok || !json) {
+        throw new Error('dsh-image-gen 生成失败：' + ((json && (json.error || json.message)) || ('HTTP ' + res.status + (raw ? ' · ' + raw.slice(0, 160) : ''))));
+      }
+      if (json.error) throw new Error('dsh-image-gen 生成失败：' + json.error);
+      const att = (Array.isArray(json.items) && json.items[0] && json.items[0].attachment) || json.attachment;
+      if (!att) throw new Error('dsh-image-gen 未返回图片（响应缺少 attachment）');
+      const img = await fetch('/plugins/dsh-image-gen/image', {
+        method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ attachment: att }),
+      });
+      if (!img.ok) throw new Error('读取 dsh-image-gen 生成的图片失败 HTTP ' + img.status);
+      return await img.blob();
+    }
     async function apiImage(prompt, refBlobs, s, opts) {
       if (!s.baseUrl) throw new Error('未配置图片 API');
       // URL 归一化：裸域 → /v1；粘贴完整端点也不会被二次拼接
@@ -10733,15 +10785,18 @@ function queueThumb(assetId) {
             const lock = await buildShotLockText(lockKind, { medium: 'image' });
             if (lock) p = p + '\n' + lock;
           } catch { /* 技能包不可用时不影响生成 */ }
-          // 模型解析：节点选择优先，未指定路由到星标默认模型；都没有 = 明确报错（不再静默走演示模式）
-          const mcfg = resolveImageModelCfg(settings, nodeImageModelRef(n));
-          if (!mcfg) throw new Error(T('errNoImageModel'));
+          // 模型解析：dsh-image-gen 桥接启用时不需要画布自配图片模型；否则节点选择优先 → 星标默认 → 明确报错
+          const bridgeOn = !!(settings.imageGen && settings.imageGen.enabled);
+          const mcfg = bridgeOn ? null : resolveImageModelCfg(settings, nodeImageModelRef(n));
+          if (!bridgeOn && !mcfg) throw new Error(T('errNoImageModel'));
           // 张数（1–4）：同一提示词一次生成多张；历史条保留全部结果，节点显示最后一张
           const want = clamp(Number(n.data.imageCount) || 1, 1, 4);
           const cases = [];
           for (let i = 0; i < want; i++) {
             if (want > 1) update((s) => { const nd = s.graph.nodes[n.id]; if (nd) nd.data.progress = (i + 1) + '/' + want; });
-            const blob = await apiImage(p, metas, mcfg, {
+            const blob = bridgeOn
+              ? await apiGenBridge(p, metas, settings.imageGen, { ratio: n.data.ratio })
+              : await apiImage(p, metas, mcfg, {
               size: n.data.size, ratio: n.data.ratio, nodeExtra: n.data.imgExtra, warn: addWarn,
               // 任务式厂商（三宝图片）：任务 id 就是凭证——代理超时/页面关闭后仍可凭 id 回查（与视频同口径）
               onTask: (tid, qurl) => {
@@ -19728,6 +19783,79 @@ const DIRECTOR_KEY_HELP = [
             ],
       );
     }
+    /** 图片模型桥接卡（0.20.0）：检测 dsh-image-gen 并直接选用它的服务商/模型（密钥留在它宿主侧）。 */
+    function ImageGenBridgeCard() {
+      const init = loadSettings().imageGen || {};
+      const [desc, setDesc] = useState(null); // GET /studio 的 describe
+      const [missing, setMissing] = useState(false);
+      const [enabled, setEnabled] = useState(!!init.enabled);
+      const [prov, setProv] = useState(init.provider || '');
+      const [model, setModel] = useState(init.model || '');
+      useEffect(() => {
+        let alive = true;
+        (async () => {
+          try {
+            const r = await fetch('/plugins/dsh-image-gen/studio', { headers: { accept: 'application/json' } });
+            if (!r.ok) throw new Error('HTTP ' + r.status);
+            const j = await r.json();
+            if (!alive) return;
+            setDesc(j);
+            const conf = (j.providers || []).filter((p) => p && p.configured);
+            const pick = conf.find((p) => p.provider === (loadSettings().imageGen || {}).provider) || conf.find((p) => p.provider === j.activeProvider) || conf[0];
+            if (pick) {
+              setProv((cur) => cur || pick.provider);
+              setModel((cur) => cur || pick.model || ((pick.modelOptions || [])[0] && (pick.modelOptions || [])[0].value) || '');
+            }
+          } catch { if (alive) setMissing(true); } // 未安装插件 → 整卡显示"未检测到"，不影响画布自配
+        })();
+        return () => { alive = false; };
+      }, []);
+      const persist = (patch) => {
+        const s = loadSettings();
+        s.imageGen = { enabled, provider: prov, model, ...patch };
+        saveSettings(s);
+      };
+      const conf = desc ? (desc.providers || []).filter((p) => p && p.configured) : [];
+      const cur = conf.find((p) => p.provider === prov);
+      const models = cur
+        ? ((cur.modelOptions || []).map((o) => o.value).filter(Boolean).length ? (cur.modelOptions || []).map((o) => o.value) : (cur.model ? [cur.model] : []))
+        : [];
+      return h('div', { className: 'dshic-card', 'data-role': 'image-gen-bridge' },
+        h('div', { className: 'dshic-row' },
+          Ic('image', 12),
+          h('strong', { style: { fontSize: 12, flex: 1, minWidth: 0 } }, T('imageGenTitle')),
+          missing
+            ? null
+            : h('button', {
+                type: 'button', className: cls('dshic-mini', enabled && 'is-on'),
+                onPointerDown: (e) => e.stopPropagation(),
+                onClick: () => { const v = !enabled; setEnabled(v); persist({ enabled: v }); },
+              }, enabled ? T('autoOn') : T('autoEnable')),
+        ),
+        missing
+          ? h('div', { className: 'dshic-hint', style: { marginTop: 4 } }, T('imageGenMissing'))
+          : h('div', { className: 'dshic-hint', style: { marginTop: 4 } }, T('imageGenHint')),
+        !missing && conf.length
+          ? h('div', { style: { marginTop: 6 } },
+              h('select', {
+                className: 'dshic-select', value: prov,
+                onChange: (e) => {
+                  const p2 = conf.find((x) => x.provider === e.target.value);
+                  const m2 = p2 ? (p2.model || ((p2.modelOptions || [])[0] && (p2.modelOptions || [])[0].value) || '') : '';
+                  setProv(e.target.value); setModel(m2); persist({ provider: e.target.value, model: m2 });
+                },
+                onPointerDown: (e) => e.stopPropagation(),
+              }, conf.map((p) => h('option', { key: p.provider, value: p.provider }, (p.label || p.provider)))),
+              h('select', {
+                className: 'dshic-select', style: { marginTop: 4 }, value: model,
+                onChange: (e) => { setModel(e.target.value); persist({ model: e.target.value }); },
+                onPointerDown: (e) => e.stopPropagation(),
+              }, (models.length ? models : ['']).map((m2) => h('option', { key: m2, value: m2 }, m2 || T('imageGenNoModel')))),
+            )
+          : (!missing ? h('div', { className: 'dshic-hint', style: { marginTop: 4 } }, T('imageGenNoProvider')) : null),
+      );
+    }
+
     function SettingsTab() {
       const [s, setS] = useState(loadSettings);
       const apply = (fn) => {
@@ -19758,6 +19886,7 @@ const DIRECTOR_KEY_HELP = [
         h(DataRootCard, { key: 'dataroot' }),
         h(CraftCard, { key: 'craft' }),
         h(AutoModeCard, { key: 'automode' }),
+        h(ImageGenBridgeCard, { key: 'imagegenbridge' }),
         // 「技能增强」已升级为右侧独立「技能」页（SkillsTab）：四层图标瓦片 + 预览/写设定集
         // 文本模型卡：只选模型，参数全用 Harness 默认；紧挨图片/视频/TTS 模型卡片
         h('div', { key: 'llm', className: 'dshic-card' },
