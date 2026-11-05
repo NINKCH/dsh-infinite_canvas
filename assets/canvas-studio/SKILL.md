@@ -107,7 +107,7 @@ brief → bible → assets → script → storyboard → shots_ready → generat
    参考图连视频 `ref` 口，`@资产名@` 命中自动挂载。跨段首帧画布自动接力（连好 `tail→prev` 即可用）。
 5. **参考图**：为设定集每条目建 image 节点（命名规范见下节），prompt 按 canvas-craft「资产设定图版式」
    写足（角色六段式/场景主图+环绕/道具 45° 主图+色卡），不留空壳节点。
-6. `canvas_open({ projectId })` 让用户看到结果；布局乱了 `canvas_relayout` 一键重排（不要手工挪）。
+6. `canvas_open({ projectId })` 让用户看到结果。**布局**：要精准摆放（对齐/指定坐标/分列）先 `canvas_layout_get` 读全图坐标，再 `canvas_layout_node` 批量精摆（可 `pinned:true` 钉住）；只是想"整体理一下"才用 `canvas_relayout`（粗排兜底，钉住的节点不动）。
 
 ## 四、@引用与资产命名（跨集一致性核心）
 

@@ -2591,8 +2591,11 @@ function canvasRelayout(args) {
   const id = String((args && args.projectId) || '');
   const canvasId = toolCanvasId(args);
   const doc = readToolDoc(args);
-  const nodes = Object.values(doc.nodes || {});
-  if (!nodes.length) return { ok: true, projectId: id, ...(canvasId ? { canvasId } : {}), moved: 0, rows: 0 };
+  const all = Object.values(doc.nodes || {});
+  // pinned 节点：用户/对话精摆过的位置，重排绝不覆盖（它也不参与分列与相对排序）
+  const nodes = all.filter((n) => !(n.data && n.data.pinned));
+  const skippedPinned = all.length - nodes.length;
+  if (!nodes.length) return { ok: true, projectId: id, ...(canvasId ? { canvasId } : {}), moved: 0, rows: 0, skippedPinned };
   const VERT = new Set(['prev', 'frame']);
   const byId = new Map(nodes.map((n) => [n.id, n]));
   const depth = new Map(nodes.map((n) => [n.id, 0]));
@@ -2629,16 +2632,111 @@ function canvasRelayout(args) {
   const colX = new Map();
   let cx = 80;
   for (const d of [...colW.keys()].sort((a, b) => a - b)) { colX.set(d, cx); cx += (colW.get(d) || 280) + 60; }
-  let cy = 40;
+  // 分带排列（0.20.0）：一行 = 一个横向连通簇；行自上而下堆，堆到带高上限就把后续行换到右边新带。
+  // 旧实现所有行都从 x=80 自上而下排，多簇画布（簇间无横向连线）会被拍成一整列。
+  const MAX_BAND_H = 1800, BAND_GAP = 160, ROW_GAP = 40;
+  let bandX = 80, bandY = 40, bandMaxW = 0, bandH = 0;
   let moved = 0;
   for (const row of rowList) {
+    const rowW = Math.max(...row.ids.map((n) => (colX.get(depth.get(n.id) || 0) || 80) + (Number(n.w) || 280))) - 80;
     const rowH = Math.max(200, ...row.ids.map((n) => Number(n.h) || 200));
-    for (const n of row.ids) { n.x = colX.get(depth.get(n.id) || 0); n.y = cy; moved++; }
-    cy += rowH + 40;
+    if (bandH > 0 && bandH + ROW_GAP + rowH > MAX_BAND_H) { bandX += bandMaxW + BAND_GAP; bandY = 40; bandH = 0; bandMaxW = 0; }
+    for (const n of row.ids) {
+      n.x = bandX + ((colX.get(depth.get(n.id) || 0) || 80) - 80);
+      n.y = bandY;
+      moved++;
+    }
+    bandY += rowH + ROW_GAP;
+    bandH += rowH + ROW_GAP;
+    bandMaxW = Math.max(bandMaxW, rowW);
   }
   doc.updatedAt = Date.now();
   writeToolDoc(args, doc);
-  return { ok: true, projectId: id, ...(canvasId ? { canvasId } : {}), moved, rows: rowList.length };
+  return { ok: true, projectId: id, ...(canvasId ? { canvasId } : {}), moved, rows: rowList.length, skippedPinned };
+}
+
+/** 整画布几何视图（0.20.0）：对话侧据此精确计算每个节点该放哪（x/y/w/h + pinned + 包围盒）。 */
+function canvasLayoutGet(args) {
+  const pid = String((args && args.projectId) || '');
+  const canvasId = toolCanvasId(args);
+  const doc = readToolDoc(args);
+  const nodes = Object.values(doc.nodes || {}).map((n) => ({
+    nodeId: n.id,
+    name: String((n.data && n.data.label) || n.id).slice(0, 60),
+    type: n.type,
+    x: Math.round(Number(n.x) || 0),
+    y: Math.round(Number(n.y) || 0),
+    w: Math.round(Number(n.w) || 360),
+    h: Math.round(Number(n.h) || 360),
+    pinned: !!(n.data && n.data.pinned),
+  }));
+  const bounds = nodes.length
+    ? {
+        minX: Math.min(...nodes.map((n) => n.x)), minY: Math.min(...nodes.map((n) => n.y)),
+        maxX: Math.max(...nodes.map((n) => n.x + n.w)), maxY: Math.max(...nodes.map((n) => n.y + n.h)),
+      }
+    : null;
+  return { ok: true, projectId: pid, ...(canvasId ? { canvasId } : {}), count: nodes.length, bounds, nodes };
+}
+
+/** 精准摆放（0.20.0）：批量设置节点坐标（媒体节点可同时改尺寸），pinned 钉住防 relayout 覆盖。
+ *  允许重叠——精确摆放是调用方明确意图，不做碰撞拒绝。 */
+function canvasLayoutNode(args) {
+  const pid = String((args && args.projectId) || '');
+  const canvasId = toolCanvasId(args);
+  const doc = readToolDoc(args);
+  const list = (args && args.nodes) || [];
+  if (!Array.isArray(list) || !list.length) throw new Error('nodes 需要非空数组：[{ nodeId, x, y, w?, h?, pinned? }]');
+  const applied = [];
+  for (const item of list) {
+    const nodeId = String((item && item.nodeId) || '');
+    const n = doc.nodes[nodeId];
+    if (!n) throw new Error('节点不存在: ' + nodeId + '（先 canvas_layout_get 拿全图坐标）');
+    const x = Number(item.x);
+    const y = Number(item.y);
+    if (!Number.isFinite(x) || !Number.isFinite(y)) throw new Error(nodeId + ' 的 x/y 必须是有限数字（可为负）');
+    n.x = Math.round(x);
+    n.y = Math.round(y);
+    const entry = { nodeId, x: n.x, y: n.y };
+    if (item.w !== undefined || item.h !== undefined) {
+      const isMedia = n.type === 'image' || n.type === 'video';
+      if (!isMedia) throw new Error(nodeId + '（' + n.type + '）不支持改尺寸：只有 image/video 媒体节点可设 w/h');
+      // 媒体节点预览区必须保持画面比例（normalizeMediaNodeSize 会强制）：只给一维时按比例补另一维，
+      // 两维都给了就必须与比例一致（误差 ≤2%），否则明确拒绝而不是被静默重置。
+      const d = n.data || {};
+      const ratio = mediaRatioOf(n);
+      const [rw, rh] = String(ratio).split(':').map(Number);
+      const chrome = NODE_HDR_H + (d.assetId ? NODE_FOOT_H : 0);
+      let w = item.w !== undefined ? Number(item.w) : null;
+      let h = item.h !== undefined ? Number(item.h) : null;
+      if (w !== null && h === null) {
+        if (!Number.isFinite(w) || w < 160) throw new Error(nodeId + ' 的 w 非法（≥160）');
+        h = Math.round((w * rh) / rw + chrome);
+      } else if (h !== null && w === null) {
+        if (!Number.isFinite(h) || h - chrome < 120) throw new Error(nodeId + ' 的 h 非法（预览高 ≥120）');
+        w = Math.round(((h - chrome) * rw) / rh);
+      } else {
+        const ph = h - chrome;
+        const okRatio = Number.isFinite(w) && Number.isFinite(h) && ph > 0 && Math.abs(w / ph - rw / rh) / (rw / rh) <= 0.02;
+        if (!okRatio) {
+          throw new Error(nodeId + ' 的 w/h 与画面比例 ' + ratio + ' 不匹配：只传 w 或只传 h 会自动按比例补齐（例如 w=520 → h=' + Math.round((520 * rh) / rw + chrome) + '）');
+        }
+      }
+      n.w = Math.round(w);
+      n.h = Math.round(h);
+      entry.w = n.w;
+      entry.h = n.h;
+    }
+    if (item.pinned !== undefined) {
+      n.data = n.data || {};
+      n.data.pinned = !!item.pinned;
+      entry.pinned = !!n.data.pinned;
+    }
+    applied.push(entry);
+  }
+  doc.updatedAt = Date.now();
+  writeToolDoc(args, doc);
+  return { ok: true, projectId: pid, ...(canvasId ? { canvasId } : {}), applied, moved: applied.length };
 }
 async function canvasDeleteProject(args) {
   const id = String((args && args.projectId) || '');
@@ -3440,6 +3538,7 @@ export const inject = ['webServer', 'tools'];
 
 // 仅供诊断 / 自动化测试（不属于 RPC 面，运行时行为不受影响）
 export const _internals = { THUMB_MAX_SIDE, thumbRelOf, isDerivedMedia, updateCheck, updateInstall, npmLatestVersion, cmpVer, findPnpm, NPM_REGISTRIES, pickUpdateRegistry, registryCacheValid, pnpmAddArgs, getProfileDir: () => PROFILE_DIR, getVersion: () => VERSION, dataRoot, setDataRoot, dataRootMigrate, dataRootImport, ensureProjectFolder, physicalRel, mirrorProjectToDataRoot, writeAssetIndex, removeAssetIndexEntry, readDataRootMeta, removeDataRootProject, sqlDeleteProjectRows, deletedProjectIds, addDeletedProjectId, clearDeletedProjectId, fetchProxyForward, storyboardConsistencyWarnings, readAssetIndexNames, safeJoin, mimeOf, pipeFile, getIcConfigPath: () => CONFIG_PATH, canvasCreateProject, canvasWriteNode, canvasConnect, canvasDeleteProject, canvasDeleteNode, canvasRunNode, canvasNodeStatus, canvasGetBible, canvasUpdateBible, canvasCreateNode, canvasOpen, canvasesList, canvasCreate, canvasRename, canvasDelete, canvasDocId, isCanvasDocId, splitCanvasDocId, normalizeCanvasId, canvasRegistry, sanitizeCanvases, wsProjectsScan, isWsProject, wsProjectHome, wsWatchTick, wsProjectCreateAt, projectHomeDir, memoryRead, memoryWrite, bindingsRead, bindingSet, bindingClear, readCanvasDoc, writeCanvasDoc, deleteCanvasDocsForProject, projectsList, projectsPut, projectsGet, projectsDelete, projectsSync, sqliteAvailable: () => !!SQLITE, getDb, closeDb, dbAssetsList, dbAssetsGet, dbAssetNames, dbAssetCreate, dbAssetUpdate, dbAssetDelete, objectAbsFor, ftsReconcile, readDocOrNull, docExists, sqlActive, rpcMethods: () => _rpcMethods, canvasUpdateNode, canvasGenerateNode, production: PROD, productionStages: PRODUCTION_STAGES,
+  canvasLayoutNode, canvasLayoutGet, canvasRelayout,
   __auto: __autoApi };
 
 function resolveModel(providers, want) {
@@ -4624,7 +4723,7 @@ export function apply(ctx) {
         });
         reg({
           name: 'canvas_relayout',
-          description: '一键重排画布节点布局（消除重叠）：按「行」排列——横向数据流决定列（文本→分镜表→视频→资产），竖向关系（衔接 prev / 首帧 frame）不参与分列；每行 = 一个横向连通组（如「场N文本 ↔ 场N分镜表」同行对齐），行高取行内最高节点、行间保留间距。节点重叠、或批量建点后布局混乱时调用。',
+          description: '一键粗排画布节点（兜底用，不是精确摆放）：按「行」排列——横向数据流决定列，竖向关系（prev/frame）不参与分列；每行 = 一个横向连通组，行间保留间距，多行按带宽分带左右铺开。**pinned（被 canvas_layout_node 钉住的节点）不会被移动**。需要精确到像素的摆放请用 canvas_layout_get + canvas_layout_node，不要用本工具。',
           parameters: {
             type: 'object',
             properties: { projectId: { type: 'string', description: '项目 id' }, canvasId: { type: 'string', description: '可选：画布 id（缺省 = 项目默认画布）' } },
@@ -4635,7 +4734,61 @@ export function apply(ctx) {
           timeoutMs: 30000,
           async execute(args) {
             const r = canvasRelayout(args);
-            return { ok: true, projectId: r.projectId, text: '✅ 已重排 ' + r.moved + ' 个节点（' + r.rows + ' 行，无重叠）。' };
+            return { ok: true, projectId: r.projectId, text: '✅ 已重排 ' + r.moved + ' 个节点（' + r.rows + ' 行，无重叠）。' + (r.skippedPinned ? '钉住的 ' + r.skippedPinned + ' 个节点保持原位。' : '') };
+          },
+        });
+        reg({
+          name: 'canvas_layout_get',
+          description: '读取整画布几何视图：返回每个节点的 nodeId/名字/类型/x/y/w/h/pinned 与画布包围盒。精确摆放前先调它拿全图坐标（不要靠猜）。',
+          parameters: {
+            type: 'object',
+            properties: { projectId: { type: 'string', description: '项目 id' }, canvasId: { type: 'string', description: '可选：画布 id（缺省 = 项目默认画布）' } },
+            required: ['projectId'],
+            additionalProperties: false,
+          },
+          output: textOutput,
+          timeoutMs: 15000,
+          async execute(args) {
+            const r = canvasLayoutGet(args);
+            const lines = r.nodes.map((n) => n.nodeId + ' [' + n.type + '] ' + n.name + '  x=' + n.x + ' y=' + n.y + ' w=' + n.w + ' h=' + n.h + (n.pinned ? ' 📌' : ''));
+            return { ok: true, projectId: r.projectId, count: r.count, bounds: r.bounds || undefined, nodes: r.nodes, text: '几何视图（' + r.count + ' 个节点' + (r.bounds ? '，范围 x ' + r.bounds.minX + '..' + r.bounds.maxX + ' / y ' + r.bounds.minY + '..' + r.bounds.maxY : '') + '）：\n' + lines.join('\n') };
+          },
+        });
+        reg({
+          name: 'canvas_layout_node',
+          description: '精准摆放节点（0.20.0）：批量设置坐标，媒体节点可同时改尺寸；pinned=true 钉住后 canvas_relayout 不会再动它。允许重叠（这是精确摆放，不是自动整理）。先 canvas_layout_get 读全图，再算好坐标一次传入。',
+          parameters: {
+            type: 'object',
+            properties: {
+              projectId: { type: 'string', description: '项目 id' },
+              canvasId: { type: 'string', description: '可选：画布 id（缺省 = 项目默认画布）' },
+              nodes: {
+                type: 'array',
+                description: '要摆放的节点数组（一次可传多个）',
+                items: {
+                  type: 'object',
+                  properties: {
+                    nodeId: { type: 'string' },
+                    x: { type: 'number', description: '目标 x（可为负）' },
+                    y: { type: 'number', description: '目标 y（可为负）' },
+                    w: { type: 'number', description: '可选：宽度（仅 image/video，≥160）' },
+                    h: { type: 'number', description: '可选：高度（仅 image/video，≥120）' },
+                    pinned: { type: 'boolean', description: '可选：钉住，canvas_relayout 不再移动它' },
+                  },
+                  required: ['nodeId', 'x', 'y'],
+                  additionalProperties: false,
+                },
+              },
+            },
+            required: ['projectId', 'nodes'],
+            additionalProperties: false,
+          },
+          output: textOutput,
+          timeoutMs: 30000,
+          async execute(args) {
+            const r = canvasLayoutNode(args);
+            const lines = r.applied.map((a) => a.nodeId + ' → x=' + a.x + ' y=' + a.y + (a.w !== undefined ? ' w=' + a.w + ' h=' + a.h : '') + (a.pinned !== undefined ? (a.pinned ? ' 📌钉住' : ' 取消钉住') : ''));
+            return { ok: true, projectId: r.projectId, moved: r.moved, applied: r.applied, text: '✅ 已精准摆放 ' + r.moved + ' 个节点：\n' + lines.join('\n') };
           },
         });
         reg({
