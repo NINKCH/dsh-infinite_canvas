@@ -45,6 +45,11 @@ ok(!patch.includes('@ninkch/dsh-media-studio-preset'), 'patch 残留旧包名 @n
 for (const k of ['开工前自检', '引导式创作', '端到端流水线', '导演工作纪律', '节点生命周期']) {
   ok(patch.includes(k), 'patch persona 缺关键节「' + k + '」');
 }
+// 自动模式硬规则（防被改软：曾因"只问 1 个"逃生口导致自动模式仍提问）
+for (const k of ['自动创作分支', '禁止调用 ask_user_question', 'canvas_auto_start']) {
+  ok(patch.includes(k), 'patch persona 缺自动模式硬规则「' + k + '」');
+}
+ok(!/只问\s*1\s*个/.test(patch), 'patch persona 残留「只问 1 个」逃生口（自动模式必须绝不提问）');
 
 // ---------- 5) director-workshop 技能 ----------
 const skill = readFileSync(path.join(ROOT, 'skills', 'director-workshop', 'SKILL.md'), 'utf8');

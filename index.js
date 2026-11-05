@@ -4616,10 +4616,18 @@ export function apply(ctx) {
             render: (args, value) => [{ type: 'text', text: String(value.text || '') }],
           },
           timeoutMs: 30000,
-          async execute(args) {
+          async execute(args, exec) {
             const kw = String((args && args.keyword) || '').toLowerCase();
-            const list = projectsList().filter((p) => !kw || String(p.name).toLowerCase().includes(kw));
+            // 绑定会话：只允许看到自己绑定的项目（读取也必须锁死，否则模型能"围观"全部画布）
+            const sid = toolExecSessionId(exec);
+            const bound = sid ? toolBindingForSession(sid) : null;
+            let full = projectsList();
+            if (full && typeof full.then === 'function') full = await full;
+            let list = Array.isArray(full) ? full : [];
+            if (bound) list = list.filter((p) => p.id === bound.projectId);
+            list = list.filter((p) => !kw || String(p.name).toLowerCase().includes(kw));
             const lines = [];
+            if (bound) lines.push('本会话已绑定画布工作台：只显示绑定项目「' + ((list[0] && list[0].name) || bound.projectId) + '」；其他项目已隐藏（要操作其他项目请先解绑）。');
             for (const p of list) {
               const canvases = Array.isArray(p.canvases) ? p.canvases : [];
               const defTxt = p.defaultCanvasDeleted
@@ -4649,7 +4657,13 @@ export function apply(ctx) {
           },
           output: textOutput,
           timeoutMs: 30000,
-          async execute(args) {
+          async execute(args, exec) {
+            // 绑定会话：禁止新建项目（跨项目动作；要新建先解绑）
+            const sid = toolExecSessionId(exec);
+            const bound = sid ? toolBindingForSession(sid) : null;
+            if (bound) {
+              return { ok: false, locked: true, text: '本会话已绑定画布工作台「' + (bound.canvasId ? bound.canvasId : '默认画布') + '」，代码级限制：禁止新建项目（一个会话只允许操作自己绑定的那一张画布）。要新建项目请先在对话输入行的画布选择器里解绑。' };
+            }
             const r = canvasCreateProject(args);
             if (r.reused) {
               return { ok: true, projectId: r.projectId, name: r.name, text: '♻️ 项目「' + r.name + '」已存在（id=' + r.projectId + '），已复用，未重复创建。往其中加内容请用 canvas_write_node({ projectId: "' + r.projectId + '", ... })。' };
@@ -5253,6 +5267,7 @@ export function apply(ctx) {
             const r = await methods.autoStatus(args);
             if (!r.ok) return { ok: false, text: '❌ ' + (r.error || '状态读取失败') };
             const lines = ['自动创作：' + (r.enabled ? '已开启' : '已关闭') + ' · 多智能体：' + (r.caps && r.caps.multiAgent ? '可用' : '不可用')];
+            if (r.enabled) lines.push('【自动模式·硬规则】禁止调用 ask_user_question（任何理由）；本轮必须 canvas_auto_start 启动编剧室，brief 不足由编剧室代拟 3 个方向并选定。');
             if (r.stage) lines.push('制作阶段：' + r.stage);
             if (r.run) {
               lines.push('编剧室：' + r.run.status + (r.run.phase ? '（' + r.run.phase + '）' : '') + (r.run.error ? ' · 错误：' + r.run.error : ''));

@@ -40,8 +40,9 @@ brief → bible → assets → script → storyboard → shots_ready → generat
 开工先调 `canvas_auto_status`：
 
 - **enabled=true（自动创作已开启）→ 全自动分支**：先 `canvas_open` 自动打开画布；从用户消息提取 brief
-  （拍什么/给谁看/什么情绪，不足只问 1 个最关键问题）；随后 `canvas_auto_start` 启动编剧室
-  （调研 → 编剧A/B 独立提案 → 互评 → 监制决策 → 设定集 → 剧本 → 分场 → 分镜 → G2 → 预算单）。
+  （拍什么/给谁看/什么情绪）。**禁止调用 ask_user_question（任何理由，不得以"只问一个"变通）**——
+  信息不足时由编剧室自行拟 3 个候选方向并选定一个，把理由写进会议记录；
+  随后**同一轮内必须**调用 `canvas_auto_start` 启动编剧室（调研 → 编剧A/B 独立提案 → 互评 → 监制决策 → 设定集 → 剧本 → 分场 → 分镜 → G2 → 预算单）。
   **全程禁止逐步提问**（导演/题材/规格/影调由监制代选并记录理由）；预算单用 `canvas_auto_budget` 出单并汇报一次；
   用户批准后 `canvas_auto_generate` 跑付费段（逐场视频 + 成片节点）；要停就用 `canvas_auto_abort`（保留已产出）。
 - **enabled=false → 保持导演工作坊引导流程**（一次一问）。

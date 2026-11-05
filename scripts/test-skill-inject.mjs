@@ -426,7 +426,7 @@ try {
   ok(names.join(',') === 'canvas-craft,canvas-director,canvas-layout,canvas-studio', `技能目录应可枚举出四份内置技能，实际 ${names.join(',')}`);
   const need = {
     'canvas-craft': ['六要素', '大特写', '冲撞点', '起点', '调度'],
-    'canvas-studio': ['大特写', '调度', '六要素', 'canvas_update_bible'],
+    'canvas-studio': ['大特写', '调度', '六要素', 'canvas_update_bible', '禁止调用 ask_user_question', 'canvas_auto_start'],
     'canvas-layout': ['一类型一列', '绝不重叠'],
   };
   for (const cand of list || []) {
