@@ -124,6 +124,7 @@ const COVERAGE = [
   { sha: '2e62a0b', keys: [/Production stage row in the projects tab/i] },
   { sha: '1e7cefd', keys: [/Writers-room runner/i] },
   { sha: '05cc5f7', keys: [/Precise node layout/i] },
+  { sha: 'c0caed8', keys: [/same-depth siblings inside one cluster stack vertically|zero-overlap assertion/i] },
 ];
 for (const c of COVERAGE) {
   ok(c.keys.some((re) => re.test(coverageText)), '未发版提交 ' + c.sha + ' 在 CHANGELOG（Unreleased 或最新已发布段）里找不到对应记录（补记不全）');
