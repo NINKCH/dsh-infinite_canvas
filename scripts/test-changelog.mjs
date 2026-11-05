@@ -128,6 +128,7 @@ const COVERAGE = [
   { sha: '26c97f2', keys: [/Auto creation becomes a real chat-driven chain/i] },
   { sha: 'a6aff65', keys: [/Auto mode no longer asks questions|bound session can no longer see/i] },
   { sha: 'c328c09', keys: [/Workspace projects are named after the workspace/i] },
+  { sha: 'bac7c32', keys: [/Image models from `dsh-image-gen`|binding chip no longer breaks/i] },
 ];
 for (const c of COVERAGE) {
   ok(c.keys.some((re) => re.test(coverageText)), '未发版提交 ' + c.sha + ' 在 CHANGELOG（Unreleased 或最新已发布段）里找不到对应记录（补记不全）');
