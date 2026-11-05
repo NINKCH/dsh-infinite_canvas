@@ -114,27 +114,8 @@ if (unrelHasEntries) {
 // OBS-1 硬要求（QA 判据）：清单**手工维护**，绝不从 `git log` 动态生成——动态清单会自证
 // （脚本生成的清单当然自己全中，"缺一必红"退化成摆设）。数量相等 + 逐 sha 关键词命中，两条都拦。
 const COVERAGE = [
-  // 0.19.20 已发布，历史提交清零。当前未发版：工作区内嵌项目 + 项目记忆层。
-  { sha: '30910e4', keys: [/Workspace-embedded projects/i] },
-  { sha: '5a17bb0', keys: [/Project memory store/i] },
-  { sha: '7b2e9a0', keys: [/Session↔canvas bindings/i] },
-  { sha: 'b750519', keys: [/Workspace watcher \+ session-binding RPC/i] },
-  { sha: '10e0d5b', keys: [/Memory agent tools/i] },
-  { sha: 'c59a9a7', keys: [/Session-aware tool defaults/i] },
-  { sha: 'eaedac4', keys: [/Composer canvas-binding chip/i] },
-  { sha: 'd84fdc8', keys: [/Memory viewer \(studio modal/i] },
-  { sha: 'cf2bb1f', keys: [/Memory-first discipline/i] },
-  { sha: '6b886e0', keys: [/Memory-first discipline|Composer canvas-binding chip|Memory viewer/i] },
-  { sha: 'a5283e2', keys: [/Review-pass hardenings|Composer chip's 建画布项目/i] },
-  { sha: 'd45bf83', keys: [/Explicit-only binding|Code-level cross-canvas ban|Binding chip label/i] },
-  { sha: '0c8634f', keys: [/Canvas selector: host-format/i] },
-  { sha: '29b2444', keys: [/Canvas selector: host-format/i] },
-  { sha: 'e423754', keys: [/Canvas selector: host-format/i] },
-  { sha: '592e290', keys: [/Canvas selector: host-format|Bindings can target any project/i] },
-  { sha: 'fa7494d', keys: [/Canvas selector actually shows your projects/i] },
-  { sha: '281ee98', keys: [/Chip shows the selected value, and a stale host is called out/i] },
-  { sha: '6af7ff4', keys: [/New sub-canvases from the chat selector|Collapsing the canvas list no longer hides/i] },
-  { sha: '41b8df9', keys: [/仅会话 works from any bound project/i] },
+  // 0.19.21 已发布：历史行随发版清零（记录已在 0.19.21 段）。当前未发版：0.20.0 制作阶段机 + 多智能体自动创作。
+  { sha: '891870b', keys: [/Production stage machine \+ six code gates/i] },
 ];
 for (const c of COVERAGE) {
   ok(c.keys.some((re) => re.test(coverageText)), '未发版提交 ' + c.sha + ' 在 CHANGELOG（Unreleased 或最新已发布段）里找不到对应记录（补记不全）');

@@ -9,6 +9,15 @@ GitHub Releases carry the same notes in English; maintainer-facing runbooks live
 ### Added
 - **Production stage machine + six code gates (0.20.0 groundwork).** Every canvas (one episode) now carries a host-owned production stage — `brief → bible → assets → script → storyboard → shots_ready → generating → qc → post → delivered` — inferred from the document for projects that predate the feature (nothing blocks on upgrade) and materialised into `<project home>/production/<canvasKey>.json` on the first write, with an append-only history and an override audit trail. The stage governs *process*, never *content*: it decides which class of operation is in order, not what the story is. Six gates are enforced in code rather than prose (the rule text only explains them): **G1** bible-first (script/storyboard generation requires worldview + style + ≥1 character), **G2** storyboard quality (non-empty shots, durations, concrete shot sizes, ≥1 big close-up, no three consecutive identical motions, legal `seg`, ≤24 shots), **G3** one video per storyboard (edit the existing node's parameters instead of creating a second), **G4** no per-shot nodes (names containing 镜N are refused — consistency comes from reference-image assets), **G5** destructive-operation confirmation (`confirm` must carry the user's own words), and **G6** stage-order (video generation requires `shots_ready`). Each gate refuses with structured fields (`gate`/`missing`/`fails`/`fix`) and every gate has an escape hatch — `override: { by: 'user-explicit', quote: '…' }` — because an explicit user instruction always outranks process; overrides land in the audit log. New tools `canvas_production_status` (stage, gate verdicts, evidence counts, blockers, next step; the only basis for claiming "done" — `ready:true`) and `canvas_production_advance` (explicit advance/rollback for rework, `reason` mandatory); `canvas_node_status` now returns the current stage, and `productionCapabilities` probes for host session services so the upcoming multi-agent mode degrades cleanly instead of failing to load.
 
+### Fixed
+- **Deletion gates no longer break existing flows silently.** The strict regression suite now passes the user's confirmation words for deletions and ships gate-passing storyboard fixtures, so G5/G2 are proven end-to-end instead of relying on prose rules.
+
+### Changed
+- **Deletion RPCs now require `confirm`.** `canvas_delete_node` and `canvas_delete_project` refuse without it and return `gate: "G5"` with the fix spelled out — the model can no longer delete "to reset" a node on its own initiative.
+
+### Internal
+- **Gate refusals are structured results, not thrown errors.** `canvasCreateNode` / `canvasRunNode` / `canvasGenerateNode` return `{ ok:false, gate, missing|fails, fix }`, and every tool wrapper propagates those fields instead of reporting success.
+
 ## [0.19.21] — 2026-11-03
 
 ### Added
