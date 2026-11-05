@@ -18,6 +18,8 @@ GitHub Releases carry the same notes in English; maintainer-facing runbooks live
 
 ### Internal
 - **Gate refusals are structured results, not thrown errors.** `canvasCreateNode` / `canvasRunNode` / `canvasGenerateNode` return `{ ok:false, gate, missing|fails, fix }`, and every tool wrapper propagates those fields instead of reporting success.
+- **`canvas_production_status` reports the multi-agent capability.** The tool output carries the M0 probe verdict (host exposes session services or not), so the auto-creation runner can be verified from inside a conversation without any HTTP access to the desktop host.
+- **Settings card for the auto-creation switch + M3 runner design.** The settings tab gains 「自动创作（实验）」: the on/off toggle wired to `autoModeGet`/`autoModeSet`, live capability line (multi-agent available / host lacks session services), and an explicit "restart Harness" hint on old hosts instead of silent failure. `docs/auto-creation-design.md` freezes the M3 implementation plan (role presets YAML draft, tool matrix, runner dispatch order, M0 verification checklist, rollback) so the runner lands the moment the probe confirms session services.
 
 ## [0.19.21] — 2026-11-03
 

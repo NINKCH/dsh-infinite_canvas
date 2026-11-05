@@ -1225,10 +1225,19 @@ function cssRulesMatchingClass(name) {
   ok(/white-space:nowrap/.test(cssRule('.dshic-storage-summary')), '精简状态不是单行（缺少 nowrap）');
 }
 
+// ---------------- 自动创作卡片（0.20.0 实验开关） ----------------
+{
+  ok(/function AutoModeCard\(/.test(src), '缺 AutoModeCard（设置页自动创作开关卡片）');
+  ok(/SettingsTab[\s\S]{0,2400}?h\(AutoModeCard, \{ key: 'automode' \}\)/.test(src), 'AutoModeCard 未挂进设置页（应在 CraftCard 之后）');
+  ok(/hostRpc\('autoModeGet'\)/.test(src) && /hostRpc\('autoModeSet'/.test(src), '自动创作卡片未接 autoModeGet/autoModeSet RPC');
+  ok(/data-role': 'auto-mode-status'/.test(src), '自动创作状态行缺 data-role（回归定位锚点）');
+  ok(src.includes("'autoOldHost'"), '缺旧宿主提示文案（autoModeGet 失败时必须提示重启，不得静默）');
+}
+
 if (errs.length) {
   console.error('✗ 面板结构测试未通过（' + errs.length + ' 项）：');
   for (const e of errs) console.error('  - ' + e);
   process.exit(1);
 }
-console.log('✓ 面板结构测试通过（返回图标 / 图标列无框悬浮 / 统一弹窗 / 项目名与画布名就地编辑 / 下拉单行+顶部+/底部页码分页 / 右栏仅当前项目+折叠+搜索+比例 / 全局实底无灰蓝/无模糊 / 多画布目录树 / 存储实况折叠）');
+console.log('✓ 面板结构测试通过（返回图标 / 图标列无框悬浮 / 统一弹窗 / 项目名与画布名就地编辑 / 下拉单行+顶部+/底部页码分页 / 右栏仅当前项目+折叠+搜索+比例 / 全局实底无灰蓝/无模糊 / 多画布目录树 / 存储实况折叠 / 自动创作开关卡片）');
 process.exit(0);

@@ -1210,6 +1210,15 @@ function revealCanvasInRight() {
       'dataRootMigratedDone': '已迁移',
       'dataRootMigrating': '迁移中',
       'dataRootUnsupported': '当前插件后台版本较旧（不支持数据根目录）：重启 Harness 后可用',
+      'autoTitle': '自动创作（实验）',
+      'autoHint': '多智能体从剧本到成片自动流水线：先免费跑到分镜+预算单，你批准后才进入付费生成。默认关闭。',
+      'autoOn': '已开启',
+      'autoOff': '已关闭',
+      'autoEnable': '开启',
+      'autoDisable': '关闭',
+      'autoCapsOk': '多智能体：可用',
+      'autoCapsNo': '多智能体：宿主未暴露会话服务（暂不可用）',
+      'autoOldHost': '宿主插件是旧版本（不支持自动创作开关）：完全重启 Harness 后可用',
       'dataRootSaved': '数据根目录已设置',
       'storageInfo': '存储',
       'storageDetails': '存储详情',
@@ -2174,6 +2183,15 @@ function revealCanvasInRight() {
       'dataRootMigratedDone': 'Migrated',
       'dataRootMigrating': 'Migrating',
       'dataRootUnsupported': 'The plugin backend is older and lacks data-root support — restart Harness to enable',
+      'autoTitle': 'Auto creation (experimental)',
+      'autoHint': 'Multi-agent pipeline from script to final cut: the free phase stops at storyboard + budget; paid generation starts only after your approval. Off by default.',
+      'autoOn': 'On',
+      'autoOff': 'Off',
+      'autoEnable': 'Turn on',
+      'autoDisable': 'Turn off',
+      'autoCapsOk': 'Multi-agent: available',
+      'autoCapsNo': 'Multi-agent: host does not expose session services (unavailable)',
+      'autoOldHost': 'The plugin backend is older and lacks the auto-creation switch — fully restart Harness to enable',
       'dataRootSaved': 'Data root set',
       'storageInfo': 'Storage',
       'storageDetails': 'Storage details',
@@ -19685,6 +19703,7 @@ const DIRECTOR_KEY_HELP = [
         ),
         h(DataRootCard, { key: 'dataroot' }),
         h(CraftCard, { key: 'craft' }),
+        h(AutoModeCard, { key: 'automode' }),
         // 「技能增强」已升级为右侧独立「技能」页（SkillsTab）：四层图标瓦片 + 预览/写设定集
         // 文本模型卡：只选模型，参数全用 Harness 默认；紧挨图片/视频/TTS 模型卡片
         h('div', { key: 'llm', className: 'dshic-card' },
@@ -19711,6 +19730,53 @@ const DIRECTOR_KEY_HELP = [
         ),
         h('div', { key: 'note', className: 'dshic-hint' }, 'DeepSeek Harness · dsh-infinite-canvas' + ((S.updateInfo && S.updateInfo.runningVersion) ? ' v' + S.updateInfo.runningVersion : '')),
       ];
+    }
+
+    /** 自动创作开关卡片（实验，默认关闭）：开关 + 能力显示 + 旧宿主提示。挂设置页。 */
+    function AutoModeCard() {
+      const [st, setSt] = useState(null); // null = 读取中；{ enabled, caps, oldHost, busy }
+      const refresh = async () => {
+        try {
+          const r = await hostRpc('autoModeGet');
+          setSt({ enabled: !!r.enabled, caps: r.caps || null, oldHost: false, busy: false });
+        } catch {
+          setSt({ enabled: false, caps: null, oldHost: true, busy: false }); // 旧宿主：无此 RPC → 提示重启
+        }
+      };
+      useEffect(() => { refresh(); }, []);
+      const toggle = async () => {
+        if (!st || st.busy || st.oldHost) return;
+        setSt({ ...st, busy: true });
+        try {
+          const r = await hostRpc('autoModeSet', { enabled: !st.enabled });
+          setSt({ ...st, enabled: !!r.enabled, busy: false });
+        } catch {
+          setSt({ ...st, busy: false }); // 失败保持原状态；下次刷新校正
+        }
+      };
+      const row = h('div', { className: 'dshic-row' },
+        Ic('spark', 12),
+        h('strong', { style: { fontSize: 12, flex: 1, minWidth: 0 } }, T('autoTitle')),
+        st && !st.oldHost
+          ? h('button', {
+              key: 'toggle', type: 'button', className: cls('dshic-mini', st.enabled && 'is-on'),
+              disabled: st.busy, onPointerDown: (e) => e.stopPropagation(), onClick: toggle,
+            }, st.enabled ? T('autoOn') : T('autoEnable'))
+          : null,
+      );
+      const lines = [];
+      if (!st) lines.push(T('storageLoading'));
+      else if (st.oldHost) lines.push(T('autoOldHost'));
+      else {
+        lines.push(st.enabled ? T('autoOn') : T('autoOff'));
+        const multi = st.caps ? !!st.caps.multiAgent : false;
+        lines.push(multi ? T('autoCapsOk') : T('autoCapsNo'));
+      }
+      return h('div', { className: 'dshic-card' },
+        row,
+        h('div', { className: 'dshic-hint', style: { marginTop: 4 } }, T('autoHint')),
+        h('div', { className: 'dshic-hint', style: { marginTop: 2 }, 'data-role': 'auto-mode-status' }, lines.join(' · ')),
+      );
     }
 
     /** 从项目现有创作意图/剧本一键起草设定集（世界观/风格/角色/场景/道具）。 */
