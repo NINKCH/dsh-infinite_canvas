@@ -1232,6 +1232,9 @@ function cssRulesMatchingClass(name) {
   ok(/hostRpc\('autoModeGet'\)/.test(src) && /hostRpc\('autoModeSet'/.test(src), '自动创作卡片未接 autoModeGet/autoModeSet RPC');
   ok(/data-role': 'auto-mode-status'/.test(src), '自动创作状态行缺 data-role（回归定位锚点）');
   ok(src.includes("'autoOldHost'"), '缺旧宿主提示文案（autoModeGet 失败时必须提示重启，不得静默）');
+  ok(/function ProductionStageRow\(/.test(src) && /data-role': 'production-stage'/.test(src), '缺制作阶段行（ProjectsTab 阶段显示）');
+  ok(/hostRpc\('productionStatus'/.test(src), '阶段行未接 productionStatus RPC');
+  ok(src.includes("'stageCurrent'") && src.includes("'stageBlockers'"), '缺阶段行 i18n 键');
 }
 
 if (errs.length) {

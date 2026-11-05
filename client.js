@@ -1219,6 +1219,10 @@ function revealCanvasInRight() {
       'autoCapsOk': '多智能体：可用',
       'autoCapsNo': '多智能体：宿主未暴露会话服务（暂不可用）',
       'autoOldHost': '宿主插件是旧版本（不支持自动创作开关）：完全重启 Harness 后可用',
+      'stageCurrent': '制作阶段',
+      'stageReadyYes': '可交付',
+      'stageReadyNo': '未就绪',
+      'stageBlockers': '阻塞',
       'dataRootSaved': '数据根目录已设置',
       'storageInfo': '存储',
       'storageDetails': '存储详情',
@@ -2192,6 +2196,10 @@ function revealCanvasInRight() {
       'autoCapsOk': 'Multi-agent: available',
       'autoCapsNo': 'Multi-agent: host does not expose session services (unavailable)',
       'autoOldHost': 'The plugin backend is older and lacks the auto-creation switch — fully restart Harness to enable',
+      'stageCurrent': 'Stage',
+      'stageReadyYes': 'deliverable',
+      'stageReadyNo': 'not ready',
+      'stageBlockers': 'blocked',
       'dataRootSaved': 'Data root set',
       'storageInfo': 'Storage',
       'storageDetails': 'Storage details',
@@ -18182,6 +18190,28 @@ const DIRECTOR_KEY_HELP = [
     // ============================================================
     // 右侧边栏：项目 / 资产 / 设置
     // ============================================================
+    /** 制作阶段行（0.20.0）：当前画布的阶段 + 可交付/阻塞概览。旧宿主（无 RPC）整行隐藏，零打扰。 */
+    function ProductionStageRow({ projectId, canvasId }) {
+      const [st, setSt] = useState(null);
+      useEffect(() => {
+        let alive = true;
+        const load = async () => {
+          try {
+            const r = await hostRpc('productionStatus', { projectId, canvasId });
+            if (alive && r && r.ok) setSt(r);
+          } catch { if (alive) setSt(null); } // 旧宿主/项目已删 → 静默隐藏
+        };
+        load();
+        const t = setInterval(load, 30000); // 阶段由工具事件推进，30s 轮询足够
+        return () => { alive = false; clearInterval(t); };
+      }, [projectId, canvasId]);
+      if (!st) return null;
+      const blockers = (st.blockers || []).length;
+      const readyText = st.ready ? T('stageReadyYes') : (blockers ? T('stageBlockers') + ' ' + blockers : T('stageReadyNo'));
+      return h('div', { className: 'dshic-hint', 'data-role': 'production-stage', style: { alignSelf: 'flex-start', padding: '2px 2px 0' } },
+        T('stageCurrent') + '：' + (st.stageZh || st.stage) + ' · ' + readyText);
+    }
+
     function ProjectsTab() {
       // 新建项目统一走左上角项目名下拉（「+ 新建项目…」），右栏只管理当前项目，不再放新建项目按钮
       const [delTarget, setDelTarget] = useState(null);
@@ -18338,6 +18368,8 @@ const DIRECTOR_KEY_HELP = [
           ? h('div', { key: 'emptystate', className: 'dshic-hint', style: { alignSelf: 'flex-start', padding: '6px 2px', maxWidth: 260 } },
               T('emptyProjectHint'))
           : null,
+        // 制作阶段行（0.20.0 阶段机）：当前画布的阶段 + 可交付/阻塞概览；旧宿主无 RPC 时整行隐藏
+        proj ? h(ProductionStageRow, { key: 'stage', projectId: proj.id, canvasId: activeCanvasId() === DEFAULT_CANVAS_ID ? null : activeCanvasId() }) : null,
         // 项目区域顶部：一行「+ 新建画布（纯图标）」+ 搜索框（放大镜内嵌在输入框右侧）
         // 折叠只折叠**下方画布列表**：搜索行始终可见（折叠不能把上方工具行一起吞掉）
         proj
