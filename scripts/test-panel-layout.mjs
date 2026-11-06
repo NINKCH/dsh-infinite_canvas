@@ -1242,7 +1242,9 @@ function cssRulesMatchingClass(name) {
   ok(/function ImageGenBridgeCard\(/.test(src) && /data-role': 'image-gen-bridge'/.test(src), '缺 ImageGenBridgeCard（dsh-image-gen 图片模型卡）');
   ok(/h\(ImageGenBridgeCard, \{ key: 'imagegenbridge' \}\)/.test(src), 'ImageGenBridgeCard 未挂进设置页');
   ok(/\/plugins\/dsh-image-gen\/studio/.test(src) && /function apiGenBridge\(/.test(src), '缺 dsh-image-gen /studio 桥接（模型探测或生图）');
-  ok(/bridgeOn\s*\?\s*await apiGenBridge/.test(src), '图片生成未接入 dsh-image-gen 桥接分支');
+  ok(/useBridge\s*\?\s*await apiGenBridge/.test(src), '图片生成未接入 dsh-image-gen 桥接分支');
+  ok(/id: 'image-gen-bridge'/.test(src) && /viaImageGen/.test(src), '桥接模型未同步进 imageProviders（节点下拉应直选）');
+  ok(src.includes("imageGenStatusYes") && src.includes("imageGenStatusNo"), '缺「未配置/已配置」状态行');
 }
 
 if (errs.length) {

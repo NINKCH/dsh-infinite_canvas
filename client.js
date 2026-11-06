@@ -1222,7 +1222,10 @@ function revealCanvasInRight() {
       'stageReadyYes': '可交付',
       'stageReadyNo': '未就绪',
       'stageBlockers': '阻塞',
-      'imageGenTitle': '图片模型（来自 dsh-image-gen）',
+      'imageGenTitle': '桥接dsh-image-gen',
+      'imageGenStatusNo': 'dsh-image-gen模型·未配置',
+      'imageGenMissing': '未检测到 dsh-image-gen',
+      'imageGenStatusYes': 'dsh-image-gen模型·已配置',
       'imageGenNoModel': '（未选择模型）',
       'dataRootSaved': '数据根目录已设置',
       'storageInfo': '存储',
@@ -2200,7 +2203,10 @@ function revealCanvasInRight() {
       'stageReadyYes': 'deliverable',
       'stageReadyNo': 'not ready',
       'stageBlockers': 'blocked',
-      'imageGenTitle': 'Image models (via dsh-image-gen)',
+      'imageGenTitle': 'Bridge: dsh-image-gen',
+      'imageGenStatusNo': 'dsh-image-gen models · not configured',
+      'imageGenMissing': 'dsh-image-gen not detected',
+      'imageGenStatusYes': 'dsh-image-gen models · configured',
       'imageGenNoModel': '(no model)',
       'dataRootSaved': 'Data root set',
       'storageInfo': 'Storage',
@@ -10755,17 +10761,17 @@ function queueThumb(assetId) {
             const lock = await buildShotLockText(lockKind, { medium: 'image' });
             if (lock) p = p + '\n' + lock;
           } catch { /* 技能包不可用时不影响生成 */ }
-          // 模型解析：dsh-image-gen 桥接启用时不需要画布自配图片模型；否则节点选择优先 → 星标默认 → 明确报错
-          const bridgeOn = !!(settings.imageGen && settings.imageGen.enabled);
-          const mcfg = bridgeOn ? null : resolveImageModelCfg(settings, nodeImageModelRef(n));
-          if (!bridgeOn && !mcfg) throw new Error(T('errNoImageModel'));
+          // 模型解析：节点下拉里的「桥接dsh-image-gen」条目走 studio 生成（无需画布自配）；其余照旧
+          const mcfg = resolveImageModelCfg(settings, nodeImageModelRef(n));
+          const useBridge = !!(mcfg && mcfg.viaImageGen);
+          if (!mcfg) throw new Error(T('errNoImageModel'));
           // 张数（1–4）：同一提示词一次生成多张；历史条保留全部结果，节点显示最后一张
           const want = clamp(Number(n.data.imageCount) || 1, 1, 4);
           const cases = [];
           for (let i = 0; i < want; i++) {
             if (want > 1) update((s) => { const nd = s.graph.nodes[n.id]; if (nd) nd.data.progress = (i + 1) + '/' + want; });
-            const blob = bridgeOn
-              ? await apiGenBridge(p, metas, settings.imageGen, { ratio: n.data.ratio })
+            const blob = useBridge
+              ? await apiGenBridge(p, metas, { provider: mcfg.imageGenProvider, model: mcfg.model }, { ratio: n.data.ratio })
               : await apiImage(p, metas, mcfg, {
               size: n.data.size, ratio: n.data.ratio, nodeExtra: n.data.imgExtra, warn: addWarn,
               // 任务式厂商（三宝图片）：任务 id 就是凭证——代理超时/页面关闭后仍可凭 id 回查（与视频同口径）
@@ -19858,75 +19864,80 @@ const DIRECTOR_KEY_HELP = [
 
     /** 设定条目 ↔ 资产绑定对话框：从当前项目的资产库里多选图片/音频/视频。 */
     /** 绑定对话框的资产行：组件化以便用 useAssetUrl 显示缩略图。 */
+    /** 桥接卡（0.20.0）：开关 + 配置状态；开启时把 dsh-image-gen 的模型同步进图片模型下拉（节点直接可选）。 */
     function ImageGenBridgeCard() {
-      const init = loadSettings().imageGen || {};
-      const [desc, setDesc] = useState(null); // GET /studio 的 describe
-      const [missing, setMissing] = useState(false);
-      const [enabled, setEnabled] = useState(!!init.enabled);
-      const [prov, setProv] = useState(init.provider || '');
-      const [model, setModel] = useState(init.model || '');
+      const [st, setSt] = useState({ missing: false, configured: false });
+      const [enabled, setEnabled] = useState(!!(loadSettings().imageGen || {}).enabled);
+      /** 把 studio describe 的已配置服务商/模型写进 settings.imageProviders 的桥接条目；关闭/未配置时移除。 */
+      const syncBridgeModels = (desc, on) => {
+        const s0 = loadSettings();
+        const list = (s0.imageProviders || []).filter((p) => p.id !== 'image-gen-bridge');
+        const conf = desc ? (desc.providers || []).filter((p) => p && p.configured) : [];
+        const models = [];
+        if (on) for (const p of conf) {
+          const opts = (p.modelOptions || []).map((o) => o.value).filter(Boolean);
+          for (const m of (opts.length ? opts : [p.model].filter(Boolean))) {
+            models.push({ id: p.provider + '|' + m, model: m, viaImageGen: p.provider });
+          }
+        }
+        if (models.length) {
+          list.unshift({ id: 'image-gen-bridge', name: '桥接dsh-image-gen', baseUrl: '', apiKey: '', viaImageGen: true, models });
+        }
+        s0.imageProviders = list;
+        saveSettings(s0);
+        return models.length;
+      };
       useEffect(() => {
         let alive = true;
         (async () => {
+          const on = !!(loadSettings().imageGen || {}).enabled;
           try {
             const r = await fetch('/plugins/dsh-image-gen/studio', { headers: { accept: 'application/json' } });
             if (!r.ok) throw new Error('HTTP ' + r.status);
             const j = await r.json();
-            if (!alive) return;
-            setDesc(j);
             const conf = (j.providers || []).filter((p) => p && p.configured);
-            const pick = conf.find((p) => p.provider === (loadSettings().imageGen || {}).provider) || conf.find((p) => p.provider === j.activeProvider) || conf[0];
-            if (pick) {
-              setProv((cur) => cur || pick.provider);
-              setModel((cur) => cur || pick.model || ((pick.modelOptions || [])[0] && (pick.modelOptions || [])[0].value) || '');
-            }
-          } catch { if (alive) setMissing(true); } // 未安装插件 → 整卡显示"未检测到"，不影响画布自配
+            const modelsN = syncBridgeModels(j, on);
+            if (alive) setSt({ missing: false, configured: on && conf.length > 0 && modelsN > 0 });
+          } catch {
+            syncBridgeModels(null, false);
+            if (alive) setSt({ missing: true, configured: false });
+          }
         })();
         return () => { alive = false; };
       }, []);
-      const persist = (patch) => {
-        const s = loadSettings();
-        s.imageGen = { enabled, provider: prov, model, ...patch };
-        saveSettings(s);
+      const toggle = () => {
+        const v = !enabled;
+        setEnabled(v);
+        const s0 = loadSettings();
+        s0.imageGen = { ...(s0.imageGen || {}), enabled: v };
+        saveSettings(s0);
+        // 开/关即时生效：重跑一次探测同步（加回或移除桥接模型条目）
+        (async () => {
+          try {
+            const r = await fetch('/plugins/dsh-image-gen/studio', { headers: { accept: 'application/json' } });
+            const j = r.ok ? await r.json() : null;
+            const conf = j ? (j.providers || []).filter((p) => p && p.configured) : [];
+            const modelsN = syncBridgeModels(j, v && conf.length > 0);
+            setSt({ missing: !r.ok, configured: v && conf.length > 0 && modelsN > 0 });
+          } catch { syncBridgeModels(null, false); setSt({ missing: true, configured: false }); }
+        })();
       };
-      const conf = desc ? (desc.providers || []).filter((p) => p && p.configured) : [];
-      const cur = conf.find((p) => p.provider === prov);
-      const models = cur
-        ? ((cur.modelOptions || []).map((o) => o.value).filter(Boolean).length ? (cur.modelOptions || []).map((o) => o.value) : (cur.model ? [cur.model] : []))
-        : [];
+      const statusText = st.missing ? T('imageGenMissing') : (st.configured ? T('imageGenStatusYes') : T('imageGenStatusNo'));
       return h('div', { className: 'dshic-card', 'data-role': 'image-gen-bridge' },
         h('div', { className: 'dshic-row' },
           Ic('image', 12),
           h('strong', { style: { fontSize: 12, flex: 1, minWidth: 0 } }, T('imageGenTitle')),
-          missing
+          st.missing
             ? null
             : h('button', {
                 type: 'button', className: cls('dshic-mini', enabled && 'is-on'),
                 onPointerDown: (e) => e.stopPropagation(),
-                onClick: () => { const v = !enabled; setEnabled(v); persist({ enabled: v }); },
+                onClick: toggle,
               }, enabled ? T('autoOn') : T('autoEnable')),
         ),
-        !missing && conf.length
-          ? h('div', { style: { marginTop: 6 } },
-              h('select', {
-                className: 'dshic-select', value: prov,
-                onChange: (e) => {
-                  const p2 = conf.find((x) => x.provider === e.target.value);
-                  const m2 = p2 ? (p2.model || ((p2.modelOptions || [])[0] && (p2.modelOptions || [])[0].value) || '') : '';
-                  setProv(e.target.value); setModel(m2); persist({ provider: e.target.value, model: m2 });
-                },
-                onPointerDown: (e) => e.stopPropagation(),
-              }, conf.map((p) => h('option', { key: p.provider, value: p.provider }, (p.label || p.provider)))),
-              h('select', {
-                className: 'dshic-select', style: { marginTop: 4 }, value: model,
-                onChange: (e) => { setModel(e.target.value); persist({ model: e.target.value }); },
-                onPointerDown: (e) => e.stopPropagation(),
-              }, (models.length ? models : ['']).map((m2) => h('option', { key: m2, value: m2 }, m2 || T('imageGenNoModel')))),
-            )
-          : null,
+        h('div', { className: 'dshic-hint', style: { marginTop: 4 }, 'data-role': 'image-gen-status' }, statusText),
       );
     }
-
     function SettingsTab() {
       const [s, setS] = useState(loadSettings);
       const apply = (fn) => {
