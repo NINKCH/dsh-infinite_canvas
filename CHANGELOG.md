@@ -6,6 +6,8 @@ GitHub Releases carry the same notes in English; maintainer-facing runbooks live
 
 ## [Unreleased]
 
+## [0.20.1] — 2026-11-06
+
 ### Added
 - **Skill-profile awareness in the writers room.** The monitor's decision round in
   autoRoom now receives a "project skill-pack profile" header (renderProfile, same
