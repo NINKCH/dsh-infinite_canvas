@@ -63,6 +63,20 @@ Help & feedback:
 
 ![Help & feedback (EN UI)](./docs/images/help-en.png)
 
+## Production stage machine & auto creation (experimental)
+
+Every canvas (one episode) carries a host-enforced **production stage** — `brief → bible → assets → script → storyboard → shots_ready → generating → qc → post → delivered` — with six code gates (bible-first, storyboard quality, one video per storyboard, no per-shot nodes, destructive-op confirmation, stage order). Gates refuse with the exact missing items and always accept an explicit-user override (audited). `canvas_production_status` is the only basis for claiming "done".
+
+With the **Auto creation (experimental)** switch on (Settings → 自动创作), the agent runs a writers room from one sentence — research → two independent pitches → cross-critique → producer decision → bible → script → per-scene storyboards (quality-gated) → **budget sheet** — with zero paid calls; approve once and it generates videos per storyboard and builds a final-cut node. The transcript lands on the canvas as a 编剧室会议 node; questions are forbidden in this mode.
+
+## Image models via `dsh-image-gen`
+
+If the `dsh-image-gen` plugin is installed and configured, Settings shows 「图片模型（来自 dsh-image-gen）」: pick one of its providers/models and generate directly through its studio bridge — no base URL or API key in the canvas; credentials stay on the image-gen side.
+
+## Precise layout
+
+`canvas_layout_get` reads the whole board's geometry; `canvas_layout_node` batch-places nodes by coordinate (media nodes can resize, ratio-preserving) and can pin nodes so `canvas_relayout` never moves them. Relayout packs clusters in bands instead of one endless column and never covers pinned nodes.
+
 ## Work beside the chat
 
 The canvas is not a separate window you have to switch to. It opens as a **tab in the Harness right pane**, so you can talk to the agent on the left and storyboard on the right **at the same time** — ask for a change in chat and watch the nodes update in place.

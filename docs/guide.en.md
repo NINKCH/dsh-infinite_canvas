@@ -130,7 +130,11 @@ canvas: project card     script node      text+storyboard ×N   ref image nodes 
 
 ---
 
-## 4. Manual fine-tuning: nodes are the workbench
+### 3.1 Auto creation (experimental) — one sentence to storyboards + budget
+
+Settings → 「自动创作（实验）」→ on. Then one sentence in the chat (e.g. 拍个悬疑短剧，快递员每天送的信来自未来) starts the writers room: research → two independent pitches → cross-critique → producer decision → bible → script → per-scene storyboards → **budget sheet**. No questions are asked in this mode; the transcript lands on the canvas (编剧室会议 node). Approve the budget once (settings card, or `canvas_auto_budget` + `canvas_auto_generate` from chat) and videos are generated per storyboard, ending with a final-cut node. All gates still apply (bible-first, storyboard quality…), and the canvas must stay open during generation — the runner opens it for you and reports honestly if it cannot.
+
+### 4. Manual fine-tuning: nodes are the workbench
 
 After the chat batch is done, the canvas is where you polish:
 
@@ -150,6 +154,14 @@ Shortcuts and gestures:
 ---
 
 ## 5. Model configuration: providers + models
+
+### 5.1 Image models via `dsh-image-gen` (zero duplicate config)
+
+If the `dsh-image-gen` plugin is installed and configured, the settings tab shows 「图片模型（来自 dsh-image-gen）」: pick one of its configured providers and a model, flip the switch on, and canvas image generation routes through its studio bridge — the API key stays on the image-gen side and the canvas needs nothing. When the plugin is missing or unconfigured, the card says so and the ordinary provider list keeps working.
+
+### 5.2 Precise layout tools
+
+`canvas_layout_get` reads every node's `x/y/w/h` (plus pinned flag and bounds); `canvas_layout_node` batch-places nodes by coordinate — media nodes can resize while keeping the picture ratio, and `pinned:true` protects a node from `canvas_relayout`. Use these when you need exact placement (alignment, columns, spacing); use `canvas_relayout` only as a rough tidy-up (it packs clusters in bands and never covers pinned nodes).
 
 Settings tab → Image models / Video models / TTS voices, organized in **two levels**:
 

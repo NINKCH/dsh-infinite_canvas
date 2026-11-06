@@ -3929,6 +3929,7 @@ export function apply(ctx) {
       if (!run || run.status !== 'done') return { ok: false, error: '免费段尚未完成（没有分镜与预算）' };
       if (run.paid === 'running') return { ok: false, error: '付费段已在运行' };
       run.paid = 'running';
+      run.paidAbort = false;
       run.paidLog = [{ at: Date.now(), text: '付费段启动（已批准预算 ' + ap.quoteId + '）' }];
       (async () => {
         try {
@@ -3936,6 +3937,7 @@ export function apply(ctx) {
           const boards = Object.values(doc.nodes || {}).filter((n) => n.type === 'storyboard' && Array.isArray(n.data && n.data.shots) && n.data.shots.length);
           let lastVideo = null;
           for (let i = 0; i < boards.length; i++) {
+            if (run.paidAbort) { run.paid = 'aborted'; run.paidPhase = 'aborted'; run.paidLog.push({ at: Date.now(), text: '已中止（保留已完成视频）' }); return; }
             const sb = boards[i];
             run.paidPhase = 'video ' + (i + 1) + '/' + boards.length;
             const hasVideo = (doc.edges || []).some((e) => e.fromNode === sb.id && doc.nodes[e.toNode] && doc.nodes[e.toNode].type === 'video');
@@ -3945,6 +3947,7 @@ export function apply(ctx) {
             if (v && v.ok === false) throw new Error('[' + v.gate + '] ' + v.error);
             let done = false; let err = null;
             for (let attempt = 0; attempt < 2 && !done; attempt++) {
+              if (attempt > 0 && run.paidAbort) { run.paid = 'aborted'; run.paidPhase = 'aborted'; run.paidLog.push({ at: Date.now(), text: '已中止（保留已完成视频）' }); return; }
               try { await canvasExec(pid, cid, v.nodeId, { timeoutMs: 15 * 60 * 1000 }); done = true; }
               catch (e) { err = e; run.paidLog.push({ at: Date.now(), text: label + ' 第 ' + (attempt + 1) + ' 次失败：' + String((e && e.message) || e) }); }
             }
@@ -4383,17 +4386,20 @@ export function apply(ctx) {
         autoRoom(pid, cid, brief).catch(() => { /* 兜底：autoRoom 内部已捕获并落状态 */ });
         return { ok: true, runId: runKey, status: 'running', note: '免费段已启动（调研→提案→互评→决策→落盘）；用 autoStatus 查看进度' };
       },
-      /** 中止运行中的编剧室：保留已产出内容（讨论节点/设定集/节点），不再继续后续步骤。 */
+      /** 中止运行中的自动创作（免费段或付费段）：保留已产出内容（讨论节点/设定集/节点/已完成视频）。 */
       async autoAbort(args) {
         if (!autoEnabled()) return autoDisabled();
         const pid = String((args && args.projectId) || '');
         if (!pid) return { ok: false, error: '缺少 projectId' };
         const run = AUTO_RUNS.get(runKeyOf(pid, toolCanvasId(args)));
-        if (!run || run.status !== 'running') return { ok: false, error: '该画布没有正在运行的自动创作' };
-        run.status = 'aborted';
+        if (!run) return { ok: false, error: '该画布没有正在运行的自动创作' };
+        let stopped = false;
+        if (run.status === 'running') { run.status = 'aborted'; stopped = true; }
+        if (run.paid === 'running') { run.paidAbort = true; run.paid = 'aborting'; stopped = true; }
+        if (!stopped) return { ok: false, error: '该画布没有正在运行的自动创作' };
         run.error = null;
         run.log.push({ at: Date.now(), role: 'runner', summary: '已中止（保留已产出内容）' });
-        return { ok: true, status: 'aborted' };
+        return { ok: true, status: run.status, paid: run.paid };
       },
       async sessionBindingGet(args) {
         const sid = String((args && args.sessionId) || '');

@@ -19991,11 +19991,11 @@ const DIRECTOR_KEY_HELP = [
         st && st.enabled && !st.oldHost
           ? h('div', { style: { marginTop: 6 }, 'data-role': 'auto-run' },
               h(Field, { label: T('autoBriefLabel'), value: brief, onChange: (v) => setBrief(v), placeholder: T('autoBriefPh') }),
-              run && run.status === 'running'
+              run && (run.status === 'running' || run.paid === 'running')
                 ? h('button', { type: 'button', className: 'dshic-mini is-ghost', style: { marginTop: 6 }, onPointerDown: (e) => e.stopPropagation(), onClick: abortRun }, T('autoAbortBtn'))
                 : h('button', {
                     type: 'button', className: 'dshic-mini', style: { marginTop: 6 },
-                    disabled: !brief.trim(), onPointerDown: (e) => e.stopPropagation(), onClick: startRun,
+                    disabled: !brief.trim() || run.paid === 'running', onPointerDown: (e) => e.stopPropagation(), onClick: startRun,
                   }, T('autoStartBtn')),
               runLine ? h('div', { className: 'dshic-hint', style: { marginTop: 4 }, 'data-role': 'auto-run-status' }, runLine) : null,
               run && run.budget && run.status === 'done'
