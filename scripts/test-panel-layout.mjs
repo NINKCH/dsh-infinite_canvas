@@ -1247,6 +1247,44 @@ function cssRulesMatchingClass(name) {
   ok(src.includes("imageGenStatusYes") && src.includes("imageGenStatusNo"), '缺「未配置/已配置」状态行');
 }
 
+// 行为回归（P0）：桥接模型的 viaImageGen/imageGenProvider 必须在扁平视图里透传——
+// 否则节点下拉能看到桥接模型，选中生成时 useBridge 判 false → 走 apiImage → baseUrl 空 → 「未配置图片 API」。
+// 曾因 flattenImageModels 丢字段导致整条桥接链路必炸，源码正则门禁抓不住，必须走行为断言。
+{
+  const SET = sandbox.window.__DSH_IC_SETTINGS__;
+  ok(SET && typeof SET.flattenImageModels === 'function', '__DSH_IC_SETTINGS__ 缺 flattenImageModels（桥接行为回归需要）');
+  if (SET && typeof SET.flattenImageModels === 'function') {
+    const fake = {
+      imageProviders: [
+        { id: 'image-gen-bridge', name: '桥接dsh-image-gen', baseUrl: '', apiKey: '', viaImageGen: true,
+          models: [{ id: 'google|gemini-img', model: 'gemini-img', viaImageGen: 'google' }] },
+        { id: 'plain', name: '普通供应商', baseUrl: 'https://api.example.com/v1', apiKey: 'sk-x',
+          models: [{ id: 'm1', model: 'plain-model' }] },
+      ],
+    };
+    const flat = SET.flattenImageModels(fake);
+    const bridge = flat.find((x) => x.providerId === 'image-gen-bridge');
+    const plain = flat.find((x) => x.providerId === 'plain');
+    ok(!!bridge, 'flattenImageModels 丢掉了桥接条目');
+    ok(bridge && bridge.viaImageGen === true, '桥接供应商级 viaImageGen 未透传（useBridge 判 false → 生成必炸）');
+    ok(bridge && bridge.imageGenProvider === 'google', '桥接模型级 imageGenProvider 未透传（/studio 请求缺 provider）');
+    ok(plain && !plain.viaImageGen && !plain.imageGenProvider, '普通供应商被误标为桥接（会错误路由到 /studio）');
+  }
+}
+
+// 行为回归（状态行语义）：configured 只反映 image-gen 侧的配置状态，与卡片开关解耦——
+// 「未配置/已配置」描述的是插件是否配好；开关只管模型是否同步进下拉。曾耦合导致关着开关时显示「未配置」。
+// 写盘去抖：探测同步在设置无变化时不得 saveSettings（设置页每次挂载都会探测，写盘会触发 notify 重渲染循环）。
+{
+  const TABS2 = sandbox.window.__DSH_IC_TABS__;
+  const SET = sandbox.window.__DSH_IC_SETTINGS__;
+  // 源码级契约：configured 判定不得再乘上 on/enabled（解耦）；syncBridgeModels 写盘前必须比对现状
+  ok(!/configured: on && conf\.length/.test(src), '桥接状态行仍与开关耦合（关闭时已配置的插件显示「未配置」）');
+  ok(/JSON\.stringify\((?:s0|prev)\.imageProviders(?: \|\| \[\])?\) === JSON\.stringify\(list\)|function syncBridgeModels[\s\S]{0,900}不变/.test(src) || /syncBridgeModels[\s\S]{0,900}noChange/.test(src),
+    'syncBridgeModels 每次探测都写盘（设置页挂载→saveSettings→notify 重渲染循环）');
+  ok(!!TABS2 && !!SET, '沙箱缝隙缺失（TABS/SETTINGS）');
+}
+
 if (errs.length) {
   console.error('✗ 面板结构测试未通过（' + errs.length + ' 项）：');
   for (const e of errs) console.error('  - ' + e);

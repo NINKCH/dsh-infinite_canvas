@@ -260,8 +260,12 @@ let sbNodeId = '';
   const M = I.rpcMethods();
   await M.autoModeSet({ enabled: true });
   const roomPid = (await byName.get('canvas_create_project').execute({ name: '自动创作测试' }, {})).projectId;
+  // 技能遵循度回归：监制轮（唯一决定剧情/设定的环节）的 system 必须带项目技能包配置头——
+  // 否则编剧室产出的题材/影调与项目技能配置脱节，全靠 G2 打回兜底。先给项目写入一份配置再跑。
+  const monitorSystems = [];
   const fake = async ({ system }) => {
     const s = String(system || '');
+    if (s.includes('监制')) monitorSystems.push(s);
     if (s.includes('调研员')) return JSON.stringify({ themes: [{ name: '时空邮差', why: 't' }], styles: ['写实电影感'] });
     if (s.includes('编剧A')) return JSON.stringify({ logline: 'A案故事线', beats: ['b1', 'b2', 'b3'] });
     if (s.includes('编剧B')) return JSON.stringify({ logline: 'B案故事线', beats: ['c1', 'c2', 'c3'] });
@@ -341,6 +345,25 @@ let sbNodeId = '';
   // autoAbort：非运行态应拒绝
   const ab = await M.autoAbort({ projectId: roomPid });
   ok(ab && ab.ok === false, '非运行态 autoAbort 应拒绝');
+
+  // 技能遵循度：给项目写一份技能配置（用 canvas_skill_pack set:true），重跑一次编剧室，
+  // 监制轮 system 必须带上「生效配置」（题材/影调跟随项目配置，决策不与技能脱节）。
+  {
+    await byName.get('canvas_skill_pack').execute({ projectId: roomPid, kind: 'script', lens: 'fincher', genres: ['suspense-rule'], set: true }, {});
+    monitorSystems.length = 0;
+    await M.autoAbort({ projectId: roomPid }).catch(() => {});
+    const run2 = await M.autoStart({ projectId: roomPid, brief: '第二个创意：确认监制轮吃到技能配置' });
+    ok(run2 && run2.ok === true, '技能遵循度重跑未启动');
+    for (let i = 0; i < 50; i++) {
+      await new Promise((r) => setTimeout(r, 100));
+      const v = (await M.autoStatus({ projectId: roomPid })).run;
+      if (v && (v.status === 'done' || v.status === 'failed')) break;
+    }
+    ok(monitorSystems.length >= 1, '监制轮未被调用（技能遵循度断言失效）');
+    const monSys = monitorSystems[monitorSystems.length - 1] || '';
+    ok(monSys.includes('生效配置') || monSys.includes('导演='), '监制轮 system 未带技能包配置头（编剧室决策会与项目技能配置脱节）');
+    ok(monSys.includes('悬疑') || monSys.includes('suspense-rule'), '监制轮配置头未反映项目已选题材');
+  }
 }
 
 // ---------------- 工具 ----------------

@@ -259,11 +259,23 @@ try { fs.rmSync(SANDBOX, { recursive: true, force: true }); } catch { /* 清理�
     const r = await buildSkillPack({ kind: "assets", profile: onlyForm, hereDir: ROOT, zh: true });
     ok(r.bytes === 0, "assets kind 在没有 assets 切片时必须返回 0 字节（实际 " + r.bytes + "）");
   }
-  // E) 分镜链路带打斗节奏卡；提示词只带运镜
+  // E) fight-rhythm 条件注入：打斗/强动作题材才带打斗节奏卡（悬疑/日常等非动作题材是 4.9KB 纯浪费）；
+  //    camera-moves（运镜词典）仍是分镜必备，任何配置都注入；提示词只带运镜不变
   {
-    const sb = await buildSkillPack({ kind: "storyboard", profile: onlyForm, hereDir: ROOT, zh: true });
-    ok(sb.used.some((u) => u.layer === "moves"), "分镜链路应注入运镜/节奏卡");
-    ok(sb.bytes > 0 && /打斗|节奏/.test(sb.text), "分镜链路应含打斗节奏内容");
+    const sbAction = await buildSkillPack({ kind: "storyboard", profile: { lens: "", genres: ["wuxia"], form: "cinematic", look: "" }, hereDir: ROOT, zh: true });
+    ok(sbAction.used.some((u) => u.layer === "moves"), "分镜链路应注入运镜/节奏卡");
+    ok(/打斗|节奏/.test(sbAction.text), "动作题材（wuxia）分镜应含打斗节奏内容");
+    const usedMoves = sbAction.used.filter((u) => u.layer === "moves").map((u) => u.id);
+    ok(usedMoves.includes("fight-rhythm"), "动作题材分镜应带 fight-rhythm（实际 moves: " + usedMoves.join(",") + "）");
+    const sbCalm = await buildSkillPack({ kind: "storyboard", profile: { lens: "", genres: ["slice-of-life"], form: "cinematic", look: "" }, hereDir: ROOT, zh: true });
+    const calmMoves = sbCalm.used.filter((u) => u.layer === "moves").map((u) => u.id);
+    ok(!calmMoves.includes("fight-rhythm"), "非动作题材（slice-of-life）分镜不应带 fight-rhythm（4.9KB 纯浪费）");
+    ok(calmMoves.includes("camera-moves"), "非动作题材分镜仍必须带运镜词典 camera-moves");
+    const sbNoGenre = await buildSkillPack({ kind: "storyboard", profile: onlyForm, hereDir: ROOT, zh: true });
+    const noGenreMoves = sbNoGenre.used.filter((u) => u.layer === "moves").map((u) => u.id);
+    ok(noGenreMoves.includes("camera-moves") && !noGenreMoves.includes("fight-rhythm"), "未选题材时只带运镜（不打斗节奏）");
+    const sc = await buildSkillPack({ kind: "script", profile: { lens: "", genres: ["wuxia"], form: "", look: "" }, hereDir: ROOT, zh: true });
+    ok(!String(sc.text).includes("一镜一运镜"), "script 切片不应带整份运镜词典");
   }
   // F) 工具层 kind 白名单（源码级：非法 kind 必须抛错而不是静默出空切片）
   {

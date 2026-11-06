@@ -12,11 +12,19 @@ import { normalizeSkillProfile } from './index-core-skill-profile.js';
 /** moves 永远随 storyboard/prompt 走（运镜是这两类生成的必需品）。 */
 const MOVES_FOR_KIND = {
   script: [],
-  // 分镜要调度动作，运镜 + 打斗节奏两张卡都带；提示词只需运镜。
-  storyboard: ['camera-moves', 'fight-rhythm'],
+  // 分镜要调度动作，运镜必备；打斗节奏卡只在动作/冲突类题材下跟随注入（悬疑/日常等非动作题材
+  // 带它 = 4.9KB 纯浪费且稀释正文）。提示词只需运镜。
+  storyboard: ['camera-moves'],
   prompt: ['camera-moves'],
   assets: [],
 };
+
+/** 动作/冲突强度高的题材 → 分镜链路额外带「打斗节奏」卡（它讲的是打斗/追逐场面的镜头组织）。 */
+const FIGHT_RHYTHM_GENRES = new Set([
+  'action-mission', 'wuxia', 'gunstandoff', 'adventure', 'crime-police', 'hk-retro',
+  'wasteland-chase', 'mo-lei-tau', 'revenge-face-slap', 'multi-thread-caper',
+  'neon-dystopia', 'rebirth-transmigration',
+]);
 
 /**
  * 构建某生成能力下的注入文本。
@@ -69,7 +77,12 @@ export async function buildSkillPack(opts) {
   // 运镜只在「已经有层卡命中」时才跟随注入。
   // 否则四层全空的项目也会被塞进 5KB 运镜词典 —— 违反「未配置不注入」（老项目零变化）。
   if (items.length) {
-    for (const mid of (MOVES_FOR_KIND[kind] || [])) {
+    const moves = [...(MOVES_FOR_KIND[kind] || [])];
+    // 打斗节奏：仅分镜链路 + 选了动作/冲突类题材时追加（它是打斗场面的镜头组织教材）
+    if (kind === 'storyboard' && (profile.genres || []).some((g) => FIGHT_RHYTHM_GENRES.has(g))) {
+      moves.push('fight-rhythm');
+    }
+    for (const mid of moves) {
       const mv = (inv.moves || []).find((x) => x.id === mid);
       if (!mv) continue;
       const md = readMove(hereDir, mv.file);

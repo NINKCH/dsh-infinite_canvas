@@ -3654,7 +3654,10 @@ body[data-ds-dark-theme] .dshic-pick-item.is-on{background:color-mix(in srgb,var
       for (const p of settings.imageProviders || []) {
         for (const m of (p.models || [])) {
           if (!m || !m.id || !String(m.model || '').trim()) continue;
-          out.push({ ref: p.id + '|' + m.id, providerId: p.id, providerName: p.name || p.id, modelId: m.id, model: String(m.model).trim(), baseUrl: p.baseUrl || '', apiKey: p.apiKey || '', extra: p.extra || '', size: p.size || '', responseFormat: p.responseFormat || '', mode: p.mode || 'generations' });
+          // viaImageGen/imageGenProvider 必须透传：生成侧靠它路由到 dsh-image-gen 的 /studio；
+          // 丢字段 → useBridge 判 false → 走 apiImage → baseUrl 空 → 「未配置图片 API」（桥接必炸）
+          const via = !!(p.viaImageGen || m.viaImageGen);
+          out.push({ ref: p.id + '|' + m.id, providerId: p.id, providerName: p.name || p.id, modelId: m.id, model: String(m.model).trim(), baseUrl: p.baseUrl || '', apiKey: p.apiKey || '', extra: p.extra || '', size: p.size || '', responseFormat: p.responseFormat || '', mode: p.mode || 'generations', ...(via ? { viaImageGen: true, imageGenProvider: m.viaImageGen || p.imageGenProvider || '' } : {}) });
         }
       }
       return out;
@@ -14931,6 +14934,13 @@ function queueThumb(assetId) {
       notify();
     }
 
+    /** 动作/冲突强度高的题材 → 分镜链路额外带「打斗节奏」卡（与 Host 侧 skill-pack.js 同一份清单）。 */
+    const FIGHT_RHYTHM_GENRES = new Set([
+      'action-mission', 'wuxia', 'gunstandoff', 'adventure', 'crime-police', 'hk-retro',
+      'wasteland-chase', 'mo-lei-tau', 'revenge-face-slap', 'multi-thread-caper',
+      'neon-dystopia', 'rebirth-transmigration',
+    ]);
+
     /**
      * 组装某生成能力下的注入切片文本。返回 { text, bytes }；任一层缺失则跳过。
      * kind = script | storyboard | prompt | assets
@@ -14965,9 +14975,11 @@ function queueThumb(assetId) {
       }
       if (profile.form) await push('form', (manifest.forms || []).find((x) => x.id === profile.form));
       if (profile.look) await push('look', (manifest.looks || []).find((x) => x.id === profile.look));
-      // 运镜词典跟着分镜与提示词走；打斗节奏只在分镜（它讲的是镜头组织手法）
+      // 运镜词典跟着分镜与提示词走；打斗节奏只在分镜且选了动作/冲突类题材时注入（它讲的是打斗场面的镜头组织）
       if (kind === 'storyboard' || kind === 'prompt') {
-        for (const mid of (kind === 'storyboard' ? ['camera-moves', 'fight-rhythm'] : ['camera-moves'])) {
+        const mids = ['camera-moves'];
+        if (kind === 'storyboard' && (profile.genres || []).some((g) => FIGHT_RHYTHM_GENRES.has(g))) mids.push('fight-rhythm');
+        for (const mid of mids) {
           const mv = (manifest.moves || []).find((x) => x.id === mid);
           if (mv) await push('moves', { ...mv, oneliner: mv.oneliner || '' });
         }
@@ -19864,11 +19876,13 @@ const DIRECTOR_KEY_HELP = [
 
     /** 设定条目 ↔ 资产绑定对话框：从当前项目的资产库里多选图片/音频/视频。 */
     /** 绑定对话框的资产行：组件化以便用 useAssetUrl 显示缩略图。 */
-    /** 桥接卡（0.20.0）：开关 + 配置状态；开启时把 dsh-image-gen 的模型同步进图片模型下拉（节点直接可选）。 */
+    /** 桥接卡（0.20.0）：开关 + 配置状态；开启时把 dsh-image-gen 的模型同步进图片模型下拉（节点直接可选）。
+     *  状态行只反映 image-gen 侧配置状态（与开关解耦）；开关只管模型同步。同步无变化不写盘。 */
     function ImageGenBridgeCard() {
       const [st, setSt] = useState({ missing: false, configured: false });
       const [enabled, setEnabled] = useState(!!(loadSettings().imageGen || {}).enabled);
-      /** 把 studio describe 的已配置服务商/模型写进 settings.imageProviders 的桥接条目；关闭/未配置时移除。 */
+      /** 把 studio describe 的已配置服务商/模型写进 settings.imageProviders 的桥接条目；关闭/未配置时移除。
+       *  返回 { models, changed }：changed=false 时不写盘（设置页每次挂载都探测，写盘会触发 notify 重渲染）。 */
       const syncBridgeModels = (desc, on) => {
         const s0 = loadSettings();
         const list = (s0.imageProviders || []).filter((p) => p.id !== 'image-gen-bridge');
@@ -19883,23 +19897,24 @@ const DIRECTOR_KEY_HELP = [
         if (models.length) {
           list.unshift({ id: 'image-gen-bridge', name: '桥接dsh-image-gen', baseUrl: '', apiKey: '', viaImageGen: true, models });
         }
-        s0.imageProviders = list;
-        saveSettings(s0);
-        return models.length;
+        const noChange = JSON.stringify(s0.imageProviders || []) === JSON.stringify(list);
+        if (!noChange) { s0.imageProviders = list; saveSettings(s0); }
+        return { models: models.length, changed: !noChange };
       };
       useEffect(() => {
         let alive = true;
         (async () => {
-          const on = !!(loadSettings().imageGen || {}).enabled;
           try {
             const r = await fetch('/plugins/dsh-image-gen/studio', { headers: { accept: 'application/json' } });
             if (!r.ok) throw new Error('HTTP ' + r.status);
             const j = await r.json();
             const conf = (j.providers || []).filter((p) => p && p.configured);
-            const modelsN = syncBridgeModels(j, on);
-            if (alive) setSt({ missing: false, configured: on && conf.length > 0 && modelsN > 0 });
+            const on = !!(loadSettings().imageGen || {}).enabled;
+            syncBridgeModels(j, on);
+            if (alive) setSt({ missing: false, configured: conf.length > 0 });
           } catch {
-            syncBridgeModels(null, false);
+            const on = !!(loadSettings().imageGen || {}).enabled;
+            syncBridgeModels(null, on);
             if (alive) setSt({ missing: true, configured: false });
           }
         })();
@@ -19917,8 +19932,8 @@ const DIRECTOR_KEY_HELP = [
             const r = await fetch('/plugins/dsh-image-gen/studio', { headers: { accept: 'application/json' } });
             const j = r.ok ? await r.json() : null;
             const conf = j ? (j.providers || []).filter((p) => p && p.configured) : [];
-            const modelsN = syncBridgeModels(j, v && conf.length > 0);
-            setSt({ missing: !r.ok, configured: v && conf.length > 0 && modelsN > 0 });
+            syncBridgeModels(j, v && conf.length > 0);
+            setSt({ missing: !r.ok, configured: conf.length > 0 });
           } catch { syncBridgeModels(null, false); setSt({ missing: true, configured: false }); }
         })();
       };
@@ -21932,6 +21947,7 @@ const DIRECTOR_KEY_HELP = [
           // 设置迁移的测试缝隙
           window.__DSH_IC_SETTINGS__ = {
             DEFAULT_SETTINGS, loadSettings, saveSettings,
+            flattenImageModels, resolveImageModelCfg,
             buildExpertContext,
           };
           // 创作上下文注入的测试缝隙（供 scripts/test-skill-inject.mjs 断言）

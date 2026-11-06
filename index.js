@@ -3859,7 +3859,17 @@ export function apply(ctx) {
           'A案：' + JSON.stringify(pitchA).slice(0, 800) + '\nB案：' + JSON.stringify(pitchB).slice(0, 800), true);
         // ④ 监制决策
         run.phase = 'decide';
-        const dec = await autoRoomStep(run, '监制', BASE + '\n你是监制。择一或融合，给出决策与理由，并把世界观/风格/角色/场景/道具写成设定集草案（描述要可生成：年龄/发型/服装/材质/光线）。',
+        // 技能遵循度：监制轮带上项目技能包配置（renderProfile 头），决策/设定集不得与项目技能配置脱节——
+        // 未配置技能包的项目如实说「未配置」，行为不变。
+        let skillLine = '';
+        try {
+          const doc0 = readDoc(pid);
+          const inv0 = packInventory(HERE);
+          const prof0 = normalizeSkillProfile(doc0.skillProfile, allowedIds(inv0));
+          skillLine = '\n【项目技能包配置·决策须与之一致】' + renderProfile(prof0, inv0, true)
+            + '\n题材/影调/规格按上述配置取材；brief 的剧情创意仍优先，配置只约束风格与世界观口径。';
+        } catch { /* 项目文档读不到时跳过（与未配置同等对待） */ }
+        const dec = await autoRoomStep(run, '监制', BASE + skillLine + '\n你是监制。择一或融合，给出决策与理由，并把世界观/风格/角色/场景/道具写成设定集草案（描述要可生成：年龄/发型/服装/材质/光线）。',
           ctxUser + '\nA案：' + JSON.stringify(pitchA).slice(0, 800) + '\nB案：' + JSON.stringify(pitchB).slice(0, 800) + '\n互评：' + JSON.stringify(crit).slice(0, 800) +
           '\n输出 {"decision":"A|B|merge","rationale":"…","logline":"…","beats":["…"],"scriptIdea":"（写给剧本节点的创作提示词，含两条叙事硬约束：每场结尾因果钩子、每场至少一个冲突点）","bible":{"worldview":"…","style":"…","characters":[{"name":"…","desc":"…"}],"scenes":[{"name":"…","desc":"…"}],"props":[{"name":"…","desc":"…"}]}}', true);
         // ⑤ 落盘：讨论记录节点 + 设定集 + 剧本 idea
