@@ -25,6 +25,13 @@ npm 发布**完全由 GitHub Actions 自动完成**（npm 已绑定 GitHub，Tru
 **未经维护者明确批准，不得提升递增等级**（不得改成 0.18.0 / 1.0.0 等）。
 无论改动多大，都只走 patch +1；等级提升是维护者保留的显式动作。
 
+### 版本例外记录
+
+- **2026-11-06：0.19.21 → 0.20.0（minor）**。维护者 NINKCH 在会话中明确批准（「全部按一个版本交付，都集中到 0.20.0」），
+  一次性交付：制作阶段机 + 六闸门（G1–G6）、自动创作（编剧室免费段 + 预算批准 + 付费段 v1）、
+  `canvas_layout_get/node` 精准布局与 relayout 分带、dsh-image-gen 图片桥、绑定会话读取隔离。
+  本次例外**不改变**上述 patch 递增规则；下次仍默认 patch +1。
+
 ## 发布机制（不用记原理，记流程）
 
 - 触发：GitHub 仓库 → **Releases → Draft a new release** → 选/建 tag `vX.Y.Z` → **Publish release**。
