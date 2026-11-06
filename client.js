@@ -1211,7 +1211,6 @@ function revealCanvasInRight() {
       'dataRootMigrating': '迁移中',
       'dataRootUnsupported': '当前插件后台版本较旧（不支持数据根目录）：重启 Harness 后可用',
       'autoTitle': '自动创作（实验）',
-      'autoHint': '多智能体从剧本到成片自动流水线：先免费跑到分镜+预算单，你批准后才进入付费生成。默认关闭。',
       'autoOn': '已开启',
       'autoOff': '已关闭',
       'autoEnable': '开启',
@@ -1219,25 +1218,11 @@ function revealCanvasInRight() {
       'autoCapsOk': '多智能体：可用',
       'autoCapsNo': '多智能体：宿主未暴露会话服务（暂不可用）',
       'autoOldHost': '宿主插件是旧版本（不支持自动创作开关）：完全重启 Harness 后可用',
-      'autoBriefLabel': '一句话创意',
-      'autoBriefPh': '拍什么、给谁看、什么情绪……（剧情走向的唯一源头）',
-      'autoStartBtn': '启动免费段（不花钱）',
-      'autoAbortBtn': '中止（保留已产出）',
-      'autoRunState': '进度',
-      'autoRunFailed': '失败',
-      'autoBudget': '预算单',
-      'autoCalls': '视频调用',
-      'autoApproveBtn': '批准付费段（按预算）',
-      'autoGenerateBtn': '开始生成（按预算计费）',
-      'autoPaid': '付费段',
       'stageCurrent': '制作阶段',
       'stageReadyYes': '可交付',
       'stageReadyNo': '未就绪',
       'stageBlockers': '阻塞',
       'imageGenTitle': '图片模型（来自 dsh-image-gen）',
-      'imageGenHint': '检测到 dsh-image-gen：可直接选用它配置好的服务商与模型生图，画布无需再填 API。',
-      'imageGenMissing': '未检测到 dsh-image-gen（安装并配置后这里会出现它的模型列表）。',
-      'imageGenNoProvider': 'dsh-image-gen 尚未配置任何已就绪的服务商（请先到它的设置里填好 Key）。',
       'imageGenNoModel': '（未选择模型）',
       'dataRootSaved': '数据根目录已设置',
       'storageInfo': '存储',
@@ -2204,7 +2189,6 @@ function revealCanvasInRight() {
       'dataRootMigrating': 'Migrating',
       'dataRootUnsupported': 'The plugin backend is older and lacks data-root support — restart Harness to enable',
       'autoTitle': 'Auto creation (experimental)',
-      'autoHint': 'Multi-agent pipeline from script to final cut: the free phase stops at storyboard + budget; paid generation starts only after your approval. Off by default.',
       'autoOn': 'On',
       'autoOff': 'Off',
       'autoEnable': 'Turn on',
@@ -2212,25 +2196,11 @@ function revealCanvasInRight() {
       'autoCapsOk': 'Multi-agent: available',
       'autoCapsNo': 'Multi-agent: host does not expose session services (unavailable)',
       'autoOldHost': 'The plugin backend is older and lacks the auto-creation switch — fully restart Harness to enable',
-      'autoBriefLabel': 'One-line idea',
-      'autoBriefPh': 'What to shoot, for whom, what feeling… (the sole source of the story)',
-      'autoStartBtn': 'Start free phase (no cost)',
-      'autoAbortBtn': 'Abort (keep outputs)',
-      'autoRunState': 'Progress',
-      'autoRunFailed': 'failed',
-      'autoBudget': 'Budget',
-      'autoCalls': 'video calls',
-      'autoApproveBtn': 'Approve paid phase (per budget)',
-      'autoGenerateBtn': 'Start generating (billed per budget)',
-      'autoPaid': 'Paid phase',
       'stageCurrent': 'Stage',
       'stageReadyYes': 'deliverable',
       'stageReadyNo': 'not ready',
       'stageBlockers': 'blocked',
       'imageGenTitle': 'Image models (via dsh-image-gen)',
-      'imageGenHint': 'dsh-image-gen detected: pick its configured provider and model — no API config needed in the canvas.',
-      'imageGenMissing': 'dsh-image-gen not detected (install and configure it to see its models here).',
-      'imageGenNoProvider': 'dsh-image-gen has no ready provider yet (set its API key first).',
       'imageGenNoModel': '(no model)',
       'dataRootSaved': 'Data root set',
       'storageInfo': 'Storage',
@@ -19784,167 +19754,18 @@ const DIRECTOR_KEY_HELP = [
       );
     }
     /** 图片模型桥接卡（0.20.0）：检测 dsh-image-gen 并直接选用它的服务商/模型（密钥留在它宿主侧）。 */
-    function ImageGenBridgeCard() {
-      const init = loadSettings().imageGen || {};
-      const [desc, setDesc] = useState(null); // GET /studio 的 describe
-      const [missing, setMissing] = useState(false);
-      const [enabled, setEnabled] = useState(!!init.enabled);
-      const [prov, setProv] = useState(init.provider || '');
-      const [model, setModel] = useState(init.model || '');
-      useEffect(() => {
-        let alive = true;
-        (async () => {
-          try {
-            const r = await fetch('/plugins/dsh-image-gen/studio', { headers: { accept: 'application/json' } });
-            if (!r.ok) throw new Error('HTTP ' + r.status);
-            const j = await r.json();
-            if (!alive) return;
-            setDesc(j);
-            const conf = (j.providers || []).filter((p) => p && p.configured);
-            const pick = conf.find((p) => p.provider === (loadSettings().imageGen || {}).provider) || conf.find((p) => p.provider === j.activeProvider) || conf[0];
-            if (pick) {
-              setProv((cur) => cur || pick.provider);
-              setModel((cur) => cur || pick.model || ((pick.modelOptions || [])[0] && (pick.modelOptions || [])[0].value) || '');
-            }
-          } catch { if (alive) setMissing(true); } // 未安装插件 → 整卡显示"未检测到"，不影响画布自配
-        })();
-        return () => { alive = false; };
-      }, []);
-      const persist = (patch) => {
-        const s = loadSettings();
-        s.imageGen = { enabled, provider: prov, model, ...patch };
-        saveSettings(s);
-      };
-      const conf = desc ? (desc.providers || []).filter((p) => p && p.configured) : [];
-      const cur = conf.find((p) => p.provider === prov);
-      const models = cur
-        ? ((cur.modelOptions || []).map((o) => o.value).filter(Boolean).length ? (cur.modelOptions || []).map((o) => o.value) : (cur.model ? [cur.model] : []))
-        : [];
-      return h('div', { className: 'dshic-card', 'data-role': 'image-gen-bridge' },
-        h('div', { className: 'dshic-row' },
-          Ic('image', 12),
-          h('strong', { style: { fontSize: 12, flex: 1, minWidth: 0 } }, T('imageGenTitle')),
-          missing
-            ? null
-            : h('button', {
-                type: 'button', className: cls('dshic-mini', enabled && 'is-on'),
-                onPointerDown: (e) => e.stopPropagation(),
-                onClick: () => { const v = !enabled; setEnabled(v); persist({ enabled: v }); },
-              }, enabled ? T('autoOn') : T('autoEnable')),
-        ),
-        missing
-          ? h('div', { className: 'dshic-hint', style: { marginTop: 4 } }, T('imageGenMissing'))
-          : h('div', { className: 'dshic-hint', style: { marginTop: 4 } }, T('imageGenHint')),
-        !missing && conf.length
-          ? h('div', { style: { marginTop: 6 } },
-              h('select', {
-                className: 'dshic-select', value: prov,
-                onChange: (e) => {
-                  const p2 = conf.find((x) => x.provider === e.target.value);
-                  const m2 = p2 ? (p2.model || ((p2.modelOptions || [])[0] && (p2.modelOptions || [])[0].value) || '') : '';
-                  setProv(e.target.value); setModel(m2); persist({ provider: e.target.value, model: m2 });
-                },
-                onPointerDown: (e) => e.stopPropagation(),
-              }, conf.map((p) => h('option', { key: p.provider, value: p.provider }, (p.label || p.provider)))),
-              h('select', {
-                className: 'dshic-select', style: { marginTop: 4 }, value: model,
-                onChange: (e) => { setModel(e.target.value); persist({ model: e.target.value }); },
-                onPointerDown: (e) => e.stopPropagation(),
-              }, (models.length ? models : ['']).map((m2) => h('option', { key: m2, value: m2 }, m2 || T('imageGenNoModel')))),
-            )
-          : (!missing ? h('div', { className: 'dshic-hint', style: { marginTop: 4 } }, T('imageGenNoProvider')) : null),
-      );
-    }
-
-    function SettingsTab() {
-      const [s, setS] = useState(loadSettings);
-      const apply = (fn) => {
-        setS((prev) => {
-          const next = JSON.parse(JSON.stringify(prev));
-          fn(next);
-          saveSettings(next);
-          return next;
-        });
-      };
-      const field = (label, value, onChange, placeholder, password) => h(Field, { label, value, onChange, placeholder, password });
-      return [
-        h('div', { key: 'lang', className: 'dshic-card' },
-          h('div', { className: 'dshic-row' }, Ic('text', 12), h('strong', { style: { fontSize: 12 } }, T('langLabel'))),
-          h('select', {
-            className: 'dshic-select', value: s.lang || '',
-            onChange: (e) => {
-              apply((d) => { d.lang = e.target.value; });
-              LANG_OVERRIDE = e.target.value;
-              notify();
-            },
-            onPointerDown: (e) => e.stopPropagation(),
-          },
-            h('option', { value: '' }, T('langFollow')),
-            h('option', { value: 'zh' }, T('langZh')),
-            h('option', { value: 'en' }, T('langEn'))),
-        ),
-        h(DataRootCard, { key: 'dataroot' }),
-        h(CraftCard, { key: 'craft' }),
-        h(AutoModeCard, { key: 'automode' }),
-        h(ImageGenBridgeCard, { key: 'imagegenbridge' }),
-        // 「技能增强」已升级为右侧独立「技能」页（SkillsTab）：四层图标瓦片 + 预览/写设定集
-        // 文本模型卡：只选模型，参数全用 Harness 默认；紧挨图片/视频/TTS 模型卡片
-        h('div', { key: 'llm', className: 'dshic-card' },
-          h('div', { className: 'dshic-row' },
-            Ic('spark', 12),
-            h('strong', { style: { fontSize: 12, flex: 1, minWidth: 0 } }, T('llmLabel')),
-            InfoTip(T('llmHint')),
-          ),
-          h(LlmModelSelect),
-        ),
-        h(ModelProviderEditor, { key: 'imglist', kind: 'image' }),
-        h(ModelProviderEditor, { key: 'vidlist', kind: 'video' }),
-        h(ApiListEditor, { key: 'ttslist', kind: 'tts' }),
-        // 帮助与反馈：一行入口（点开弹窗看二维码与提 Issue）
-        h('div', {
-          key: 'support', className: 'dshic-card', style: { cursor: 'pointer' },
-          onClick: () => update((s) => { s.supportOpen = true; }),
-        },
-          h('div', { className: 'dshic-row' },
-            Ic('help', 12),
-            h('strong', { style: { fontSize: 12, flex: 1, minWidth: 0 } }, T('supportBtn')),
-            h('span', { className: 'dshic-hint', style: { flex: 'none' } }, T('supportIssues') + ' / ' + T('supportWechat') + ' ›'),
-          ),
-        ),
-        h('div', { key: 'note', className: 'dshic-hint' }, 'DeepSeek Harness · dsh-infinite-canvas' + ((S.updateInfo && S.updateInfo.runningVersion) ? ' v' + S.updateInfo.runningVersion : '')),
-      ];
-    }
-
-    /** 自动创作开关卡片（实验，默认关闭）：开关 + 能力显示 + 旧宿主提示。挂设置页。 */
+    /** 自动创作开关（实验）：只留开关与状态；入口在 Harness 原生对话框（canvas_auto_* 工具）。 */
     function AutoModeCard() {
-      const [st, setSt] = useState(null); // null = 读取中；{ enabled, caps, oldHost, busy }
-      const [brief, setBrief] = useState('');
-      const [run, setRun] = useState(null);
+      const [st, setSt] = useState(null);
       const refresh = async () => {
         try {
           const r = await hostRpc('autoModeGet');
           setSt({ enabled: !!r.enabled, caps: r.caps || null, oldHost: false, busy: false });
         } catch {
-          setSt({ enabled: false, caps: null, oldHost: true, busy: false }); // 旧宿主：无此 RPC → 提示重启
+          setSt({ enabled: false, caps: null, oldHost: true, busy: false });
         }
       };
       useEffect(() => { refresh(); }, []);
-      // 运行状态轮询：开启时每 3s 拉一次 autoStatus（含 run 进度）
-      useEffect(() => {
-        if (!st || !st.enabled || st.oldHost) return undefined;
-        const tick = async () => {
-          try {
-            const pid = S.activeId;
-            if (!pid) return;
-            const cid = activeCanvasId() === DEFAULT_CANVAS_ID ? null : activeCanvasId();
-            const r = await hostRpc('autoStatus', { projectId: pid, canvasId: cid });
-            setRun(r.run || null);
-          } catch { /* 旧宿主忽略 */ }
-        };
-        tick();
-        const t = setInterval(tick, 3000);
-        return () => clearInterval(t);
-      }, [st && st.enabled, st && st.oldHost, S.activeId, S.activeCanvasId]);
       const toggle = async () => {
         if (!st || st.busy || st.oldHost) return;
         setSt({ ...st, busy: true });
@@ -19952,79 +19773,28 @@ const DIRECTOR_KEY_HELP = [
           const r = await hostRpc('autoModeSet', { enabled: !st.enabled });
           setSt({ ...st, enabled: !!r.enabled, busy: false });
         } catch {
-          setSt({ ...st, busy: false }); // 失败保持原状态；下次刷新校正
+          setSt({ ...st, busy: false });
         }
       };
-      const startRun = async () => {
-        const pid = S.activeId;
-        if (!pid || !brief.trim()) return;
-        try { await hostRpc('autoStart', { projectId: pid, canvasId: activeCanvasId() === DEFAULT_CANVAS_ID ? null : activeCanvasId(), brief: brief.trim() }); setRun({ status: 'running', phase: 'start' }); } catch { /* 失败由状态轮询展示 */ }
-      };
-      const abortRun = async () => {
-        const pid = S.activeId;
-        if (!pid) return;
-        try { await hostRpc('autoAbort', { projectId: pid, canvasId: activeCanvasId() === DEFAULT_CANVAS_ID ? null : activeCanvasId() }); } catch { /* 忽略 */ }
-      };
-      const row = h('div', { className: 'dshic-row' },
-        Ic('spark', 12),
-        h('strong', { style: { fontSize: 12, flex: 1, minWidth: 0 } }, T('autoTitle')),
-        st && !st.oldHost
-          ? h('button', {
-              key: 'toggle', type: 'button', className: cls('dshic-mini', st.enabled && 'is-on'),
-              disabled: st.busy, onPointerDown: (e) => e.stopPropagation(), onClick: toggle,
-            }, st.enabled ? T('autoOn') : T('autoEnable'))
-          : null,
-      );
       const lines = [];
       if (!st) lines.push(T('storageLoading'));
       else if (st.oldHost) lines.push(T('autoOldHost'));
       else {
         lines.push(st.enabled ? T('autoOn') : T('autoOff'));
-        const multi = st.caps ? !!st.caps.multiAgent : false;
-        lines.push(multi ? T('autoCapsOk') : T('autoCapsNo'));
+        lines.push(st.caps && st.caps.multiAgent ? T('autoCapsOk') : T('autoCapsNo'));
       }
-      const runLine = run ? (T('autoRunState') + '：' + (run.status === 'running' ? (run.phase || '…') : (run.error ? T('autoRunFailed') + ' ' + run.error : run.status))) : '';
       return h('div', { className: 'dshic-card' },
-        row,
-        h('div', { className: 'dshic-hint', style: { marginTop: 4 } }, T('autoHint')),
-        h('div', { className: 'dshic-hint', style: { marginTop: 2 }, 'data-role': 'auto-mode-status' }, lines.join(' · ')),
-        st && st.enabled && !st.oldHost
-          ? h('div', { style: { marginTop: 6 }, 'data-role': 'auto-run' },
-              h(Field, { label: T('autoBriefLabel'), value: brief, onChange: (v) => setBrief(v), placeholder: T('autoBriefPh') }),
-              run && (run.status === 'running' || run.paid === 'running')
-                ? h('button', { type: 'button', className: 'dshic-mini is-ghost', style: { marginTop: 6 }, onPointerDown: (e) => e.stopPropagation(), onClick: abortRun }, T('autoAbortBtn'))
-                : h('button', {
-                    type: 'button', className: 'dshic-mini', style: { marginTop: 6 },
-                    disabled: !brief.trim() || run.paid === 'running', onPointerDown: (e) => e.stopPropagation(), onClick: startRun,
-                  }, T('autoStartBtn')),
-              runLine ? h('div', { className: 'dshic-hint', style: { marginTop: 4 }, 'data-role': 'auto-run-status' }, runLine) : null,
-              run && run.budget && run.status === 'done'
-                ? h('div', { style: { marginTop: 6 }, 'data-role': 'auto-budget' },
-                    h('div', { className: 'dshic-hint' }, T('autoBudget') + '：' + run.budget.sceneCount + ' 场 · ' + run.budget.shotCount + ' 镜 · ' + run.budget.totalSeconds + 's · ' + T('autoCalls') + ' ' + run.budget.videoCalls + (run.budget.estimatedCost != null ? ' · ≈' + run.budget.estimatedCost : '')),
-                    run.approval && run.approval.valid
-                      ? h('button', {
-                          type: 'button', className: 'dshic-mini', style: { marginTop: 4 },
-                          disabled: run.paid === 'running', onPointerDown: (e) => e.stopPropagation(),
-                          onClick: async () => {
-                            try { await hostRpc('autoGenerate', { projectId: S.activeId, canvasId: activeCanvasId() === DEFAULT_CANVAS_ID ? null : activeCanvasId() }); } catch { /* 状态轮询展示 */ }
-                          },
-                        }, run.paid === 'running' ? T('autoRunState') : T('autoGenerateBtn'))
-                      : h('button', {
-                          type: 'button', className: 'dshic-mini', style: { marginTop: 4 },
-                          onPointerDown: (e) => e.stopPropagation(),
-                          onClick: async () => {
-                            try {
-                              await hostRpc('autoApprove', { projectId: S.activeId, canvasId: activeCanvasId() === DEFAULT_CANVAS_ID ? null : activeCanvasId(), quoteId: run.budget.quoteId, confirm: '用户：在设置卡点击批准，按预算付费生成' });
-                            } catch { /* 状态轮询展示 */ }
-                          },
-                        }, T('autoApproveBtn')),
-                  )
-                : null,
-              run && run.paid && run.paid !== 'done'
-                ? h('div', { className: 'dshic-hint', style: { marginTop: 4 }, 'data-role': 'auto-paid' }, T('autoPaid') + '：' + run.paid + (run.paidPhase ? '（' + run.paidPhase + '）' : '') + (run.paidError ? ' · ' + run.paidError : ''))
-                : null,
-            )
-          : null,
+        h('div', { className: 'dshic-row' },
+          Ic('spark', 12),
+          h('strong', { style: { fontSize: 12, flex: 1, minWidth: 0 } }, T('autoTitle')),
+          st && !st.oldHost
+            ? h('button', {
+                type: 'button', className: cls('dshic-mini', st.enabled && 'is-on'),
+                disabled: st.busy, onPointerDown: (e) => e.stopPropagation(), onClick: toggle,
+              }, st.enabled ? T('autoOn') : T('autoEnable'))
+            : null,
+        ),
+        h('div', { className: 'dshic-hint', style: { marginTop: 4 }, 'data-role': 'auto-mode-status' }, lines.join(' · ')),
       );
     }
 
@@ -20088,6 +19858,134 @@ const DIRECTOR_KEY_HELP = [
 
     /** 设定条目 ↔ 资产绑定对话框：从当前项目的资产库里多选图片/音频/视频。 */
     /** 绑定对话框的资产行：组件化以便用 useAssetUrl 显示缩略图。 */
+    function ImageGenBridgeCard() {
+      const init = loadSettings().imageGen || {};
+      const [desc, setDesc] = useState(null); // GET /studio 的 describe
+      const [missing, setMissing] = useState(false);
+      const [enabled, setEnabled] = useState(!!init.enabled);
+      const [prov, setProv] = useState(init.provider || '');
+      const [model, setModel] = useState(init.model || '');
+      useEffect(() => {
+        let alive = true;
+        (async () => {
+          try {
+            const r = await fetch('/plugins/dsh-image-gen/studio', { headers: { accept: 'application/json' } });
+            if (!r.ok) throw new Error('HTTP ' + r.status);
+            const j = await r.json();
+            if (!alive) return;
+            setDesc(j);
+            const conf = (j.providers || []).filter((p) => p && p.configured);
+            const pick = conf.find((p) => p.provider === (loadSettings().imageGen || {}).provider) || conf.find((p) => p.provider === j.activeProvider) || conf[0];
+            if (pick) {
+              setProv((cur) => cur || pick.provider);
+              setModel((cur) => cur || pick.model || ((pick.modelOptions || [])[0] && (pick.modelOptions || [])[0].value) || '');
+            }
+          } catch { if (alive) setMissing(true); } // 未安装插件 → 整卡显示"未检测到"，不影响画布自配
+        })();
+        return () => { alive = false; };
+      }, []);
+      const persist = (patch) => {
+        const s = loadSettings();
+        s.imageGen = { enabled, provider: prov, model, ...patch };
+        saveSettings(s);
+      };
+      const conf = desc ? (desc.providers || []).filter((p) => p && p.configured) : [];
+      const cur = conf.find((p) => p.provider === prov);
+      const models = cur
+        ? ((cur.modelOptions || []).map((o) => o.value).filter(Boolean).length ? (cur.modelOptions || []).map((o) => o.value) : (cur.model ? [cur.model] : []))
+        : [];
+      return h('div', { className: 'dshic-card', 'data-role': 'image-gen-bridge' },
+        h('div', { className: 'dshic-row' },
+          Ic('image', 12),
+          h('strong', { style: { fontSize: 12, flex: 1, minWidth: 0 } }, T('imageGenTitle')),
+          missing
+            ? null
+            : h('button', {
+                type: 'button', className: cls('dshic-mini', enabled && 'is-on'),
+                onPointerDown: (e) => e.stopPropagation(),
+                onClick: () => { const v = !enabled; setEnabled(v); persist({ enabled: v }); },
+              }, enabled ? T('autoOn') : T('autoEnable')),
+        ),
+        !missing && conf.length
+          ? h('div', { style: { marginTop: 6 } },
+              h('select', {
+                className: 'dshic-select', value: prov,
+                onChange: (e) => {
+                  const p2 = conf.find((x) => x.provider === e.target.value);
+                  const m2 = p2 ? (p2.model || ((p2.modelOptions || [])[0] && (p2.modelOptions || [])[0].value) || '') : '';
+                  setProv(e.target.value); setModel(m2); persist({ provider: e.target.value, model: m2 });
+                },
+                onPointerDown: (e) => e.stopPropagation(),
+              }, conf.map((p) => h('option', { key: p.provider, value: p.provider }, (p.label || p.provider)))),
+              h('select', {
+                className: 'dshic-select', style: { marginTop: 4 }, value: model,
+                onChange: (e) => { setModel(e.target.value); persist({ model: e.target.value }); },
+                onPointerDown: (e) => e.stopPropagation(),
+              }, (models.length ? models : ['']).map((m2) => h('option', { key: m2, value: m2 }, m2 || T('imageGenNoModel')))),
+            )
+          : null,
+      );
+    }
+
+    function SettingsTab() {
+      const [s, setS] = useState(loadSettings);
+      const apply = (fn) => {
+        setS((prev) => {
+          const next = JSON.parse(JSON.stringify(prev));
+          fn(next);
+          saveSettings(next);
+          return next;
+        });
+      };
+      const field = (label, value, onChange, placeholder, password) => h(Field, { label, value, onChange, placeholder, password });
+      return [
+        h('div', { key: 'lang', className: 'dshic-card' },
+          h('div', { className: 'dshic-row' }, Ic('text', 12), h('strong', { style: { fontSize: 12 } }, T('langLabel'))),
+          h('select', {
+            className: 'dshic-select', value: s.lang || '',
+            onChange: (e) => {
+              apply((d) => { d.lang = e.target.value; });
+              LANG_OVERRIDE = e.target.value;
+              notify();
+            },
+            onPointerDown: (e) => e.stopPropagation(),
+          },
+            h('option', { value: '' }, T('langFollow')),
+            h('option', { value: 'zh' }, T('langZh')),
+            h('option', { value: 'en' }, T('langEn'))),
+        ),
+        h(DataRootCard, { key: 'dataroot' }),
+        h(CraftCard, { key: 'craft' }),
+        h(AutoModeCard, { key: 'automode' }),
+        h(ImageGenBridgeCard, { key: 'imagegenbridge' }),
+        // 「技能增强」已升级为右侧独立「技能」页（SkillsTab）：四层图标瓦片 + 预览/写设定集
+        // 文本模型卡：只选模型，参数全用 Harness 默认；紧挨图片/视频/TTS 模型卡片
+        h('div', { key: 'llm', className: 'dshic-card' },
+          h('div', { className: 'dshic-row' },
+            Ic('spark', 12),
+            h('strong', { style: { fontSize: 12, flex: 1, minWidth: 0 } }, T('llmLabel')),
+            InfoTip(T('llmHint')),
+          ),
+          h(LlmModelSelect),
+        ),
+        h(ModelProviderEditor, { key: 'imglist', kind: 'image' }),
+        h(ModelProviderEditor, { key: 'vidlist', kind: 'video' }),
+        h(ApiListEditor, { key: 'ttslist', kind: 'tts' }),
+        // 帮助与反馈：一行入口（点开弹窗看二维码与提 Issue）
+        h('div', {
+          key: 'support', className: 'dshic-card', style: { cursor: 'pointer' },
+          onClick: () => update((s) => { s.supportOpen = true; }),
+        },
+          h('div', { className: 'dshic-row' },
+            Ic('help', 12),
+            h('strong', { style: { fontSize: 12, flex: 1, minWidth: 0 } }, T('supportBtn')),
+            h('span', { className: 'dshic-hint', style: { flex: 'none' } }, T('supportIssues') + ' / ' + T('supportWechat') + ' ›'),
+          ),
+        ),
+        h('div', { key: 'note', className: 'dshic-hint' }, 'DeepSeek Harness · dsh-infinite-canvas' + ((S.updateInfo && S.updateInfo.runningVersion) ? ' v' + S.updateInfo.runningVersion : '')),
+      ];
+    }
+
     function AssetPickRow({ a, checked, onToggle }) {
       const url = useAssetUrl(a.kind === 'image' ? a.id : null);
       return h('label', { className: 'dshic-row', style: { gap: 6, fontSize: 11, cursor: 'pointer', alignItems: 'center' }, onPointerDown: (e) => e.stopPropagation(), onClick: () => onToggle() },
