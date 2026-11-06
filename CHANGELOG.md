@@ -6,6 +6,44 @@ GitHub Releases carry the same notes in English; maintainer-facing runbooks live
 
 ## [Unreleased]
 
+### Added
+- **Skill-profile awareness in the writers room.** The monitor's decision round in
+  autoRoom now receives a "project skill-pack profile" header (renderProfile, same
+  source as the skill-pack head) so its picks align with the configured genre/look/form;
+  brief still owns the story, unconfigured projects say so explicitly and behave
+  unchanged. Pinned by a writers-room regression with a written skill profile.
+
+### Fixed
+- **Image-gen bridge models actually generate again (P0).** `flattenImageModels` dropped
+  `viaImageGen` / `imageGenProvider` when flattening providers into the picker view, so a
+  bridged `dsh-image-gen` model showed up in node dropdowns but routed to the plain
+  image API on generate — empty base URL, "image API not configured", bridge always
+  broken. Both fields now survive the flatten (provider-level flag + per-model provider
+  name), non-bridge providers stay unflagged, and a behavior regression (real
+  `flattenImageModels` in the sandbox) pins the contract.
+
+### Changed
+- **Bridge status line no longer multiplies by the switch.** 「已配置 / 未配置」 on the
+  dsh-image-gen bridge card now reflects the plugin-side config state only; the toggle
+  governs model sync alone (configured-but-off no longer lies as "not configured").
+- **Bridge sync writes nothing when nothing changed.** `syncBridgeModels` diffs the
+  previous settings before saving, so probing on every settings mount no longer triggers
+  saveSettings → notify re-render loops.
+- **Fight-rhythm card injects only for action/conflict genres.** The 4.9KB fight-rhythm
+  moves card no longer rides along with every storyboard build; it joins when the
+  project's genre is one of twelve action/conflict genres (wuxia, action-mission,
+  gunstandoff, crime-police, hk-retro, wasteland-chase, mo-lei-tau, revenge-face-slap,
+  multi-thread-caper, neon-dystopia, rebirth-transmigration, adventure). camera-moves
+  stays mandatory for storyboards. Host (skill-pack.js) and client (buildSkillPackText)
+  share the same whitelist.
+
+### Internal
+- **Bridge model flattening is behavior-tested, not regex-guessed.** `flattenImageModels`
+  and `resolveImageModelCfg` are exposed through the `__DSH_IC_SETTINGS__` test gap; the
+  panel suite asserts flag passthrough on real objects, the skill-pack suite pins the
+  conditional fight-rhythm matrix (action genre / calm genre / no genre), and
+  test-production asserts the monitor round carries the profile header.
+
 ## [0.20.0] — 2026-11-06
 
 ### Added

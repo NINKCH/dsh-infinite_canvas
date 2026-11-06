@@ -114,24 +114,9 @@ if (unrelHasEntries) {
 // OBS-1 硬要求（QA 判据）：清单**手工维护**，绝不从 `git log` 动态生成——动态清单会自证
 // （脚本生成的清单当然自己全中，"缺一必红"退化成摆设）。数量相等 + 逐 sha 关键词命中，两条都拦。
 const COVERAGE = [
-  // 0.19.21 已发布：历史行随发版清零（记录已在 0.19.21 段）。当前未发版：0.20.0 制作阶段机 + 多智能体自动创作。
-  { sha: '891870b', keys: [/Production stage machine \+ six code gates/i] },
-  { sha: 'f452b39', keys: [/Auto-creation mode: the A1 two-phase data plane/i] },
-  { sha: 'd6e17f7', keys: [/multi-agent capability/i] },
-  { sha: 'c6b1e43', keys: [/M3 runner design|auto-creation-design/i] },
-  { sha: 'e9e4f03', keys: [/Settings card for the auto-creation switch/i] },
-  { sha: '0a96fe0', keys: [/canvas-studio.*rewritten as a flow manual/i] },
-  { sha: '2e62a0b', keys: [/Production stage row in the projects tab/i] },
-  { sha: '1e7cefd', keys: [/Writers-room runner/i] },
-  { sha: '05cc5f7', keys: [/Precise node layout/i] },
-  { sha: 'c0caed8', keys: [/same-depth siblings inside one cluster stack vertically|zero-overlap assertion/i] },
-  { sha: '26c97f2', keys: [/Auto creation becomes a real chat-driven chain/i] },
-  { sha: 'a6aff65', keys: [/Auto mode no longer asks questions|bound session can no longer see/i] },
-  { sha: 'c328c09', keys: [/Workspace projects are named after the workspace/i] },
-  { sha: 'bac7c32', keys: [/Image models from `dsh-image-gen`|binding chip no longer breaks/i] },
-  { sha: '25ad995', keys: [/paid-phase abort|paid runner/i] },
-  { sha: 'f85515d', keys: [/Paid phase can be aborted, and the settings cards are switch-only|restore aiDraftBible/i] },
-  { sha: 'c85f324', keys: [/bridge card is a toggle plus/i] },
+  // 0.20.0 已发布：历史行随发版清零（记录已在 [0.20.0] 段，0.19.21 先例同款）。
+  // 当前未发版：0.20.1 桥接 P0 修复 + 注入瘦身 + 监制轮技能配置。
+  { sha: '7cca4b8', keys: [/bridge fields survive flatten|bridge models actually generate|fight-rhythm conditional|fight-rhythm card injects only|skill profile/i] },
 ];
 for (const c of COVERAGE) {
   ok(c.keys.some((re) => re.test(coverageText)), '未发版提交 ' + c.sha + ' 在 CHANGELOG（Unreleased 或最新已发布段）里找不到对应记录（补记不全）');
