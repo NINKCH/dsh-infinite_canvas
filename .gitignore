@@ -6,3 +6,4 @@ node_modules/
 .s.cjs
 publish-auth-url.txt
 publish-out.txt
+.worktrees/
