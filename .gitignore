@@ -7,3 +7,4 @@ node_modules/
 publish-auth-url.txt
 publish-out.txt
 .worktrees/
+.superpowers/
