@@ -1,0 +1,1 @@
+{"mcpServers":{"dsh-infinite-canvas":{"command":"node","args":["${CODEBUDDY_PLUGIN_ROOT}/dist/canvas-mcp.cjs"]}}}

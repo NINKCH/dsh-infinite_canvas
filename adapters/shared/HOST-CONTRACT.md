@@ -420,3 +420,34 @@ probeChannels(channels) -> { vscodeLm:'n/a'|number, bridge:{<host>:count,...}|{}
   `extension/extension.js`、`extension/shared/canvas-mcp.cjs`、`extension/shared/core/index.js`。
 - **vsce/发布事实**：vsce 3.9.2 打包通过（142 files / 867.73 KB）；README/repository/LICENSE 齐
   无告警；vsce 会把 README 规范化为 `readme.md`、LICENSE 规范化为 `LICENSE.txt`（zip 条目名）。
+
+## 12. workbuddy 壳契约（Task 8 产出 adapters/workbuddy-plugin/，本地目录市场形态）
+
+- **分发形态**：WorkBuddy（OpenCode 系 Electron）装插件 = 加 marketplace：市场根含
+  `.codebuddy-plugin/marketplace.json`，plugins[] 条目 `{name, description, version,
+  source:"./plugins/<name>"}`（codebuddy 官方市场样例实证）；插件目录 = `.codebuddy-plugin/plugin.json`
+  + `.mcp.json` + `skills/` + `dist/`。known_marketplaces.json 实证 `directory` / zip URL 两种市场源
+  type。无扩展页 → 画布面板走本机浏览器（canvas-web，§8）。
+- **三个 JSON 冻结（task-8-brief 逐字，键序即文件字节序）**：市场根 `marketplace.json`
+  （`dsh-marketplace`/owner ninkch/单插件条目）；插件 `plugin.json`（**无** displayName/skills 字段，
+  与 qoder §11 形态不同，`mcpServers` 指向 `./.mcp.json`）；插件 `.mcp.json`
+  （`command:"node"` 走 PATH——官方样本 godot-mcp 实证合法，stdio command 强制插件根内由
+  `${CODEBUDDY_PLUGIN_ROOT}` args 指向保证）。源文件随仓提交于 `adapters/workbuddy-plugin/marketplace/`。
+- **build（adapters/scripts/build-workbuddy.mjs，自足零依赖，导出 buildWorkbuddy 供 Task 9 复用）**：
+  shared 五模块**枚举清单 + 缺失报错**（勿 readdir 自动发现——Task 7 评审 Minor #2 教训）；core 按
+  §4 RUNTIME_FILES 6 文件 + assets 技能 ×4 拷进 `marketplace/plugins/dsh-infinite-canvas/dist/`
+  （布局照 §5）；**client.js 不随包**（§4 勘误）；**版本号单源：从 plugin.json 读**（Task 7 评审
+  Minor #3），并与 marketplace.json 条目版本一致性对账（漂移即报错）。产物：staging 完整市场
+  `adapters/dist/workbuddy-marketplace/`（目录本身可作 directory 源）+ zip `tar -a -c -f`（同 §7
+  手法，ZIP 根直接含 `.codebuddy-plugin/marketplace.json`）→
+  `adapters/dist/dsh-marketplace-workbuddy-<version>.zip`。**不改 build-qoder.mjs**（零跨任务回归面，
+  两脚本小重复可接受，Task 9 总编排再统一）。
+- **测试**：`scripts/test-adapters-workbuddy-pkg.mjs`（staging 树 / 三 JSON 逐字 / client.js 反向
+  断言 / zip 根条目 tar -tf / SKILL frontmatter `name: canvas` / sk- 密钥形状扫描 / staging 产物
+  冒烟：DSH_IC_HOME 注入 + GET 面板 200 + POST ping 200 + projects/ 落 env 根）。
+- **gitignore**：生成物全被 `adapters/.gitignore` 的无锚点 `dist/` 覆盖（staging、插件 dist、zip
+  三路径 check-ignore 实证），无需新增行。
+- **红线**：build/test **绝不写 `~/.workbuddy`**（本会话正运行在 WorkBuddy 内；注册 = 加
+  known_marketplaces 条目，延后 Task 11，用户配合执行）；README 注明本任务未执行注册 +
+  known_marketplaces 手改须备份与 read-merge。SKILL.md 同 Task 7 语义（六条铁律：qoder 五条 +
+  tools/list 参数自查升格为第六条；浏览器打开 `<CODEBUDDY_PLUGIN_ROOT>/dist/canvas-web.cjs --open`）。
