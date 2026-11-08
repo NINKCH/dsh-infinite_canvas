@@ -44,6 +44,12 @@
  *      createHostAdapter（计数 dispose），coreDir 指向空目录 + port:0（防本机 3210 有活画布
  *      服务走复用路径绕过资产加载）→ startWeb 必 reject（资产缺失）且 dispose 恰好一次——
  *      半初始化 adapter 不残留
+ *  组8c vm 沙箱集成（Task 15 评审固化，行为级回归）：真实内联 shim（从运行中服务的面板 HTML
+ *      抽取）× 真实 client.js（组8 已断言字节一致）× vendor React UMD 在 node:vm 里真实执行——
+ *      正路：apply(fakeCtx) 全程完成、createRoot().render 恰 1 次且元素为合法组件元素（'main'
+ *      全屏槽位）、无错误框、挂载点全屏化；错路：apply 阶段抛错（head.appendChild 抛 → 样式
+ *      effect 抛）→ 错误框「画布装载失败」+ HTML 转义 + 不挂载。断言面=装载+apply 段（黑屏
+ *      根因段）；React 真渲染的 DOM 表现不在 vm 面内（待实机验证）
  *
  * 存储根：单次 createHostAdapter 注入 adapters/.tmp-home/（同 Task 1/2 模式，绝不碰真实画布
  * 数据；HOST-CONTRACT §6 单例——本进程所有 startWeb 共享同一 adapter 的 routes，不各自 create）。
@@ -55,6 +61,7 @@ import { createRequire } from 'node:module';
 import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
+import vm from 'node:vm';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { once } from 'node:events';
@@ -380,6 +387,146 @@ try {
     }
     if (!statusPage.body.includes(PANEL_MARK)) {
       errs.push('/status 诊断页应保留挂载点特征子串（原状态页原样挪移）');
+    }
+  }
+
+  // ---------- 组8c：vm 沙箱集成——真实内联 shim × 真实 client.js（Task 15 评审固化） ----------
+  // 组8 的静态断言是自指的：shim 逻辑被改坏（桩键名改动、内联脚本转义出 SyntaxError、
+  // client.js 换槽位名）时它们照常绿。本组把行为级回归钉进仓库：从运行中的服务面板 HTML
+  // 抽出**真实内联 shim**，与磁盘上**真实 client.js**（组8 已断言与响应字节一致）+ **vendor
+  // React UMD** 一起放进 node:vm 沙箱真实执行——
+  //   正路：factory(require('react')) → desc.apply(fakeCtx) 全程完成 → createRoot().render()
+  //        被调用且元素是合法 React 组件元素（全屏 'main' 槽位）→ 不出错误框；
+  //   错路：apply 阶段抛错（document.head.appendChild 抛 → 样式 effect 抛 → captured.error）
+  //        → 挂载点 innerHTML 显示「画布装载失败」+ HTML 转义后的错误文本 + 不执行挂载。
+  // 断言面=装载+apply 段（黑屏根因段）；React 真渲染的 DOM 表现不在 vm 面内（待实机）。
+  {
+    const shimMatch = panel.body.match(/<script>([\s\S]*?)<\/script>/); // 面板里唯一无 src 的 <script>
+    if (!shimMatch) {
+      errs.push('组8c：面板 HTML 里未找到内联 shim <script> 段（壳形态被改坏？）');
+    } else if (!fs.existsSync(clientOnDisk)) {
+      errs.push('组8c：core 目录缺 client.js，vm 集成无法执行（§4 RUNTIME_FILES 缺失）: ' + clientOnDisk);
+    } else {
+      const shimJs = shimMatch[1];
+      const clientSrc = fs.readFileSync(clientOnDisk, 'utf8');
+      const reactSrc = fs.readFileSync(path.join(ROOT, 'adapters', 'shared', 'vendor', 'react.production.min.js'), 'utf8');
+
+      /** 薄桩沙箱（只覆盖装载+apply 段所需的全局面）：React=vendor UMD 真源、ReactDOM 桩、
+       *  DOM/存储/网络桩（fetch 恒 reject——client.js 全守卫静默，探针实证）。 */
+      function makeSandbox(breakHeadAppend) {
+        const timers = new Set(); // 沙箱内注册的宿主定时器（跑完统一清，防 interval 挂住测试进程）
+        const mountEl = {
+          style: {},
+          set innerHTML(v) { st.errorBox = v; },
+          get innerHTML() { return st.errorBox; },
+        };
+        const st = { mounted: [], errorBox: '', mountEl };
+        const sandbox = {
+          window: null,
+          document: {
+            title: '',
+            head: { appendChild: breakHeadAppend ? () => { throw new Error('boom<style>&'); } : () => {} },
+            body: { appendChild: () => {} },
+            createElement: () => ({ style: {}, appendChild: () => {}, remove: () => {}, setAttribute: () => {} }),
+            getElementById: (id) => (id === 'infinite-canvas-root' ? mountEl : null),
+            querySelector: () => null,
+            querySelectorAll: () => [],
+            addEventListener: () => {},
+            removeEventListener: () => {},
+          },
+          navigator: { userAgent: 'canvas-web-vm-probe', language: 'zh-CN' },
+          location: { href: 'http://127.0.0.1:32101/', protocol: 'http:' },
+          localStorage: {
+            store: new Map(),
+            getItem(k) { return this.store.has(k) ? this.store.get(k) : null; },
+            setItem(k, v) { this.store.set(k, String(v)); },
+            removeItem(k) { this.store.delete(k); },
+            key(i) { return [...this.store.keys()][i] || null; },
+            get length() { return this.store.size; },
+          },
+          fetch: () => Promise.reject(new Error('vm 桩：网络不可达')),
+          indexedDB: { open: () => ({ onsuccess: null, onerror: null, onupgradeneeded: null }) },
+          Image: function () { return { style: {}, addEventListener: () => {}, removeEventListener: () => {} }; },
+          requestAnimationFrame: (cb) => setTimeout(cb, 0),
+          matchMedia: () => ({ matches: false, addEventListener: () => {}, removeEventListener: () => {} }),
+          history: { pushState: () => {}, replaceState: () => {} },
+          performance: { now: () => Date.now() },
+          ReactDOM: { createRoot: () => ({ render(x) { st.mounted.push(x); } }) },
+          setTimeout: (fn, ms, ...a) => { const id = setTimeout(fn, ms, ...a); timers.add(id); return id; },
+          setInterval: (fn, ms, ...a) => { const id = setInterval(fn, ms, ...a); timers.add(id); return id; },
+          clearTimeout: (id) => { timers.delete(id); clearTimeout(id); },
+          clearInterval: (id) => { timers.delete(id); clearInterval(id); },
+          console,
+        };
+        sandbox.window = sandbox;
+        sandbox.globalThis = sandbox;
+        sandbox.self = sandbox;
+        vm.createContext(sandbox); // contextify：runInContext 要求 vm.Context
+        return {
+          sandbox,
+          st,
+          run(src, name) { return vm.runInContext(src, sandbox, { filename: name }); },
+          dispose() { for (const id of timers) { clearTimeout(id); clearInterval(id); } timers.clear(); },
+        };
+      }
+
+      // 8c-正路：apply 全程完成、'main' 全屏槽位渲染被挂载、无错误框
+      try {
+        const okRun = makeSandbox(false);
+        okRun.run(reactSrc, 'vendor/react.production.min.js');
+        okRun.run(shimJs, 'shell-inline-shim.js');
+        okRun.run(clientSrc, 'client.js');
+        const mountedEl = okRun.st.mounted[okRun.st.mounted.length - 1];
+        if (okRun.st.mounted.length !== 1) {
+          errs.push(`组8c 正路：createRoot().render 应恰好被调 1 次，实际 ${okRun.st.mounted.length}`);
+        }
+        if (!mountedEl || typeof okRun.sandbox.React.isValidElement !== 'function' || !okRun.sandbox.React.isValidElement(mountedEl)) {
+          errs.push('组8c 正路：render 应收到合法 React 元素（vendor React isValidElement 判定）');
+        } else {
+          if (typeof mountedEl.type !== 'function') {
+            errs.push(`组8c 正路：挂载元素应为组件（type 为函数），实际 ${typeof mountedEl.type} ${String(mountedEl.type).slice(0, 60)}`);
+          }
+          if (mountedEl.props && mountedEl.props.host !== 'main') {
+            errs.push(`组8c 正路：挂载元素应为全屏 'main' 槽位（props.host），实际 ${JSON.stringify(mountedEl.props && mountedEl.props.host)}`);
+          }
+        }
+        if (okRun.st.errorBox !== '') {
+          errs.push(`组8c 正路：正常装载不应出错误框，实际 innerHTML: ${String(okRun.st.errorBox).slice(0, 200)}`);
+        }
+        if (okRun.st.mountEl.style.cssText !== 'position:fixed;inset:0;overflow:hidden;') {
+          errs.push(`组8c 正路：挂载点应被全屏化（cssText），实际 ${JSON.stringify(okRun.st.mountEl.style.cssText)}`);
+        }
+        okRun.dispose();
+      } catch (e) {
+        errs.push('组8c 正路：vm 执行抛错（shim×client.js 装载契约被改坏）: ' + ((e && e.stack) || e).toString().slice(0, 400));
+      }
+
+      // 8c-错路：apply 阶段抛错（head.appendChild 抛 → 样式 effect 抛）→ 错误框 + 转义 + 不挂载
+      try {
+        const badRun = makeSandbox(true);
+        badRun.run(reactSrc, 'vendor/react.production.min.js');
+        badRun.run(shimJs, 'shell-inline-shim.js');
+        badRun.run(clientSrc, 'client.js');
+        const box = badRun.st.errorBox;
+        if (!box.includes('画布装载失败')) {
+          errs.push(`组8c 错路：apply 抛错应显示错误框（画布装载失败），实际 innerHTML: ${String(box).slice(0, 200)}`);
+        }
+        if (!box.includes('boom&lt;style&gt;&amp;')) {
+          errs.push(`组8c 错路：错误文本应 HTML 转义（含 boom&lt;style&gt;&amp;），实际: ${String(box).slice(0, 240)}`);
+        }
+        if (box.includes('boom<style>&')) {
+          errs.push('组8c 错路：错误文本不得出现未转义原文（XSS 面）');
+        }
+        if (badRun.st.mounted.length !== 0) {
+          errs.push(`组8c 错路：有错误时不得执行挂载（render 调用 ${badRun.st.mounted.length} 次）`);
+        }
+        badRun.dispose();
+      } catch (e) {
+        errs.push('组8c 错路：vm 执行抛错（错误框路径未接住 apply 抛错）: ' + ((e && e.stack) || e).toString().slice(0, 400));
+      }
+
+      // 让沙箱内启动期 fetch 拒绝（内部全守卫）的微任务落定，避免污染后续组
+      await new Promise((ok) => setTimeout(ok, 50));
     }
   }
 
