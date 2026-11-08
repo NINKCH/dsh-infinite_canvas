@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * build-workbuddy（Task 8）——workbuddy-plugin 本地目录市场自足构建（零 npm 依赖：node 内置 + 系统 tar）。
+ * build-workbuddy（Task 8，Task 9 抽公共改造）——workbuddy-plugin 本地目录市场自足构建（零 npm 依赖：node 内置 + 系统 tar）。
  *
  * 市场形态：WorkBuddy 装插件 = 加本地目录市场（known_marketplaces.json 实证 directory / zip URL
  * 两种 type）。市场根含 .codebuddy-plugin/marketplace.json，插件目录 = .codebuddy-plugin/plugin.json
@@ -20,13 +20,13 @@
  *
  * 产物：adapters/dist/workbuddy-marketplace/（目录形态市场）
  *       adapters/dist/dsh-marketplace-workbuddy-<version>.zip（zip 分发物）
- * 逻辑自足，可被 Task 9 总编排脚本复用（导出 buildWorkbuddy）；不改 build-qoder.mjs
- * （零跨任务回归面，两脚本小重复可接受，Task 9 再统一）。
+ * 公共函数在 ./lib/build-common.cjs（Task 9 carry：copyDir/枚举拷贝/版本单源/tar 打包自检，
+ * 本脚本即抽公共基准版），行为等价改造——产物树不变，scripts/test-adapters-workbuddy-pkg.mjs 钉死。
  * 红线：本脚本只写 adapters/dist/ 与 marketplace 内 dist/，绝不触碰 ~/.workbuddy
  * （注册延后 Task 11）。
  * 退出码：0 = 成功；1 = 清单校验/tar 失败。
  */
-import { spawnSync } from 'node:child_process';
+import { copyDir, copyEnumerated, packZip, readVersion } from './lib/build-common.cjs';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -40,7 +40,6 @@ const DIST_DIR = path.join(PLUGIN_DIR, 'dist');
 const CORE_DST = path.join(DIST_DIR, 'core');
 const STAGING_DIR = path.join(ADAPTERS_DIR, 'dist', 'workbuddy-marketplace'); // staging 完整市场
 const OUT_DIR = path.join(ADAPTERS_DIR, 'dist');
-const VERSION_RE = /^\d+\.\d+\.\d+(?:[-+][\w.-]+)?$/; // semver 形状（防读坏版本拼坏文件名）
 
 // shared 五模块（§5 dist 布局；**枚举清单 + 缺失报错**——勿自动发现，Task 7 评审 Minor #2 教训）
 const SHARED_MODULES = [
@@ -62,23 +61,6 @@ const RUNTIME_FILES = [
 // §4 运行时读取清单：canvas 内置技能 SKILL.md ×4 + canvas-director 技能包整体
 const SKILL_DIRS = ['canvas-studio', 'canvas-craft', 'canvas-layout', 'canvas-director'];
 
-/** 递归拷贝目录（目标不存在则创建；仅普通文件与目录，符号链接跳过并告警）。 */
-function copyDir(src, dst) {
-  fs.mkdirSync(dst, { recursive: true });
-  for (const name of fs.readdirSync(src)) {
-    const s = path.join(src, name);
-    const d = path.join(dst, name);
-    const st = fs.lstatSync(s);
-    if (st.isSymbolicLink()) {
-      console.error(`[build-workbuddy] 跳过符号链接: ${s}`);
-    } else if (st.isDirectory()) {
-      copyDir(s, d);
-    } else {
-      fs.copyFileSync(s, d);
-    }
-  }
-}
-
 export function buildWorkbuddy() {
   // 0) 源清单自检：壳源文件必须就位（三个 JSON/SKILL.md/README 是随仓提交的源，不在本脚本生成范围）
   const sources = [
@@ -93,11 +75,10 @@ export function buildWorkbuddy() {
   }
 
   // 0a) 版本号单源：从 plugin.json 读（Task 7 评审 Minor #3），并与 marketplace.json 条目对账
-  const pluginJson = JSON.parse(fs.readFileSync(path.join(PLUGIN_DIR, '.codebuddy-plugin', 'plugin.json'), 'utf8'));
-  const VERSION = pluginJson && pluginJson.version;
-  if (typeof VERSION !== 'string' || !VERSION_RE.test(VERSION)) {
-    throw new Error('plugin.json version 缺失或非 semver 形状: ' + JSON.stringify(VERSION));
-  }
+  //     （pluginJson.name 另供条目匹配——市场与插件必须同名，原语义保留）
+  const pluginJsonPath = path.join(PLUGIN_DIR, '.codebuddy-plugin', 'plugin.json');
+  const pluginJson = JSON.parse(fs.readFileSync(pluginJsonPath, 'utf8'));
+  const VERSION = readVersion(pluginJsonPath);
   const marketplaceJson = JSON.parse(fs.readFileSync(path.join(MARKETPLACE_DIR, '.codebuddy-plugin', 'marketplace.json'), 'utf8'));
   const entry = Array.isArray(marketplaceJson.plugins) && marketplaceJson.plugins.find((p) => p && p.name === pluginJson.name);
   if (!entry) throw new Error('marketplace.json 无 ' + pluginJson.name + ' 条目（市场与插件必须同名）');
@@ -112,19 +93,11 @@ export function buildWorkbuddy() {
 
   // 1a) shared 五模块（枚举清单，缺失报错；*.cjs 原样拷贝，一字不改）
   const sharedSrc = path.join(ADAPTERS_DIR, 'shared');
-  for (const f of SHARED_MODULES) {
-    const src = path.join(sharedSrc, f);
-    if (!fs.existsSync(src)) throw new Error('shared 模块缺失: ' + f);
-    fs.copyFileSync(src, path.join(DIST_DIR, f));
-  }
+  copyEnumerated(sharedSrc, SHARED_MODULES, DIST_DIR, 'shared 模块');
 
   // 1b) core：§4 import 闭包 6 文件
   fs.mkdirSync(CORE_DST, { recursive: true });
-  for (const f of RUNTIME_FILES) {
-    const src = path.join(REPO_ROOT, f);
-    if (!fs.existsSync(src)) throw new Error(`§4 RUNTIME_FILES 缺失: ${f}`);
-    fs.copyFileSync(src, path.join(CORE_DST, f));
-  }
+  copyEnumerated(REPO_ROOT, RUNTIME_FILES, CORE_DST, '§4 RUNTIME_FILES');
 
   // 1c) core/assets：canvas 内置技能 ×4 + canvas-director 技能包整体
   const assetsDst = path.join(CORE_DST, 'assets');
@@ -132,44 +105,21 @@ export function buildWorkbuddy() {
   for (const dir of SKILL_DIRS) {
     const src = path.join(REPO_ROOT, 'assets', dir);
     if (!fs.existsSync(src)) throw new Error(`§4 运行时资源缺失: assets/${dir}`);
-    copyDir(src, path.join(assetsDst, dir));
+    copyDir(src, path.join(assetsDst, dir), 'build-workbuddy');
   }
 
   // 1d) client.js 不随包（§4 勘误：Harness 控制台前端，index.js 不 import，controller 裁定剔除）
 
   // 2) staging：完整市场拷贝（目录形态产物本身即可作本地市场源）
   fs.rmSync(STAGING_DIR, { recursive: true, force: true });
-  copyDir(MARKETPLACE_DIR, STAGING_DIR);
+  copyDir(MARKETPLACE_DIR, STAGING_DIR, 'build-workbuddy');
 
-  // 3) zip 打包：系统 tar（win32 = bsdtar），-a 按扩展名选 zip 格式；-C staging + `.` → ZIP 根
-  //    直接含 .codebuddy-plugin/marketplace.json（官方规范）。
-  fs.mkdirSync(OUT_DIR, { recursive: true });
-  fs.rmSync(OUT_ZIP, { force: true });
-  const tar = spawnSync('tar', ['-a', '-c', '-f', OUT_ZIP, '-C', STAGING_DIR, '.'], { encoding: 'buffer', timeout: 120000 });
-  if (tar.error) throw new Error('tar spawn 失败: ' + tar.error.message);
-  if (tar.status !== 0) {
-    throw new Error(`tar 打包失败（exit ${tar.status}）: ${String(tar.stderr || '')}`);
-  }
-
-  // 4) 自检：staging 关键文件存在 + zip 条目抽查（ZIP 根含 .codebuddy-plugin/marketplace.json）
-  const stagingMust = [
-    path.join('.codebuddy-plugin', 'marketplace.json'),
-    path.join('plugins', 'dsh-infinite-canvas', '.codebuddy-plugin', 'plugin.json'),
-    path.join('plugins', 'dsh-infinite-canvas', '.mcp.json'),
-    path.join('plugins', 'dsh-infinite-canvas', 'skills', 'canvas', 'SKILL.md'),
-    path.join('plugins', 'dsh-infinite-canvas', 'dist', 'canvas-mcp.cjs'),
-    path.join('plugins', 'dsh-infinite-canvas', 'dist', 'core', 'index.js'),
-  ];
-  for (const rel of stagingMust) {
-    if (!fs.existsSync(path.join(STAGING_DIR, rel))) throw new Error('staging 自检失败，缺 ' + rel);
-  }
-  if (!fs.existsSync(OUT_ZIP)) throw new Error('tar 报告成功但 zip 不存在: ' + OUT_ZIP);
-  const list = spawnSync('tar', ['-tf', OUT_ZIP], { encoding: 'utf8', timeout: 60000 });
-  if (list.status !== 0) throw new Error('tar -tf 自检失败: ' + (list.stderr || list.status));
-  const entries = list.stdout.split(/\r?\n/).map((e) => e.replace(/^\.\//, '')).filter(Boolean);
-  for (const rel of ['.codebuddy-plugin/marketplace.json', 'plugins/dsh-infinite-canvas/.codebuddy-plugin/plugin.json', 'plugins/dsh-infinite-canvas/dist/canvas-mcp.cjs']) {
-    if (!entries.includes(rel)) throw new Error('zip 条目自检失败，缺 ' + rel);
-  }
+  // 3) zip 打包 + 条目自检（公共 packZip：ZIP 根直接含 .codebuddy-plugin/marketplace.json，官方规范）
+  const entries = packZip(STAGING_DIR, OUT_ZIP, [
+    '.codebuddy-plugin/marketplace.json',
+    'plugins/dsh-infinite-canvas/.codebuddy-plugin/plugin.json',
+    'plugins/dsh-infinite-canvas/dist/canvas-mcp.cjs',
+  ]);
 
   const size = fs.statSync(OUT_ZIP).size;
   console.log(`[build-workbuddy] shared 模块: ${SHARED_MODULES.length} 个（枚举清单）→ plugins/dsh-infinite-canvas/dist/`);

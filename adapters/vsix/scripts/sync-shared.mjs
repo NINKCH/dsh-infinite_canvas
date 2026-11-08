@@ -16,6 +16,9 @@
  *     index.js L31 initPackBase(HERE)）。
  *   - assets/director/**（3D 引擎静态资源，npm files 有、§4 无）不随行，按 §4 清单执行；
  *     后果记录在 HOST-CONTRACT.md §11 与任务报告。
+ *   - **client.js 不在清单**（§4 勘误，Task 7 controller 裁定：Harness 控制台前端，index.js 不
+ *     import）——core 侧仅按 RUNTIME_FILES 枚举拷贝，client.js 副本绝不进 vsix（Task 9 瘦身，
+ *     同步后自检反向断言，防旧残留/误拷混入）。
  *
  * 幂等：先删后拷。执行：node vsix/scripts/sync-shared.mjs（或 adapters/ 内 npm run sync）。
  * 退出码：0 = 成功；1 = 清单校验失败。
@@ -101,6 +104,11 @@ try {
   ];
   for (const f of mustExist) {
     if (!fs.existsSync(f)) throw new Error('同步后校验失败（产物缺失）: ' + f);
+  }
+
+  // 7) 瘦身反向自检（Task 9 carry）：client.js 绝不在 core 清单（§4 勘误），旧残留/误拷混入即报错
+  if (fs.existsSync(path.join(CORE_DST, 'client.js'))) {
+    throw new Error('瘦身自检失败: shared/core/client.js 不应存在（§4 勘误：Harness 控制台前端，controller 裁定剔除）');
   }
 
   const countFiles = (dir) => {

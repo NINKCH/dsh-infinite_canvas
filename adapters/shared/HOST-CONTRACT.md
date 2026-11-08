@@ -137,7 +137,7 @@ const CANVAS_METHODS = [
 > 控制台前端（`window.__ModuleLoader__.load` 形态），index.js 不 import（仅注释提及「与 client.js
 > 同一映射」）——**不属 RUNTIME_FILES**，不随 adapters 发布物（qoder dist 曾按 task-7-brief
 > Step 1 断言随包，1.4MB 死重，已剔除）。上表与 index.js 实际顶层 import 清单已逐项核对一致。
-> vsix 副本待 Task 9 重跑 sync 后同步瘦身。
+> vsix 副本已随 Task 9 瘦身收口（sync 清单对齐 + 重跑 sync + 反向自检，shared/core 无 client.js）。
 
 运行时**读取**（非 import，打包须随行）：
 
@@ -440,8 +440,9 @@ probeChannels(channels) -> { vscodeLm:'n/a'|number, bridge:{<host>:count,...}|{}
   Minor #3），并与 marketplace.json 条目版本一致性对账（漂移即报错）。产物：staging 完整市场
   `adapters/dist/workbuddy-marketplace/`（目录本身可作 directory 源）+ zip `tar -a -c -f`（同 §7
   手法，ZIP 根直接含 `.codebuddy-plugin/marketplace.json`）→
-  `adapters/dist/dsh-marketplace-workbuddy-<version>.zip`。**不改 build-qoder.mjs**（零跨任务回归面，
-  两脚本小重复可接受，Task 9 总编排再统一）。
+  `adapters/dist/dsh-marketplace-workbuddy-<version>.zip`。（Task 9 注：原「不改 build-qoder.mjs、
+  两脚本小重复可接受」已收口——重复部分统一抽出 `adapters/scripts/lib/build-common.cjs`，
+  两脚本均切换到公共函数，行为等价。）
 - **测试**：`scripts/test-adapters-workbuddy-pkg.mjs`（staging 树 / 三 JSON 逐字 / client.js 反向
   断言 / zip 根条目 tar -tf / SKILL frontmatter `name: canvas` / sk- 密钥形状扫描 / staging 产物
   冒烟：DSH_IC_HOME 注入 + GET 面板 200 + POST ping 200 + projects/ 落 env 根）。
@@ -451,3 +452,39 @@ probeChannels(channels) -> { vscodeLm:'n/a'|number, bridge:{<host>:count,...}|{}
   known_marketplaces 条目，延后 Task 11，用户配合执行）；README 注明本任务未执行注册 +
   known_marketplaces 手改须备份与 read-merge。SKILL.md 同 Task 7 语义（六条铁律：qoder 五条 +
   tools/list 参数自查升格为第六条；浏览器打开 `<CODEBUDDY_PLUGIN_ROOT>/dist/canvas-web.cjs --open`）。
+
+## 13. 总编排契约（Task 9 产出 build-adapters.mjs + lib/build-common.cjs）
+
+- **CLI**：`node adapters/scripts/build-adapters.mjs [--skip-vsix]`（--skip-vsix 供无 npm 环境快速
+  出两 zip；正常路径全量）。只做编排（spawn 既有子步骤 + 失败即停 + 版本一致性断言），不复制构建逻辑。
+- **步骤（任一步失败 → 立即 exit 1，stderr 指明哪步失败，不再继续后续步骤）**：
+  0. 版本一致性断言：adapters/vsix/package.json / adapters/qoder-plugin/.qoder-plugin/plugin.json /
+     workbuddy marketplace plugin.json 三 manifest 各读 version（semver 形状校验），三者不一致即
+     报错——防「同一插件三壳三版本」。此步只读文件，--skip-vsix 下仍执行。
+  1. vsix：`npm run sync`（= sync-shared：shared/core 同步进 vsix）→ `npm run generate:tools`
+     （script 存在，条件成立）→ `npm run package`（vsce 打包 → adapters/dist/）。brief 接口原文
+     `npm run sync-shared`（adapters/vsix/）按仓库现状对齐：vsix package.json 无 scripts 字段，
+     三 script（sync / generate:tools / package）均在 adapters/package.json，cwd 一律 adapters/。
+  2. `node adapters/scripts/build-qoder.mjs`；3. `node adapters/scripts/build-workbuddy.mjs`；
+  4. 汇总清单：三产物路径与大小打 stderr（非跳过模式下产物缺失/为空也判失败）。
+  子进程收尾：全程 spawnSync 同步等待 + stdio inherit（无悬挂子进程树）。
+- **lib/build-common.cjs**（carry #3，基准 = build-workbuddy 版）：copyDir（tag 参数保持各壳日志
+  前缀）/ copyEnumerated（清单枚举 + 缺失报错，勿 readdir 自动发现——Task 7 评审 Minor #2 教训）/
+  readVersion（版本单源 + semver 形状校验）/ packZip（tar spawn + `-tf` 条目自检）。build-qoder.mjs
+  切换为公共函数（shared 五模块由 readdir 自动发现改枚举清单、VERSION '0.1.0' 硬编码改
+  plugin.json 单源）；build-workbuddy.mjs 同步切换。**行为等价红线**：三壳产物树不变（qoder /
+  workbuddy 各壳测试钉死），只收敛重复实现，不加新功能。
+- **npm 包隔离断言**（Global Constraint #1 机械化验证）：`scripts/test-adapters-build.mjs` spawn
+  `npm pack --dry-run`（仓库根；npm notice 清单走 stderr）解析 Tarball Contents，断言无任何
+  `adapters/` 前缀条目；解析不出文件清单按失败处理（防 npm 输出格式漂移静默通过）。
+- **产物三件**（版本随三 manifest，当前冻结 0.1.0）：`adapters/dist/dsh-infinite-canvas-0.1.0.vsix`、
+  `adapters/dist/dsh-infinite-canvas-qoder-<version>.zip`、`adapters/dist/workbuddy-marketplace/`
+  （目录）+ `adapters/dist/dsh-marketplace-workbuddy-<version>.zip`。
+- **测试**：`scripts/test-adapters-build.mjs`（隔离 / 编排 exit 0 / 三产物存在非空 / vsix 条目正
+  反向：含 extension.js・canvas-mcp.cjs・core/index.js・llm-channel.cjs、无 core/client.js /
+  qoder zip 正反向 / workbuddy staging llm-channel）；复跑回归面 = test-adapters-qoder-pkg /
+  test-adapters-workbuddy-pkg / test-adapters-vsix-detect 三测试。
+- **vsix 瘦身收口**（carry #1）：sync-shared.mjs core 清单本就不含 client.js（§4 勘误即清单现状），
+  Task 9 把裁定写进清单注释 + 新增同步后反向自检（shared/core 出现 client.js 即报错）；
+  vsix 副本从未入 git 追踪、盘上已不存在（git ls-files / Test-Path 双证），`git rm` 无对象可删；
+  重跑 sync 后 shared/core 无 client.js。
