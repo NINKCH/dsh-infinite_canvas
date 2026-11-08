@@ -223,3 +223,49 @@ const { ctx, tools, routes, dispose } = await createHostAdapter({
      （EADDRINUSE）→ 端口 +1 递增重试，上限 **+10**，返回实际 url；全部占用则抛错。
 - 路由分发纪律：routes 原样透传（handler 不改名、不包装、不改写语义），分发层仅做 exact
   pathname 匹配 + 未命中 404 + 兜底 500（core handler 自含错误处理，兜底只为不崩 server）。
+
+## 9. 模型桥接契约（Task 4 产出 model-bridge.cjs，供 Task 5 llm 通道消费）
+
+- 形态：CommonJS、零依赖（仅 node:http/https/fs/path/os 内置）；发布物 `dist/model-bridge.cjs`
+  （§5）；无 CLI——承载进程（canvas-mcp / canvas-web / Task 5 llm 通道）经 require 调用。
+  协议自适应：真实网关是 https、测试 mock 是 http，按 `url.protocol` 选 node:https /
+  node:http（模块顶层同时 require 两者），不为此引入抽象。
+
+```js
+// adapters/shared/model-bridge.cjs（导出六件，Task 5 只消费 discoverHosts / chat / 脱敏出口）
+discoverHosts({paths?}?) -> { workbuddy: Model[], qoder: Model[], cursor: Model[] }
+redactModel(model) -> { ...model, apiKey: '[redacted]' }
+redact(s) -> s
+buildUserAgent(host, version) -> string
+detectHostVersions() -> { workbuddy?: string, qoder?: string }
+chat(model, messages, opts?) -> { text, usage? }   // Promise；opts: { timeout?, body?, hostVersion? }
+```
+
+- **discoverHosts**：`paths` 测试注入 `{ workbuddyModels?, qoderModelsDir? }`（**测试绝不触真实
+  home**）；缺省 `<homedir>/.workbuddy/models.json`、`<homedir>/.qoder-cn/.models`。
+  `Model = { host:'workbuddy'|'qoder'|'cursor', id, vendor, url, apiKey,
+  supportsToolCall?, supportsImages?, supportsReasoning? }`（apiKey 仅内存持有）。
+  降级矩阵（**绝不抛错**，宿主未登录/无配置是常态）：models.json 文件不存在 / 坏 JSON /
+  非 JSON 数组 / 空数组 → `[]`；条目缺 url 或 apiKey / 非对象条目 → 跳过。
+  workbuddy 结构已实测验证（全部走官方网关 `/v1/chat/completions`，OpenAI 兼容）；
+  qoder 目录结构（`<dir>/<uid>/`，uid 目录名枚举）**未经验证，首版恒 `[]`**（Task 11 探针后补），
+  `QODER_OPENAPI_ENDPOINT` 存在性只记布尔到 stderr、不发请求；cursor 恒 `[]`（后端未公开、
+  ToS 敏感）。
+- **chat**：非流式 POST `model.url`，body `{model: model.id, messages, ...opts.body?}`
+  （messages 数组直传）；`opts.timeout` 缺省 120000ms，AbortController 中止。headers：
+  `content-type: application/json`、`authorization: Bearer <apiKey>`、`user-agent` =
+  `buildUserAgent(host, 版本)`——版本经 detectHostVersions（读安装目录 product.json /
+  package.json，尽力而为）**在请求路径上调用一次并模块级缓存**；`opts.hostVersion` 可注入覆盖
+  （测试用它避开真实安装目录读取）。响应 `choices[0].message.content` → text，`usage` 存在则
+  透传。非 2xx → `throw Error('<host>/<id> HTTP <status>: ' + redact(bodyText 截断 500 字符))`；
+  网络错误/超时 → `throw Error`（message 含 host/id/原因，同样经 redact）。
+- **密钥红线（Review Focus #3/#5）**：apiKey 不进仓库/日志/错误消息/工具返回/产物包；
+  model-bridge 内**所有 Error.message 组装统一过 redact 收口**，stderr 日志函数自身也过
+  redact；任何把 Model 序列化出去的路径必须先过 redactModel（原对象不被改动）。测试断言：
+  mock 500 回显 `sk-abc123def456` → Error.message 只见 `[redacted]`、body 片段 ≤ 500 字符。
+- UA：`buildUserAgent('workbuddy', v)` → `WorkBuddy/<v>`、`('qoder', v)` → `QoderCN/<v>`；
+  版本缺失/非法（或宿主未知）→ `dsh-bridge/0.1.0`（不冒充宿主客户端）。
+- 测试：`scripts/test-adapters-model-bridge.mjs`（本地 mock 网关 + 临时目录，8 组：discover
+  保真/降级、chat 请求断言（URL/auth/UA/body/text/usage）、500 脱敏截断、超时（AbortController
+  ≈timeout 生效）与 ECONNREFUSED、空配置降级与条目跳过、qoder/cursor 恒空与 env 布尔、
+  redactModel、redact/buildUserAgent 纯函数）。
