@@ -1,0 +1,75 @@
+# release-adapters —— 三宿主适配器产物的发布通道（vsix / qoder zip / workbuddy 市场 zip）。
+#
+# 与 npm 发布通道（publish.yml）完全独立：本 workflow 只构建 adapters 三产物并挂 GitHub
+# Release，手动触发（workflow_dispatch）。
+#   - publish_openvsx（默认 false）：是否同时把 vsix 发布到 Open VSX。仅当勾选且仓库配置了
+#     secret OVSX_PAT 时执行；该步失败不阻塞 Release 产物（continue-on-error）。
+#   - draft（默认 true）：GitHub Release 保持草稿，维护者确认产物无误后再手动 publish。
+#
+# Runner：windows-latest —— 构建脚本依赖 PowerShell/tar/系统工具，与开发机同构。
+#
+# 红线：本 workflow 不含、也不得添加 `npm publish`；npm 发版严格走 RELEASING.md 流程。
+
+name: release-adapters
+
+on:
+  workflow_dispatch:
+    inputs:
+      publish_openvsx:
+        description: '发布 vsix 到 Open VSX（需配置 Open VSX 访问令牌 secret；失败不阻塞 Release 产物）'
+        type: boolean
+        required: false
+        default: false
+      draft:
+        description: 'GitHub Release 保持草稿（true = 仅维护者可见，确认后再 publish）'
+        type: boolean
+        required: false
+        default: true
+
+permissions:
+  contents: write   # 创建 Release 并挂三产物（刻意不申请 id-token：本 workflow 与 npm 发布无关）
+
+jobs:
+  release-adapters:
+    runs-on: windows-latest
+    steps:
+      # 版本写法对齐现有 workflow（publish.yml）：checkout@v4 / setup-node@v4 + node 24
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Install dependencies (adapters/)
+        working-directory: adapters
+        run: npm ci
+
+      # 三产物编排（vsix / qoder zip / workbuddy zip 落 adapters/dist/，任一步失败即停）。
+      # 版本单源 = adapters/vsix/package.json（build-adapters 已断言三 manifest 一致），
+      # 输出为 step output 供 Release tag 与 Open VSX 步复用。
+      - name: Build three adapters artifacts
+        id: build
+        run: |
+          node adapters/scripts/build-adapters.mjs
+          $version = node -p "require('./adapters/vsix/package.json').version"
+          "version=$version" >> $env:GITHUB_OUTPUT
+
+      - name: Attach artifacts to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: adapters-v${{ steps.build.outputs.version }}
+          name: adapters-v${{ steps.build.outputs.version }}
+          draft: ${{ inputs.draft }}
+          # 只挂三产物文件；adapters/dist/workbuddy-marketplace/ 是 staging 目录，不是产物，
+          # 所以不用 adapters/dist/* 整目录通配（避免把目录当资产上传）
+          files: |
+            adapters/dist/dsh-infinite-canvas-*.vsix
+            adapters/dist/dsh-infinite-canvas-qoder-*.zip
+            adapters/dist/dsh-marketplace-workbuddy-*.zip
+          fail_on_unmatched_files: true   # 通配没匹配到产物时直接失败，不静默空发
+
+      # 可选步：仅当显式勾选且 secret 存在时执行；失败只标 warning，Release 产物不受影响
+      - name: Publish vsix to Open VSX (optional)
+        if: inputs.publish_openvsx == true && secrets.OVSX_PAT != ''
+        continue-on-error: true
+        run: npx --yes @vscode/ovsx publish adapters/dist/dsh-infinite-canvas-${{ steps.build.outputs.version }}.vsix -p ${{ secrets.OVSX_PAT }}
