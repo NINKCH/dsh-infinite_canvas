@@ -26,7 +26,7 @@
  * （注册延后 Task 11）。
  * 退出码：0 = 成功；1 = 清单校验/tar 失败。
  */
-import { copyDir, copyEnumerated, packZip, readVersion } from './lib/build-common.cjs';
+import { assertStaging, copyDir, copyEnumerated, packZip, readVersion } from './lib/build-common.cjs';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -113,6 +113,16 @@ export function buildWorkbuddy() {
   // 2) staging：完整市场拷贝（目录形态产物本身即可作本地市场源）
   fs.rmSync(STAGING_DIR, { recursive: true, force: true });
   copyDir(MARKETPLACE_DIR, STAGING_DIR, 'build-workbuddy');
+
+  // 2a) staging 自检（Task 8 原有 6 文件存在性检查；Task 9 抽公共时误删，评审 Important 恢复）
+  assertStaging(STAGING_DIR, [
+    path.join('.codebuddy-plugin', 'marketplace.json'),
+    path.join('plugins', 'dsh-infinite-canvas', '.codebuddy-plugin', 'plugin.json'),
+    path.join('plugins', 'dsh-infinite-canvas', '.mcp.json'),
+    path.join('plugins', 'dsh-infinite-canvas', 'skills', 'canvas', 'SKILL.md'),
+    path.join('plugins', 'dsh-infinite-canvas', 'dist', 'canvas-mcp.cjs'),
+    path.join('plugins', 'dsh-infinite-canvas', 'dist', 'core', 'index.js'),
+  ]);
 
   // 3) zip 打包 + 条目自检（公共 packZip：ZIP 根直接含 .codebuddy-plugin/marketplace.json，官方规范）
   const entries = packZip(STAGING_DIR, OUT_ZIP, [

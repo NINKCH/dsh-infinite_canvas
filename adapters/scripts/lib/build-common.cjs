@@ -84,8 +84,19 @@ function packZip(srcDir, outZip, requiredEntries) {
   return entries;
 }
 
+/**
+ * staging 存在性自检（Task 8 原有防线；Task 9 抽公共时被误删，评审 Important 恢复）。
+ * relFiles：相对 staging 根的关键文件清单，缺任一即抛错（报错文案与原版逐字一致）。
+ */
+function assertStaging(stagingDir, relFiles) {
+  for (const rel of relFiles) {
+    if (!fs.existsSync(path.join(stagingDir, rel))) throw new Error('staging 自检失败，缺 ' + rel);
+  }
+}
+
 exports.VERSION_RE = VERSION_RE;
 exports.copyDir = copyDir;
 exports.copyEnumerated = copyEnumerated;
 exports.readVersion = readVersion;
 exports.packZip = packZip;
+exports.assertStaging = assertStaging;
