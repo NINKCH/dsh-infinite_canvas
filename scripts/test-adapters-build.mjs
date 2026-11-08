@@ -18,7 +18,7 @@
  *     dist/vendor/react.production.min.js（Task 14 回归正向断言）
  *  6) workbuddy staging：含 plugins/dsh-infinite-canvas/dist/llm-channel.cjs（carry #2）
  *
- * 版本断言随三 manifest 冻结为 0.3.0（产物文件名直接钉 0.3.0，与各壳测试口径一致）。
+ * 版本断言随三 manifest 冻结为 0.3.1（产物文件名直接钉 0.3.1，与各壳测试口径一致）。
  * 收尾：无子进程残留（全程 spawnSync 同步等待）；产物均落在 gitignore 的 adapters/dist/ 内。
  * 运行：node scripts/test-adapters-build.mjs
  * 退出码：0 = 通过；1 = 失败。
@@ -32,10 +32,10 @@ import process from 'node:process';
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const ORCHESTRATOR = path.join(ROOT, 'adapters', 'scripts', 'build-adapters.mjs');
 const DIST = path.join(ROOT, 'adapters', 'dist');
-const VSIX = path.join(DIST, 'dsh-infinite-canvas-0.3.0.vsix');
-const QODER_ZIP = path.join(DIST, 'dsh-infinite-canvas-qoder-0.3.0.zip');
+const VSIX = path.join(DIST, 'dsh-infinite-canvas-0.3.1.vsix');
+const QODER_ZIP = path.join(DIST, 'dsh-infinite-canvas-qoder-0.3.1.zip');
 const WB_STAGING = path.join(DIST, 'workbuddy-marketplace');
-const WB_ZIP = path.join(DIST, 'dsh-marketplace-workbuddy-0.3.0.zip');
+const WB_ZIP = path.join(DIST, 'dsh-marketplace-workbuddy-0.3.1.zip');
 const WB_PLUGIN = path.join(WB_STAGING, 'plugins', 'dsh-infinite-canvas');
 
 const errs = [];
@@ -79,7 +79,7 @@ try {
     errs.push(`build-adapters.mjs 应 exit 0，实际 ${build.status}\nstdout 尾部: ${String(build.stdout || '').slice(-600)}\nstderr 尾部: ${String(build.stderr || '').slice(-600)}`);
   }
 
-  // ---------- 断言 3：三产物存在且非空（版本冻结 0.3.0 钉在文件名） ----------
+  // ---------- 断言 3：三产物存在且非空（版本冻结 0.3.1 钉在文件名） ----------
   for (const [label, f] of [['vsix', VSIX], ['qoder zip', QODER_ZIP], ['workbuddy zip', WB_ZIP]]) {
     if (!fs.existsSync(f)) errs.push(`${label} 产物不存在: ${f}`);
     else if (fs.statSync(f).size <= 0) errs.push(`${label} 产物为空: ${f}`);
@@ -94,6 +94,7 @@ try {
     path.join(WB_PLUGIN, 'dist', 'core', 'index.js'),
     path.join(WB_PLUGIN, 'dist', 'core', 'package.json'),
     path.join(WB_PLUGIN, 'dist', 'core', 'assets', 'canvas-director', 'manifest.json'),
+    path.join(WB_PLUGIN, 'dist', 'vendor', 'react-dom.production.min.js'), // Task 15：壳自渲染资产随包
   ];
   if (!fs.existsSync(WB_STAGING) || !fs.statSync(WB_STAGING).isDirectory()) {
     errs.push('workbuddy staging 目录不存在: ' + WB_STAGING);
@@ -111,9 +112,9 @@ try {
     if (!entries.includes('extension/shared/llm-channel.cjs')) {
       errs.push('vsix 应含 extension/shared/llm-channel.cjs（carry #2：三壳 llm-channel 接线核对）');
     }
-    for (const rel of ['extension/shared/core/client.js', 'extension/shared/vendor/react.production.min.js']) {
+    for (const rel of ['extension/shared/core/client.js', 'extension/shared/vendor/react.production.min.js', 'extension/shared/vendor/react-dom.production.min.js']) {
       if (!entries.includes(rel)) {
-        errs.push(`vsix 应含 ${rel}（0.3.0 Task 14 回归：canvas-web 真 UI 壳资产，正向断言防再丢）`);
+        errs.push(`vsix 应含 ${rel}（Task 14/15 回归：canvas-web 真 UI 壳资产，正向断言防再丢）`);
       }
     }
   }
@@ -123,9 +124,9 @@ try {
     let entries = [];
     try { entries = listZipEntries(QODER_ZIP); } catch (e) { errs.push('qoder zip 条目列举失败: ' + e.message); }
     if (!entries.includes('dist/llm-channel.cjs')) errs.push('qoder zip 应含 dist/llm-channel.cjs（carry #2）');
-    for (const rel of ['dist/core/client.js', 'dist/vendor/react.production.min.js']) {
+    for (const rel of ['dist/core/client.js', 'dist/vendor/react.production.min.js', 'dist/vendor/react-dom.production.min.js']) {
       if (!entries.includes(rel)) {
-        errs.push(`qoder zip 应含 ${rel}（0.3.0 Task 14 回归：canvas-web 真 UI 壳资产，正向断言防再丢）`);
+        errs.push(`qoder zip 应含 ${rel}（Task 14/15 回归：canvas-web 真 UI 壳资产，正向断言防再丢）`);
       }
     }
   }

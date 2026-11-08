@@ -11,16 +11,23 @@
  * HTML 面板路由**（Task 3 实现前探针实测 GET / → 404）。因此面板页由本模块自备：exact `/`，
  * 200 text/html，挂载点 `id="infinite-canvas-root"` 即探活特征子串。
  *
- * 真 UI 装载壳（Task 14，画布真 UI 浏览器化）：`/` 不再是状态页，而是三 script 装载壳——
+ * 真 UI 装载壳（Task 14 起画布真 UI 浏览器化，Task 15 壳扮演 Harness 修黑屏）：`/` 不再是状态页，
+ * 而是四 script 装载壳——
  *   ① vendor React（`/infinite-canvas/api/vendor/react.production.min.js`，UMD 全局 window.React，
  *      来源 react@18.3.1，见 vendor/README.md——vendor 静态资产，非 npm 依赖）；
- *   ② `__ModuleLoader__` shim（内联：load(def) → def.factory(require)，require('react') 返回
- *      window.React，其余模块名一概抛错）；
- *   ③ client.js（`/infinite-canvas/api/client.js`，core 目录的浏览器应用，§4 RUNTIME_FILES——
- *      装载契约已实证：client.js 以 window.__ModuleLoader__.load 自装载、factory 内唯一外部
- *      require 是 react、hostRpc 自 POST /api/rpc、CTX 全守卫无 harness 时回退全屏面板）。
+ *   ② vendor ReactDOM（`/infinite-canvas/api/vendor/react-dom.production.min.js`，UMD 全局
+ *      window.ReactDOM，来源 react-dom@18.3.1——Task 15：壳自渲染必需，createRoot 挂载）；
+ *   ③ `__ModuleLoader__` shim（内联：load(def) → def.factory(require)，require('react') 返回
+ *      window.React，其余模块名一概抛错；**壳内模拟 Harness**——构造 Proxy 假 ctx 调
+ *      desc.apply(fakeCtx)：effect 立即执行（样式/字典/Store 自举）、slots.inject 调 factory、
+ *      slots.register 捕获渲染函数（优先 'main' 槽位=全屏画布），最后 ReactDOM.createRoot
+ *      全屏挂载；任何失败都在页面显示红色错误文本而非黑屏——终结黑屏静默）；
+ *   ④ client.js（`/infinite-canvas/api/client.js`，core 目录的浏览器应用，§4 RUNTIME_FILES——
+ *      装载契约已实证：client.js 以 window.__ModuleLoader__.load 自装载、factory 返回 cordis
+ *      插件描述符 {inject:[6 服务], apply(ctx)}（Task 15 黑屏根因：0.3.0 壳只调 factory、
+ *      apply 从未执行 → slots 从未注册 → 黑屏）、hostRpc 自 POST /api/rpc）。
  * 原状态页**不删**，原样挪到 exact `/status`（探活/排错诊断页）。探活/复用语义不动（仍查 `/`
- * 的 PANEL_MARK）。两条资产路由文件在启动时一次性读入内存缓存（每请求零 IO）；client.js 基于
+ * 的 PANEL_MARK）。三条资产路由文件在启动时一次性读入内存缓存（每请求零 IO）；client.js 基于
  * coreDir（与 core/index.js 同目录，发布布局 dist/core/、开发布局仓库根），vendor 基于
  * canvas-web.cjs 同级 vendor/ 目录（三壳发布布局同构：shared/vendor → dist/vendor / shared/vendor）。
  *
@@ -66,6 +73,8 @@ const PANEL_MARK = 'id="infinite-canvas-root"';
 const STATUS_PATH = '/status';
 const CLIENT_ASSET_PATH = '/infinite-canvas/api/client.js';
 const VENDOR_ASSET_PATH = '/infinite-canvas/api/vendor/react.production.min.js';
+// Task 15：ReactDOM UMD（壳自渲染 createRoot 必需；同 vendor 静态资产，非 npm 依赖）
+const VENDOR_REACT_DOM_ASSET_PATH = '/infinite-canvas/api/vendor/react-dom.production.min.js';
 
 /** stderr 日志（CLI 场景无 stdout 协议约束，统一走 stderr 便于与画布页输出区分）。 */
 function log(message) {
@@ -98,10 +107,21 @@ function openInBrowser(url, platform) {
 }
 
 /**
- * 真 UI 装载壳（Task 14）：三 script 齐活——vendor React UMD → __ModuleLoader__ shim →
- * client.js。挂载点 id 保持 `infinite-canvas-root`（探活特征串 PANEL_MARK 不变）。
- * shim 语义：client.js 自装载 def.factory(require)，require('react') 返回 UMD 全局 window.React，
- * 其余模块名一概抛错（client.js 唯一外部 require 是 react，已实证）。
+ * 真 UI 装载壳（Task 14 → Task 15）：四 script 齐活——vendor React UMD → vendor ReactDOM UMD →
+ * __ModuleLoader__ shim（壳内模拟 Harness）→ client.js。挂载点 id 保持 `infinite-canvas-root`
+ * （探活特征串 PANEL_MARK 不变）。
+ *
+ * shim 语义（Task 15 黑屏修复，contract 见文件头）：
+ *   - client.js 自装载 def.factory(require)，require('react') 返回 UMD 全局 window.React，
+ *     其余模块名一概抛错（client.js 唯一外部 require 是 react，已实证）；
+ *   - factory 返回 cordis 插件描述符 {inject, apply(ctx)}——壳构造 Proxy 假 ctx 真调 apply：
+ *     任何 ctx 服务访问都不抛错（未知服务/symbol 键回退「万能 callable」Proxy——链式取属性、
+ *     深层调用都安全：ctx.未知服务.方法() 一路到 undefined，绝不 TypeError）、ctx.effect(fn)
+ *     立即执行 fn（样式/字典/Store 自举，失败捕获不中断后续注册）、ctx.slots.inject(seat, factory)
+ *     调 factory（仓库既有测试约定同款语义）、ctx.slots.register(meta, render) 按 seat 捕获
+ *     渲染函数（挂载优先级 'main' 全屏 → 'sidebar.right.pane.tab' → 首个捕获）；
+ *   - ReactDOM.createRoot 全屏挂载捕获的渲染函数；任何失败（apply 抛错 / 无渲染函数 /
+ *     createRoot 挂载异常）→ 挂载点显示红色错误文本（HTML 转义）——终结黑屏静默。
  */
 function shellHtml() {
   return [
@@ -115,8 +135,61 @@ function shellHtml() {
     '<body>',
     '<div id="infinite-canvas-root"></div>',
     '<script src="/infinite-canvas/api/vendor/react.production.min.js"></script>',
+    '<script src="/infinite-canvas/api/vendor/react-dom.production.min.js"></script>',
     '<script>',
-    'window.__ModuleLoader__={load:function(def){def.factory(function(name){if(name===\'react\')return window.React;throw new Error(\'unknown module: \'+name);});}};',
+    'window.__ModuleLoader__={load:function(def){',
+    '  var noop=function(){};',
+    '  var universal=new Proxy(function(){},',
+    '    {get:function(t,k){return k in t?t[k]:universal;},has:function(){return true;}});',
+    '  var captured={seats:{},error:null,seat:null};',
+    '  var slots={',
+    '    inject:function(seat,factory){',
+    '      if(typeof factory!==\'function\')return;',
+    '      var prev=captured.seat;captured.seat=seat;',
+    '      try{factory();}catch(e){if(!captured.error)captured.error=e;}',
+    '      captured.seat=prev;',
+    '    },',
+    '    register:function(meta,render){',
+    '      var seat=captured.seat||(meta&&(meta.name||meta.key||meta.id))||\'\';',
+    '      if(typeof render===\'function\')captured.seats[seat]=render;',
+    '      return noop;',
+    '    },',
+    '  };',
+    '  var fakeCtx=new Proxy({',
+    '    effect:function(fn){',
+    '      if(typeof fn!==\'function\')return noop;',
+    '      try{fn();}catch(e){if(!captured.error)captured.error=e;}',
+    '      return noop;',
+    '    },',
+    '    locale:{register:function(){return noop;},subscribe:function(){return noop;},getLocale:function(){return{active:\'zh\',locales:[\'zh\',\'en\'],revision:1};}},',
+    '    layout:{selectPanel:noop,openPanel:noop},',
+    '    sidebarRight:{openTab:noop},',
+    '    sidebarRightTabs:{register:function(){return noop;}},',
+    '    shortcuts:{register:function(){return noop;}},',
+    '    slots:slots,',
+    '  },{',
+    '    get:function(t,k){return k in t?t[k]:universal;},',
+    '    has:function(){return true;},',
+    '  });',
+    '  var desc=def.factory(function(name){',
+    '    if(name===\'react\')return window.React;',
+    '    throw new Error(\'unknown module: \'+name);',
+    '  });',
+    '  try{if(desc&&typeof desc.apply===\'function\')desc.apply(fakeCtx);}catch(e){captured.error=e;}',
+    '  var el=document.getElementById(\'infinite-canvas-root\');',
+    '  el.style.cssText=\'position:fixed;inset:0;overflow:hidden;\';',
+    '  try{',
+    '    if(captured.error)throw captured.error;',
+    '    var render=captured.seats[\'main\']||captured.seats[\'sidebar.right.pane.tab\'];',
+    '    if(!render){for(var s in captured.seats){render=captured.seats[s];break;}}',
+    '    if(typeof render!==\'function\')throw new Error(\'画布未注册渲染函数（slots.register 未被调用）\');',
+    '    window.ReactDOM.createRoot(el).render(render());',
+    '  }catch(e){',
+    '    el.innerHTML=\'<pre style="color:#ff6b6b;white-space:pre-wrap;padding:16px;font-family:monospace">画布装载失败：\'',
+    '      +String((e&&e.stack)||e).replace(/[<>&]/g,function(c){return {\'<\':\'&lt;\',\'>\':\'&gt;\',\'&\':\'&amp;\'}[c];})',
+    '      +\'</pre>\';',
+    '  }',
+    '}};',
     '</script>',
     '<script src="/infinite-canvas/api/client.js"></script>',
     '</body>',
@@ -182,22 +255,28 @@ function statusHtml() {
 }
 
 /**
- * 真 UI 壳静态资产（Task 14）：client.js（core 目录，§4 RUNTIME_FILES）+ vendor React UMD
- * （canvas-web.cjs 同级 vendor/）。启动时（startWeb）一次性读入内存缓存，每请求零 IO；
- * 模块级缓存跨多次 startWeb 复用。缺文件在启动期即抛错（fail fast，不拖到首个请求）。
+ * 真 UI 壳静态资产（Task 14 → Task 15）：client.js（core 目录，§4 RUNTIME_FILES）+ vendor
+ * React/ReactDOM UMD（canvas-web.cjs 同级 vendor/）。启动时（startWeb）一次性读入内存缓存，
+ * 每请求零 IO；模块级缓存跨多次 startWeb 复用。缺文件在启动期即抛错（fail fast，不拖到首个请求）。
  */
 let shellAssetsCache = null;
 function loadShellAssets(coreDir) {
   if (shellAssetsCache) return shellAssetsCache;
   const clientPath = path.join(coreDir, 'client.js');
-  const vendorPath = path.join(__dirname, 'vendor', 'react.production.min.js');
+  const reactPath = path.join(__dirname, 'vendor', 'react.production.min.js');
+  const reactDomPath = path.join(__dirname, 'vendor', 'react-dom.production.min.js');
   try {
-    shellAssetsCache = { clientJs: fs.readFileSync(clientPath), reactJs: fs.readFileSync(vendorPath) };
+    shellAssetsCache = {
+      clientJs: fs.readFileSync(clientPath),
+      reactJs: fs.readFileSync(reactPath),
+      reactDomJs: fs.readFileSync(reactDomPath),
+    };
   } catch (e) {
+    const missing = [clientPath, reactPath, reactDomPath].find((p) => !fs.existsSync(p)) ||
+      (fs.existsSync(clientPath) ? reactPath : clientPath); // 读取失败但都存在（权限等）→ 指 client 优先
     throw new Error(
-      '画布真 UI 壳静态资产缺失（' + (e && e.code === 'ENOENT' ? '文件不存在' : String(e && e.message || e)) + '）: ' +
-      (fs.existsSync(clientPath) ? vendorPath : clientPath) +
-      '（client.js 属 §4 RUNTIME_FILES，vendor 属 canvas-web 同级 vendor/；发布布局须随包拷贝）'
+      '画布真 UI 壳静态资产缺失（' + (e && e.code === 'ENOENT' ? '文件不存在' : String(e && e.message || e)) + '）: ' + missing +
+      '（client.js 属 §4 RUNTIME_FILES，react/react-dom UMD 属 canvas-web 同级 vendor/；发布布局须随包拷贝）'
     );
   }
   return shellAssetsCache;
@@ -255,6 +334,7 @@ function createDispatcher(routes, assets) {
   });
   if (!table.has(CLIENT_ASSET_PATH)) table.set(CLIENT_ASSET_PATH, serveJs(assets.clientJs));
   if (!table.has(VENDOR_ASSET_PATH)) table.set(VENDOR_ASSET_PATH, serveJs(assets.reactJs));
+  if (!table.has(VENDOR_REACT_DOM_ASSET_PATH)) table.set(VENDOR_REACT_DOM_ASSET_PATH, serveJs(assets.reactDomJs));
   return function dispatch(req, res) {
     let pathname = req.url || '/';
     const cut = pathname.search(/[?#]/); // exact 匹配用 pathname；handler 收到的仍是原 req（自带 query）
@@ -317,14 +397,23 @@ async function startWeb(options) {
   //    coreDir 同一解析供两条路使用：routes 未传时建 adapter、启动时读真 UI 壳静态资产（client.js）
   const coreDir = opts.coreDir ? path.resolve(String(opts.coreDir)) : path.dirname(defaultCorePath());
   let routes = opts.routes;
+  let ownedAdapter = null; // 本函数自建的 adapter：loadShellAssets 抛错时负责 dispose（Task 14 评审 Minor）
   if (!routes) {
-    const adapter = await createHostAdapter({
+    ownedAdapter = await createHostAdapter({
       corePath: path.join(coreDir, 'index.js'),
       homeDir: opts.home ? path.resolve(String(opts.home)) : undefined,
     });
-    routes = adapter.routes;
+    routes = ownedAdapter.routes;
   }
-  const assets = loadShellAssets(coreDir); // 启动期读入内存（缺文件此处 fail fast）
+  let assets;
+  try {
+    assets = loadShellAssets(coreDir); // 启动期读入内存（缺文件此处 fail fast）
+  } catch (e) {
+    // 资产缺失即启动失败：自建的 adapter（可能已让 core 起了存储/探针等资源）必须撤销，
+    // 不留半初始化单例（dispose 幂等，单 disposer 失败不阻塞其余——HOST-CONTRACT §6 语义）
+    if (ownedAdapter) { try { ownedAdapter.dispose(); } catch { /* 忽略 dispose 失败 */ } }
+    throw e;
+  }
 
   // 3) listen：EADDRINUSE → 递增换口，上限 +10；端口 0（随机）无换口语义，只试一次
   const server = http.createServer(createDispatcher(routes, assets));

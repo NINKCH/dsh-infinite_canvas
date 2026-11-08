@@ -51,6 +51,19 @@ GitHub Releases carry the same notes in English; maintainer-facing runbooks live
   its RPC posting and layout-service access are all internally guarded), so loading it in a
   plain browser yields the real canvas. The old status page survives at `/status` for
   probing/troubleshooting; in-browser rendering validation is pending field testing.
+- **The canvas page renders itself in full screen (0.3.1) — the shell simulates the Harness
+  and fixes the black screen.** 0.3.0's shell only called the client.js factory and the
+  cordis plugin descriptor's `apply(ctx)` never ran, so `slots.register` never captured a
+  render function and Trae users saw an empty dark page. The shell now builds a Proxy
+  fake-ctx (every service access returns a deeply-safe universal callable — unknown
+  services, nested properties and calls all resolve without throwing; `ctx.effect(fn)` runs
+  immediately so the canvas styles/dictionaries/store bootstrap; `ctx.slots.inject` invokes
+  the factory and `slots.register` captures render functions per seat, preferring the
+  full-screen `main` seat), calls `desc.apply(fakeCtx)` for real, and mounts the captured
+  component with vendored `ReactDOM.createRoot` (`react-dom@18.3.1` UMD, new vendor static
+  asset — zero npm dependencies unchanged). Any failure — apply throw, missing render,
+  mount error — now paints a red, HTML-escaped error card on the page instead of a silent
+  black screen.
 
 ### Fixed
 - **Blank/untrusted windows no longer disable the extension (vsix 0.2.0).** The manifest now
@@ -61,6 +74,11 @@ GitHub Releases carry the same notes in English; maintainer-facing runbooks live
 - **Bridge error messages redact before truncating.** Outbound error text is sanitized first and
   only then cut, so an API key fragment can no longer survive as a sliver across the truncation
   boundary; the shorter non-JSON-response path applies the same order.
+- **Tab-bar canvas entry for the vsix shell (0.3.1).** The manifest gains an `editor/title`
+  navigation entry (`$(browser)` icon) for `dsh-canvas.openCanvas` — Trae renders the
+  editor-title bar (its split-editor / ⋯ icons live there) while its custom window/title bar
+  does not, so the canvas button is now visible where Trae users actually look. The
+  window/title entry and unconditional status-bar item stay unchanged.
 
 ### Changed
 - **Data root moved to the user directory.** All canvas data (projects, bibles, memory,

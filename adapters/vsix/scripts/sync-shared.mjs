@@ -20,8 +20,9 @@
  *     经 `/infinite-canvas/api/client.js` 装载的画布浏览器前端（装载契约实证：自
  *     `__ModuleLoader__.load` 自装载、唯一外部 require 是 react、hostRpc/CTX 内建自守卫）。
  *     Task 7/9 的「不随包 + 反向自检」已被实证推翻并删除（0.2.0 的 vsix 因此只有状态页）。
- *   - shared/vendor/（Task 14）：React UMD（react@18.3.1，MIT）→ vsix shared/vendor/，
- *     canvas-web 壳 `/api/vendor` 路由的数据源；vendor 是静态资产非 npm 依赖。
+ *   - shared/vendor/（Task 14/15）：React + ReactDOM UMD（react@18.3.1 / react-dom@18.3.1，MIT）
+ *     → vsix shared/vendor/，canvas-web 壳 `/api/vendor` 路由的数据源；vendor 是静态资产非 npm
+ *     依赖。ReactDOM 0.3.1（Task 15）起随行——壳内模拟 Harness 后由壳自渲染（createRoot 挂载）。
  *
  * 幂等：先删后拷。执行：node vsix/scripts/sync-shared.mjs（或 adapters/ 内 npm run sync）。
  * 退出码：0 = 成功；1 = 清单校验失败。
@@ -51,8 +52,8 @@ const RUNTIME_FILES = [
 ];
 // §4 运行时读取清单：内置技能 SKILL.md + canvas-director 技能包整体
 const SKILL_DIRS = ['canvas-studio', 'canvas-craft', 'canvas-layout', 'canvas-director'];
-// shared/vendor 静态资产（Task 14：React UMD，canvas-web 壳 /api/vendor 路由数据源）
-const VENDOR_FILES = ['react.production.min.js'];
+// shared/vendor 静态资产（Task 14：React UMD；Task 15：ReactDOM UMD——壳自渲染 createRoot 必需）
+const VENDOR_FILES = ['react.production.min.js', 'react-dom.production.min.js'];
 
 /** 递归拷贝目录（目标不存在则创建；仅普通文件与目录，符号链接跳过并告警）。 */
 function copyDir(src, dst) {
@@ -115,6 +116,7 @@ try {
     path.join(CORE_DST, 'package.json'),
     path.join(CORE_DST, 'client.js'),
     path.join(SHARED_VENDOR_DST, 'react.production.min.js'),
+    path.join(SHARED_VENDOR_DST, 'react-dom.production.min.js'),
     path.join(assetsDst, 'canvas-director', 'manifest.json'),
     path.join(assetsDst, 'canvas-studio', 'SKILL.md'),
     ...sharedModules.map((f) => path.join(SHARED_DST, f)),

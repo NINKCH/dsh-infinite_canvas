@@ -38,7 +38,7 @@ const { probeChannels } = require('./llm-channel.cjs');
 const { createHostAdapter, defaultCorePath } = require('./host-adapter.cjs');
 
 const PROTOCOL_VERSION_DEFAULT = '2025-06-18';
-const SERVER_INFO = { name: 'dsh-infinite-canvas', version: '0.3.0' }; // version 与三 manifest 对齐（build-adapters 版本单源；test-adapters-mcp 断言 1 钉住）
+const SERVER_INFO = { name: 'dsh-infinite-canvas', version: '0.3.1' }; // version 与三 manifest 对齐（build-adapters 版本单源；test-adapters-mcp 断言 1 钉住）
 
 // ---- canvas_llm_probe（Task 5 已接线）：定义固定不动，真实编排实现见 main() 内 llmProbe ----
 const LLM_PROBE_DEF = {

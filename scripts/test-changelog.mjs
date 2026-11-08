@@ -148,6 +148,8 @@ const COVERAGE = [
   // { sha: '<task13-sha>', keys: [/标题栏|状态栏|untrustedWorkspaces|Trae/i] },
   // ---- Task 14（0.3.0 画布真 UI 浏览器化：React UMD 壳装载 client.js + /status 诊断页）预写（注释态）----
   // { sha: '<task14-sha>', keys: [/canvas UI|React UMD|client\.js|RUNTIME_FILES|\/status/i] },
+  // ---- Task 15（0.3.1 壳内模拟 Harness 修复黑屏 + editor/title 页签栏入口）预写（注释态）----
+  // { sha: '<task15-sha>', keys: [/full screen|fake-?ctx|Harness|black screen|editor\/title|tab-bar/i] },
 ];
 for (const c of COVERAGE) {
   ok(c.keys.some((re) => re.test(coverageText)), '未发版提交 ' + c.sha + ' 在 CHANGELOG（Unreleased 或最新已发布段）里找不到对应记录（补记不全）');

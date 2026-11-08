@@ -9,12 +9,12 @@
 
 | 宿主 | 交付形态 | 工具通道 | 文本模型通道 | 画布 UI |
 | --- | --- | --- | --- | --- |
-| VS Code | `dsh-infinite-canvas-0.3.0.vsix` | lm-tools（30 工具直挂）或 mcp-provider | vscode-lm（四能力全有 + sampling） | WebviewPanel iframe（CSP `frame-src localhost`） |
+| VS Code | `dsh-infinite-canvas-0.3.1.vsix` | lm-tools（30 工具直挂）或 mcp-provider | vscode-lm（四能力全有 + sampling） | WebviewPanel iframe（CSP `frame-src localhost`） |
 | CodeBuddy | 同上 vsix | lm-tools / mcp-provider（有） | bridge（sampling 无） | 同 VS Code |
 | Trae | 同上 vsix | lm-tools / mcp-provider（同 CodeBuddy） | bridge（实测可达：workbuddy 网关，见 §4）；registerLanguageModelChat 有（静态探明），豆包未暴露给 vscode.lm（实测 selectChatModels 无模型） | 同 VS Code |
 | Cursor | 同上 vsix | 仅 cursor-mcp | bridge（not-planned，见 §5） | 同 VS Code |
-| Qoder | `dsh-infinite-canvas-qoder-0.3.0.zip` | MCP（`.mcp.json`） | bridge（恒空，最终结论见 §5）> sampling（待实测） | 浏览器打开（完整画布 UI，0.3.0 浏览器化） |
-| WorkBuddy | `workbuddy-marketplace/`（本地目录市场，含 `dsh-marketplace-workbuddy-0.3.0.zip`） | MCP（`.mcp.json`，stdio command 走 PATH node，样本实证） | bridge（**已验证**：`~/.workbuddy/models.json` 官方网关直调，UA 包装宿主客户端）> sampling | 浏览器打开（完整画布 UI，0.3.0 浏览器化） |
+| Qoder | `dsh-infinite-canvas-qoder-0.3.1.zip` | MCP（`.mcp.json`） | bridge（恒空，最终结论见 §5）> sampling（待实测） | 浏览器打开（完整画布 UI，0.3.0 浏览器化） |
+| WorkBuddy | `workbuddy-marketplace/`（本地目录市场，含 `dsh-marketplace-workbuddy-0.3.1.zip`） | MCP（`.mcp.json`，stdio command 走 PATH node，样本实证） | bridge（**已验证**：`~/.workbuddy/models.json` 官方网关直调，UA 包装宿主客户端）> sampling | 浏览器打开（完整画布 UI，0.3.0 浏览器化） |
 
 > vsix 能力探测链（四路择一）：`lm-tools` → `mcp-provider` → `cursor-mcp` → `manual`（手配
 > mcp.json 兜底，片段见 §3）。探测在扩展激活时进行，命中即注册对应工具通道。
@@ -48,12 +48,14 @@ runtime）。画布数据根：`~/.dsh-infinite-canvas/`（env `DSH_IC_HOME` 可
 
 ### vsix（VS Code / CodeBuddy / Trae / Cursor 通用）
 
-1. 构建或取件：`adapters/dist/dsh-infinite-canvas-0.3.0.vsix`。
+1. 构建或取件：`adapters/dist/dsh-infinite-canvas-0.3.1.vsix`。
 2. 安装：扩展面板 `…` 菜单 → **从 VSIX 安装…**（四家同源 VS Code 系，入口名称或有差异）。
 3. 重载窗口后扩展激活，能力探测链自动选择工具通道；画布面板在 WebviewPanel iframe 中打开
    （CSP `frame-src` 指向 localhost:3210）。
-4. 入口（0.2.0 起）：标题栏右上 `$(browser)` 按钮（`window/title`；Trae 自定义标题栏是否渲染
-   待实机验证）/ 状态栏右下常驻 `$(browser) 画布`（任何窗口可见）/ 命令面板三条 `无限画布:` 命令。
+4. 入口（0.2.0 起）：标题栏右上 `$(browser)` 按钮（`window/title`；Trae 自定义标题栏不渲染=
+   壳限制，0.3.1 起页签栏补位）/ **页签栏 `$(browser)` 图标按钮（0.3.1 `editor/title`——Trae
+   实证渲染该区域）** / 状态栏右下常驻 `$(browser) 画布`（任何窗口可见）/ 命令面板三条
+   `无限画布:` 命令。
 
 **manual mcp.json 兜底片段**（探测链落到 manual、或用户手动配 MCP 时；与 extension.js 的
 `MCP_ARGS` / `MCP_ENV` 常量逐字对齐——`--core-dir` 必传，缺省路径解析在 vsix 内不成立）：
@@ -72,7 +74,7 @@ runtime）。画布数据根：`~/.dsh-infinite-canvas/`（env `DSH_IC_HOME` 可
 
 ### Qoder
 
-产物：`adapters/dist/dsh-infinite-canvas-qoder-0.3.0.zip`（ZIP 根直接含
+产物：`adapters/dist/dsh-infinite-canvas-qoder-0.3.1.zip`（ZIP 根直接含
 `.qoder-plugin/plugin.json`、`.mcp.json`、`skills/`、`dist/`）。两种安装法，细节以
 [`adapters/qoder-plugin/README.md`](../adapters/qoder-plugin/README.md) 为准：
 
@@ -80,13 +82,13 @@ runtime）。画布数据根：`~/.dsh-infinite-canvas/`（env `DSH_IC_HOME` 可
   `{"source": "local", "kind": "plugin", "filePath": "<ZIP 绝对路径>"}`，装完重启 Qoder。
 - **方式 B（手动 cache 注册，`install_extension` 不可用时）**：先备份
   `~/.qoder-cn/plugins/installed_plugins_v2.json` 与 `~/.qoder-cn/settings.json`，解压 ZIP 到
-  `~/.qoder-cn/plugins/cache/local/dsh-infinite-canvas/0.3.0/`，再 read-merge 注册
+  `~/.qoder-cn/plugins/cache/local/dsh-infinite-canvas/0.3.1/`，再 read-merge 注册
   `dsh-infinite-canvas@local` 并在 `enabledPlugins` 置 true，重启 Qoder。**绝不整文件覆盖。**
 
 ### WorkBuddy
 
 产物：`adapters/dist/workbuddy-marketplace/`（staging 目录，可直接作市场源）+
-`dsh-marketplace-workbuddy-0.3.0.zip`。装插件 = **加一个本地目录市场**，细节以
+`dsh-marketplace-workbuddy-0.3.1.zip`。装插件 = **加一个本地目录市场**，细节以
 [`adapters/workbuddy-plugin/marketplace/plugins/dsh-infinite-canvas/README.md`](../adapters/workbuddy-plugin/marketplace/plugins/dsh-infinite-canvas/README.md) 为准：
 
 1. 构建 staging：`node adapters/scripts/build-workbuddy.mjs`。
@@ -114,14 +116,18 @@ runtime）。画布数据根：`~/.dsh-infinite-canvas/`（env `DSH_IC_HOME` 可
 
 ## 5. 已知限制（如实）
 
-1. **画布 UI 已浏览器化（0.3.0，Task 14）**：`/` 面板从状态页升级为**完整画布 UI**——三 script
-   装载壳：vendor React UMD（`adapters/shared/vendor/react.production.min.js`，react@18.3.1 官方
+1. **画布 UI 已浏览器化并自渲染（0.3.0 Task 14 → 0.3.1 Task 15）**：`/` 面板从状态页升级为
+   **自渲染全屏画布**——四 script 装载壳：vendor React UMD + vendor ReactDOM UMD
+   （`adapters/shared/vendor/react*.production.min.js`，react@18.3.1 / react-dom@18.3.1 官方
    UMD 构建、MIT、保留上游 license banner；**vendor 静态资产非 npm 依赖**，零运行时依赖红线不破）
-   → 内联 `__ModuleLoader__` shim（`require('react')` 返回 `window.React`）→ `client.js`
-   （§4 RUNTIME_FILES 回归，装载契约实证：自包含、唯一外部 require 是 react、hostRpc 自 POST
-   `/api/rpc`、CTX 全守卫无 harness 回退全屏面板）。原状态页挪 `/status`（诊断）。静态契约
-   （三 script 齐活 + 两条资产路由字节一致）已被测试钉死；**浏览器内 React 渲染待用户实机
-   验证**——若实测报 JS 错（1.4MB 前端无法穷举的 harness 依赖残留），下一轮修。
+   → 内联 `__ModuleLoader__` shim（**壳内模拟 Harness**：Proxy 假 ctx——任何服务访问不抛错、
+   effect 立即执行自举样式/字典/Store、slots.register 按 seat 捕获渲染函数优先 `main` 全屏槽位、
+   `desc.apply(fakeCtx)` 真调 cordis 描述符）→ `client.js`（§4 RUNTIME_FILES 回归）。0.3.0 黑屏
+   根因（factory 返回描述符、apply 从未执行）由此修复；任何失败都在页面显示红色错误文本
+   （HTML 转义）——终结黑屏静默。静态契约（四 script 顺序 + 三条资产路由字节一致）已被测试
+   钉死；**浏览器内 React 真渲染待用户实机验证**（CanvasHostedApp 渲染期可能调用 CTX 服务并
+   依赖返回值，undefined 会引发渲染异常——会被错误框接住并显示，是下一轮迭代输入）。
+   原状态页挪 `/status`（诊断）。
 2. **byok 在 MCP 宿主不可用**：core 无 BYOK url/apiKey 存储，MCP 承载下 byok 恒 false
    （见 §2 第 4 级）。
 3. **qoder 模型桥接恒空（最终结论，非待验证）**：`~/.qoder-cn/.models` 本地模型目录为加密

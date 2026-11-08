@@ -28,14 +28,22 @@
  *      （win32 语义 `cmd /c start "" "<url>"`；全程不真的打开浏览器，--open 只测命令构造）
  *  组7 canvas-mcp --port 接线：子进程拉起 canvas-mcp.cjs --port <P3> → 面板 200+特征串、
  *      RPC ping 200、且 MCP stdio 的 initialize 仍正常应答（--port 不影响协议面）；收尾杀进程
- *  组8 画布真 UI 壳契约（Task 14，需求：task-14-brief.md）：GET / 不再是状态页而是装载壳——
- *      含 `__ModuleLoader__` shim、含 `/infinite-canvas/api/client.js` script 标签、含
- *      `/infinite-canvas/api/vendor/react.production.min.js` script 标签（三 script 齐活）、
- *      挂载点特征串不变（组1 双条件钉死）。壳引用的两条静态资产路由（canvas-web 自有 exact）：
+ *  组8 画布真 UI 壳契约（Task 14，Task 15 升级为四 script）：GET / 不再是状态页而是装载壳——
+ *      含 `__ModuleLoader__` shim（壳内模拟 Harness：createRoot 全屏挂载 + slots 捕获渲染函数）、
+ *      含 `/infinite-canvas/api/client.js` script 标签、含
+ *      `/infinite-canvas/api/vendor/react.production.min.js` 与 react-dom script 标签（四 script 齐活）、
+ *      **script 相对顺序**（装载契约钉死）：react < react-dom < 内联 shim < client.js、
+ *      挂载点特征串不变（组1 双条件钉死）。壳引用的三条静态资产路由（canvas-web 自有 exact）：
  *      - GET /infinite-canvas/api/client.js → 200 text/javascript 且字节数与磁盘上 core 目录的
  *        client.js 完全一致（内存缓存不改一字）
  *      - GET /infinite-canvas/api/vendor/react.production.min.js → 200 且含 React（UMD vendor）
+ *      - GET /infinite-canvas/api/vendor/react-dom.production.min.js → 200 且含 ReactDOM
+ *        （Task 15：壳自渲染 createRoot 必需）
  *      诊断页不删：原状态页挪到 GET /status → 200（探活/排错用）
+ *  组8b startWeb 资产缺失即抛错且自建 adapter 先 dispose（Task 14 评审 Minor）：子进程内打桩
+ *      createHostAdapter（计数 dispose），coreDir 指向空目录 + port:0（防本机 3210 有活画布
+ *      服务走复用路径绕过资产加载）→ startWeb 必 reject（资产缺失）且 dispose 恰好一次——
+ *      半初始化 adapter 不残留
  *
  * 存储根：单次 createHostAdapter 注入 adapters/.tmp-home/（同 Task 1/2 模式，绝不碰真实画布
  * 数据；HOST-CONTRACT §6 单例——本进程所有 startWeb 共享同一 adapter 的 routes，不各自 create）。
@@ -133,7 +141,8 @@ try {
   if (!panel.body.includes(PANEL_MARK)) {
     errs.push(`面板页应含挂载点特征子串 "${PANEL_MARK}"（依据：core 无面板路由，面板页由 canvas-web 自备），实际前 200 字符: ${panel.body.slice(0, 200)}`);
   }
-  // 组8 前置：/ 是真 UI 装载壳（Task 14）——三 script 齐活（vendor React + ModuleLoader shim + client.js）
+  // 组8 前置：/ 是真 UI 装载壳（Task 14 → Task 15 四 script）——vendor React + vendor ReactDOM
+  // + ModuleLoader shim（壳内模拟 Harness）+ client.js；挂载点特征串不变
   if (!panel.body.includes('__ModuleLoader__')) {
     errs.push('面板页应含 __ModuleLoader__ shim（Task 14 装载契约：client.js 以 window.__ModuleLoader__.load 自装载）');
   }
@@ -142,6 +151,28 @@ try {
   }
   if (!panel.body.includes('<script src="/infinite-canvas/api/vendor/react.production.min.js">')) {
     errs.push('面板页应含 vendor React script 标签（Task 14：client.js 唯一外部依赖 react 由 UMD 全局提供）');
+  }
+  // Task 15（黑屏修复）Harness 模拟特征：createRoot（壳自渲染）+ slots（捕获渲染函数）
+  if (!panel.body.includes('createRoot')) {
+    errs.push('面板页应含 createRoot（Task 15：壳内模拟 Harness 后由壳 ReactDOM.createRoot 全屏挂载）');
+  }
+  if (!panel.body.includes('slots')) {
+    errs.push('面板页 shim 应含 slots 捕获逻辑（Task 15：slots.register 的渲染函数是壳挂载的数据源）');
+  }
+  if (!panel.body.includes('<script src="/infinite-canvas/api/vendor/react-dom.production.min.js">')) {
+    errs.push('面板页应含 vendor ReactDOM script 标签（Task 15：createRoot 由 react-dom@18.3.1 UMD 全局提供）');
+  }
+  // Task 14 评审 Minor #3：script 相对顺序断言（装载契约钉死）——react < react-dom < 内联 shim < client.js
+  {
+    const iReact = panel.body.indexOf('<script src="/infinite-canvas/api/vendor/react.production.min.js">');
+    const iReactDOM = panel.body.indexOf('<script src="/infinite-canvas/api/vendor/react-dom.production.min.js">');
+    const iShim = panel.body.indexOf('window.__ModuleLoader__');
+    const iClient = panel.body.indexOf('<script src="/infinite-canvas/api/client.js">');
+    if (iReact < 0 || iReactDOM < 0 || iShim < 0 || iClient < 0) {
+      errs.push(`script 顺序断言前提不成立（四个标记应齐活）: react=${iReact} react-dom=${iReactDOM} shim=${iShim} client.js=${iClient}`);
+    } else if (!(iReact < iReactDOM && iReactDOM < iShim && iShim < iClient)) {
+      errs.push(`script 相对顺序应 react(${iReact}) < react-dom(${iReactDOM}) < shim(${iShim}) < client.js(${iClient})——UMD 全局先落位、shim 定义装载器、client.js 自装载`);
+    }
   }
 
   // ---------- 组2：RPC 路由（core 真实契约：原始 JSON {method,args}，camelCase 方法表） ----------
@@ -327,6 +358,18 @@ try {
       errs.push('vendor React 文件应含 React 全局赋值形态（UMD 构建），实际前 200 字符: ' + reactAsset.body.slice(0, 200));
     }
   }
+  // vendor ReactDOM 路由（Task 15）：200 text/javascript 且含 ReactDOM（UMD 全局形态，来源 react-dom@18.3.1）
+  const reactDomAsset = await httpHit(web1.url + '/infinite-canvas/api/vendor/react-dom.production.min.js');
+  if (reactDomAsset.status !== 200) {
+    errs.push(`GET /infinite-canvas/api/vendor/react-dom.production.min.js 应 200，实际 ${reactDomAsset.status}（body: ${reactDomAsset.body.slice(0, 120)}）`);
+  } else {
+    if (!String(reactDomAsset.headers['content-type'] || '').includes('text/javascript')) {
+      errs.push(`vendor ReactDOM 路由 content-type 应为 text/javascript，实际 ${reactDomAsset.headers['content-type']}`);
+    }
+    if (!reactDomAsset.body.includes('ReactDOM')) {
+      errs.push('vendor ReactDOM 文件应含 ReactDOM 全局赋值形态（UMD 构建），实际前 200 字符: ' + reactDomAsset.body.slice(0, 200));
+    }
+  }
   // 诊断页保留：原状态页挪到 /status（探活/排错用；探活语义仍只查 / 的特征串，不受影响）
   const statusPage = await httpHit(web1.url + '/status');
   if (statusPage.status !== 200) {
@@ -337,6 +380,43 @@ try {
     }
     if (!statusPage.body.includes(PANEL_MARK)) {
       errs.push('/status 诊断页应保留挂载点特征子串（原状态页原样挪移）');
+    }
+  }
+
+  // ---------- 组8b：startWeb 资产缺失即抛错，且自建 adapter 在抛错前 dispose（Task 14 评审 Minor） ----------
+  // 子进程内打桩 createHostAdapter（计数 dispose）：canvas-web.cjs 在 require 时解构 createHostAdapter，
+  // 所以先 require host-adapter.cjs 换桩、再 require canvas-web.cjs 才能截住。coreDir 指向空目录 →
+  // client.js 缺失 → loadShellAssets 启动期抛错 → startWeb 必须 reject，且 dispose 恰好被调一次
+  // （半初始化 adapter 不残留——0.3.0 曾直接把 adapter 扔在泄漏态）。
+  {
+    const probeFile = path.join(TMP_HOME, 'probe-dispose-on-throw.cjs');
+    fs.mkdirSync(TMP_HOME, { recursive: true });
+    fs.writeFileSync(probeFile, `
+      const ha = require(${JSON.stringify(path.join(ROOT, 'adapters', 'shared', 'host-adapter.cjs'))});
+      let disposed = 0;
+      ha.createHostAdapter = async () => ({ routes: [], dispose() { disposed++; } });
+      const cw = require(${JSON.stringify(path.join(ROOT, 'adapters', 'shared', 'canvas-web.cjs'))});
+      cw.startWeb({ coreDir: ${JSON.stringify(path.join(TMP_HOME, 'no-such-core-dir'))}, port: 0 }).then(
+        () => { console.log('UNEXPECTED_SUCCESS'); process.exit(1); },
+        (e) => {
+          if (!/缺失/.test(String((e && e.message) || e))) {
+            console.log('WRONG_ERROR: ' + String((e && e.message) || e)); process.exit(1);
+          }
+          console.log(disposed === 1 ? 'DISPOSED_OK' : 'DISPOSED_COUNT_' + disposed);
+        }
+      );
+    `, 'utf8');
+    const probe = spawn(process.execPath, [probeFile], { cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe'] });
+    const probeStdout = [];
+    probe.stdout.on('data', (c) => probeStdout.push(c));
+    // once(events) 以 [code, signal] 数组 resolve；20s 超时回退 [undefined]（形状一致）
+    const [probeExitCode] = await Promise.race([
+      once(probe, 'exit'),
+      new Promise((ok) => setTimeout(() => ok([undefined]), 20000)),
+    ]);
+    const probeOut = Buffer.concat(probeStdout).toString('utf8').trim();
+    if (probeExitCode !== 0 || probeOut !== 'DISPOSED_OK') {
+      errs.push(`组8b 资产缺失路径应 reject 且先 dispose 一次（DISPOSED_OK），实际 exit=${probeExitCode} stdout="${probeOut.slice(0, 200)}"`);
     }
   }
 
@@ -356,5 +436,5 @@ if (errs.length) {
   for (const e of errs) console.error('  - ' + e);
   process.exit(1);
 }
-console.log('\n✓ canvas-web 画布 HTTP 承载：契约全部通过（真 UI 壳三 script/client.js·vendor·status 路由/RPC 分发/404/端口复用/EADDRINUSE 换口/open 命令/--port 接线）');
+console.log('\n✓ canvas-web 画布 HTTP 承载：契约全部通过（真 UI 壳四 script·顺序钉死/client.js·react·react-dom·status 路由/Harness 模拟 shim/资产缺失 dispose/RPC 分发/404/端口复用/EADDRINUSE 换口/open 命令/--port 接线）');
 process.exit(0);

@@ -61,8 +61,8 @@ const RUNTIME_FILES = [
   'package.json',
   'client.js',
 ];
-// shared/vendor（Task 14：React UMD 静态资产，canvas-web 真 UI 壳的 /api/vendor 路由数据源）
-const SHARED_VENDOR_FILES = ['vendor/react.production.min.js'];
+// shared/vendor（Task 14：React UMD；Task 15：ReactDOM UMD——壳内模拟 Harness 后壳自渲染必需）
+const SHARED_VENDOR_FILES = ['vendor/react.production.min.js', 'vendor/react-dom.production.min.js'];
 // §4 运行时读取清单：canvas 内置技能 SKILL.md ×4 + canvas-director 技能包整体
 const SKILL_DIRS = ['canvas-studio', 'canvas-craft', 'canvas-layout', 'canvas-director'];
 
@@ -131,6 +131,7 @@ export function buildWorkbuddy() {
     path.join('plugins', 'dsh-infinite-canvas', 'dist', 'core', 'index.js'),
     path.join('plugins', 'dsh-infinite-canvas', 'dist', 'core', 'client.js'),
     path.join('plugins', 'dsh-infinite-canvas', 'dist', 'vendor', 'react.production.min.js'),
+    path.join('plugins', 'dsh-infinite-canvas', 'dist', 'vendor', 'react-dom.production.min.js'),
   ]);
 
   // 3) zip 打包 + 条目自检（公共 packZip：ZIP 根直接含 .codebuddy-plugin/marketplace.json，官方规范）
@@ -140,6 +141,7 @@ export function buildWorkbuddy() {
     'plugins/dsh-infinite-canvas/dist/canvas-mcp.cjs',
     'plugins/dsh-infinite-canvas/dist/core/client.js',
     'plugins/dsh-infinite-canvas/dist/vendor/react.production.min.js',
+    'plugins/dsh-infinite-canvas/dist/vendor/react-dom.production.min.js',
   ]);
 
   const size = fs.statSync(OUT_ZIP).size;

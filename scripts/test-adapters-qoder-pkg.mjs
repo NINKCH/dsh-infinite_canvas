@@ -5,7 +5,7 @@
  * 流程：测试内 spawn `node adapters/scripts/build-qoder.mjs` 构建产物 → Expand-Archive（PowerShell
  * spawn）解包到 os 临时目录 → 逐条断言。全程不触碰 ~/.qoder-cn（注册延后 Task 11）。
  *
- *  1) 产物存在：adapters/dist/dsh-infinite-canvas-qoder-0.3.0.zip，大小 > 50KB
+ *  1) 产物存在：adapters/dist/dsh-infinite-canvas-qoder-0.3.1.zip，大小 > 50KB
  *  2) ZIP 层布局（tar -tf）：ZIP 根直接含 .qoder-plugin/plugin.json（官方规范）+ .mcp.json + dist/*
  *  3) 解包目录树：.qoder-plugin/plugin.json、skills/canvas/SKILL.md、.mcp.json、
  *     dist/{canvas-mcp,canvas-web,model-bridge,llm-channel,host-adapter}.cjs、
@@ -38,7 +38,7 @@ import process from 'node:process';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const BUILD_SCRIPT = path.join(ROOT, 'adapters', 'scripts', 'build-qoder.mjs');
-const OUT_ZIP = path.join(ROOT, 'adapters', 'dist', 'dsh-infinite-canvas-qoder-0.3.0.zip');
+const OUT_ZIP = path.join(ROOT, 'adapters', 'dist', 'dsh-infinite-canvas-qoder-0.3.1.zip');
 const PANEL_MARK = 'id="infinite-canvas-root"'; // 面板挂载点特征子串（canvas-web.cjs 自备面板页）
 const KEY_RE = /sk-[A-Za-z0-9_-]{8,}/g;         // 密钥形状（与 model-bridge.cjs KEY_RE 同口径）
 
@@ -46,7 +46,7 @@ const KEY_RE = /sk-[A-Za-z0-9_-]{8,}/g;         // 密钥形状（与 model-brid
 const PLUGIN_JSON_VERBATIM = {
   name: 'dsh-infinite-canvas',
   displayName: '无限画布',
-  version: '0.3.0',
+  version: '0.3.1',
   description: '无限画布——可视化创作工作台（剧本/分镜/图片/视频节点编排）',
   author: { name: 'ninkch' },
   skills: './skills/',
@@ -247,9 +247,9 @@ try {
     if (!fs.existsSync(path.join(smokeHome, 'projects'))) {
       errs.push('数据根冒烟：DSH_IC_HOME/projects 应已创建（数据根落在 env 注入根），实际未建');
     }
-    // Task 14 解包冒烟（真 UI 壳）：GET / 三 script 齐活 + 两条静态资产路由可用
-    for (const needle of ['__ModuleLoader__', '<script src="/infinite-canvas/api/client.js">', '<script src="/infinite-canvas/api/vendor/react.production.min.js">']) {
-      if (!panelBody.includes(needle)) errs.push('解包产物面板缺真 UI 壳片段（Task 14 三 script）: ' + needle);
+    // Task 14/15 解包冒烟（真 UI 壳）：GET / 四 script 齐活 + 三条静态资产路由可用
+    for (const needle of ['__ModuleLoader__', 'createRoot', '<script src="/infinite-canvas/api/client.js">', '<script src="/infinite-canvas/api/vendor/react.production.min.js">', '<script src="/infinite-canvas/api/vendor/react-dom.production.min.js">']) {
+      if (!panelBody.includes(needle)) errs.push('解包产物面板缺真 UI 壳片段（Task 14/15 四 script）: ' + needle);
     }
     const smokeClient = await httpGet(`http://127.0.0.1:${port}/infinite-canvas/api/client.js`, 5000);
     if (smokeClient.status !== 200 || smokeClient.body.length < 100000) {
@@ -258,6 +258,10 @@ try {
     const smokeReact = await httpGet(`http://127.0.0.1:${port}/infinite-canvas/api/vendor/react.production.min.js`, 5000);
     if (smokeReact.status !== 200 || !smokeReact.body.includes('React')) {
       errs.push(`解包产物 vendor React 路由应 200 且含 React（UMD 全局），实际 ${smokeReact.status}`);
+    }
+    const smokeReactDOM = await httpGet(`http://127.0.0.1:${port}/infinite-canvas/api/vendor/react-dom.production.min.js`, 5000);
+    if (smokeReactDOM.status !== 200 || !smokeReactDOM.body.includes('ReactDOM')) {
+      errs.push(`解包产物 vendor ReactDOM 路由应 200 且含 ReactDOM（Task 15 壳自渲染 createRoot），实际 ${smokeReactDOM.status}`);
     }
   }
 
@@ -273,5 +277,5 @@ if (errs.length) {
   for (const e of errs) console.error('  - ' + e);
   process.exit(1);
 }
-console.log('\n✓ qoder-plugin ZIP：契约全部通过（构建/ZIP 树/逐字清单/SKILL frontmatter/无密钥/解包产物冒烟：面板+三 script+client.js·vendor 路由+数据根）');
+console.log('\n✓ qoder-plugin ZIP：契约全部通过（构建/ZIP 树/逐字清单/SKILL frontmatter/无密钥/解包产物冒烟：面板+四 script+client.js·vendor 路由+数据根）');
 process.exit(0);
