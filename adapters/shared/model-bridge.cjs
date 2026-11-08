@@ -205,9 +205,9 @@ function discoverHosts(options) {
  * 缓存；opts.hostVersion 可注入覆盖，测试用它避开真实安装目录读取）。
  *
  * 响应解析：choices[0].message.content（字符串）→ {text}；usage 存在则透传。
- * 非 2xx → 抛 Error，message = '<host>/<id> HTTP <status>: ' + redact(响应体截断 500 字符)
- * （脱敏红线：响应体可能回显 key）。网络错误/超时 → 抛 Error（message 含 host/id/原因，经
- * redact 收口）。
+ * 非 2xx → 抛 Error，message = '<host>/<id> HTTP <status>: ' + redact(响应体) 截断 500 字符
+ * （先脱敏后截断：响应体可能回显 key，先截断会给横跨边界的 key 留残片——红线）。网络错误/
+ * 超时 → 抛 Error（message 含 host/id/原因，经 redact 收口）。
  */
 function chat(model, messages, opts) {
   const o = opts || {};
@@ -265,15 +265,17 @@ function chat(model, messages, opts) {
         const bodyText = Buffer.concat(chunks).toString('utf8');
         const status = res.statusCode || 0;
         if (status < 200 || status >= 300) {
-          // 非 2xx：响应体截断至 500 字符再整体 redact（响应体可能回显 key——红线）
-          fail(new Error(redact(id + ' HTTP ' + status + ': ' + bodyText.slice(0, BODY_SNIPPET_MAX))));
+          // 非 2xx：先 redact 全文、后截断至 500 字符（响应体可能回显 key——红线；若先截断，
+          // 横跨边界的 key 会留下 <8 位残片逃过 {8,} 正则，评审修复）
+          fail(new Error(redact(id + ' HTTP ' + status + ': ' + redact(bodyText).slice(0, BODY_SNIPPET_MAX))));
           return;
         }
         let parsed;
         try {
           parsed = JSON.parse(bodyText);
         } catch {
-          fail(new Error(redact(id + ' 响应非 JSON: ' + bodyText.slice(0, 200))));
+          // 同款顺序（先 redact 全文、后截断 200）：理由同上
+          fail(new Error(redact(id + ' 响应非 JSON: ' + redact(bodyText).slice(0, 200))));
           return;
         }
         const choice = parsed && Array.isArray(parsed.choices) && parsed.choices[0];

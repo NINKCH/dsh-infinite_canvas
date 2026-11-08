@@ -257,8 +257,10 @@ chat(model, messages, opts?) -> { text, usage? }   // Promise；opts: { timeout?
   `buildUserAgent(host, 版本)`——版本经 detectHostVersions（读安装目录 product.json /
   package.json，尽力而为）**在请求路径上调用一次并模块级缓存**；`opts.hostVersion` 可注入覆盖
   （测试用它避开真实安装目录读取）。响应 `choices[0].message.content` → text，`usage` 存在则
-  透传。非 2xx → `throw Error('<host>/<id> HTTP <status>: ' + redact(bodyText 截断 500 字符))`；
-  网络错误/超时 → `throw Error`（message 含 host/id/原因，同样经 redact）。
+  透传。非 2xx → `throw Error('<host>/<id> HTTP <status>: ' + redact(bodyText) 截断 500 字符)`
+  （**先脱敏后截断**——评审修复：先截断会让横跨截断边界的 key 残片（`sk-` + ≤7 字）逃过
+  `{8,}` 正则；非 JSON 响应路径的 200 字符截断同款顺序）；网络错误/超时 → `throw Error`
+  （message 含 host/id/原因，同样经 redact）。
 - **密钥红线（Review Focus #3/#5）**：apiKey 不进仓库/日志/错误消息/工具返回/产物包；
   model-bridge 内**所有 Error.message 组装统一过 redact 收口**，stderr 日志函数自身也过
   redact；任何把 Model 序列化出去的路径必须先过 redactModel（原对象不被改动）。测试断言：

@@ -11,7 +11,9 @@
  *      纯函数注入，不走真实安装目录）、content-type、body.model 透传条目 id、messages 数组
  *      直传、opts.body 合并；choices[0].message.content → text；usage 透传
  *  组2 非 2xx 脱敏：mock 500 且 body 回显 sk-abc123def456 → Error.message 含
- *      `workbuddy/<id> HTTP 500:` 前缀与 [redacted]，绝无 key 明文；body 截断至 500 字符
+ *      `workbuddy/<id> HTTP 500:` 前缀与 [redacted]，绝无 key 明文；body 截断至 500 字符；
+ *      边界残片（评审修复钉死）：key 起始于 493/193 位横跨 500/200 截断边界 → message
+ *      不含任何 sk- 残片（先 redact 全文后截断的顺序断言）
  *  组3 网络错误/超时：永不响应 mock + opts.timeout 300 → 抛「超时」（AbortController 生效，
  *      ≈300ms 而非默认 120s）；对已关闭端口请求 → ECONNREFUSED；两类 message 均含 host/id/
  *      原因、经 redact、无 key 明文
@@ -214,8 +216,45 @@ try {
     if (!err2.message.startsWith('workbuddy/claude-sonnet-5 HTTP 500:')) {
       errs.push(`组2 message 前缀应为 "host/<id> HTTP <status>:"，实际 ${err2.message.slice(0, 60)}`);
     }
-    const snippet2 = err2.message.slice('workbuddy/claude-sonnet-5 HTTP 500:'.length);
+    const snippet2 = err2.message.slice('workbuddy/claude-sonnet-5 HTTP 500: '.length); // 含前缀后的分隔空格
     if (snippet2.length > 500) errs.push(`组2 body 片段应截断至 500 字符，实际 ${snippet2.length}`);
+  }
+  // 组2b 边界残片（评审修复钉死，500 路径）：key 起始于第 493 位（0 基）横跨 500 截断边界——
+  // 旧顺序「先截断后 redact」会留下 'sk-abcdefg'（≤7 字）残片逃过 {8,} 正则；新顺序
+  // 「先 redact 全文后截断」下 message 不得含任何 sk- 字样，且应见截断中的 [reda… 残标
+  const mock2b = await startMock((res) => {
+    res.writeHead(500, { 'content-type': 'application/json' });
+    res.end('x'.repeat(493) + LEAK_KEY + 'y'.repeat(60));
+  });
+  const model2b = {
+    host: 'workbuddy', id: 'claude-sonnet-5', vendor: 'claude',
+    url: `http://127.0.0.1:${mock2b.port}/v1/chat/completions`,
+    apiKey: 'sk-boundarycase55667788',
+  };
+  let err2b = null;
+  try { await chat(model2b, [{ role: 'user', content: 'hi' }], { hostVersion: '1.0.0' }); } catch (e) { err2b = e; }
+  if (!err2b) errs.push('组2b 边界用例应抛 Error');
+  else {
+    if (err2b.message.includes('sk-')) errs.push(`组2b key 横跨 500 边界时 message 含 sk- 残片（旧顺序回归），尾部: ${err2b.message.slice(-60)}`);
+    if (!err2b.message.includes('[reda')) errs.push(`组2b message 应含截断中的 [reda… 残标（证明先 redact 后截断），实际: ${err2b.message.slice(-60)}`);
+  }
+  // 组2c 边界残片（200 非 JSON 路径）：key 起始于第 193 位横跨 200 截断边界，同款顺序断言
+  const mock2c = await startMock((res) => {
+    res.writeHead(200, { 'content-type': 'application/json' });
+    res.end('x'.repeat(193) + LEAK_KEY + 'y'.repeat(40));
+  });
+  const model2c = {
+    host: 'workbuddy', id: 'claude-sonnet-5', vendor: 'claude',
+    url: `http://127.0.0.1:${mock2c.port}/v1/chat/completions`,
+    apiKey: 'sk-boundarycase88990011',
+  };
+  let err2c = null;
+  try { await chat(model2c, [{ role: 'user', content: 'hi' }], { hostVersion: '1.0.0' }); } catch (e) { err2c = e; }
+  if (!err2c) errs.push('组2c 边界用例应抛 Error');
+  else {
+    if (!err2c.message.includes('响应非 JSON')) errs.push(`组2c 非 JSON 2xx 应抛「响应非 JSON」，实际 ${err2c.message.slice(0, 60)}`);
+    if (err2c.message.includes('sk-')) errs.push(`组2c key 横跨 200 边界时 message 含 sk- 残片（旧顺序回归），尾部: ${err2c.message.slice(-60)}`);
+    if (!err2c.message.includes('[reda')) errs.push(`组2c message 应含截断中的 [reda… 残标，实际: ${err2c.message.slice(-60)}`);
   }
 
   // ---------- 组3：超时（AbortController）与连接拒绝 ----------
