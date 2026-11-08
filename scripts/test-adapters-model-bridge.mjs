@@ -20,7 +20,8 @@
  *  组4 空配置降级：models.json 不存在 / 空数组 / 坏 JSON / 非 JSON 数组 → workbuddy:[] 且
  *      绝不抛错；缺 url / 缺 apiKey / 非对象条目被跳过
  *  组5 qoder/cursor：临时空目录与不存在目录 → qoder:[] 不抛错；cursor 恒 []；
- *      QODER_OPENAPI_ENDPOINT 存在性只记录布尔到 stderr（捕获断言），不发请求
+ *      QODER_OPENAPI_ENDPOINT 存在性只记录布尔到 stderr（**显式 log:true 才输出**——Task 5
+ *      Ruling：discoverHosts 缺省静默；捕获断言），不发请求
  *  组6 redactModel：apiKey → 字面 '[redacted]'，序列化无明文，原对象不被改动
  *  组7 buildUserAgent 纯函数：WorkBuddy/<v>、QoderCN/<v>；版本缺失/非法 → dsh-bridge/0.1.0
  *  组8 redact 直测：sk-[A-Za-z0-9_-]{8,} 全局替换为 [redacted]；不足 8 位不误伤
@@ -340,12 +341,13 @@ try {
   }
   if (!d5b || !Array.isArray(d5b.qoder) || d5b.qoder.length !== 0) errs.push('组5 不存在的 qoder 目录应 qoder:[]');
   if (d5a.cursor.length !== 0 || (d5b && d5b.cursor.length !== 0)) errs.push('组5 cursor 恒 []（预留接口，后端未公开）');
-  // QODER_OPENAPI_ENDPOINT 只记录布尔到 stderr，不发请求（捕获 stderr 断言后还原）
+  // QODER_OPENAPI_ENDPOINT 只记录布尔到 stderr，不发请求（Task 5 Ruling：缺省静默，
+  // 该观测用例显式 log:true；捕获 stderr 断言后还原。其余 discover 调用不受影响）
   const origStderrWrite = process.stderr.write;
   let captured5 = '';
   process.stderr.write = (chunk) => { captured5 += String(chunk); return true; };
   try {
-    discoverHosts({ paths: { workbuddyModels: noneJson5, qoderModelsDir: emptyDir5 } });
+    discoverHosts({ paths: { workbuddyModels: noneJson5, qoderModelsDir: emptyDir5 }, log: true });
   } finally {
     process.stderr.write = origStderrWrite;
   }

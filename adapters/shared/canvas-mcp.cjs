@@ -8,8 +8,11 @@
  * 协议面（刻意最小）：只做 initialize / tools/list / tools/call。JSON-RPC 通知一律不回包
  * （含 notifications/initialized）；未知方法（带 id）回 -32601、坏 JSON 行回 -32700——均为
  * JSON-RPC 2.0 基线错误语义，不新增 MCP 方法。stdout 只写 JSON-RPC 消息，一切日志走 stderr
- * （日志只记方法名/错误消息，绝不记工具参数——apiKey 红线）。
+ * （日志只记方法名/错误消息且经 redact，绝不记工具参数——apiKey 红线）。
  *
+ * server→client 请求（Task 5，sampling 通道）：initialize 记录 client capabilities.sampling
+ * 布尔；可用时 sampling/createMessage 以 JSON-RPC request（params 按 MCP 规范最小形态
+ * {messages, maxTokens}）发给 client，应答帧（无 method、带 id 且有 pending）路由回等待者。
  * 帧读取约束（Review Focus #1）：chunk 累积为 Buffer，按字节 indexOf(0x0A) 找行界，整行
  * Buffer.concat 后一次性 utf8 解码。禁止 readline、禁止 toString 后 split——多字节字符（中文）
  * 跨 chunk 边界时两者都会碎帧。
@@ -28,23 +31,24 @@
 
 const path = require('node:path');
 const { parseArgs } = require('node:util');
+const modelBridge = require('./model-bridge.cjs');
+const { probeChannels } = require('./llm-channel.cjs');
 
 // 仓库根：本文件位于 adapters/shared/，向上两级即仓库根（与 host-adapter.cjs 同款解析）。
 const REPO_ROOT = path.resolve(__dirname, '..', '..');
 const PROTOCOL_VERSION_DEFAULT = '2025-06-18';
 const SERVER_INFO = { name: 'dsh-infinite-canvas', version: '0.1.0' };
 
-// ---- canvas_llm_probe（Task 5 接线点）：顶部单一定义，届时把 llmProbe 换成真实探测即可，协议面不动 ----
-const llmProbe = async () => ({ vscodeLm: 'n/a', bridge: [], sampling: 'unknown', byok: false });
+// ---- canvas_llm_probe（Task 5 已接线）：定义固定不动，真实编排实现见 main() 内 llmProbe ----
 const LLM_PROBE_DEF = {
   name: 'canvas_llm_probe',
   description: '探测当前宿主可用的 LLM 通道（VS Code LM / 桥接 / sampling / BYOK），返回各通道可用状态。',
   inputSchema: { type: 'object', properties: {} },
 };
 
-/** stderr 日志（stdout 只写 JSON-RPC 消息）。 */
+/** stderr 日志（stdout 只写 JSON-RPC 消息；统一过 redact——探测/错误可能带上游响应片段）。 */
 function log(message) {
-  process.stderr.write('[canvas-mcp] ' + message + '\n');
+  process.stderr.write('[canvas-mcp] ' + modelBridge.redact(String(message)) + '\n');
 }
 
 /** stdout 写一行 JSON-RPC 消息（唯一出口）。 */
@@ -93,6 +97,200 @@ function createLineReader(onLine) {
   };
 }
 
+// =====================================================================
+// LLM 通道构造（Task 5 接线，HOST-CONTRACT.md §10）——全部为「通道实现」，编排决策在
+// llm-channel.cjs（resolveTextLLM/probeChannels 纯决策 + 委托）。本文件只做：
+//   bridge   = model-bridge 静默 discoverHosts + modelBridge.chat（网络在 model-bridge 内）
+//   sampling = initialize 记录的 client capability + sampling/createMessage server→client 请求
+//   byok     = core 数据面探明结论（§10）：core 无 BYOK url/apiKey 存储，llmOptions 返回的是
+//              Harness llm 服务（ctx.get('llm')）的 providers/resolved 视图——available =
+//              resolved 非 null；chat 走 core 原生 /api/llm-stream（进程内路由调用，非网络）
+// =====================================================================
+
+// ---- server→client 请求（sampling/createMessage 用）：pending 表 + 应答帧路由回等待者 ----
+const pendingClientReqs = new Map(); // id → { resolve, reject, timer }
+let nextClientReqId = 1;
+const SAMPLING_TIMEOUT_MS = 60000;
+
+/** 向 client 发 JSON-RPC request 并等待其应答帧（handleMessage 里的响应分支路由到这）。 */
+function requestClient(method, params, timeoutMs) {
+  return new Promise((resolve, reject) => {
+    const id = nextClientReqId++;
+    const timer = setTimeout(() => {
+      if (pendingClientReqs.delete(id)) reject(new Error('sampling: client 应答超时（' + (timeoutMs || SAMPLING_TIMEOUT_MS) + 'ms）'));
+    }, timeoutMs || SAMPLING_TIMEOUT_MS);
+    if (typeof timer.unref === 'function') timer.unref(); // 不阻塞宿主进程退出
+    pendingClientReqs.set(id, { resolve, reject, timer });
+    send({ jsonrpc: '2.0', id, method, params });
+  });
+}
+
+/** MCP content 形状 → 纯文本（字符串直传；[{type:'text',text}] 拼接；其余空串）。 */
+function textOfContent(content) {
+  if (typeof content === 'string') return content;
+  if (Array.isArray(content)) return content.map((p) => (p && typeof p.text === 'string' ? p.text : '')).join('');
+  return '';
+}
+
+/** sampling 通道 chat：向 client 发 sampling/createMessage（params 按 MCP 规范最小形态）。 */
+async function samplingChat(messages, opts) {
+  const arr = Array.isArray(messages) ? messages : [];
+  const params = {
+    messages: arr.map((m) => ({
+      role: m && m.role === 'assistant' ? 'assistant' : 'user',
+      content: { type: 'text', text: textOfContent(m && m.content) },
+    })),
+    maxTokens: opts && typeof opts.maxTokens === 'number' && Number.isFinite(opts.maxTokens) && opts.maxTokens > 0
+      ? opts.maxTokens
+      : 1024,
+  };
+  let result;
+  try {
+    result = await requestClient('sampling/createMessage', params, opts && opts.timeout);
+  } catch (e) {
+    // client 拒答/失败 → chat 抛错（redact 后；brief 语义）
+    throw new Error(modelBridge.redact('sampling: ' + ((e && e.message) || String(e))));
+  }
+  const content = result && result.message && result.message.content;
+  const text = content && content.type === 'text' && typeof content.text === 'string'
+    ? content.text
+    : (typeof content === 'string' ? content : undefined);
+  if (typeof text !== 'string') throw new Error('sampling: client 应答缺少 message.content.text');
+  return { text };
+}
+
+/**
+ * bridge 通道：静默 discoverHosts（Task 5 Ruling：不传 log）→ 取第一个非空 host 的模型列表
+ * （顺序 workbuddy > qoder > cursor）；全空 → available=[]（编排器视为不可用）。
+ * chat 签名 (model, messages, opts)——编排器绑定列表第一个模型。
+ */
+function buildBridgeChannel() {
+  const discovered = modelBridge.discoverHosts();
+  let models = [];
+  for (const host of ['workbuddy', 'qoder', 'cursor']) {
+    if (Array.isArray(discovered[host]) && discovered[host].length) {
+      models = discovered[host];
+      break;
+    }
+  }
+  return {
+    available: models,
+    chat(model, messages, opts) {
+      return modelBridge.chat(model, messages, opts); // 错误已先脱敏后截断（model-bridge §9）
+    },
+  };
+}
+
+/**
+ * 进程内调用一条 core 路由（byok 专用，非网络）：伪造最小 req/res——core 的 rpc 与
+ * llm-stream handler 只消费 req.method / req 异步迭代（body）/ res.statusCode / res.setHeader /
+ * res.write / res.end / res.on('close') / res.headersSent。headersSent 语义对齐真实 node：
+ * setHeader 不置位，write 才置位（core 错误分支据此区分 400 JSON 与 SSE fail 事件）。
+ */
+function invokeRoute(route, payload) {
+  return new Promise((resolve, reject) => {
+    const chunks = [];
+    let statusCode = 200;
+    let headersSent = false;
+    const body = Buffer.from(JSON.stringify(payload), 'utf8');
+    const req = {
+      method: 'POST',
+      async *[Symbol.asyncIterator]() { yield body; },
+    };
+    const res = {
+      set statusCode(v) { statusCode = v; },
+      get statusCode() { return statusCode; },
+      get headersSent() { return headersSent; },
+      setHeader() { /* 头部未冲刷：真实 node 在首次 write 才置 headersSent */ },
+      write(c) {
+        headersSent = true;
+        chunks.push(typeof c === 'string' ? c : Buffer.from(c).toString('utf8'));
+        return true;
+      },
+      end(c) {
+        if (c !== undefined && c !== null) chunks.push(typeof c === 'string' ? c : Buffer.from(c).toString('utf8'));
+        resolve({ status: statusCode, body: chunks.join('') });
+      },
+      on() { /* 'close' 监听：进程内调用不会中途断开 */ },
+    };
+    Promise.resolve(route.handler(req, res)).catch(reject);
+  });
+}
+
+/**
+ * byok 通道（按 core 语义探明后接线，brief fallback 条款；探明结论记录于 HOST-CONTRACT §10）：
+ * core 的 llmOptions RPC（index.js L3986 → listLlmOptions）读的是 Harness llm 服务
+ * （ctx.get('llm')），返回 {providers, resolved, error?}，**没有任何 BYOK url/apiKey 概念**
+ * （index.js 全文 grep apiKey/baseUrl/byok 零命中）。因此：
+ *   - available = llmOptions().resolved 非 null（Harness llm 服务已配置至少一个可用模型）；
+ *     llm 服务不可用（MCP 承载的假 ctx 恒 undefined）→ false，绝不在探测时抛错。
+ *   - chat 不走 brief 假设的「url/apiKey 构造 Model + model-bridge 直调」（该配置在 core 不存在），
+ *     改走 core 原生文本生成路径 /api/llm-stream：messages → complete(args) 形状
+ *     （{system, user, temperature?, maxTokens?}，core 语义 system/user 为字符串），
+ *     SSE 事件 t:'x' 累积 / t:'done' 为权威全文 / t:'fail' → 抛错（redact 后）。
+ */
+function findRoute(routes, apiPath) {
+  return (routes || []).find((r) => r && r.kind === 'exact' && r.path === apiPath) || null;
+}
+
+async function buildByokChannel(routes) {
+  const rpcRoute = findRoute(routes, '/infinite-canvas/api/rpc');
+  const streamRoute = findRoute(routes, '/infinite-canvas/api/llm-stream');
+  // available 探测：rpc 路由缺失/非 200/坏 JSON/llm 服务不可用（error 字段）→ 一律 false
+  let available = false;
+  try {
+    if (rpcRoute) {
+      const res = await invokeRoute(rpcRoute, { method: 'llmOptions' });
+      if (res.status === 200) {
+        const parsed = JSON.parse(res.body);
+        available = Boolean(parsed && parsed.resolved && !parsed.error);
+      }
+    }
+  } catch { available = false; }
+
+  return {
+    available,
+    async chat(messages, opts) {
+      if (!streamRoute) throw new Error('byok: 画布 llm-stream 路由不可用');
+      const arr = Array.isArray(messages) ? messages : [];
+      const args = {
+        system: textOfContent(arr.filter((m) => m && m.role === 'system').map((m) => m.content).join('\n')),
+        user: textOfContent((() => {
+          for (let i = arr.length - 1; i >= 0; i--) {
+            if (arr[i] && arr[i].role === 'user') return arr[i].content;
+          }
+          return '';
+        })()),
+      };
+      const o = opts || {};
+      if (typeof o.temperature === 'number' && Number.isFinite(o.temperature)) args.temperature = o.temperature;
+      if (typeof o.maxTokens === 'number' && Number.isFinite(o.maxTokens) && o.maxTokens > 0) args.maxTokens = o.maxTokens;
+      const res = await invokeRoute(streamRoute, args);
+      if (res.status !== 200) {
+        throw new Error(modelBridge.redact('byok: 画布 LLM HTTP ' + res.status + ': ' + res.body.slice(0, 200)));
+      }
+      let text = '';
+      let doneText = null;
+      let failed = null;
+      for (const line of res.body.split('\n')) {
+        const s = line.trim();
+        if (!s.startsWith('data:')) continue;
+        let ev = null;
+        try { ev = JSON.parse(s.slice(5).trim()); } catch { continue; }
+        if (ev && ev.t === 'x' && typeof ev.d === 'string') text += ev.d;
+        else if (ev && ev.t === 'done') doneText = ev.d;
+        else if (ev && ev.t === 'fail') failed = ev.d;
+      }
+      if (failed !== null && failed !== undefined) {
+        throw new Error(modelBridge.redact('byok: 画布 LLM 生成失败: ' + String(failed)));
+      }
+      if (typeof doneText === 'string') text = doneText; // done 事件携带权威全文
+      if (!text) throw new Error('byok: 画布 LLM 未返回文本');
+      return { text };
+    },
+  };
+}
+
 async function main() {
   const { coreDir, homeDir, port, portRaw } = parseCliArgs(process.argv.slice(2));
   const { createHostAdapter } = require('./host-adapter.cjs');
@@ -109,7 +307,21 @@ async function main() {
     executors.set(def.name, def.execute);
     return { name: def.name, description: def.description, inputSchema: def.parameters };
   });
-  // canvas_llm_probe 追加末位（第 31 个）：Task 5 把 llmProbe 换成真实实现即可。
+
+  // ---- canvas_llm_probe 真实编排（Task 5 接线；通道构造见顶部 LLM 通道构造段） ----
+  // channels 每次探测现构造：bridge 文件可变（重读成本低且语义诚实）；sampling 读 initialize
+  // 记录的 client capability 当前值；byok 每次重读 llmOptions（llm 服务可能中途就绪）。
+  let clientSampling = false; // initialize 时记录 client capabilities.sampling 布尔
+  async function llmProbe() {
+    const channels = {
+      // vscodeLm：MCP server 场景恒缺省（仅 vsix 壳注入）→ probe.vscodeLm = 'n/a'
+      bridge: buildBridgeChannel(),
+      sampling: { available: clientSampling, chat: samplingChat },
+      byok: await buildByokChannel(adapter.routes),
+    };
+    return probeChannels(channels);
+  }
+  // canvas_llm_probe 追加末位（第 31 个）。
   executors.set(LLM_PROBE_DEF.name, llmProbe);
   mcpTools.push(LLM_PROBE_DEF);
 
@@ -128,8 +340,23 @@ async function main() {
   }
 
   async function handleMessage(msg) {
-    if (!msg || typeof msg !== 'object' || typeof msg.method !== 'string') return; // 非请求帧，忽略
+    if (!msg || typeof msg !== 'object') return; // 非对象帧，忽略
     const id = msg.id;
+    if (typeof msg.method !== 'string') {
+      // 应答帧（server→client 请求如 sampling/createMessage 的回包：无 method、带 id）。
+      // 只有 pending 表在等的 id 才消费；其余（含无 id 的杂帧）照旧静默忽略——协议面不扩。
+      if (id === undefined || id === null) return;
+      const pending = pendingClientReqs.get(id);
+      if (!pending) return;
+      pendingClientReqs.delete(id);
+      if (pending.timer) clearTimeout(pending.timer);
+      if (msg.error && typeof msg.error === 'object') {
+        pending.reject(new Error(modelBridge.redact(String(msg.error.message ?? JSON.stringify(msg.error)))));
+      } else {
+        pending.resolve(msg.result);
+      }
+      return;
+    }
     if (id === undefined || id === null) return; // 通知一律不回包（含 notifications/initialized）
     try {
       if (msg.method === 'initialize') {
@@ -137,6 +364,8 @@ async function main() {
         const requested = msg.params && typeof msg.params.protocolVersion === 'string'
           ? msg.params.protocolVersion
           : PROTOCOL_VERSION_DEFAULT;
+        // Task 5：记录 client 是否具备 sampling 能力（MCP 规范：capabilities.sampling 存在即支持）
+        clientSampling = Boolean(msg.params && msg.params.capabilities && msg.params.capabilities.sampling);
         send({ jsonrpc: '2.0', id, result: { protocolVersion: requested, capabilities: { tools: {} }, serverInfo: SERVER_INFO } });
       } else if (msg.method === 'tools/list') {
         send({ jsonrpc: '2.0', id, result: { tools: mcpTools } });

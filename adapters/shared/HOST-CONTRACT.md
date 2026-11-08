@@ -233,7 +233,7 @@ const { ctx, tools, routes, dispose } = await createHostAdapter({
 
 ```js
 // adapters/shared/model-bridge.cjs（导出六件，Task 5 只消费 discoverHosts / chat / 脱敏出口）
-discoverHosts({paths?}?) -> { workbuddy: Model[], qoder: Model[], cursor: Model[] }
+discoverHosts({paths?, log?}?) -> { workbuddy: Model[], qoder: Model[], cursor: Model[] }
 redactModel(model) -> { ...model, apiKey: '[redacted]' }
 redact(s) -> s
 buildUserAgent(host, version) -> string
@@ -243,6 +243,8 @@ chat(model, messages, opts?) -> { text, usage? }   // Promise；opts: { timeout?
 
 - **discoverHosts**：`paths` 测试注入 `{ workbuddyModels?, qoderModelsDir? }`（**测试绝不触真实
   home**）；缺省 `<homedir>/.workbuddy/models.json`、`<homedir>/.qoder-cn/.models`。
+  **Task 5 Ruling（继承 Task 4 评审 Minor #2）**：新增可选 `{ log?: boolean }`，**缺省静默**
+  （qoder 探测行不输出）；canvas-mcp / llm-channel 一律静默调用，观测时显式传 `log: true`。
   `Model = { host:'workbuddy'|'qoder'|'cursor', id, vendor, url, apiKey,
   supportsToolCall?, supportsImages?, supportsReasoning? }`（apiKey 仅内存持有）。
   降级矩阵（**绝不抛错**，宿主未登录/无配置是常态）：models.json 文件不存在 / 坏 JSON /
@@ -269,5 +271,72 @@ chat(model, messages, opts?) -> { text, usage? }   // Promise；opts: { timeout?
   版本缺失/非法（或宿主未知）→ `dsh-bridge/0.1.0`（不冒充宿主客户端）。
 - 测试：`scripts/test-adapters-model-bridge.mjs`（本地 mock 网关 + 临时目录，8 组：discover
   保真/降级、chat 请求断言（URL/auth/UA/body/text/usage）、500 脱敏截断、超时（AbortController
-  ≈timeout 生效）与 ECONNREFUSED、空配置降级与条目跳过、qoder/cursor 恒空与 env 布尔、
-  redactModel、redact/buildUserAgent 纯函数）。
+  ≈timeout 生效）与 ECONNREFUSED、空配置降级与条目跳过、qoder/cursor 恒空与 env 布尔
+  （该观测用例显式 `log:true`）、redactModel、redact/buildUserAgent 纯函数）。
+
+## 10. LLM 通道编排契约（Task 5 产出 llm-channel.cjs + canvas-mcp 接线，供 Task 6/7/8/11 消费）
+
+- 形态：`adapters/shared/llm-channel.cjs`（CommonJS、零依赖、**不 require 任何兄弟模块**——
+  纯决策 + 委托，不碰网络；网络在各通道实现里）。发布物 `dist/llm-channel.cjs`（§5）。无 CLI。
+
+```js
+// adapters/shared/llm-channel.cjs（导出两件）
+resolveTextLLM(channels) -> { channel:'vscode-lm'|'bridge'|'sampling'|'byok'|'none',
+                              chat(messages, opts?) -> Promise<{ text, usage? }> }
+probeChannels(channels) -> { vscodeLm:'n/a'|number, bridge:{<host>:count,...}|{},
+                             sampling:boolean|'unsupported', byok:boolean }
+```
+
+- **channels 注入对象（全部可注入，测试用 fake）**：
+  - `vscodeLm?: { available:boolean, count?:number, chat(messages, opts) }`（仅 vsix 壳注入，
+    MCP server 场景恒缺省）
+  - `bridge?: { available:boolean|Model[], chat(model, messages, opts) }`——available 为
+    discoverHosts 过滤出的**第一个非空 host** 的模型列表（顺序 workbuddy > qoder > cursor）；
+    chat 用列表第一个模型（后续可扩展选型）
+  - `sampling?: { available:boolean, chat(messages, opts) }`
+  - `byok?: { available:boolean, chat(messages, opts) }`
+- **resolveTextLLM**：优先级 `vscode-lm > bridge > sampling > byok > none`（逐个看 available
+  真值；bridge 的空数组视为不可用——「第一个非空 host」语义）。返回的 chat 绑定所选通道。
+  **失败模式统一**（Task 4 遗留事实：上游可能同步 throw 也可能 promise reject）：chat 内部
+  `try { return await upstream(...) } catch` 包裹（await 把同步 throw 一并收进 catch），调用方
+  只需 `await chat()` + catch 一次；上游 Error 原样重抛（message 已由各通道 redact），非 Error
+  抛出物包装为 Error。none 通道 chat 恒 reject：`无可用文本 LLM 通道，请在画布设置页配置 BYOK`
+  （brief 逐字；含指引、不含任何 key）。
+- **probeChannels**：vscodeLm——注入存在给模型数（注入可带 count；未带按 available 记 1/0），
+  缺省字面 `'n/a'`；bridge——available 数组按 host 分组计数（零计数 host 省略），空数组/非数组/
+  无注入 → `{}`；sampling——`available===true → true`，false/未注入 → `'unsupported'`；byok——
+  布尔直传（缺省 false）。**序列化安全（Review Focus #3）**：结果只含计数与布尔，绝不携带
+  Model/apiKey——上游注入带完整 Model（含 apiKey）时输出也只留数字，JSON.stringify 全文无 `sk-`。
+- **canvas-mcp 接线**（测试测接线后的 probe 应答，不直接测通道构造函数）：
+  - initialize 记录 client `capabilities.sampling` 布尔（存在即支持，MCP 规范）。
+  - server→client 请求（增量，帧解析不动）：`sampling/createMessage` 以 JSON-RPC request 发出
+    （params 按 MCP 规范最小形态 `{messages, maxTokens}`，message content 为
+    `{type:'text',text}`），应答帧（无 method、带 id 且 pending 表在等）路由回等待者；超时
+    60s、client 拒答/失败 → chat 抛错（redact 后）。
+  - bridge：**静默** discoverHosts（§9 Ruling）→ 第一个非空 host；chat 走 modelBridge.chat。
+  - byok：见下方探明结论。
+  - probe 应答语义（相对 Task 2 固定默认值的变化）：`bridge: [] → {}`（对象计数）、
+    `sampling: 'unknown' → true|'unsupported'`；`vscodeLm` 恒 `'n/a'`；tools/list 的
+    inputSchema 不变。
+- **byok 探明结论（HOST-CONTRACT §10 关键事实，brief 假设与 core 实际不符，按 fallback
+  条款如实实现）**：
+  - core **没有** BYOK url/apiKey 存储：index.js 全文 grep `apiKey|baseUrl|byok` 零命中；
+    `llmOptions` RPC（L3986 → `listLlmOptions()` L3606）读的是 **Harness llm 服务**
+    （`ctx.get('llm')`），返回 `{providers:[{id,name,models:[{id,name}],error?}],
+    resolved:{provider,model}|null, error?}`——「画布设置页配置 BYOK key」在 core 语义中不存在，
+    core 的文本生成一律走 Harness llm 服务的 `service.stream()`。
+  - available 判断（按 core 语义）：llmOptions 的 `resolved` 非 null（= llm 服务已配置至少一个
+    可用模型）；`error` 字段（如 MCP 承载假 ctx `get('llm')` 恒 undefined →
+    `llm 服务不可用`）→ false。**MCP 承载场景 byok 现状恒 false**（诚实降级，宿主侧 llm 服务
+    不在假 ctx 内）。
+  - chat 实现：不走「url/apiKey 构造 Model + model-bridge 直调」（该配置在 core 不存在，不硬造），
+    改走 core 原生文本生成路径 `/infinite-canvas/api/llm-stream`——**进程内调用路由 handler**
+    （invokeRoute：最小 fake req/res，headersSent 语义对齐真实 node：write 才置位），
+    messages → `complete(args)` 形状（system = 各 system 消息 content 拼接、user = 最后一条
+    user 消息 content；opts.temperature/maxTokens 透传），SSE 解析：`t:'x'` 累积、`t:'done'`
+    为权威全文、`t:'fail'`/非 200 → 抛错（先 redact）。
+  - Task 11 实测注意：byok=true 只会出现在 llm 服务可达的宿主（vsix 壳等，Task 6+），MCP stdio
+    承载下恒 false 是预期行为而非缺陷。
+- 测试：`scripts/test-adapters-llm-channel.mjs`（全 fake 注入，5 组：优先级矩阵 7 例、chat
+  委托透传、失败模式统一 3 例、probeChannels 计数/布尔/脱敏、返回形状）；`scripts/test-adapters-mcp.mjs`
+  断言 1b 钉接线后 probe 应答（sampling 能力记录 + bridge 对象形态 + 无 `sk-`）。

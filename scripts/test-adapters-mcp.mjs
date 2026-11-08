@@ -6,6 +6,9 @@
  * stdio 逐条断言（需求：task-2-brief.md，六条断言全覆盖）：
  *  1) initialize 应答含 serverInfo.name==='dsh-infinite-canvas' 与 capabilities.tools
  *     （protocolVersion：client 提供则回显，未提供则缺省 2025-06-18）
+ *  1b) canvas_llm_probe 真实编排（Task 5 接线）：client 声明 capabilities.sampling →
+ *      probe.sampling === true（能力记录）；vscodeLm 'n/a'（MCP 场景恒缺省）；bridge 为
+ *      host→count 对象（无桥接配置 → {}）；byok 布尔；应答全文无 'sk-'（密钥红线）
  *  2) tools/list 长度 31：前 30 名与 HOST-CONTRACT.md §3 CANVAS_METHODS 逐项一致（顺序），
  *     末位为 canvas_llm_probe（inputSchema = {type:'object',properties:{}}）
  *  3) tools/call 真实通路：canvas_list_projects {} → content[0].text 为完整 {count,text} JSON；
@@ -151,6 +154,7 @@ try {
   const init1 = await request('initialize', {
     protocolVersion: '2025-06-18',
     clientInfo: { name: 'dsh-adapter-test', version: '0.0.0' },
+    capabilities: { sampling: {} }, // Task 5：声明 sampling 能力，供断言 1b 验证 server 侧记录
   });
   if (!init1.result) errs.push('initialize 应返回 result，实际: ' + JSON.stringify(init1).slice(0, 200));
   else {
@@ -167,11 +171,48 @@ try {
   }
   notify('notifications/initialized', {}); // 通知：server 无需应答（收尾断言 unexpected 为空）
 
+  // ---------- 断言 1b：canvas_llm_probe 真实编排（Task 5 接线） ----------
+  // 旧默认值 {vscodeLm:'n/a', bridge:[], sampling:'unknown', byok:false} 换为 probeChannels
+  // 新语义：bridge 为 host→count 对象、sampling true|'unsupported'（此处 client 声明了
+  // sampling 能力 → true，验证 initialize 能力记录）。
+  const probeCall = await request('tools/call', { name: 'canvas_llm_probe', arguments: {} });
+  const probeText = contentText(probeCall);
+  if (!probeCall.result || typeof probeText !== 'string') {
+    errs.push('canvas_llm_probe 应返回 content[0].text 字符串，实际: ' + JSON.stringify(probeCall).slice(0, 200));
+  } else {
+    let probeParsed = null;
+    try { probeParsed = JSON.parse(probeText); } catch { /* 记入下方错误 */ }
+    if (!probeParsed || typeof probeParsed !== 'object' || Array.isArray(probeParsed)) {
+      errs.push('canvas_llm_probe 的 content[0].text 应为 JSON 对象，实际: ' + probeText.slice(0, 200));
+    } else {
+      if (probeParsed.vscodeLm !== 'n/a') {
+        errs.push(`probe.vscodeLm 在 MCP server 场景应为 'n/a'（恒缺省注入），实际 ${JSON.stringify(probeParsed.vscodeLm)}`);
+      }
+      if (!probeParsed.bridge || typeof probeParsed.bridge !== 'object' || Array.isArray(probeParsed.bridge)) {
+        errs.push(`probe.bridge 应为 host→count 对象（无桥接配置时 {}），实际 ${JSON.stringify(probeParsed.bridge)}`);
+      }
+      if (probeParsed.sampling !== true && probeParsed.sampling !== 'unsupported') {
+        errs.push(`probe.sampling 应为 true|'unsupported'，实际 ${JSON.stringify(probeParsed.sampling)}`);
+      } else if (probeParsed.sampling !== true) {
+        errs.push(`client 已声明 capabilities.sampling，probe.sampling 应记录为 true，实际 ${JSON.stringify(probeParsed.sampling)}`);
+      }
+      if (typeof probeParsed.byok !== 'boolean') {
+        errs.push(`probe.byok 应为布尔，实际 ${JSON.stringify(probeParsed.byok)}`);
+      }
+      if (probeText.includes('sk-')) errs.push('probe 应答出现 sk- 字样——密钥红线（只允许计数与布尔）');
+    }
+  }
+
   // initialize 不带 protocolVersion → 缺省 2025-06-18
   const init2 = await request('initialize', {});
   if (init2.result && init2.result.protocolVersion !== '2025-06-18') {
     errs.push(`initialize 未提供版本时应缺省 2025-06-18，实际 ${init2.result.protocolVersion}`);
   }
+
+  // ---------- 断言 1c：不属于任何 server→client 请求的应答帧 → 静默忽略（Task 5 新增
+  // 响应帧路由的边界：无 pending 在等的 id 不得回包/不得扰动进程；断言 2 的 tools/list
+  // 紧随其后成功即为存活证明，收尾 unexpected 为空即为无多余回包证明） ----------
+  sendLine({ jsonrpc: '2.0', id: 424242, result: { ignored: true } });
 
   // ---------- 断言 2：tools/list 长度 31，前 30 与 CANVAS_METHODS 一致，末位 canvas_llm_probe ----------
   const CANVAS_METHODS = canvasMethodsFromContract();

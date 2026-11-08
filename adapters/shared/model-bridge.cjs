@@ -161,8 +161,9 @@ function discoverWorkbuddy(modelsFile) {
  * qoder 模型发现：目录结构 <qoderModelsDir>/<uid>/（uid 为目录名枚举）**未经验证**，
  * 首版恒返回 []（Task 11 探针后补真实解析）；目录不存在/无法解析出模型 → []。
  * 同时检测 env QODER_OPENAPI_ENDPOINT 是否存在：只记录布尔到 stderr，不发请求。
+ * 探测行输出受 Task 5 Ruling 控制：仅调用方显式传 log:true 时输出（discoverHosts 缺省静默）。
  */
-function discoverQoder(modelsDir) {
+function discoverQoder(modelsDir, shouldLog) {
   let dirExists = false;
   try {
     dirExists = fs.existsSync(modelsDir) && fs.statSync(modelsDir).isDirectory();
@@ -170,8 +171,10 @@ function discoverQoder(modelsDir) {
     dirExists = false;
   }
   const hasEnvEndpoint = Boolean(process.env.QODER_OPENAPI_ENDPOINT);
-  log('qoder 探测: dir=' + modelsDir + ' exists=' + dirExists +
-      ' QODER_OPENAPI_ENDPOINT=' + hasEnvEndpoint + '；结构未验证，首版返回 []（Task 11 补实现）');
+  if (shouldLog) {
+    log('qoder 探测: dir=' + modelsDir + ' exists=' + dirExists +
+        ' QODER_OPENAPI_ENDPOINT=' + hasEnvEndpoint + '；结构未验证，首版返回 []（Task 11 补实现）');
+  }
   return [];
 }
 
@@ -179,10 +182,13 @@ function discoverQoder(modelsDir) {
  * 宿主模型发现总入口（绝不抛错）。paths 测试注入：{ workbuddyModels?, qoderModelsDir? }，
  * 绝不触真实 home；缺省值：<homedir>/.workbuddy/models.json、<homedir>/.qoder-cn/.models。
  * cursor 恒 []（预留接口；后端 API 未公开、ToS 敏感）。
+ * Task 5 Ruling：新增可选 { log?:boolean }，**缺省静默**（qoder 探测行不输出）；
+ * canvas-mcp / llm-channel 一律静默调用，需要观测时显式传 log:true。
  */
 function discoverHosts(options) {
   const opts = options || {};
   const paths = opts.paths || {};
+  const shouldLog = opts.log === true; // 缺省静默（Task 5 Ruling）
   const home = os.homedir();
   const workbuddyModels = typeof paths.workbuddyModels === 'string' && paths.workbuddyModels
     ? paths.workbuddyModels
@@ -192,7 +198,7 @@ function discoverHosts(options) {
     : path.join(home, '.qoder-cn', '.models');
   return {
     workbuddy: discoverWorkbuddy(workbuddyModels),
-    qoder: discoverQoder(qoderModelsDir),
+    qoder: discoverQoder(qoderModelsDir, shouldLog),
     cursor: [],
   };
 }
