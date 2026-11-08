@@ -210,7 +210,7 @@ const { ctx, tools, routes, dispose } = await createHostAdapter({
   `indexOf(0x0A)` + 整行 concat 后一次性 utf8 解码）——禁止 readline / toString 后 split，
   中文（3 字节 UTF-8）跨 chunk 边界会碎帧（测试 `scripts/test-adapters-mcp.mjs` 断言 5 已验证）。
 - 协议面（刻意最小）：`initialize`（protocolVersion 回显 client 版本，缺省 `2025-06-18`；
-  serverInfo `dsh-infinite-canvas@0.1.0`；capabilities.tools）/ `tools/list`（31 个：
+  serverInfo `dsh-infinite-canvas@0.2.0`（version 与三 manifest 对齐）；capabilities.tools）/ `tools/list`（31 个：
   30 个 canvas_* 顺序同 §3，`inputSchema = def.parameters`，末位追加 `canvas_llm_probe`，
   其 inputSchema 固定 `{type:'object',properties:{}}`）/ `tools/call`（成功 →
   `content:[{type:'text',text:JSON.stringify(result)}]`）。通知一律不回包；未知工具 →

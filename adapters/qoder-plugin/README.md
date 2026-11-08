@@ -5,7 +5,7 @@ MCP 承载（Qoder 无自定义插件 UI），画布面板走本机浏览器。�
 
 ```
 node adapters/scripts/build-qoder.mjs
-→ adapters/dist/dsh-infinite-canvas-qoder-0.1.0.zip
+→ adapters/dist/dsh-infinite-canvas-qoder-0.2.0.zip
 ```
 
 ZIP 根直接含 `.qoder-plugin/plugin.json`（官方规范）、`skills/canvas/SKILL.md`、`.mcp.json`、`dist/`。
@@ -25,7 +25,7 @@ ZIP 根直接含 `.qoder-plugin/plugin.json`（官方规范）、`skills/canvas/
 > 适用于 `install_extension` 不可用的场景。**每一步都先备份，配置文件只 read-merge、绝不整文件覆盖。**
 
 1. **备份**：复制并保存 `~/.qoder-cn/plugins/installed_plugins_v2.json` 与 `~/.qoder-cn/settings.json`。
-2. **解压**：把 ZIP 解压到 `~/.qoder-cn/plugins/cache/local/dsh-infinite-canvas/0.1.0/`
+2. **解压**：把 ZIP 解压到 `~/.qoder-cn/plugins/cache/local/dsh-infinite-canvas/0.2.0/`
    （解压后该目录下直接是 `.qoder-plugin/`、`skills/`、`.mcp.json`、`dist/`）。
 3. **注册（read-merge）**：
    - `installed_plugins_v2.json`：读入 JSON，合并写入键 `"dsh-infinite-canvas@local"`
