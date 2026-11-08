@@ -179,3 +179,21 @@ const { ctx, tools, routes, dispose } = await createHostAdapter({
 - **core 单例**：同一进程内第二次 `createHostAdapter({ corePath })` 命中 ESM 模块缓存——两个 adapter
   共享同一 core 实例，`DSH_IC_*` env 也不会重读（core 在首次 import 时定格）。因此每进程只建一个
   adapter；多承载（MCP + HTTP）复用同一个 adapter 的 tools/routes 即可，不要各自 create。
+
+## 7. MCP stdio 承载契约（Task 2 产出 canvas-mcp.cjs，供 Task 3/5 与宿主接入对齐）
+
+- CLI：`node canvas-mcp.cjs [--core-dir <path>] [--home <dir>]`；`--core-dir` 为 core 入口所在目录
+  （内含 index.js，缺省仓库根）；`--home` 为存储根（缺省走 host-adapter 默认 `adapters/.tmp-home/`）。
+- 帧：newline-delimited JSON-RPC 2.0 over stdio；**Buffer 级切帧**（chunk 累积 + 按字节
+  `indexOf(0x0A)` + 整行 concat 后一次性 utf8 解码）——禁止 readline / toString 后 split，
+  中文（3 字节 UTF-8）跨 chunk 边界会碎帧（测试 `scripts/test-adapters-mcp.mjs` 断言 5 已验证）。
+- 协议面（刻意最小）：`initialize`（protocolVersion 回显 client 版本，缺省 `2025-06-18`；
+  serverInfo `dsh-infinite-canvas@0.1.0`；capabilities.tools）/ `tools/list`（31 个：
+  30 个 canvas_* 顺序同 §3，`inputSchema = def.parameters`，末位追加 `canvas_llm_probe`，
+  其 inputSchema 固定 `{type:'object',properties:{}}`）/ `tools/call`（成功 →
+  `content:[{type:'text',text:JSON.stringify(result)}]`）。通知一律不回包；未知工具 →
+  error `-32602`；`execute` 抛错 → `isError:true` tool result（text 含错误消息），进程不退出。
+- **勘误（Task 2 实测）**：`canvas_list_projects` 返回 `{count, text}`，**没有** `ok` 字段
+  （index.js L4674）——计划原文「canvas_list_projects 含 "ok":true」的断言落到
+  `canvas_create_project`（返回 `{ok:true,...}`）。
+- 日志红线：stdout 只写 JSON-RPC 消息；stderr 日志只记方法名/错误消息，**绝不记工具参数**（apiKey）。
