@@ -65,7 +65,7 @@
 
 | # | path | 已核实的行为 |
 | --- | --- | --- |
-| 1 | `/infinite-canvas/api/rpc` | POST JSON：`{method, args}` → methods 表分派；非 POST 405；未知方法/异常 400；请求体上限 8MB |
+| 1 | `/infinite-canvas/api/rpc` | **已核实（Task 3 HTTP 实测 + 源码 L5560–5586）**：POST 原始 JSON `{method, args}`（**非** JSON-RPC 2.0 信封，无 `jsonrpc`/`id` 字段）→ 方法表分派 → `res.end(JSON.stringify(await fn(args ?? {})))`；非 POST 405 JSON；未知方法/坏 JSON/异常 400 JSON；请求体上限 8MB。**方法表是 core 内部 camelCase 方法（67 个，`_internals.rpcMethods()` 实测键集：ping / projectsList / llmOptions / canvasCreateProject / …）——30 个 `canvas_*` 名是工具注册表（ctx.tools.register，走 MCP 承载），不在 RPC 方法表里**，POST `canvas_list_projects` → 400「未知操作」（Task 3 探针实测钉死） |
 | 2 | `/infinite-canvas/api/llm-stream` | POST，流式生成，请求体上限 4MB |
 | 3 | `/infinite-canvas/api/asset` | （未逐一核对） |
 | 4 | `/infinite-canvas/api/fetch-proxy` | （未逐一核对） |
@@ -74,6 +74,8 @@
 | 7 | `/infinite-canvas/api/thumb` | （未逐一核对） |
 | 8 | `/infinite-canvas/api/object` | （未逐一核对） |
 | 9 | `/infinite-canvas/api/plugin-asset` | GET 静态资源；白名单 `assets/` 目录、拒绝路径穿越 |
+
+**面板路由核实结论（Task 3）**：core **不注册任何 HTML/静态面板路由**——9 条全为 `/infinite-canvas/api/*` API（源码 L5560–5918 逐条核对 + 探针实测 `GET /` → 404）。画布面板页由 `canvas-web.cjs` 自备：exact `/`，200 `text/html; charset=utf-8`，挂载点特征子串 **`id="infinite-canvas-root"`**（探活标识；页内经 RPC `projectsList` 列项目，不复制 core 语义）。计划原文「core 已含 `/infinite-canvas/` 静态面板路由」与实际不符，以本条为准。
 
 ## 3. CANVAS_METHODS（30 个工具名，index.js 注册顺序，实测）
 
@@ -182,7 +184,7 @@ const { ctx, tools, routes, dispose } = await createHostAdapter({
 
 ## 7. MCP stdio 承载契约（Task 2 产出 canvas-mcp.cjs，供 Task 3/5 与宿主接入对齐）
 
-- CLI：`node canvas-mcp.cjs [--core-dir <path>] [--home <dir>]`；`--core-dir` 为 core 入口所在目录
+- CLI：`node canvas-mcp.cjs [--core-dir <path>] [--home <dir>] [--port <n>]`；`--core-dir` 为 core 入口所在目录
   （内含 index.js，缺省仓库根）；`--home` 为存储根（缺省走 host-adapter 默认 `adapters/.tmp-home/`）。
 - 帧：newline-delimited JSON-RPC 2.0 over stdio；**Buffer 级切帧**（chunk 累积 + 按字节
   `indexOf(0x0A)` + 整行 concat 后一次性 utf8 解码）——禁止 readline / toString 后 split，
@@ -197,3 +199,27 @@ const { ctx, tools, routes, dispose } = await createHostAdapter({
   （index.js L4674）——计划原文「canvas_list_projects 含 "ok":true」的断言落到
   `canvas_create_project`（返回 `{ok:true,...}`）。
 - 日志红线：stdout 只写 JSON-RPC 消息；stderr 日志只记方法名/错误消息，**绝不记工具参数**（apiKey）。
+- `--port <n>`（Task 3 接线，可选）：给定时 MCP server 启动后经 canvas-web 的 startWeb 顺带起
+  画布 HTTP（复用同一 adapter 的 routes，§6 单例）；失败仅 stderr 告警不退出；未给定时行为与
+  Task 2 完全一致。
+
+## 8. HTTP 承载契约（Task 3 产出 canvas-web.cjs，供 Task 6+ 与宿主接入对齐）
+
+- CLI：`node canvas-web.cjs [--core-dir <path>] [--home <dir>] [--port <n>] [--open]`；
+  `--core-dir`/`--home` 语义同 §7；`--port` 缺省 **3210**；`--open` 起服务后用平台默认浏览器
+  打开画布 url（仅用户手动运行；测试只测命令构造，不真开浏览器）。
+- 导出（供测试与 canvas-mcp 复用）：
+  - `startWeb({coreDir?, home?, port?, routes?}) -> {url, server, isReuse}`——
+    **routes 传既有 adapter 的 routes 时不再自建 adapter**（§6 单例：进程内已有 adapter 的
+    调用方必须传；CLI main() 是进程内无 adapter 的唯一例外，由 startWeb 自建）。
+  - `pickOpenCommand(platform) -> string|null`：win32 `cmd /c start "" "<url>"`（完整语义模板，
+    `<url>` 占位）、darwin `open`、linux `xdg-open`，其余平台 null。
+- 面板页（§2.2 核实结论）：core 无面板路由，canvas-web 自备 exact `/`（200 HTML，挂载点
+  `id="infinite-canvas-root"`）；未命中路由一律 404 JSON `{error}`。
+- 端口复用（Review Focus #4，两条路径均有测试钉死）：
+  1. 启动前 GET `http://127.0.0.1:<port>/`（超时 1.5s）→ 200 且含 `id="infinite-canvas-root"`
+     → 判定已有画布服务：返回 `{url, isReuse:true, server:null}`，**不起新 server 不双开**；
+  2. 探活失败（ECONNREFUSED / 404 / 无特征串 / 超时）→ listen；目标端口被**其他服务**占用
+     （EADDRINUSE）→ 端口 +1 递增重试，上限 **+10**，返回实际 url；全部占用则抛错。
+- 路由分发纪律：routes 原样透传（handler 不改名、不包装、不改写语义），分发层仅做 exact
+  pathname 匹配 + 未命中 404 + 兜底 500（core handler 自含错误处理，兜底只为不崩 server）。

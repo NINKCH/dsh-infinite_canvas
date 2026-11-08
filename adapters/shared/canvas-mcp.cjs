@@ -17,9 +17,12 @@
  * 单例约束（HOST-CONTRACT.md §6）：每进程只 createHostAdapter 一次；多承载（MCP + HTTP）
  * 复用同一份 tools/routes（web 承载由 Task 3 接线）。
  *
- * CLI：node canvas-mcp.cjs [--core-dir <path>] [--home <dir>]
+ * CLI：node canvas-mcp.cjs [--core-dir <path>] [--home <dir>] [--port <n>]
  *   --core-dir  core 入口所在目录（内含 index.js）；缺省 = 仓库根（与 host-adapter 同款解析）。
  *   --home      存储根（DSH_IC_* 注入）；缺省复用 host-adapter 默认（adapters/.tmp-home/）。
+ *   --port      可选画布 HTTP 端口：**给定时** MCP server 启动后用 canvas-web 的 startWeb
+ *               顺带起画布 HTTP（复用同一份 routes；失败仅 stderr 告警不退出）；**未给定时**
+ *               不启动 web（行为与 Task 2 完全一致）。
  */
 'use strict';
 
@@ -49,20 +52,24 @@ function send(obj) {
   process.stdout.write(JSON.stringify(obj) + '\n');
 }
 
-/** CLI 参数：--core-dir / --home，均可缺省；strict:false 容忍宿主多传参数。 */
+/** CLI 参数：--core-dir / --home / --port，均可缺省；strict:false 容忍宿主多传参数。 */
 function parseCliArgs(argv) {
   const { values } = parseArgs({
     args: argv,
     options: {
       'core-dir': { type: 'string' },
       home: { type: 'string' },
+      port: { type: 'string' },
     },
     strict: false,
     allowPositional: true,
   });
+  const portNum = values.port !== undefined ? Number(values.port) : undefined;
   return {
     coreDir: values['core-dir'] ? path.resolve(String(values['core-dir'])) : REPO_ROOT,
     homeDir: values.home ? path.resolve(String(values.home)) : undefined,
+    port: Number.isInteger(portNum) && portNum >= 0 ? portNum : undefined,
+    portRaw: values.port,
   };
 }
 
@@ -87,7 +94,7 @@ function createLineReader(onLine) {
 }
 
 async function main() {
-  const { coreDir, homeDir } = parseCliArgs(process.argv.slice(2));
+  const { coreDir, homeDir, port, portRaw } = parseCliArgs(process.argv.slice(2));
   const { createHostAdapter } = require('./host-adapter.cjs');
   // 单例约束：每进程只 create 一次（HOST-CONTRACT.md §6）。corePath = --core-dir 下的 index.js。
   const adapter = await createHostAdapter({
@@ -194,6 +201,26 @@ async function main() {
   ready = true;
   log('ready: ' + mcpTools.length + ' tools; coreDir=' + coreDir + '; home=' + (homeDir || 'adapters/.tmp-home (默认)'));
   pump(); // 泵出启动期间排队的消息
+
+  // ---- 可选画布 HTTP（Task 3 接线）：MCP server 已就绪后顺带起 web；失败仅告警不退出 ----
+  if (port !== undefined) {
+    startCanvasWeb(port, adapter.routes).catch(() => { /* 已在 startCanvasWeb 内 log */ });
+  } else if (portRaw !== undefined) {
+    log('--port 无效（' + portRaw + '），跳过画布 HTTP');
+  }
+}
+
+/** 给定 --port 时：动态加载 canvas-web，复用本进程 adapter 的 routes 起画布 HTTP（§6 单例）。 */
+async function startCanvasWeb(port, routes) {
+  try {
+    const mod = await import('./canvas-web.cjs');
+    const startWeb = mod.startWeb || (mod.default && mod.default.startWeb);
+    if (typeof startWeb !== 'function') throw new Error('canvas-web.cjs 未导出 startWeb');
+    const web = await startWeb({ port, routes });
+    log('web: ' + web.url + (web.isReuse ? '（复用已有画布服务，未起新 server）' : ''));
+  } catch (e) {
+    log('--port 启动画布 HTTP 失败（MCP 不受影响继续运行）: ' + (e && e.message ? e.message : String(e)));
+  }
 }
 
 main().catch((e) => {
