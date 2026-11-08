@@ -9,12 +9,13 @@
  *  2) ZIP 层布局（tar -tf）：ZIP 根直接含 .qoder-plugin/plugin.json（官方规范）+ .mcp.json + dist/*
  *  3) 解包目录树：.qoder-plugin/plugin.json、skills/canvas/SKILL.md、.mcp.json、
  *     dist/{canvas-mcp,canvas-web,model-bridge,llm-channel,host-adapter}.cjs、
- *     dist/core/index.js、dist/core/client.js（client.js 为 brief 断言要求的画布前端随包文件），
+ *     dist/core/index.js（client.js 不随包——§4 勘误：Harness 控制台前端，index.js 不 import，
+ *     Task 7 controller 裁定剔除；brief 原文的 dist/core/client.js 断言随之作废），
  *     另加 dist/core/package.json、dist/core/assets/canvas-director/manifest.json（§4 RUNTIME_FILES）
  *  4) plugin.json / .mcp.json JSON.parse 通过且字段逐字匹配 brief（键序与值全等）
  *  5) SKILL.md frontmatter 含 name: canvas（YAML 头），且 description 非空
- *  6) 全包文本扫描无密钥形状 sk-（红线）。勘误：brief 原文「无 sk-」按字面会命中前端 CSS 类名
- *     （dshic-dir-mask-* 等 'sk-' 子串）与 model-bridge 脱敏正则源码本身的良性命中，
+ *  6) 全包文本扫描无密钥形状 sk-（红线）。勘误：brief 原文「无 sk-」按字面扫描对良性子串脆弱
+ *     （如 model-bridge 脱敏正则源码本身、前端 CSS 类名的 'sk-' 字符片段），
  *     故按密钥形状 /sk-[A-Za-z0-9_-]{8,}/ 扫描（与 adapters/shared/model-bridge.cjs KEY_RE 同口径）
  *  7) 数据根冒烟：spawn 解包产物 dist/canvas-web.cjs --port <随机>（env DSH_IC_HOME 指临时目录
  *     隔离，绝不写真实用户目录）→ 轮询 GET / → 200 且含面板挂载点特征串 → 数据根落在
@@ -71,7 +72,6 @@ const REQUIRED_TREE = [
   'dist/llm-channel.cjs',
   'dist/host-adapter.cjs',
   'dist/core/index.js',
-  'dist/core/client.js',
   'dist/core/package.json',
   'dist/core/production.js',
   'dist/core/assets/canvas-director/manifest.json',
@@ -166,6 +166,10 @@ try {
   // ---------- 断言 3：解包目录树 ----------
   for (const rel of REQUIRED_TREE) {
     if (!fs.existsSync(path.join(extractDir, rel))) errs.push('解包树缺 ' + rel);
+  }
+  // client.js 反向断言（§4 勘误剔除，防回归混入）
+  if (fs.existsSync(path.join(extractDir, 'dist', 'core', 'client.js'))) {
+    errs.push('dist/core/client.js 不应随包（§4 勘误：Harness 前端死重，controller 裁定剔除）');
   }
 
   // ---------- 断言 4：plugin.json / .mcp.json 逐字（键序与值全等） ----------

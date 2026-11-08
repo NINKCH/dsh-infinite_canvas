@@ -133,6 +133,12 @@ const CANVAS_METHODS = [
 | `production.js` | `core/production.js` | 制作阶段机 |
 | `package.json` | `core/package.json` | L38 **import 时同步读** VERSION，缺了会崩 |
 
+> **client.js 勘误（Task 7 controller 裁定，2026-11-08）**：仓库根 `client.js` 是 DSH Harness
+> 控制台前端（`window.__ModuleLoader__.load` 形态），index.js 不 import（仅注释提及「与 client.js
+> 同一映射」）——**不属 RUNTIME_FILES**，不随 adapters 发布物（qoder dist 曾按 task-7-brief
+> Step 1 断言随包，1.4MB 死重，已剔除）。上表与 index.js 实际顶层 import 清单已逐项核对一致。
+> vsix 副本待 Task 9 重跑 sync 后同步瘦身。
+
 运行时**读取**（非 import，打包须随行）：
 
 - `assets/canvas-{studio,craft,layout,director}/SKILL.md`（L2046，缺失 → 跳过该内置技能，不崩）。

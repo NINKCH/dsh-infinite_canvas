@@ -4,7 +4,8 @@
  *
  *  1) dist 同步（幂等，先删后拷）：按 HOST-CONTRACT.md §4 RUNTIME_FILES 把 shared 五模块 + core
  *     拷进 adapters/qoder-plugin/dist/，布局照 §5：dist/canvas-mcp.cjs 等 + dist/core/（含 assets/
- *     与 package.json）；另随包 dist/core/client.js（brief Step 1 断言要求的画布前端随包文件）。
+ *     与 package.json）。client.js 不随包（§4 勘误：Harness 控制台前端，index.js 不 import，
+ *     Task 7 controller 裁定剔除，曾按 brief 断言随包属死重）。
  *  2) ZIP 打包：系统 tar（win32 = bsdtar）`tar -a -c -f <out>.zip -C <插件目录> .`
  *     → ZIP 根直接含 .qoder-plugin/（官方规范）。
  *
@@ -38,8 +39,6 @@ const RUNTIME_FILES = [
 ];
 // §4 运行时读取清单：canvas 内置技能 SKILL.md ×4 + canvas-director 技能包整体
 const SKILL_DIRS = ['canvas-studio', 'canvas-craft', 'canvas-layout', 'canvas-director'];
-// 画布前端随包文件（brief Step 1 断言 dist/core/client.js；仓库根同名文件）
-const CLIENT_BUNDLE = 'client.js';
 
 /** 递归拷贝目录（目标不存在则创建；仅普通文件与目录，符号链接跳过并告警）。 */
 function copyDir(src, dst) {
@@ -96,10 +95,7 @@ export function buildQoder() {
     copyDir(src, path.join(assetsDst, dir));
   }
 
-  // 1d) client.js（brief Step 1 断言要求的画布前端随包文件）
-  const clientSrc = path.join(REPO_ROOT, CLIENT_BUNDLE);
-  if (!fs.existsSync(clientSrc)) throw new Error(`画布前端随包文件缺失: ${CLIENT_BUNDLE}`);
-  fs.copyFileSync(clientSrc, path.join(CORE_DST, CLIENT_BUNDLE));
+  // 1d) client.js 不随包（§4 勘误：Harness 控制台前端，index.js 不 import，controller 裁定剔除）
 
   // 2) ZIP 打包：系统 tar（win32 = bsdtar），-a 按扩展名选 zip 格式；-C 插件目录 + `.` → ZIP 根
   //    直接含 .qoder-plugin/（官方规范）。
@@ -122,7 +118,7 @@ export function buildQoder() {
 
   const size = fs.statSync(OUT_ZIP).size;
   console.log(`[build-qoder] shared 模块: ${sharedModules.length} 个 → dist/`);
-  console.log(`[build-qoder] core RUNTIME_FILES: ${RUNTIME_FILES.length} 个 + assets 技能 ×${SKILL_DIRS.length} + ${CLIENT_BUNDLE} → dist/core/`);
+  console.log(`[build-qoder] core RUNTIME_FILES: ${RUNTIME_FILES.length} 个 + assets 技能 ×${SKILL_DIRS.length} → dist/core/`);
   console.log(`[build-qoder] ZIP 条目: ${entries.length} 个`);
   console.log(`[build-qoder] 完成 → ${OUT_ZIP}（${(size / 1024).toFixed(0)} KB）`);
   return OUT_ZIP;
