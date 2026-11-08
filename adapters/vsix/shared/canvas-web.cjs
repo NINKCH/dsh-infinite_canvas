@@ -9,8 +9,20 @@
  *
  * 面板页（重要契约事实）：core（index.js L5560–5918）注册的 9 条路由全为 API，**不注册任何
  * HTML 面板路由**（Task 3 实现前探针实测 GET / → 404）。因此面板页由本模块自备：exact `/`，
- * 200 text/html，挂载点 `id="infinite-canvas-root"` 即探活特征子串；页内经 RPC 列项目，
- * 不复制、不重写任何 core 语义。
+ * 200 text/html，挂载点 `id="infinite-canvas-root"` 即探活特征子串。
+ *
+ * 真 UI 装载壳（Task 14，画布真 UI 浏览器化）：`/` 不再是状态页，而是三 script 装载壳——
+ *   ① vendor React（`/infinite-canvas/api/vendor/react.production.min.js`，UMD 全局 window.React，
+ *      来源 react@18.3.1，见 vendor/README.md——vendor 静态资产，非 npm 依赖）；
+ *   ② `__ModuleLoader__` shim（内联：load(def) → def.factory(require)，require('react') 返回
+ *      window.React，其余模块名一概抛错）；
+ *   ③ client.js（`/infinite-canvas/api/client.js`，core 目录的浏览器应用，§4 RUNTIME_FILES——
+ *      装载契约已实证：client.js 以 window.__ModuleLoader__.load 自装载、factory 内唯一外部
+ *      require 是 react、hostRpc 自 POST /api/rpc、CTX 全守卫无 harness 时回退全屏面板）。
+ * 原状态页**不删**，原样挪到 exact `/status`（探活/排错诊断页）。探活/复用语义不动（仍查 `/`
+ * 的 PANEL_MARK）。两条资产路由文件在启动时一次性读入内存缓存（每请求零 IO）；client.js 基于
+ * coreDir（与 core/index.js 同目录，发布布局 dist/core/、开发布局仓库根），vendor 基于
+ * canvas-web.cjs 同级 vendor/ 目录（三壳发布布局同构：shared/vendor → dist/vendor / shared/vendor）。
  *
  * 端口复用语义（Review Focus #4，HOST-CONTRACT.md §8）：
  *   1) 启动前 GET http://127.0.0.1:<port>/ 探活（超时 1.5s）：200 且含面板挂载点特征子串
@@ -38,6 +50,7 @@
 'use strict';
 
 const http = require('node:http');
+const fs = require('node:fs');
 const path = require('node:path');
 const { spawn } = require('node:child_process');
 const { parseArgs } = require('node:util');
@@ -49,6 +62,10 @@ const PROBE_TIMEOUT_MS = 1500;
 const PANEL_PATH = '/';
 // 面板挂载点特征子串：本模块自备面板页的确定性标识（core 无面板路由，见文件头契约事实）
 const PANEL_MARK = 'id="infinite-canvas-root"';
+// 诊断页（原状态页原样挪移，Task 14）与两条真 UI 壳静态资产路由（canvas-web 自有 exact）
+const STATUS_PATH = '/status';
+const CLIENT_ASSET_PATH = '/infinite-canvas/api/client.js';
+const VENDOR_ASSET_PATH = '/infinite-canvas/api/vendor/react.production.min.js';
 
 /** stderr 日志（CLI 场景无 stdout 协议约束，统一走 stderr 便于与画布页输出区分）。 */
 function log(message) {
@@ -80,8 +97,36 @@ function openInBrowser(url, platform) {
   return true;
 }
 
-/** 面板页：core 无面板路由（文件头契约事实），由本模块自备的状态/挂载页。 */
-function panelHtml() {
+/**
+ * 真 UI 装载壳（Task 14）：三 script 齐活——vendor React UMD → __ModuleLoader__ shim →
+ * client.js。挂载点 id 保持 `infinite-canvas-root`（探活特征串 PANEL_MARK 不变）。
+ * shim 语义：client.js 自装载 def.factory(require)，require('react') 返回 UMD 全局 window.React，
+ * 其余模块名一概抛错（client.js 唯一外部 require 是 react，已实证）。
+ */
+function shellHtml() {
+  return [
+    '<!doctype html>',
+    '<html>',
+    '<head>',
+    '<meta charset="utf-8">',
+    '<title>无限画布</title>',
+    '<style>html,body{margin:0;height:100%;background:#111;color:#eee}</style>',
+    '</head>',
+    '<body>',
+    '<div id="infinite-canvas-root"></div>',
+    '<script src="/infinite-canvas/api/vendor/react.production.min.js"></script>',
+    '<script>',
+    'window.__ModuleLoader__={load:function(def){def.factory(function(name){if(name===\'react\')return window.React;throw new Error(\'unknown module: \'+name);});}};',
+    '</script>',
+    '<script src="/infinite-canvas/api/client.js"></script>',
+    '</body>',
+    '</html>',
+    '',
+  ].join('\n');
+}
+
+/** 诊断页（Task 14 前的状态页原样挪到 /status，探活/排错用；页内经 RPC 列项目）。 */
+function statusHtml() {
   return [
     '<!doctype html>',
     '<html lang="zh-CN">',
@@ -136,6 +181,28 @@ function panelHtml() {
   ].join('\n');
 }
 
+/**
+ * 真 UI 壳静态资产（Task 14）：client.js（core 目录，§4 RUNTIME_FILES）+ vendor React UMD
+ * （canvas-web.cjs 同级 vendor/）。启动时（startWeb）一次性读入内存缓存，每请求零 IO；
+ * 模块级缓存跨多次 startWeb 复用。缺文件在启动期即抛错（fail fast，不拖到首个请求）。
+ */
+let shellAssetsCache = null;
+function loadShellAssets(coreDir) {
+  if (shellAssetsCache) return shellAssetsCache;
+  const clientPath = path.join(coreDir, 'client.js');
+  const vendorPath = path.join(__dirname, 'vendor', 'react.production.min.js');
+  try {
+    shellAssetsCache = { clientJs: fs.readFileSync(clientPath), reactJs: fs.readFileSync(vendorPath) };
+  } catch (e) {
+    throw new Error(
+      '画布真 UI 壳静态资产缺失（' + (e && e.code === 'ENOENT' ? '文件不存在' : String(e && e.message || e)) + '）: ' +
+      (fs.existsSync(clientPath) ? vendorPath : clientPath) +
+      '（client.js 属 §4 RUNTIME_FILES，vendor 属 canvas-web 同级 vendor/；发布布局须随包拷贝）'
+    );
+  }
+  return shellAssetsCache;
+}
+
 /** 探活：GET http://127.0.0.1:<port>/ 是否为已有画布服务（200 + 面板特征子串）。永不 reject。 */
 function probeCanvasService(port, timeoutMs) {
   return new Promise((resolve) => {
@@ -155,8 +222,21 @@ function probeCanvasService(port, timeoutMs) {
   });
 }
 
-/** 路由分发：routes（core 原样透传）+ 面板页 → http request handler。未命中 404 JSON。 */
-function createDispatcher(routes) {
+/** JS 静态资产响应（text/javascript + no-cache，防升级后浏览器拿旧缓存）。 */
+function serveJs(buffer) {
+  return (req, res) => {
+    res.setHeader('content-type', 'text/javascript; charset=utf-8');
+    res.setHeader('cache-control', 'no-cache');
+    res.end(buffer);
+  };
+}
+
+/**
+ * 路由分发：routes（core 原样透传）+ 真 UI 壳（/）+ 诊断页（/status）+ 两条静态资产路由
+ * （Task 14，canvas-web 自有 exact）→ http request handler。未命中 404 JSON。
+ * 本模块自有路由一律 set-if-absent：core 万一注册同名路由时 core 语义优先（透传纪律）。
+ */
+function createDispatcher(routes, assets) {
   const table = new Map();
   for (const r of routes) {
     if (r && r.kind === 'exact' && typeof r.path === 'string' && typeof r.handler === 'function') {
@@ -166,8 +246,15 @@ function createDispatcher(routes) {
   if (!table.has(PANEL_PATH)) table.set(PANEL_PATH, (req, res) => {
     res.setHeader('content-type', 'text/html; charset=utf-8');
     res.setHeader('cache-control', 'no-cache');
-    res.end(panelHtml());
+    res.end(shellHtml());
   });
+  if (!table.has(STATUS_PATH)) table.set(STATUS_PATH, (req, res) => {
+    res.setHeader('content-type', 'text/html; charset=utf-8');
+    res.setHeader('cache-control', 'no-cache');
+    res.end(statusHtml());
+  });
+  if (!table.has(CLIENT_ASSET_PATH)) table.set(CLIENT_ASSET_PATH, serveJs(assets.clientJs));
+  if (!table.has(VENDOR_ASSET_PATH)) table.set(VENDOR_ASSET_PATH, serveJs(assets.reactJs));
   return function dispatch(req, res) {
     let pathname = req.url || '/';
     const cut = pathname.search(/[?#]/); // exact 匹配用 pathname；handler 收到的仍是原 req（自带 query）
@@ -227,18 +314,20 @@ async function startWeb(options) {
   }
 
   // 2) 新起：优先复用传入 routes；CLI 场景（进程内无 adapter）才自建（§6 单例约束）
+  //    coreDir 同一解析供两条路使用：routes 未传时建 adapter、启动时读真 UI 壳静态资产（client.js）
+  const coreDir = opts.coreDir ? path.resolve(String(opts.coreDir)) : path.dirname(defaultCorePath());
   let routes = opts.routes;
   if (!routes) {
-    const coreDir = opts.coreDir ? path.resolve(String(opts.coreDir)) : path.dirname(defaultCorePath());
     const adapter = await createHostAdapter({
       corePath: path.join(coreDir, 'index.js'),
       homeDir: opts.home ? path.resolve(String(opts.home)) : undefined,
     });
     routes = adapter.routes;
   }
+  const assets = loadShellAssets(coreDir); // 启动期读入内存（缺文件此处 fail fast）
 
   // 3) listen：EADDRINUSE → 递增换口，上限 +10；端口 0（随机）无换口语义，只试一次
-  const server = http.createServer(createDispatcher(routes));
+  const server = http.createServer(createDispatcher(routes, assets));
   const attempts = basePort === 0 ? 1 : PORT_RETRY_LIMIT + 1;
   for (let i = 0; i < attempts; i++) {
     try {

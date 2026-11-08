@@ -28,6 +28,14 @@
  *      （win32 语义 `cmd /c start "" "<url>"`；全程不真的打开浏览器，--open 只测命令构造）
  *  组7 canvas-mcp --port 接线：子进程拉起 canvas-mcp.cjs --port <P3> → 面板 200+特征串、
  *      RPC ping 200、且 MCP stdio 的 initialize 仍正常应答（--port 不影响协议面）；收尾杀进程
+ *  组8 画布真 UI 壳契约（Task 14，需求：task-14-brief.md）：GET / 不再是状态页而是装载壳——
+ *      含 `__ModuleLoader__` shim、含 `/infinite-canvas/api/client.js` script 标签、含
+ *      `/infinite-canvas/api/vendor/react.production.min.js` script 标签（三 script 齐活）、
+ *      挂载点特征串不变（组1 双条件钉死）。壳引用的两条静态资产路由（canvas-web 自有 exact）：
+ *      - GET /infinite-canvas/api/client.js → 200 text/javascript 且字节数与磁盘上 core 目录的
+ *        client.js 完全一致（内存缓存不改一字）
+ *      - GET /infinite-canvas/api/vendor/react.production.min.js → 200 且含 React（UMD vendor）
+ *      诊断页不删：原状态页挪到 GET /status → 200（探活/排错用）
  *
  * 存储根：单次 createHostAdapter 注入 adapters/.tmp-home/（同 Task 1/2 模式，绝不碰真实画布
  * 数据；HOST-CONTRACT §6 单例——本进程所有 startWeb 共享同一 adapter 的 routes，不各自 create）。
@@ -47,7 +55,7 @@ import process from 'node:process';
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const require = createRequire(import.meta.url);
 const { startWeb, pickOpenCommand } = require(path.join(ROOT, 'adapters', 'shared', 'canvas-web.cjs'));
-const { createHostAdapter } = require(path.join(ROOT, 'adapters', 'shared', 'host-adapter.cjs'));
+const { createHostAdapter, defaultCorePath } = require(path.join(ROOT, 'adapters', 'shared', 'host-adapter.cjs'));
 const MCP_SERVER = path.join(ROOT, 'adapters', 'shared', 'canvas-mcp.cjs');
 const TMP_HOME = path.join(ROOT, 'adapters', '.tmp-home');
 const PANEL_MARK = 'id="infinite-canvas-root"'; // 面板挂载点特征子串（依据见组1注释）
@@ -124,6 +132,16 @@ try {
   }
   if (!panel.body.includes(PANEL_MARK)) {
     errs.push(`面板页应含挂载点特征子串 "${PANEL_MARK}"（依据：core 无面板路由，面板页由 canvas-web 自备），实际前 200 字符: ${panel.body.slice(0, 200)}`);
+  }
+  // 组8 前置：/ 是真 UI 装载壳（Task 14）——三 script 齐活（vendor React + ModuleLoader shim + client.js）
+  if (!panel.body.includes('__ModuleLoader__')) {
+    errs.push('面板页应含 __ModuleLoader__ shim（Task 14 装载契约：client.js 以 window.__ModuleLoader__.load 自装载）');
+  }
+  if (!panel.body.includes('<script src="/infinite-canvas/api/client.js">')) {
+    errs.push('面板页应含 client.js script 标签（Task 14：壳装载 1.4MB 浏览器应用）');
+  }
+  if (!panel.body.includes('<script src="/infinite-canvas/api/vendor/react.production.min.js">')) {
+    errs.push('面板页应含 vendor React script 标签（Task 14：client.js 唯一外部依赖 react 由 UMD 全局提供）');
   }
 
   // ---------- 组2：RPC 路由（core 真实契约：原始 JSON {method,args}，camelCase 方法表） ----------
@@ -275,6 +293,53 @@ try {
     errs.push(`--port 模式下 initialize 应仍正常应答（serverInfo.name），实际: ${JSON.stringify(initReply).slice(0, 200)}`);
   }
 
+  // ---------- 组8：画布真 UI 壳的静态资产与诊断页（Task 14） ----------
+  // client.js 路由：200 text/javascript，字节与磁盘文件一致（读文件路径基于 coreDir：
+  // 与 core/index.js 同目录——开发布局退仓库根，发布布局 dist/core/，同一文件随 §4 拷贝）
+  const coreDirForAssets = path.dirname(defaultCorePath());
+  const clientOnDisk = path.join(coreDirForAssets, 'client.js');
+  const clientAsset = await httpHit(web1.url + '/infinite-canvas/api/client.js');
+  if (clientAsset.status !== 200) {
+    errs.push(`GET /infinite-canvas/api/client.js 应 200，实际 ${clientAsset.status}（body: ${clientAsset.body.slice(0, 120)}）`);
+  } else {
+    if (!String(clientAsset.headers['content-type'] || '').includes('text/javascript')) {
+      errs.push(`client.js 路由 content-type 应为 text/javascript，实际 ${clientAsset.headers['content-type']}`);
+    }
+    if (!fs.existsSync(clientOnDisk)) {
+      errs.push('core 目录缺 client.js（§4 RUNTIME_FILES：canvas-web 壳装载的浏览器 UI 资产）: ' + clientOnDisk);
+    } else {
+      const diskBytes = fs.statSync(clientOnDisk).size;
+      const servedBytes = Buffer.byteLength(clientAsset.body, 'utf8');
+      if (servedBytes !== diskBytes) {
+        errs.push(`client.js 路由字节数应与磁盘一致（内存缓存不改一字），磁盘 ${diskBytes} vs 响应 ${servedBytes}`);
+      }
+    }
+  }
+  // vendor React 路由：200 text/javascript 且含 React（UMD 全局形态，来源 react@18.3.1）
+  const reactAsset = await httpHit(web1.url + '/infinite-canvas/api/vendor/react.production.min.js');
+  if (reactAsset.status !== 200) {
+    errs.push(`GET /infinite-canvas/api/vendor/react.production.min.js 应 200，实际 ${reactAsset.status}（body: ${reactAsset.body.slice(0, 120)}）`);
+  } else {
+    if (!String(reactAsset.headers['content-type'] || '').includes('text/javascript')) {
+      errs.push(`vendor React 路由 content-type 应为 text/javascript，实际 ${reactAsset.headers['content-type']}`);
+    }
+    if (!reactAsset.body.includes('React')) {
+      errs.push('vendor React 文件应含 React 全局赋值形态（UMD 构建），实际前 200 字符: ' + reactAsset.body.slice(0, 200));
+    }
+  }
+  // 诊断页保留：原状态页挪到 /status（探活/排错用；探活语义仍只查 / 的特征串，不受影响）
+  const statusPage = await httpHit(web1.url + '/status');
+  if (statusPage.status !== 200) {
+    errs.push(`GET /status 应 200（诊断页保留），实际 ${statusPage.status}`);
+  } else {
+    if (!String(statusPage.headers['content-type'] || '').includes('text/html')) {
+      errs.push(`/status content-type 应为 text/html，实际 ${statusPage.headers['content-type']}`);
+    }
+    if (!statusPage.body.includes(PANEL_MARK)) {
+      errs.push('/status 诊断页应保留挂载点特征子串（原状态页原样挪移）');
+    }
+  }
+
   // ---------- 收尾：stderr 不得有未处理异常堆栈 ----------
   const stderrText = Buffer.concat(mcpStderr).toString('utf8');
   if (/UnhandledPromiseRejection|Uncaught|ERR_UNHANDLED|ERR_UNCAUGHT/i.test(stderrText)) {
@@ -291,5 +356,5 @@ if (errs.length) {
   for (const e of errs) console.error('  - ' + e);
   process.exit(1);
 }
-console.log('\n✓ canvas-web 画布 HTTP 承载：契约全部通过（面板页/RPC 分发/404/端口复用/EADDRINUSE 换口/open 命令/--port 接线）');
+console.log('\n✓ canvas-web 画布 HTTP 承载：契约全部通过（真 UI 壳三 script/client.js·vendor·status 路由/RPC 分发/404/端口复用/EADDRINUSE 换口/open 命令/--port 接线）');
 process.exit(0);

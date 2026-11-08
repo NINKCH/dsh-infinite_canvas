@@ -5,8 +5,10 @@
  *  1) dist 同步（幂等，先删后拷）：按 HOST-CONTRACT.md §4 RUNTIME_FILES 把 shared 五模块 + core
  *     拷进 adapters/qoder-plugin/dist/，布局照 §5：dist/canvas-mcp.cjs 等 + dist/core/（含 assets/
  *     与 package.json）。shared 清单**枚举 + 缺失报错**（Task 9 对齐 workbuddy 基准，勿 readdir
- *     自动发现——Task 7 评审 Minor #2 的教训）；client.js 不随包（§4 勘误：Harness 控制台前端，
- *     index.js 不 import，Task 7 controller 裁定剔除，曾按 brief 断言随包属死重）。
+ *     自动发现——Task 7 评审 Minor #2 的教训）；shared/vendor/（Task 14：React UMD，canvas-web
+ *     真 UI 壳的静态资产）随 shared → dist/vendor/。client.js **随包**（0.3.0 Task 14 回归：
+ *     canvas-web 壳经 /api/client.js 装载的浏览器 UI 资产，0.2.0 的「死重剔除」勘误已被实证
+ *     推翻——无它六宿主「打开画布」只有状态页）。
  *  2) 版本号单源（Task 9 对齐 workbuddy 基准）：从 .qoder-plugin/plugin.json 读，semver 形状校验，
  *     硬编码 '0.1.0' 废弃（防改版本只改文件名不改 manifest）。
  *  3) ZIP 打包：系统 tar（win32 = bsdtar）`tar -a -c -f <out>.zip -C <插件目录> .`
@@ -38,7 +40,8 @@ const SHARED_MODULES = [
   'llm-channel.cjs',
   'model-bridge.cjs',
 ];
-// HOST-CONTRACT.md §4 RUNTIME_FILES（import 闭包表：仓库路径 → dist/core/ 下同名）
+// HOST-CONTRACT.md §4 RUNTIME_FILES（import 闭包表 + client.js：仓库路径 → dist/core/ 下同名；
+// client.js 是 canvas-web 壳装载的浏览器 UI 资产，Task 14 回归）
 const RUNTIME_FILES = [
   'index.js',
   'index-core-skill-profile.js',
@@ -46,7 +49,10 @@ const RUNTIME_FILES = [
   'skill-pack.js',
   'production.js',
   'package.json',
+  'client.js',
 ];
+// shared/vendor（Task 14：React UMD 静态资产，canvas-web 真 UI 壳的 /api/vendor 路由数据源）
+const SHARED_VENDOR_FILES = ['vendor/react.production.min.js'];
 // §4 运行时读取清单：canvas 内置技能 SKILL.md ×4 + canvas-director 技能包整体
 const SKILL_DIRS = ['canvas-studio', 'canvas-craft', 'canvas-layout', 'canvas-director'];
 
@@ -70,11 +76,13 @@ export function buildQoder() {
   fs.rmSync(DIST_DIR, { recursive: true, force: true });
   fs.mkdirSync(DIST_DIR, { recursive: true });
 
-  // 1a) shared 五模块（枚举清单，缺失报错；*.cjs 原样拷贝，一字不改）
+  // 1a) shared 五模块（枚举清单，缺失报错；*.cjs 原样拷贝，一字不改）+ vendor 资产（Task 14）
   const sharedSrc = path.join(ADAPTERS_DIR, 'shared');
   copyEnumerated(sharedSrc, SHARED_MODULES, DIST_DIR, 'shared 模块');
+  fs.mkdirSync(path.join(DIST_DIR, 'vendor'), { recursive: true }); // copyEnumerated 不建目录
+  copyEnumerated(sharedSrc, SHARED_VENDOR_FILES, DIST_DIR, 'shared vendor 资产');
 
-  // 1b) core：§4 import 闭包 6 文件
+  // 1b) core：§4 import 闭包 6 文件 + client.js（浏览器 UI 资产，Task 14 回归）
   fs.mkdirSync(CORE_DST, { recursive: true });
   copyEnumerated(REPO_ROOT, RUNTIME_FILES, CORE_DST, '§4 RUNTIME_FILES');
 
@@ -87,16 +95,17 @@ export function buildQoder() {
     copyDir(src, path.join(assetsDst, dir), 'build-qoder');
   }
 
-  // 1d) client.js 不随包（§4 勘误：Harness 控制台前端，index.js 不 import，controller 裁定剔除）
+  // 1d) client.js 随包（0.3.0 Task 14：canvas-web 壳装载的浏览器 UI 资产，随 1b RUNTIME_FILES 拷入）
 
   // 2) ZIP 打包 + 条目自检（公共 packZip：ZIP 根直接含 .qoder-plugin/，官方规范）
   const entries = packZip(PLUGIN_DIR, OUT_ZIP, [
     '.qoder-plugin/plugin.json', '.mcp.json', 'skills/canvas/SKILL.md', 'dist/canvas-mcp.cjs', 'dist/core/index.js',
+    'dist/core/client.js', 'dist/vendor/react.production.min.js',
   ]);
 
   const size = fs.statSync(OUT_ZIP).size;
-  console.log(`[build-qoder] shared 模块: ${SHARED_MODULES.length} 个（枚举清单）→ dist/`);
-  console.log(`[build-qoder] core RUNTIME_FILES: ${RUNTIME_FILES.length} 个 + assets 技能 ×${SKILL_DIRS.length} → dist/core/`);
+  console.log(`[build-qoder] shared 模块: ${SHARED_MODULES.length} 个（枚举清单）+ vendor 资产 ${SHARED_VENDOR_FILES.length} 个 → dist/`);
+  console.log(`[build-qoder] core RUNTIME_FILES: ${RUNTIME_FILES.length} 个（含 client.js）+ assets 技能 ×${SKILL_DIRS.length} → dist/core/`);
   console.log(`[build-qoder] 版本 ${VERSION}（单源: .qoder-plugin/plugin.json）`);
   console.log(`[build-qoder] ZIP 条目: ${entries.length} 个`);
   console.log(`[build-qoder] 完成 → ${OUT_ZIP}（${(size / 1024).toFixed(0)} KB）`);

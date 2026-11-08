@@ -132,12 +132,17 @@ const CANVAS_METHODS = [
 | `skill-pack.js` | `core/skill-pack.js` | 技能目录/切片渲染（依赖 index-core-skill-profile） |
 | `production.js` | `core/production.js` | 制作阶段机 |
 | `package.json` | `core/package.json` | L38 **import 时同步读** VERSION，缺了会崩 |
+| `client.js` | `core/client.js` | **浏览器 UI 资产**（非 core import）：canvas-web 壳（§8）经 `/infinite-canvas/api/client.js` 装载的画布前端，index.js 不 import。0.2.0 曾按勘误剔除，0.3.0（Task 14）随画布真 UI 浏览器化回归——无它则六宿主「打开画布」只有状态页 |
 
-> **client.js 勘误（Task 7 controller 裁定，2026-11-08）**：仓库根 `client.js` 是 DSH Harness
-> 控制台前端（`window.__ModuleLoader__.load` 形态），index.js 不 import（仅注释提及「与 client.js
-> 同一映射」）——**不属 RUNTIME_FILES**，不随 adapters 发布物（qoder dist 曾按 task-7-brief
-> Step 1 断言随包，1.4MB 死重，已剔除）。上表与 index.js 实际顶层 import 清单已逐项核对一致。
-> vsix 副本已随 Task 9 瘦身收口（sync 清单对齐 + 重跑 sync + 反向自检，shared/core 无 client.js）。
+> **client.js 历史勘误档案（Task 7 裁定 → Task 14 推翻，2026-11-08）**：仓库根 `client.js` 是
+> 画布浏览器前端（`window.__ModuleLoader__.load` 形态，1.4MB），index.js 不 import（仅注释
+> 提及「与 client.js 同一映射」）。Task 7 曾按「死重」剔除出发布物——**Task 14 实证推翻**：
+> client.js 自包含（唯一外部 require 是 react、hostRpc 内建自 POST `/api/rpc`、CTX 消费点全
+> 守卫无 harness 回退全屏面板），canvas-web 壳以 vendor React UMD + `__ModuleLoader__` shim
+> 装载它即为完整画布 UI，是 Qoder/WorkBuddy 等无 Webview 宿主「打开画布」的正身。装载契约
+> 与静态路由见 §8；vendor React（`adapters/shared/vendor/`，react@18.3.1 UMD，MIT）是
+> canvas-web 壳资产、非 core 文件、非 npm 依赖。上表与 index.js 实际顶层 import 清单已逐项
+> 核对一致（client.js 是唯一非 import 行，已注明）。
 
 运行时**读取**（非 import，打包须随行）：
 
@@ -210,7 +215,7 @@ const { ctx, tools, routes, dispose } = await createHostAdapter({
   `indexOf(0x0A)` + 整行 concat 后一次性 utf8 解码）——禁止 readline / toString 后 split，
   中文（3 字节 UTF-8）跨 chunk 边界会碎帧（测试 `scripts/test-adapters-mcp.mjs` 断言 5 已验证）。
 - 协议面（刻意最小）：`initialize`（protocolVersion 回显 client 版本，缺省 `2025-06-18`；
-  serverInfo `dsh-infinite-canvas@0.2.0`（version 与三 manifest 对齐）；capabilities.tools）/ `tools/list`（31 个：
+  serverInfo `dsh-infinite-canvas@0.3.0`（version 与三 manifest 对齐）；capabilities.tools）/ `tools/list`（31 个：
   30 个 canvas_* 顺序同 §3，`inputSchema = def.parameters`，末位追加 `canvas_llm_probe`，
   其 inputSchema 固定 `{type:'object',properties:{}}`）/ `tools/call`（成功 →
   `content:[{type:'text',text:JSON.stringify(result)}]`）。通知一律不回包；未知工具 →
@@ -234,8 +239,20 @@ const { ctx, tools, routes, dispose } = await createHostAdapter({
     调用方必须传；CLI main() 是进程内无 adapter 的唯一例外，由 startWeb 自建）。
   - `pickOpenCommand(platform) -> string|null`：win32 `cmd /c start "" "<url>"`（完整语义模板，
     `<url>` 占位）、darwin `open`、linux `xdg-open`，其余平台 null。
-- 面板页（§2.2 核实结论）：core 无面板路由，canvas-web 自备 exact `/`（200 HTML，挂载点
-  `id="infinite-canvas-root"`）；未命中路由一律 404 JSON `{error}`。
+- 面板页（§2.2 核实结论）：core 无面板路由，canvas-web 自备 exact `/`。**0.3.0（Task 14）起
+  `/` 为画布真 UI 装载壳**：三 script 齐活——vendor React UMD（`window.React`）+ 内联
+  `__ModuleLoader__` shim（`load(def)` → `def.factory(require)`，`require('react')` 返回
+  `window.React`，其余模块名抛错）+ `core/client.js`（`/infinite-canvas/api/client.js`）。
+  挂载点特征子串 `id="infinite-canvas-root"` 不变（探活语义不动）。原状态页原样挪到 exact
+  `/status`（诊断页，页内经 RPC `projectsList` 列项目）；未命中路由一律 404 JSON `{error}`。
+- 真 UI 壳静态路由（canvas-web 自有 exact，set-if-absent——core 同名路由优先透传）：
+  - `/infinite-canvas/api/client.js` → core 目录（与 core/index.js 同目录：发布布局 `dist/core/`、
+    开发布局仓库根、vsix 布局 `shared/core/`）的 `client.js`，`text/javascript`；
+  - `/infinite-canvas/api/vendor/react.production.min.js` → canvas-web.cjs 同级 `vendor/` 目录的
+    React UMD（`adapters/shared/vendor/`，react@18.3.1，MIT banner 保留，vendor 静态资产非
+    npm 依赖，见 vendor/README.md），`text/javascript`。
+  两文件启动时（startWeb）一次性读入内存缓存，每请求零 IO；缺文件启动期 fail fast 抛错
+  （发布布局缺 `dist/vendor/` / `dist/core/client.js` 即起不来——三壳构建清单已同步，§11/§12）。
 - 端口复用（Review Focus #4，两条路径均有测试钉死）：
   1. 启动前 GET `http://127.0.0.1:<port>/`（超时 1.5s）→ 200 且含 `id="infinite-canvas-root"`
      → 判定已有画布服务：返回 `{url, isReuse:true, server:null}`，**不起新 server 不双开**；
@@ -366,7 +383,8 @@ probeChannels(channels) -> { vscodeLm:'n/a'|number, bridge:{<host>:count,...}|{}
 
 - **布局（sync-shared.mjs 产物，随仓提交；改 shared/core 后必须重跑 `npm run sync`）**：
   `extension.js` + `lib/detect.cjs`（纯逻辑零依赖，可单测）+ `lib/llm-vscode.cjs` +
-  `shared/*.cjs`（五模块原样拷贝）+ `shared/core/`（§4 RUNTIME_FILES 6 文件 +
+  `shared/*.cjs`（五模块原样拷贝）+ `shared/vendor/`（Task 14：React UMD，canvas-web 壳资产）+
+  `shared/core/`（§4 RUNTIME_FILES 7 文件（含 client.js，Task 14 回归） +
   `assets/canvas-{studio,craft,layout,director}/SKILL.md` + `assets/canvas-director/**`）。
   **vscode 依赖面纪律：vscode 只出现在 extension.js 与 lib/llm-vscode.cjs。**
 - **detect（lib/detect.cjs）**：`detect({lmTools,mcpProvider,cursorMcp,sampling}) ->
@@ -439,15 +457,16 @@ probeChannels(channels) -> { vscodeLm:'n/a'|number, bridge:{<host>:count,...}|{}
 - **build（adapters/scripts/build-workbuddy.mjs，自足零依赖，导出 buildWorkbuddy 供 Task 9 复用）**：
   shared 五模块**枚举清单 + 缺失报错**（勿 readdir 自动发现——Task 7 评审 Minor #2 教训）；core 按
   §4 RUNTIME_FILES 6 文件 + assets 技能 ×4 拷进 `marketplace/plugins/dsh-infinite-canvas/dist/`
-  （布局照 §5）；**client.js 不随包**（§4 勘误）；**版本号单源：从 plugin.json 读**（Task 7 评审
+  （布局照 §5）；**client.js 随包（0.3.0 Task 14 回归：canvas-web 壳装载的浏览器 UI 资产，
+  0.2.0 的「不随包」勘误已被实证推翻）**；**版本号单源：从 plugin.json 读**（Task 7 评审
   Minor #3），并与 marketplace.json 条目版本一致性对账（漂移即报错）。产物：staging 完整市场
   `adapters/dist/workbuddy-marketplace/`（目录本身可作 directory 源）+ zip `tar -a -c -f`（同 §7
   手法，ZIP 根直接含 `.codebuddy-plugin/marketplace.json`）→
   `adapters/dist/dsh-marketplace-workbuddy-<version>.zip`。（Task 9 注：原「不改 build-qoder.mjs、
   两脚本小重复可接受」已收口——重复部分统一抽出 `adapters/scripts/lib/build-common.cjs`，
   两脚本均切换到公共函数，行为等价。）
-- **测试**：`scripts/test-adapters-workbuddy-pkg.mjs`（staging 树 / 三 JSON 逐字 / client.js 反向
-  断言 / zip 根条目 tar -tf / SKILL frontmatter `name: canvas` / sk- 密钥形状扫描 / staging 产物
+- **测试**：`scripts/test-adapters-workbuddy-pkg.mjs`（staging 树 / 三 JSON 逐字 / client.js 正向
+  断言（0.3.0 Task 14 回归）+ vendor 资产 / zip 根条目 tar -tf / SKILL frontmatter `name: canvas` / sk- 密钥形状扫描 / staging 产物
   冒烟：DSH_IC_HOME 注入 + GET 面板 200 + POST ping 200 + projects/ 落 env 根）。
 - **gitignore**：生成物全被 `adapters/.gitignore` 的无锚点 `dist/` 覆盖（staging、插件 dist、zip
   三路径 check-ignore 实证），无需新增行。
@@ -480,15 +499,16 @@ probeChannels(channels) -> { vscodeLm:'n/a'|number, bridge:{<host>:count,...}|{}
 - **npm 包隔离断言**（Global Constraint #1 机械化验证）：`scripts/test-adapters-build.mjs` spawn
   `npm pack --dry-run`（仓库根；npm notice 清单走 stderr）解析 Tarball Contents，断言无任何
   `adapters/` 前缀条目；解析不出文件清单按失败处理（防 npm 输出格式漂移静默通过）。
-- **产物三件**（版本随三 manifest，当前 0.2.0；vsix 产物名由 vsce 依 vsix manifest 命名）：
-  `adapters/dist/dsh-infinite-canvas-0.2.0.vsix`、
+- **产物三件**（版本随三 manifest，当前 0.3.0；vsix 产物名由 vsce 依 vsix manifest 命名）：
+  `adapters/dist/dsh-infinite-canvas-0.3.0.vsix`、
   `adapters/dist/dsh-infinite-canvas-qoder-<version>.zip`、`adapters/dist/workbuddy-marketplace/`
   （目录）+ `adapters/dist/dsh-marketplace-workbuddy-<version>.zip`。
-- **测试**：`scripts/test-adapters-build.mjs`（隔离 / 编排 exit 0 / 三产物存在非空 / vsix 条目正
-  反向：含 extension.js・canvas-mcp.cjs・core/index.js・llm-channel.cjs、无 core/client.js /
-  qoder zip 正反向 / workbuddy staging llm-channel）；复跑回归面 = test-adapters-qoder-pkg /
-  test-adapters-workbuddy-pkg / test-adapters-vsix-detect 三测试。
-- **vsix 瘦身收口**（carry #1）：sync-shared.mjs core 清单本就不含 client.js（§4 勘误即清单现状），
-  Task 9 把裁定写进清单注释 + 新增同步后反向自检（shared/core 出现 client.js 即报错）；
-  vsix 副本从未入 git 追踪、盘上已不存在（git ls-files / Test-Path 双证），`git rm` 无对象可删；
-  重跑 sync 后 shared/core 无 client.js。
+- **测试**：`scripts/test-adapters-build.mjs`（隔离 / 编排 exit 0 / 三产物存在非空 / vsix 条目正向：
+  含 extension.js・canvas-mcp.cjs・core/index.js・llm-channel.cjs・core/client.js（Task 14 回归）・
+  vendor/react.production.min.js / qoder zip 正向含 dist/core/client.js・dist/vendor / workbuddy
+  staging llm-channel）；复跑回归面 = test-adapters-qoder-pkg / test-adapters-workbuddy-pkg /
+  test-adapters-vsix-detect 三测试。
+- **vsix 瘦身收口 → 0.3.0 回归（carry #1 档案）**：Task 9 曾把 client.js 剔出 core 清单并加同步
+  后反向自检（shared/core 出现 client.js 即报错）；Task 14 随画布真 UI 浏览器化把 client.js 加
+  回 RUNTIME_FILES、反向自检删除（sync-shared.mjs 现改为「client.js 必须在位」的正向校验），
+  vendor/ 目录随 Task 14 加入 sync 清单。

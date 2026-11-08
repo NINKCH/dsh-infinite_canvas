@@ -10,8 +10,9 @@
  *  1) 构建成功 + staging 市场目录树存在：.codebuddy-plugin/marketplace.json、
  *     plugins/dsh-infinite-canvas/{.codebuddy-plugin/plugin.json、.mcp.json、skills/canvas/SKILL.md、
  *     README.md、dist/ 五模块 + dist/core/index.js}（另加 §4 RUNTIME_FILES 抽查项）
- *  2) 反向断言：plugins/dsh-infinite-canvas/dist/core/client.js 不存在（§4 勘误：Harness 控制台前端，
- *     index.js 不 import，Task 7 controller 裁定剔除）
+ *  2) 正向断言（0.3.0 Task 14 回归）：dist/core/client.js 存在且与仓库根字节数一致（canvas-web 壳
+ *     装载的浏览器 UI 资产；Task 7 的「不随包」反向断言已被实证推翻删除）+ dist/vendor/
+ *     react.production.min.js（真 UI 壳静态资产）
  *  3) 三个 JSON parse 通过且与 brief 逐字全等（marketplace.json / plugin.json / .mcp.json；
  *     JSON.stringify 全等比对，键序一致）
  *  4) zip 产物：tar -tf 列表含 .codebuddy-plugin/marketplace.json 于 ZIP 根（另抽查插件关键条目）
@@ -39,7 +40,7 @@ import process from 'node:process';
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const BUILD_SCRIPT = path.join(ROOT, 'adapters', 'scripts', 'build-workbuddy.mjs');
 const STAGING = path.join(ROOT, 'adapters', 'dist', 'workbuddy-marketplace');
-const OUT_ZIP = path.join(ROOT, 'adapters', 'dist', 'dsh-marketplace-workbuddy-0.2.0.zip');
+const OUT_ZIP = path.join(ROOT, 'adapters', 'dist', 'dsh-marketplace-workbuddy-0.3.0.zip');
 const PANEL_MARK = 'id="infinite-canvas-root"'; // 面板挂载点特征子串（canvas-web.cjs 自备面板页）
 const KEY_RE = /sk-[A-Za-z0-9_-]{8,}/g;         // 密钥形状（与 model-bridge.cjs KEY_RE 同口径）
 
@@ -51,7 +52,7 @@ const MARKETPLACE_JSON_VERBATIM = {
   plugins: [
     {
       name: 'dsh-infinite-canvas',
-      version: '0.2.0',
+      version: '0.3.0',
       description: '无限画布——可视化创作工作台（剧本/分镜/图片/视频节点编排）',
       source: './plugins/dsh-infinite-canvas',
     },
@@ -60,7 +61,7 @@ const MARKETPLACE_JSON_VERBATIM = {
 // brief 逐字产物：plugin.json（注意：无 displayName / skills 字段，与 qoder 形态不同）
 const PLUGIN_JSON_VERBATIM = {
   name: 'dsh-infinite-canvas',
-  version: '0.2.0',
+  version: '0.3.0',
   description: '无限画布——可视化创作工作台（剧本/分镜/图片/视频节点编排）',
   author: { name: 'ninkch' },
   mcpServers: './.mcp.json',
@@ -89,10 +90,12 @@ const REQUIRED_TREE = [
   `${PLUGIN}/dist/llm-channel.cjs`,
   `${PLUGIN}/dist/host-adapter.cjs`,
   `${PLUGIN}/dist/core/index.js`,
+  `${PLUGIN}/dist/core/client.js`, // 0.3.0 Task 14 回归：canvas-web 壳装载的浏览器 UI 资产（正向断言防再丢）
   `${PLUGIN}/dist/core/package.json`,
   `${PLUGIN}/dist/core/production.js`,
   `${PLUGIN}/dist/core/assets/canvas-director/manifest.json`,
   `${PLUGIN}/dist/core/assets/canvas-studio/SKILL.md`,
+  `${PLUGIN}/dist/vendor/react.production.min.js`, // Task 14：真 UI 壳静态资产（React UMD vendor）
 ];
 
 const errs = [];
@@ -173,9 +176,13 @@ try {
     for (const rel of REQUIRED_TREE) {
       if (!fs.existsSync(path.join(STAGING, rel))) errs.push('staging 树缺 ' + rel);
     }
-    // 反向断言：client.js 不随包（§4 勘误剔除，防回归混入）
-    if (fs.existsSync(path.join(STAGING, PLUGIN, 'dist', 'core', 'client.js'))) {
-      errs.push('dist/core/client.js 不应随包（§4 勘误：Harness 前端死重，controller 裁定剔除）');
+    // client.js 正向断言（0.3.0 Task 14 回归；「不随包」反向断言已随实证推翻删除）：
+    // 字节数与仓库根 client.js 一致——防旧版死重裁剪逻辑回归或拷贝截断
+    const packedClient = path.join(STAGING, PLUGIN, 'dist', 'core', 'client.js');
+    if (fs.existsSync(packedClient) && fs.existsSync(path.join(ROOT, 'client.js'))) {
+      if (fs.statSync(packedClient).size !== fs.statSync(path.join(ROOT, 'client.js')).size) {
+        errs.push(`staging client.js 字节数应与仓库根一致（Task 14 随包回归），实际 ${fs.statSync(packedClient).size} vs ${fs.statSync(path.join(ROOT, 'client.js')).size}`);
+      }
     }
   }
 
@@ -256,12 +263,13 @@ try {
   webChild.on('exit', (code) => { if (code !== 0 && code !== null) childErr.push(Buffer.from('提前退出 code=' + code)); });
 
   let panelOk = false;
+  let panelBody = ''; // 成功轮询的面板 HTML（Task 14 冒烟断言三 script 用）
   let pingOk = false;
   const deadline = Date.now() + 30000; // core import 较重，轮询至 30s
   while (Date.now() < deadline) {
     if (webChild.exitCode !== null) break;
     const hit = await httpGet(`http://127.0.0.1:${port}/`, 1500);
-    if (hit.status === 200 && hit.body.includes(PANEL_MARK)) { panelOk = true; break; }
+    if (hit.status === 200 && hit.body.includes(PANEL_MARK)) { panelOk = true; panelBody = hit.body; break; }
     await new Promise((ok) => setTimeout(ok, 300));
   }
   if (!panelOk) {
@@ -284,6 +292,18 @@ try {
     if (!fs.existsSync(path.join(smokeHome, 'projects'))) {
       errs.push('数据根冒烟：DSH_IC_HOME/projects 应已创建（数据根落在 env 注入根），实际未建');
     }
+    // Task 14 staging 冒烟（真 UI 壳）：GET / 三 script 齐活 + 两条静态资产路由可用
+    for (const needle of ['__ModuleLoader__', '<script src="/infinite-canvas/api/client.js">', '<script src="/infinite-canvas/api/vendor/react.production.min.js">']) {
+      if (!panelBody.includes(needle)) errs.push('staging 面板缺真 UI 壳片段（Task 14 三 script）: ' + needle);
+    }
+    const smokeClient = await httpGet(`http://127.0.0.1:${port}/infinite-canvas/api/client.js`, 5000);
+    if (smokeClient.status !== 200 || smokeClient.body.length < 100000) {
+      errs.push(`staging client.js 路由应 200 且为大体量浏览器应用（>100K 字符），实际 ${smokeClient.status} / ${smokeClient.body.length}`);
+    }
+    const smokeReact = await httpGet(`http://127.0.0.1:${port}/infinite-canvas/api/vendor/react.production.min.js`, 5000);
+    if (smokeReact.status !== 200 || !smokeReact.body.includes('React')) {
+      errs.push(`staging vendor React 路由应 200 且含 React（UMD 全局），实际 ${smokeReact.status}`);
+    }
   }
 
   // ---------- 收尾：杀子进程 + 删临时目录（cleanup 统一） ----------
@@ -298,5 +318,5 @@ if (errs.length) {
   for (const e of errs) console.error('  - ' + e);
   process.exit(1);
 }
-console.log('\n✓ workbuddy 本地市场：契约全部通过（构建/staging 树/三 JSON 逐字/client.js 反向断言/zip 根条目/SKILL frontmatter/无密钥/staging 产物冒烟 GET+POST ping）');
+console.log('\n✓ workbuddy 本地市场：契约全部通过（构建/staging 树/三 JSON 逐字/client.js·vendor 正向断言/zip 根条目/SKILL frontmatter/无密钥/staging 产物冒烟 GET+POST ping+三 script+资产路由）');
 process.exit(0);

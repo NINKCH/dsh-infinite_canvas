@@ -1,1 +1,1 @@
-{"name":"dsh-marketplace","description":"DSH 插件市场","owner":{"name":"ninkch"},"plugins":[{"name":"dsh-infinite-canvas","version":"0.2.0","description":"无限画布——可视化创作工作台（剧本/分镜/图片/视频节点编排）","source":"./plugins/dsh-infinite-canvas"}]}
+{"name":"dsh-marketplace","description":"DSH 插件市场","owner":{"name":"ninkch"},"plugins":[{"name":"dsh-infinite-canvas","version":"0.3.0","description":"无限画布——可视化创作工作台（剧本/分镜/图片/视频节点编排）","source":"./plugins/dsh-infinite-canvas"}]}

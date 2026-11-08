@@ -11,12 +11,14 @@
  *  3) 三产物存在且非空：vsix / qoder zip / workbuddy staging 目录树完整 + workbuddy zip
  *  4) vsix 条目（tar -tf，vsce 产物为 zip 格式）：含 extension/extension.js、
  *     extension/shared/canvas-mcp.cjs、extension/shared/core/index.js（既有打包自检断言不变，
- *     §11）、含 extension/shared/llm-channel.cjs（carry #2 接线核对）、**不含**
- *     extension/shared/core/client.js（carry #1 瘦身反向断言）
- *  5) qoder zip 条目：含 dist/llm-channel.cjs（carry #2）、**不含** dist/core/client.js
+ *     §11）、含 extension/shared/llm-channel.cjs（carry #2 接线核对）、含
+ *     extension/shared/core/client.js + extension/shared/vendor/react.production.min.js
+ *     （0.3.0 Task 14 回归：canvas-web 真 UI 壳资产，正向断言防再丢）
+ *  5) qoder zip 条目：含 dist/llm-channel.cjs（carry #2）、含 dist/core/client.js +
+ *     dist/vendor/react.production.min.js（Task 14 回归正向断言）
  *  6) workbuddy staging：含 plugins/dsh-infinite-canvas/dist/llm-channel.cjs（carry #2）
  *
- * 版本断言随三 manifest 冻结为 0.2.0（产物文件名直接钉 0.2.0，与各壳测试口径一致）。
+ * 版本断言随三 manifest 冻结为 0.3.0（产物文件名直接钉 0.3.0，与各壳测试口径一致）。
  * 收尾：无子进程残留（全程 spawnSync 同步等待）；产物均落在 gitignore 的 adapters/dist/ 内。
  * 运行：node scripts/test-adapters-build.mjs
  * 退出码：0 = 通过；1 = 失败。
@@ -30,10 +32,10 @@ import process from 'node:process';
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const ORCHESTRATOR = path.join(ROOT, 'adapters', 'scripts', 'build-adapters.mjs');
 const DIST = path.join(ROOT, 'adapters', 'dist');
-const VSIX = path.join(DIST, 'dsh-infinite-canvas-0.2.0.vsix');
-const QODER_ZIP = path.join(DIST, 'dsh-infinite-canvas-qoder-0.2.0.zip');
+const VSIX = path.join(DIST, 'dsh-infinite-canvas-0.3.0.vsix');
+const QODER_ZIP = path.join(DIST, 'dsh-infinite-canvas-qoder-0.3.0.zip');
 const WB_STAGING = path.join(DIST, 'workbuddy-marketplace');
-const WB_ZIP = path.join(DIST, 'dsh-marketplace-workbuddy-0.2.0.zip');
+const WB_ZIP = path.join(DIST, 'dsh-marketplace-workbuddy-0.3.0.zip');
 const WB_PLUGIN = path.join(WB_STAGING, 'plugins', 'dsh-infinite-canvas');
 
 const errs = [];
@@ -77,7 +79,7 @@ try {
     errs.push(`build-adapters.mjs 应 exit 0，实际 ${build.status}\nstdout 尾部: ${String(build.stdout || '').slice(-600)}\nstderr 尾部: ${String(build.stderr || '').slice(-600)}`);
   }
 
-  // ---------- 断言 3：三产物存在且非空（版本冻结 0.2.0 钉在文件名） ----------
+  // ---------- 断言 3：三产物存在且非空（版本冻结 0.3.0 钉在文件名） ----------
   for (const [label, f] of [['vsix', VSIX], ['qoder zip', QODER_ZIP], ['workbuddy zip', WB_ZIP]]) {
     if (!fs.existsSync(f)) errs.push(`${label} 产物不存在: ${f}`);
     else if (fs.statSync(f).size <= 0) errs.push(`${label} 产物为空: ${f}`);
@@ -99,7 +101,7 @@ try {
     for (const f of STAGING_TREE) if (!fs.existsSync(f)) errs.push('staging 目录树缺 ' + f);
   }
 
-  // ---------- 断言 4：vsix 条目正反向（瘦身反向 + llm-channel 正向） ----------
+  // ---------- 断言 4：vsix 条目正向（Task 14 回归：client.js + vendor 随包；llm-channel 正向） ----------
   if (fs.existsSync(VSIX)) {
     let entries = [];
     try { entries = listZipEntries(VSIX); } catch (e) { errs.push('vsix 条目列举失败: ' + e.message); }
@@ -109,17 +111,23 @@ try {
     if (!entries.includes('extension/shared/llm-channel.cjs')) {
       errs.push('vsix 应含 extension/shared/llm-channel.cjs（carry #2：三壳 llm-channel 接线核对）');
     }
-    if (entries.includes('extension/shared/core/client.js')) {
-      errs.push('vsix 不应含 extension/shared/core/client.js（carry #1 瘦身反向断言）');
+    for (const rel of ['extension/shared/core/client.js', 'extension/shared/vendor/react.production.min.js']) {
+      if (!entries.includes(rel)) {
+        errs.push(`vsix 应含 ${rel}（0.3.0 Task 14 回归：canvas-web 真 UI 壳资产，正向断言防再丢）`);
+      }
     }
   }
 
-  // ---------- 断言 5：qoder zip 条目正反向 ----------
+  // ---------- 断言 5：qoder zip 条目正向（Task 14 回归 + carry #2） ----------
   if (fs.existsSync(QODER_ZIP)) {
     let entries = [];
     try { entries = listZipEntries(QODER_ZIP); } catch (e) { errs.push('qoder zip 条目列举失败: ' + e.message); }
     if (!entries.includes('dist/llm-channel.cjs')) errs.push('qoder zip 应含 dist/llm-channel.cjs（carry #2）');
-    if (entries.includes('dist/core/client.js')) errs.push('qoder zip 不应含 dist/core/client.js（瘦身反向断言）');
+    for (const rel of ['dist/core/client.js', 'dist/vendor/react.production.min.js']) {
+      if (!entries.includes(rel)) {
+        errs.push(`qoder zip 应含 ${rel}（0.3.0 Task 14 回归：canvas-web 真 UI 壳资产，正向断言防再丢）`);
+      }
+    }
   }
 
   // ---------- 断言 6：workbuddy staging llm-channel（carry #2） ----------
@@ -137,5 +145,5 @@ if (errs.length) {
   for (const e of errs) console.error('  - ' + e);
   process.exit(1);
 }
-console.log('\n✓ build-adapters 总编排：npm 包隔离 / 一键编排 / 三产物 / vsix·qoder·workbuddy 正反向断言全部通过');
+console.log('\n✓ build-adapters 总编排：npm 包隔离 / 一键编排 / 三产物 / vsix·qoder·workbuddy 正向断言（含 Task 14 真 UI 壳资产）全部通过');
 process.exit(0);

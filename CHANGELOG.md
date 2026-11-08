@@ -41,6 +41,16 @@ GitHub Releases carry the same notes in English; maintainer-facing runbooks live
   `context.subscriptions`. The three command-palette entries are unchanged. (Whether Trae's
   custom title bar renders the `window/title` button is pending field verification; the
   status-bar item is the guaranteed entry.)
+- **The host-side canvas page is now the full canvas UI (0.3.0).** The canvas-web panel at `/`
+  stops being a status page and serves a three-script shell instead: a vendored React UMD
+  build (`react@18.3.1`, MIT banner preserved, shipped as a static asset under
+  `adapters/shared/vendor/` — zero npm runtime dependencies unchanged), an inline
+  `__ModuleLoader__` shim whose `require('react')` returns `window.React`, and `client.js`
+  — back in RUNTIME_FILES and all three shell packages, overturning the 0.2.0 slimming
+  erratum with evidence: client.js is self-contained (its only external `require` is react;
+  its RPC posting and layout-service access are all internally guarded), so loading it in a
+  plain browser yields the real canvas. The old status page survives at `/status` for
+  probing/troubleshooting; in-browser rendering validation is pending field testing.
 
 ### Fixed
 - **Blank/untrusted windows no longer disable the extension (vsix 0.2.0).** The manifest now

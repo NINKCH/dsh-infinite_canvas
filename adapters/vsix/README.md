@@ -68,5 +68,5 @@ cd adapters
 npm install
 npm run sync             # 同步 shared 五模块 + core 运行时文件到 vsix/shared/
 npm run generate:tools   # core 工具面变更后重新生成 contributes.languageModelTools
-npm run package          # 打包 → dist/dsh-infinite-canvas-<版本>.vsix（vsce 依 vsix/package.json version 命名，当前 0.2.0）
+npm run package          # 打包 → dist/dsh-infinite-canvas-<版本>.vsix（vsce 依 vsix/package.json version 命名，当前 0.3.0）
 ```

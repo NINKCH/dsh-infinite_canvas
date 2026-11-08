@@ -10,8 +10,9 @@
  *  1) dist 同步（幂等，先删后拷）：按 HOST-CONTRACT.md §4 RUNTIME_FILES 把 shared 五模块 + core
  *     拷进 marketplace/plugins/dsh-infinite-canvas/dist/，布局照 §5：dist/canvas-mcp.cjs 等 +
  *     dist/core/（含 assets/ 与 package.json）。shared 清单**枚举 + 缺失报错**，勿 readdir 自动发现
- *     （Task 7 评审 Minor #2 的教训）；client.js 不随包（§4 勘误：Harness 控制台前端，index.js 不
- *     import，Task 7 controller 裁定剔除）。
+ *     （Task 7 评审 Minor #2 的教训）；shared/vendor/（Task 14：React UMD，canvas-web 真 UI 壳
+ *     的静态资产）随 shared → dist/vendor/。client.js **随包**（0.3.0 Task 14 回归：canvas-web
+ *     壳装载的浏览器 UI 资产，0.2.0 的「不随包」勘误已被实证推翻）。
  *  2) 版本号单源：从插件 .codebuddy-plugin/plugin.json 读（Task 7 评审 Minor #3），并与
  *     marketplace.json 条目版本做一致性校验（不同步即报错，防双处漂移）。
  *  3) 产物：staging 完整市场拷贝 → adapters/dist/workbuddy-marketplace/；zip → 系统 tar
@@ -49,7 +50,8 @@ const SHARED_MODULES = [
   'llm-channel.cjs',
   'model-bridge.cjs',
 ];
-// HOST-CONTRACT.md §4 RUNTIME_FILES（import 闭包表：仓库路径 → dist/core/ 下同名）
+// HOST-CONTRACT.md §4 RUNTIME_FILES（import 闭包表 + client.js：仓库路径 → dist/core/ 下同名；
+// client.js 是 canvas-web 壳装载的浏览器 UI 资产，Task 14 回归）
 const RUNTIME_FILES = [
   'index.js',
   'index-core-skill-profile.js',
@@ -57,7 +59,10 @@ const RUNTIME_FILES = [
   'skill-pack.js',
   'production.js',
   'package.json',
+  'client.js',
 ];
+// shared/vendor（Task 14：React UMD 静态资产，canvas-web 真 UI 壳的 /api/vendor 路由数据源）
+const SHARED_VENDOR_FILES = ['vendor/react.production.min.js'];
 // §4 运行时读取清单：canvas 内置技能 SKILL.md ×4 + canvas-director 技能包整体
 const SKILL_DIRS = ['canvas-studio', 'canvas-craft', 'canvas-layout', 'canvas-director'];
 
@@ -91,11 +96,13 @@ export function buildWorkbuddy() {
   fs.rmSync(DIST_DIR, { recursive: true, force: true });
   fs.mkdirSync(DIST_DIR, { recursive: true });
 
-  // 1a) shared 五模块（枚举清单，缺失报错；*.cjs 原样拷贝，一字不改）
+  // 1a) shared 五模块（枚举清单，缺失报错；*.cjs 原样拷贝，一字不改）+ vendor 资产（Task 14）
   const sharedSrc = path.join(ADAPTERS_DIR, 'shared');
   copyEnumerated(sharedSrc, SHARED_MODULES, DIST_DIR, 'shared 模块');
+  fs.mkdirSync(path.join(DIST_DIR, 'vendor'), { recursive: true }); // copyEnumerated 不建目录
+  copyEnumerated(sharedSrc, SHARED_VENDOR_FILES, DIST_DIR, 'shared vendor 资产');
 
-  // 1b) core：§4 import 闭包 6 文件
+  // 1b) core：§4 import 闭包 6 文件 + client.js（浏览器 UI 资产，Task 14 回归）
   fs.mkdirSync(CORE_DST, { recursive: true });
   copyEnumerated(REPO_ROOT, RUNTIME_FILES, CORE_DST, '§4 RUNTIME_FILES');
 
@@ -108,7 +115,7 @@ export function buildWorkbuddy() {
     copyDir(src, path.join(assetsDst, dir), 'build-workbuddy');
   }
 
-  // 1d) client.js 不随包（§4 勘误：Harness 控制台前端，index.js 不 import，controller 裁定剔除）
+  // 1d) client.js 随包（0.3.0 Task 14：canvas-web 壳装载的浏览器 UI 资产，随 1b RUNTIME_FILES 拷入）
 
   // 2) staging：完整市场拷贝（目录形态产物本身即可作本地市场源）
   fs.rmSync(STAGING_DIR, { recursive: true, force: true });
@@ -122,6 +129,8 @@ export function buildWorkbuddy() {
     path.join('plugins', 'dsh-infinite-canvas', 'skills', 'canvas', 'SKILL.md'),
     path.join('plugins', 'dsh-infinite-canvas', 'dist', 'canvas-mcp.cjs'),
     path.join('plugins', 'dsh-infinite-canvas', 'dist', 'core', 'index.js'),
+    path.join('plugins', 'dsh-infinite-canvas', 'dist', 'core', 'client.js'),
+    path.join('plugins', 'dsh-infinite-canvas', 'dist', 'vendor', 'react.production.min.js'),
   ]);
 
   // 3) zip 打包 + 条目自检（公共 packZip：ZIP 根直接含 .codebuddy-plugin/marketplace.json，官方规范）
@@ -129,11 +138,13 @@ export function buildWorkbuddy() {
     '.codebuddy-plugin/marketplace.json',
     'plugins/dsh-infinite-canvas/.codebuddy-plugin/plugin.json',
     'plugins/dsh-infinite-canvas/dist/canvas-mcp.cjs',
+    'plugins/dsh-infinite-canvas/dist/core/client.js',
+    'plugins/dsh-infinite-canvas/dist/vendor/react.production.min.js',
   ]);
 
   const size = fs.statSync(OUT_ZIP).size;
-  console.log(`[build-workbuddy] shared 模块: ${SHARED_MODULES.length} 个（枚举清单）→ plugins/dsh-infinite-canvas/dist/`);
-  console.log(`[build-workbuddy] core RUNTIME_FILES: ${RUNTIME_FILES.length} 个 + assets 技能 ×${SKILL_DIRS.length} → dist/core/`);
+  console.log(`[build-workbuddy] shared 模块: ${SHARED_MODULES.length} 个（枚举清单）+ vendor 资产 ${SHARED_VENDOR_FILES.length} 个 → plugins/dsh-infinite-canvas/dist/`);
+  console.log(`[build-workbuddy] core RUNTIME_FILES: ${RUNTIME_FILES.length} 个（含 client.js）+ assets 技能 ×${SKILL_DIRS.length} → dist/core/`);
   console.log(`[build-workbuddy] 版本 ${VERSION}（单源: plugin.json，marketplace.json 对账通过）`);
   console.log(`[build-workbuddy] staging 市场 → ${STAGING_DIR}`);
   console.log(`[build-workbuddy] zip 条目: ${entries.length} 个 → ${OUT_ZIP}（${(size / 1024).toFixed(0)} KB）`);

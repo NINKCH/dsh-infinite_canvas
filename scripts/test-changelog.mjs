@@ -146,6 +146,8 @@ const COVERAGE = [
   // sha 占位：提交时未知自身 sha，按本块头「合并时校对」惯例先写占位并注明——合并进 dev 后
   // 以 git log 换真实 sha 再去注释启用；keys 均可命中本轮 CHANGELOG Unreleased 文本。
   // { sha: '<task13-sha>', keys: [/标题栏|状态栏|untrustedWorkspaces|Trae/i] },
+  // ---- Task 14（0.3.0 画布真 UI 浏览器化：React UMD 壳装载 client.js + /status 诊断页）预写（注释态）----
+  // { sha: '<task14-sha>', keys: [/canvas UI|React UMD|client\.js|RUNTIME_FILES|\/status/i] },
 ];
 for (const c of COVERAGE) {
   ok(c.keys.some((re) => re.test(coverageText)), '未发版提交 ' + c.sha + ' 在 CHANGELOG（Unreleased 或最新已发布段）里找不到对应记录（补记不全）');

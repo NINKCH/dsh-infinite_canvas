@@ -16,9 +16,12 @@
  *     index.js L31 initPackBase(HERE)）。
  *   - assets/director/**（3D 引擎静态资源，npm files 有、§4 无）不随行，按 §4 清单执行；
  *     后果记录在 HOST-CONTRACT.md §11 与任务报告。
- *   - **client.js 不在清单**（§4 勘误，Task 7 controller 裁定：Harness 控制台前端，index.js 不
- *     import）——core 侧仅按 RUNTIME_FILES 枚举拷贝，client.js 副本绝不进 vsix（Task 9 瘦身，
- *     同步后自检反向断言，防旧残留/误拷混入）。
+ *   - **client.js（Task 14 回归，0.3.0）**：§4 RUNTIME_FILES 含 client.js——canvas-web 真 UI 壳
+ *     经 `/infinite-canvas/api/client.js` 装载的画布浏览器前端（装载契约实证：自
+ *     `__ModuleLoader__.load` 自装载、唯一外部 require 是 react、hostRpc/CTX 内建自守卫）。
+ *     Task 7/9 的「不随包 + 反向自检」已被实证推翻并删除（0.2.0 的 vsix 因此只有状态页）。
+ *   - shared/vendor/（Task 14）：React UMD（react@18.3.1，MIT）→ vsix shared/vendor/，
+ *     canvas-web 壳 `/api/vendor` 路由的数据源；vendor 是静态资产非 npm 依赖。
  *
  * 幂等：先删后拷。执行：node vsix/scripts/sync-shared.mjs（或 adapters/ 内 npm run sync）。
  * 退出码：0 = 成功；1 = 清单校验失败。
@@ -33,9 +36,10 @@ const ADAPTERS_DIR = path.resolve(VSIX_DIR, '..'); // adapters/
 const REPO_ROOT = path.resolve(ADAPTERS_DIR, '..'); // 仓库根
 const SHARED_SRC = path.join(ADAPTERS_DIR, 'shared');
 const SHARED_DST = path.join(VSIX_DIR, 'shared');
+const SHARED_VENDOR_DST = path.join(SHARED_DST, 'vendor');
 const CORE_DST = path.join(SHARED_DST, 'core');
 
-// HOST-CONTRACT.md §4 RUNTIME_FILES（import 闭包表：仓库路径 → core/ 下同名）
+// HOST-CONTRACT.md §4 RUNTIME_FILES（import 闭包表 + client.js：仓库路径 → core/ 下同名）
 const RUNTIME_FILES = [
   'index.js',
   'index-core-skill-profile.js',
@@ -43,9 +47,12 @@ const RUNTIME_FILES = [
   'skill-pack.js',
   'production.js',
   'package.json',
+  'client.js',
 ];
 // §4 运行时读取清单：内置技能 SKILL.md + canvas-director 技能包整体
 const SKILL_DIRS = ['canvas-studio', 'canvas-craft', 'canvas-layout', 'canvas-director'];
+// shared/vendor 静态资产（Task 14：React UMD，canvas-web 壳 /api/vendor 路由数据源）
+const VENDOR_FILES = ['react.production.min.js'];
 
 /** 递归拷贝目录（目标不存在则创建；仅普通文件与目录，符号链接跳过并告警）。 */
 function copyDir(src, dst) {
@@ -73,12 +80,20 @@ try {
   const sharedModules = fs.readdirSync(SHARED_SRC).filter((f) => f.endsWith('.cjs'));
   for (const f of sharedModules) fs.copyFileSync(path.join(SHARED_SRC, f), path.join(SHARED_DST, f));
 
-  // 3) core：§4 import 闭包 6 文件
+  // 3) core：§4 import 闭包 6 文件 + client.js（浏览器 UI 资产，Task 14 回归）
   fs.mkdirSync(CORE_DST, { recursive: true });
   for (const f of RUNTIME_FILES) {
     const src = path.join(REPO_ROOT, f);
     if (!fs.existsSync(src)) throw new Error(`§4 RUNTIME_FILES 缺失: ${f}`);
     fs.copyFileSync(src, path.join(CORE_DST, f));
+  }
+
+  // 3a) shared/vendor（Task 14：React UMD 静态资产 → vsix shared/vendor/）
+  fs.mkdirSync(SHARED_VENDOR_DST, { recursive: true });
+  for (const f of VENDOR_FILES) {
+    const src = path.join(SHARED_SRC, 'vendor', f);
+    if (!fs.existsSync(src)) throw new Error(`shared/vendor 资产缺失: ${f}`);
+    fs.copyFileSync(src, path.join(SHARED_VENDOR_DST, f));
   }
 
   // 4) core/assets：canvas 内置技能 SKILL.md ×4 + canvas-director 技能包
@@ -94,21 +109,18 @@ try {
   const licenseSrc = path.join(REPO_ROOT, 'LICENSE');
   if (fs.existsSync(licenseSrc)) fs.copyFileSync(licenseSrc, path.join(VSIX_DIR, 'LICENSE'));
 
-  // 6) 清单自检：core 入口 + 五模块 + 技能包入口必须落位
+  // 6) 清单自检：core 入口 + 五模块 + 技能包入口 + client.js/vendor（Task 14）必须落位
   const mustExist = [
     path.join(CORE_DST, 'index.js'),
     path.join(CORE_DST, 'package.json'),
+    path.join(CORE_DST, 'client.js'),
+    path.join(SHARED_VENDOR_DST, 'react.production.min.js'),
     path.join(assetsDst, 'canvas-director', 'manifest.json'),
     path.join(assetsDst, 'canvas-studio', 'SKILL.md'),
     ...sharedModules.map((f) => path.join(SHARED_DST, f)),
   ];
   for (const f of mustExist) {
     if (!fs.existsSync(f)) throw new Error('同步后校验失败（产物缺失）: ' + f);
-  }
-
-  // 7) 瘦身反向自检（Task 9 carry）：client.js 绝不在 core 清单（§4 勘误），旧残留/误拷混入即报错
-  if (fs.existsSync(path.join(CORE_DST, 'client.js'))) {
-    throw new Error('瘦身自检失败: shared/core/client.js 不应存在（§4 勘误：Harness 控制台前端，controller 裁定剔除）');
   }
 
   const countFiles = (dir) => {
@@ -124,7 +136,8 @@ try {
     return n;
   };
   console.log(`[sync-shared] shared 模块: ${sharedModules.length} 个（${sharedModules.join(', ')}）`);
-  console.log(`[sync-shared] core RUNTIME_FILES: ${RUNTIME_FILES.length} 个 → shared/core/`);
+  console.log(`[sync-shared] core RUNTIME_FILES: ${RUNTIME_FILES.length} 个（含 client.js）→ shared/core/`);
+  console.log(`[sync-shared] shared/vendor 资产: ${VENDOR_FILES.length} 个 → shared/vendor/`);
   console.log(`[sync-shared] core/assets 文件: ${countFiles(assetsDst)} 个（canvas 技能 ×${SKILL_DIRS.length}）`);
   console.log('[sync-shared] 完成 → ' + SHARED_DST);
 } catch (e) {
