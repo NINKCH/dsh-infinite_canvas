@@ -2,7 +2,7 @@
   "name": "dsh-infinite-canvas",
   "displayName": "无限画布 Infinite Canvas",
   "description": "无限画布 VS Code 系宿主壳（VS Code / CodeBuddy / Trae / Cursor 四家共用）：能力探测链选择工具通道，WebviewPanel 承载画布，vscode.lm 作文本后端。",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "publisher": "ninkch",
   "license": "Apache-2.0",
   "repository": {
@@ -19,11 +19,21 @@
   "activationEvents": [
     "onStartupFinished"
   ],
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": true
+    },
+    "virtualWorkspaces": true
+  },
+  "extensionKind": [
+    "ui"
+  ],
   "contributes": {
     "commands": [
       {
         "command": "dsh-canvas.openCanvas",
-        "title": "无限画布: 打开画布"
+        "title": "无限画布: 打开画布",
+        "icon": "$(browser)"
       },
       {
         "command": "dsh-canvas.probeHost",
@@ -34,6 +44,14 @@
         "title": "无限画布: 打开设置页"
       }
     ],
+    "menus": {
+      "window/title": [
+        {
+          "command": "dsh-canvas.openCanvas",
+          "group": "navigation@1"
+        }
+      ]
+    },
     "mcpServerDefinitionProviders": [
       {
         "id": "dsh-canvas.mcp",

@@ -416,7 +416,9 @@ probeChannels(channels) -> { vscodeLm:'n/a'|number, bridge:{<host>:count,...}|{}
   `assets/director/**`（3D 引擎静态资源，npm files 有、§4 清单无）**不随 vsix**——画布 UI 若在
   实机发现 director 引擎 404，补 sync 清单即可（数据补齐非代码变更）。
 - **打包**：adapters/ 内 `npm run package`（sync → generate:tools → vsce package）→
-  `adapters/dist/dsh-infinite-canvas-0.1.0.vsix`；.vscodeignore 排除 scripts/（构建期），
+  `adapters/dist/dsh-infinite-canvas-<version>.vsix`（vsce 依 vsix manifest version 命名：Task 13
+  起 package script 以 `-o ../dist` 目录为出参，不再硬编码文件名——vsce 3.9.2 对目录目标自动
+  join `<name>-<version>.vsix`，版本单源与产物命名同源）；.vscodeignore 排除 scripts/（构建期），
   **lib/ 必须随包**（extension.js 运行时 require）。自检断言：zip 条目含
   `extension/extension.js`、`extension/shared/canvas-mcp.cjs`、`extension/shared/core/index.js`。
 - **vsce/发布事实**：vsce 3.9.2 打包通过（142 files / 867.73 KB）；README/repository/LICENSE 齐
@@ -478,7 +480,8 @@ probeChannels(channels) -> { vscodeLm:'n/a'|number, bridge:{<host>:count,...}|{}
 - **npm 包隔离断言**（Global Constraint #1 机械化验证）：`scripts/test-adapters-build.mjs` spawn
   `npm pack --dry-run`（仓库根；npm notice 清单走 stderr）解析 Tarball Contents，断言无任何
   `adapters/` 前缀条目；解析不出文件清单按失败处理（防 npm 输出格式漂移静默通过）。
-- **产物三件**（版本随三 manifest，当前冻结 0.1.0）：`adapters/dist/dsh-infinite-canvas-0.1.0.vsix`、
+- **产物三件**（版本随三 manifest，当前 0.2.0；vsix 产物名由 vsce 依 vsix manifest 命名）：
+  `adapters/dist/dsh-infinite-canvas-0.2.0.vsix`、
   `adapters/dist/dsh-infinite-canvas-qoder-<version>.zip`、`adapters/dist/workbuddy-marketplace/`
   （目录）+ `adapters/dist/dsh-marketplace-workbuddy-<version>.zip`。
 - **测试**：`scripts/test-adapters-build.mjs`（隔离 / 编排 exit 0 / 三产物存在非空 / vsix 条目正

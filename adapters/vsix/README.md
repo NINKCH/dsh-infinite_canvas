@@ -24,6 +24,20 @@
   四能力布尔 + 决策路径 + `selectChatModels` 模型清单 + LLM 通道探测（全部经脱敏）。
 - **无限画布: 打开设置页**（`dsh-canvas.openSettings`）——打开画布页并提示设置区位置。
 
+## 入口（0.2.0 起）
+
+三处入口指向同一个 `dsh-canvas.openCanvas`：
+
+- **标题栏按钮**：窗口右上角 `$(browser)` 图标（`window/title` navigation@1；Trae 自定义标题栏
+  是否渲染该按钮待实机验证，状态栏是保底入口）。
+- **状态栏**：右下角常驻 `$(browser) 画布`，**任何窗口可见**（含空白欢迎窗口/受限窗口），
+  不依赖工具通道构建成功；点击后的错误经命令处理器呈现。
+- **命令面板**：`无限画布: 打开画布` 等三条命令不变。
+
+扩展清单已声明 `"untrustedWorkspaces": { "supported": true }` 与 `"virtualWorkspaces": true`
+（并声明 `extensionKind: ["ui"]`）——空白/受限窗口不再出现「环境已禁用此扩展」（Trae 3.4.15
+实测反馈的修复）。
+
 ## 手动配置 MCP（manual 通道）
 
 在宿主 `mcp.json` 加入（路径以输出面板实际输出为准）：
@@ -54,5 +68,5 @@ cd adapters
 npm install
 npm run sync             # 同步 shared 五模块 + core 运行时文件到 vsix/shared/
 npm run generate:tools   # core 工具面变更后重新生成 contributes.languageModelTools
-npm run package          # 打包 → dist/dsh-infinite-canvas-0.1.0.vsix
+npm run package          # 打包 → dist/dsh-infinite-canvas-<版本>.vsix（vsce 依 vsix/package.json version 命名，当前 0.2.0）
 ```

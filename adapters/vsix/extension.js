@@ -2,6 +2,7 @@
  * 无限画布 vsix 壳（Task 6）——VS Code / CodeBuddy / Trae / Cursor 四家 VS Code 系宿主共用。
  *
  * activate 流程（brief 逐字）：探测四能力 → detect 决策 → 按路径注册工具通道 → 注册三命令。
+ *   0.2.0 起另有无条件状态栏常驻入口（不依赖 adapter 构建，点击错误由命令处理器 try/catch 呈现）。
  *   能力探测（typeof 函数存在性，旧宿主缺失即 false，绝不抛错）：
  *     lmTools      = vscode.lm.registerTool 存在
  *     mcpProvider  = vscode.lm.registerMcpServerDefinitionProvider 存在
@@ -50,6 +51,7 @@ const MCP_PROVIDER_ID = 'dsh-canvas.mcp'; // 与 package.json contributes.mcpSer
 const CHANNEL_LABEL = '无限画布 (dsh-infinite-canvas)';
 const MCP_ENV = { ELECTRON_RUN_AS_NODE: '1' }; // brief 逐字：宿主内置 node 跑 .cjs 的标准姿势
 const MCP_ARGS = [CANVAS_MCP_CJS, '--core-dir', CORE_DIR]; // --core-dir 必传：canvas-mcp 缺省 REPO_ROOT 解析（其 ../../）在 vsix 内不成立
+const STATUS_BAR_PRIORITY = 100; // 状态栏右组内的排序优先级（越大越靠左，同组常规项之上）
 
 // ---- 模块态 ----
 let outputChannel = null; // activate 创建；deactivate 随 context.subscriptions 释放
@@ -319,7 +321,16 @@ async function openSettings() {
 async function activate(context) {
   outputChannel = vscode.window.createOutputChannel(CHANNEL_LABEL);
   context.subscriptions.push(outputChannel);
-  log('无限画布壳激活（dsh-infinite-canvas@0.1.0）');
+  log('无限画布壳激活（dsh-infinite-canvas@0.2.0）');
+
+  // 状态栏常驻入口（0.2.0）：**无条件 show()**——按钮必须在任何窗口可见（含空白/受限窗口），
+  // 不依赖 adapter 构建成功；点击后的错误由 openCanvas 命令处理器 try/catch 呈现。
+  const statusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, STATUS_BAR_PRIORITY);
+  statusBar.text = '$(browser) 画布';
+  statusBar.tooltip = '打开无限画布';
+  statusBar.command = 'dsh-canvas.openCanvas';
+  statusBar.show();
+  context.subscriptions.push(statusBar); // dispose 随扩展释放
 
   const capabilities = probeCapabilities();
   const decision = detect(capabilities);

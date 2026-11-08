@@ -7,7 +7,7 @@
   "scripts": {
     "sync": "node vsix/scripts/sync-shared.mjs",
     "generate:tools": "node vsix/scripts/generate-tools-contribution.mjs",
-    "package": "node vsix/scripts/sync-shared.mjs && node vsix/scripts/generate-tools-contribution.mjs && node -e \"require('node:fs').mkdirSync('dist',{recursive:true})\" && cd vsix && npx vsce package -o ../dist/dsh-infinite-canvas-0.1.0.vsix"
+    "package": "node vsix/scripts/sync-shared.mjs && node vsix/scripts/generate-tools-contribution.mjs && node -e \"require('node:fs').mkdirSync('dist',{recursive:true})\" && cd vsix && npx vsce package -o ../dist"
   },
   "devDependencies": {
     "@types/vscode": "~1.90.0",

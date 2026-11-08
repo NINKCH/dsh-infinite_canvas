@@ -32,8 +32,22 @@ GitHub Releases carry the same notes in English; maintainer-facing runbooks live
   text channel as `vscode-lm` (vsix shell only, via `selectChatModels` → `sendRequest`) >
   `bridge` > `sampling` (MCP client capability) > `byok` — always unavailable in MCP-hosted
   shells, since the core has no BYOK url/apiKey store — > `none` (refuses with guidance).
+- **Visible entry points for the vsix shell (0.2.0): title-bar button + status-bar item.**
+  `dsh-canvas.openCanvas` gains a `$(browser)` icon and a `window/title` navigation entry, and
+  activate() creates a right-aligned status-bar item (`$(browser) 画布`, tooltip 打开无限画布,
+  command `dsh-canvas.openCanvas`) shown **unconditionally** — the button is visible in every
+  window (blank welcome windows included) whether or not the tool-channel path built; click
+  errors surface through the command handler's try/catch, and the item's dispose rides in
+  `context.subscriptions`. The three command-palette entries are unchanged. (Whether Trae's
+  custom title bar renders the `window/title` button is pending field verification; the
+  status-bar item is the guaranteed entry.)
 
 ### Fixed
+- **Blank/untrusted windows no longer disable the extension (vsix 0.2.0).** The manifest now
+  declares `"capabilities": { "untrustedWorkspaces": { "supported": true }, "virtualWorkspaces":
+  true }` and `"extensionKind": ["ui"]`, so restricted-mode welcome windows keep the extension
+  enabled and its commands findable in the palette — the Trae CN 3.4.15 field report was
+  「环境已禁用此扩展」 with an empty palette on a blank window.
 - **Bridge error messages redact before truncating.** Outbound error text is sanitized first and
   only then cut, so an API key fragment can no longer survive as a sliver across the truncation
   boundary; the shorter non-JSON-response path applies the same order.

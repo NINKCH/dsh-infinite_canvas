@@ -39,7 +39,7 @@ import process from 'node:process';
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const BUILD_SCRIPT = path.join(ROOT, 'adapters', 'scripts', 'build-workbuddy.mjs');
 const STAGING = path.join(ROOT, 'adapters', 'dist', 'workbuddy-marketplace');
-const OUT_ZIP = path.join(ROOT, 'adapters', 'dist', 'dsh-marketplace-workbuddy-0.1.0.zip');
+const OUT_ZIP = path.join(ROOT, 'adapters', 'dist', 'dsh-marketplace-workbuddy-0.2.0.zip');
 const PANEL_MARK = 'id="infinite-canvas-root"'; // 面板挂载点特征子串（canvas-web.cjs 自备面板页）
 const KEY_RE = /sk-[A-Za-z0-9_-]{8,}/g;         // 密钥形状（与 model-bridge.cjs KEY_RE 同口径）
 
@@ -51,7 +51,7 @@ const MARKETPLACE_JSON_VERBATIM = {
   plugins: [
     {
       name: 'dsh-infinite-canvas',
-      version: '0.1.0',
+      version: '0.2.0',
       description: '无限画布——可视化创作工作台（剧本/分镜/图片/视频节点编排）',
       source: './plugins/dsh-infinite-canvas',
     },
@@ -60,7 +60,7 @@ const MARKETPLACE_JSON_VERBATIM = {
 // brief 逐字产物：plugin.json（注意：无 displayName / skills 字段，与 qoder 形态不同）
 const PLUGIN_JSON_VERBATIM = {
   name: 'dsh-infinite-canvas',
-  version: '0.1.0',
+  version: '0.2.0',
   description: '无限画布——可视化创作工作台（剧本/分镜/图片/视频节点编排）',
   author: { name: 'ninkch' },
   mcpServers: './.mcp.json',

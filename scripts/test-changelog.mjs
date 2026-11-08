@@ -142,6 +142,10 @@ const COVERAGE = [
   // { sha: '32e6c3f', keys: [/workbuddy|staging/i] },
   // { sha: 'b7834b7', keys: [/build-adapters|npm pack|isolation|编排/i] },
   // { sha: 'd249e72', keys: [/ADAPTERS\.md|coverage list|changelog gate/i] },
+  // ---- Task 13（0.2.0 三入口/状态栏 + 全局可用性 + Trae 探针回填）预写（注释态）----
+  // sha 占位：提交时未知自身 sha，按本块头「合并时校对」惯例先写占位并注明——合并进 dev 后
+  // 以 git log 换真实 sha 再去注释启用；keys 均可命中本轮 CHANGELOG Unreleased 文本。
+  // { sha: '<task13-sha>', keys: [/标题栏|状态栏|untrustedWorkspaces|Trae/i] },
 ];
 for (const c of COVERAGE) {
   ok(c.keys.some((re) => re.test(coverageText)), '未发版提交 ' + c.sha + ' 在 CHANGELOG（Unreleased 或最新已发布段）里找不到对应记录（补记不全）');

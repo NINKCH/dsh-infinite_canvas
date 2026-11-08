@@ -16,7 +16,7 @@
  *  5) qoder zip 条目：含 dist/llm-channel.cjs（carry #2）、**不含** dist/core/client.js
  *  6) workbuddy staging：含 plugins/dsh-infinite-canvas/dist/llm-channel.cjs（carry #2）
  *
- * 版本断言随三 manifest 冻结为 0.1.0（产物文件名直接钉 0.1.0，与各壳测试口径一致）。
+ * 版本断言随三 manifest 冻结为 0.2.0（产物文件名直接钉 0.2.0，与各壳测试口径一致）。
  * 收尾：无子进程残留（全程 spawnSync 同步等待）；产物均落在 gitignore 的 adapters/dist/ 内。
  * 运行：node scripts/test-adapters-build.mjs
  * 退出码：0 = 通过；1 = 失败。
@@ -30,10 +30,10 @@ import process from 'node:process';
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const ORCHESTRATOR = path.join(ROOT, 'adapters', 'scripts', 'build-adapters.mjs');
 const DIST = path.join(ROOT, 'adapters', 'dist');
-const VSIX = path.join(DIST, 'dsh-infinite-canvas-0.1.0.vsix');
-const QODER_ZIP = path.join(DIST, 'dsh-infinite-canvas-qoder-0.1.0.zip');
+const VSIX = path.join(DIST, 'dsh-infinite-canvas-0.2.0.vsix');
+const QODER_ZIP = path.join(DIST, 'dsh-infinite-canvas-qoder-0.2.0.zip');
 const WB_STAGING = path.join(DIST, 'workbuddy-marketplace');
-const WB_ZIP = path.join(DIST, 'dsh-marketplace-workbuddy-0.1.0.zip');
+const WB_ZIP = path.join(DIST, 'dsh-marketplace-workbuddy-0.2.0.zip');
 const WB_PLUGIN = path.join(WB_STAGING, 'plugins', 'dsh-infinite-canvas');
 
 const errs = [];
@@ -77,7 +77,7 @@ try {
     errs.push(`build-adapters.mjs 应 exit 0，实际 ${build.status}\nstdout 尾部: ${String(build.stdout || '').slice(-600)}\nstderr 尾部: ${String(build.stderr || '').slice(-600)}`);
   }
 
-  // ---------- 断言 3：三产物存在且非空（版本冻结 0.1.0 钉在文件名） ----------
+  // ---------- 断言 3：三产物存在且非空（版本冻结 0.2.0 钉在文件名） ----------
   for (const [label, f] of [['vsix', VSIX], ['qoder zip', QODER_ZIP], ['workbuddy zip', WB_ZIP]]) {
     if (!fs.existsSync(f)) errs.push(`${label} 产物不存在: ${f}`);
     else if (fs.statSync(f).size <= 0) errs.push(`${label} 产物为空: ${f}`);
