@@ -143,8 +143,11 @@ const CANVAS_METHODS = [
 - `DSH_IC_CONFIG_PATH`（默认 `~/.dsh/infinite-canvas/config.json`，L140）。
 - `DSH_IC_PROJECTS_DIR`（默认 `~/.dsh/infinite-canvas/projects`，L1088）；项目、画布文档、资产库、
   `production.js` 的 `<项目目录>/production/*.json` 都落在这棵树内。
-- 假适配器存储根：`adapters/.tmp-home/`（`DSH_IC_PROJECTS_DIR=<root>/projects`、
-  `DSH_IC_CONFIG_PATH=<root>/config.json`），已在 `.gitignore` 排除。
+- 适配器存储根（数据根裁定，Task 7 落地）：缺省 `<homedir>/.dsh-infinite-canvas/`（env `DSH_IC_HOME`
+  可覆盖，homeDir option 优先级最高，见 §6），经 `DSH_IC_PROJECTS_DIR=<root>/projects`、
+  `DSH_IC_CONFIG_PATH=<root>/config.json` 注入 core。旧「仓库内 adapters/.tmp-home/」缺省废弃
+  （包内数据随插件升级清空用户创作资产，Task 6 评审 Minor #2 升格）；该路径仍可作测试显式注入目录
+  （Task 2/3/4 测试用法，已在 .gitignore 排除）。
 
 ## 5. dist 布局契约（冻结，供 Task 2+ 打包任务对齐）
 
@@ -164,8 +167,10 @@ dist/
 // adapters/shared/host-adapter.cjs（CommonJS，零依赖，仅 node 内置）
 const { ctx, tools, routes, dispose } = await createHostAdapter({
   corePath?: string,   // core 入口（index.js）路径；绝对路径直接用，相对路径相对仓库根解析；
-                       // 缺省 = 仓库根 index.js（相对 host-adapter.cjs 的 ../../../index.js，开发期用）
-  homeDir?: string,    // 假存储根；缺省 = adapters/.tmp-home/（设置 DSH_IC_* 于 import core 前）
+                       // 缺省按布局自解析（defaultCorePath()）：发布布局取 <__dirname>/core/index.js
+                       // （HOST-CONTRACT §5，dist/ 内五模块与 core/ 同级——宿主 .mcp.json 无需 --core-dir），
+                       // 开发布局（core 不在同级）退仓库根 index.js
+  homeDir?: string,    // 存储根；缺省见下方「数据根缺省」（option 优先级最高）
 });
 // ctx    : { effect(fn, label?), get(name) → undefined,
 //            tools: { register(def) → disposer }, webServer: { register(route) → disposer } }
@@ -173,6 +178,14 @@ const { ctx, tools, routes, dispose } = await createHostAdapter({
 // routes : Route[]  —— §2.2 形状，9 条
 // dispose(): 依次调用全部收集到的 disposer（工具/路由/effect），幂等容忍重复调用
 ```
+
+- **数据根缺省（数据根裁定，Task 7 落地；Task 6 评审 Minor #2 升格）**：优先级
+  `homeDir option > env DSH_IC_HOME > <homedir>/.dsh-infinite-canvas/`。旧缺省「仓库内
+  adapters/.tmp-home/」废弃——包内数据随插件升级清空用户创作资产；新缺省落用户目录，
+  升级/重装不丢数据。测试一律经 homeDir option 或 env DSH_IC_HOME 显式注入临时目录（密闭），
+  绝不触碰真实用户目录。canvas-mcp / canvas-web 的 `--home` 缺省跟随本裁定（无独立缺省）。
+- 另导出 `defaultCorePath()`（发布布局自解析，见上方 corePath 注释）：canvas-mcp / canvas-web
+  的 `--core-dir` 缺省复用它。
 
 - CJS 形态是刻意的：六家 IDE 宿主加载器以 `require` 为主，发布物也是 `.cjs`（§5）。
 - `get(name)` 返回 `undefined`：所有 get 用点均已核实为防御式降级（§2 表格），不需要假服务。
@@ -185,7 +198,8 @@ const { ctx, tools, routes, dispose } = await createHostAdapter({
 ## 7. MCP stdio 承载契约（Task 2 产出 canvas-mcp.cjs，供 Task 3/5 与宿主接入对齐）
 
 - CLI：`node canvas-mcp.cjs [--core-dir <path>] [--home <dir>] [--port <n>]`；`--core-dir` 为 core 入口所在目录
-  （内含 index.js，缺省仓库根）；`--home` 为存储根（缺省走 host-adapter 默认 `adapters/.tmp-home/`）。
+  （内含 index.js，缺省按布局自解析：发布布局 core/ 同级优先、开发布局仓库根，§6 defaultCorePath）；
+  `--home` 为存储根（缺省走 host-adapter 数据根缺省：env `DSH_IC_HOME` || `~/.dsh-infinite-canvas/`）。
 - 帧：newline-delimited JSON-RPC 2.0 over stdio；**Buffer 级切帧**（chunk 累积 + 按字节
   `indexOf(0x0A)` + 整行 concat 后一次性 utf8 解码）——禁止 readline / toString 后 split，
   中文（3 字节 UTF-8）跨 chunk 边界会碎帧（测试 `scripts/test-adapters-mcp.mjs` 断言 5 已验证）。
@@ -389,8 +403,9 @@ probeChannels(channels) -> { vscodeLm:'n/a'|number, bridge:{<host>:count,...}|{}
   byok=false）——**每行经 model-bridge.redact**（Review Focus #3）。
 - **命令纪律**：三命令处理器统一 try/catch，错误 `showErrorMessage` + OutputChannel，message 全过
   redact；deactivate 幂等 dispose adapter。
-- **存储与资源边界**：homeDir 走 host-adapter 缺省（vsix 内即 `<扩展目录>/adapters/.tmp-home/`
-  沙盒，不触真实用户数据；最终落位 globalStorage 待 Task 11 实测后定）；
+- **存储与资源边界**：homeDir 走 host-adapter 缺省（数据根裁定 Task 7 后即 `<homedir>/.dsh-infinite-canvas/`，
+  env `DSH_IC_HOME` 可覆盖；extension.js 未传 homeDir，Task 6 时为扩展目录沙盒的旧缺省已废弃；
+  最终落位 globalStorage 待 Task 11 实测后定）；
   `assets/director/**`（3D 引擎静态资源，npm files 有、§4 清单无）**不随 vsix**——画布 UI 若在
   实机发现 director 引擎 404，补 sync 清单即可（数据补齐非代码变更）。
 - **打包**：adapters/ 内 `npm run package`（sync → generate:tools → vsce package）→

@@ -12,26 +12,44 @@
  *   - dispose() : 依次调用全部收集到的 disposer，幂等
  *
  * 零依赖（仅 node 内置）。CommonJS：六家 IDE 宿主加载器以 require 为主，发布物也是 .cjs。
- * 存储根：import core 之前设置 DSH_IC_PROJECTS_DIR / DSH_IC_CONFIG_PATH（core 模块顶层常量，
- * import 后不可变），默认指向 adapters/.tmp-home/，绝不触碰真实画布数据。
+ * 存储根（数据根裁定，Task 7）：import core 之前设置 DSH_IC_PROJECTS_DIR / DSH_IC_CONFIG_PATH
+ * （core 模块顶层常量，import 后不可变）。缺省 = env DSH_IC_HOME，再缺省 = 用户目录
+ * ~/.dsh-infinite-canvas/（包内 .tmp-home 随插件升级清空创作资产，已废弃——用户数据落用户目录，
+ * 升级/重装不丢）。homeDir option 优先级最高；测试一律显式注入临时目录，绝不触碰真实用户数据。
  */
 'use strict';
 
 const path = require('node:path');
 const fs = require('node:fs');
+const os = require('node:os');
 const { pathToFileURL } = require('node:url');
 
 // 仓库根：本文件位于 adapters/shared/，向上两级即仓库根（开发期默认 core 入口所在地）。
 const REPO_ROOT = path.resolve(__dirname, '..', '..');
 
+/**
+ * core 入口缺省解析（发布布局自解析，无需 --core-dir）：
+ * 发布布局（HOST-CONTRACT.md §5）：本文件与 core/ 同目录（dist/host-adapter.cjs + dist/core/）
+ *   → 缺省取 <__dirname>/core/index.js；
+ * 开发布局（adapters/shared/，core 不在同级）→ 退仓库根 index.js。
+ * 返回路径不保证存在（调用方负责报错语义：corePath 缺失时 import 失败即抛）。
+ */
+function defaultCorePath() {
+  const published = path.join(__dirname, 'core', 'index.js');
+  return fs.existsSync(published) ? published : path.join(REPO_ROOT, 'index.js');
+}
+
 async function createHostAdapter(options) {
   const opts = options || {};
-  // corePath 可配；绝对路径直接用，相对路径相对仓库根解析。缺省 = 仓库根 index.js。
+  // corePath 可配；绝对路径直接用，相对路径相对仓库根解析。缺省按布局自解析（见 defaultCorePath）。
   const corePath = opts.corePath
     ? (path.isAbsolute(opts.corePath) ? opts.corePath : path.resolve(REPO_ROOT, opts.corePath))
-    : path.join(REPO_ROOT, 'index.js');
-  // 假存储根：缺省 adapters/.tmp-home/，经 DSH_IC_* 注入 core（import 前必须生效）。
-  const homeDir = opts.homeDir ? path.resolve(opts.homeDir) : path.join(REPO_ROOT, 'adapters', '.tmp-home');
+    : defaultCorePath();
+  // 存储根（数据根裁定，Task 7）：homeDir option > env DSH_IC_HOME > 用户目录 ~/.dsh-infinite-canvas/。
+  // 经 DSH_IC_* 注入 core（import 前必须生效）。
+  const homeDir = opts.homeDir
+    ? path.resolve(opts.homeDir)
+    : (process.env.DSH_IC_HOME ? path.resolve(process.env.DSH_IC_HOME) : path.join(os.homedir(), '.dsh-infinite-canvas'));
   const projectsDir = path.join(homeDir, 'projects');
   for (const dir of [homeDir, projectsDir]) fs.mkdirSync(dir, { recursive: true });
   process.env.DSH_IC_PROJECTS_DIR = projectsDir;
@@ -101,4 +119,4 @@ async function createHostAdapter(options) {
   };
 }
 
-module.exports = { createHostAdapter };
+module.exports = { createHostAdapter, defaultCorePath };

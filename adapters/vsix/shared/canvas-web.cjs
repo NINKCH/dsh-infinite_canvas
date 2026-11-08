@@ -28,8 +28,10 @@
  * main()（进程内无 adapter）才由本模块自建。
  *
  * CLI：node canvas-web.cjs [--core-dir <path>] [--home <dir>] [--port <n>] [--open]
- *   --core-dir  core 入口所在目录（内含 index.js）；缺省 = 仓库根（与 host-adapter 同款解析）。
- *   --home      存储根（DSH_IC_* 注入）；缺省复用 host-adapter 默认（adapters/.tmp-home/）。
+ *   --core-dir  core 入口所在目录（内含 index.js）；缺省按布局自解析（host-adapter.defaultCorePath）：
+ *               发布布局 dist/core/ 与本文件同级优先，开发布局退仓库根。
+ *   --home      存储根（DSH_IC_* 注入）；缺省复用 host-adapter 缺省（env DSH_IC_HOME ||
+ *               ~/.dsh-infinite-canvas/，数据根裁定 Task 7）。
  *   --port      监听端口；缺省 3210。被画布服务占用 → 复用；被其他服务占用 → 换口 +10。
  *   --open      起服务后用平台默认浏览器打开画布 url（win32: cmd /c start "" "<url>"）。
  */
@@ -39,9 +41,8 @@ const http = require('node:http');
 const path = require('node:path');
 const { spawn } = require('node:child_process');
 const { parseArgs } = require('node:util');
+const { createHostAdapter, defaultCorePath } = require('./host-adapter.cjs');
 
-// 仓库根：本文件位于 adapters/shared/，向上两级即仓库根（与 host-adapter.cjs 同款解析）。
-const REPO_ROOT = path.resolve(__dirname, '..', '..');
 const DEFAULT_PORT = 3210;
 const PORT_RETRY_LIMIT = 10; // EADDRINUSE 递增换口上限（+10）
 const PROBE_TIMEOUT_MS = 1500;
@@ -228,8 +229,7 @@ async function startWeb(options) {
   // 2) 新起：优先复用传入 routes；CLI 场景（进程内无 adapter）才自建（§6 单例约束）
   let routes = opts.routes;
   if (!routes) {
-    const coreDir = opts.coreDir ? path.resolve(String(opts.coreDir)) : REPO_ROOT;
-    const { createHostAdapter } = require('./host-adapter.cjs');
+    const coreDir = opts.coreDir ? path.resolve(String(opts.coreDir)) : path.dirname(defaultCorePath());
     const adapter = await createHostAdapter({
       corePath: path.join(coreDir, 'index.js'),
       homeDir: opts.home ? path.resolve(String(opts.home)) : undefined,
@@ -268,7 +268,7 @@ function parseCliArgs(argv) {
   });
   const portNum = values.port !== undefined ? Number(values.port) : undefined;
   return {
-    coreDir: values['core-dir'] ? path.resolve(String(values['core-dir'])) : REPO_ROOT,
+    coreDir: values['core-dir'] ? path.resolve(String(values['core-dir'])) : path.dirname(defaultCorePath()),
     homeDir: values.home ? path.resolve(String(values.home)) : undefined,
     port: Number.isInteger(portNum) && portNum >= 0 ? portNum : undefined,
     portRaw: values.port,

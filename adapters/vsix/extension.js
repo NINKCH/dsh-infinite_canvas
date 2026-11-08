@@ -70,7 +70,8 @@ function log(line) {
 
 /**
  * core adapter 单例（懒建）。corePath 显式指向 vsix 内 core（sync 产物）；
- * homeDir 不传 → host-adapter 缺省 <扩展目录>/adapters/.tmp-home/ 沙盒（不触碰真实用户数据）。
+ * homeDir 不传 → host-adapter 缺省（数据根裁定 Task 7 后为 ~/.dsh-infinite-canvas/，
+ * env DSH_IC_HOME 可覆盖）——用户创作数据落用户目录，升级/重装不丢。
  */
 function getAdapter() {
   if (!adapterPromise) {

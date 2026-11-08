@@ -1,0 +1,1 @@
+{"mcpServers":{"dsh-infinite-canvas":{"command":"${QODER_NODE_RUNTIME}","args":["${QODER_PLUGIN_ROOT}/dist/canvas-mcp.cjs"],"timeout":120000}}}

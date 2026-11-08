@@ -7,13 +7,16 @@
  *  2) 工具名集合与 HOST-CONTRACT.md §3 的 CANVAS_METHODS 数组逐项一致（数量+顺序）
  *  3) routes 收集到 webServer 路由，含 /infinite-canvas/api/rpc
  *  4) 每个 def.name 以 canvas_ 开头、入口函数（execute）是函数
- *  5) 存储根约定：DSH_IC_PROJECTS_DIR / DSH_IC_CONFIG_PATH 指向 adapters/.tmp-home/
+ *  5) 存储根约定（数据根裁定 Task 7）：缺省优先级 homeDir option > env DSH_IC_HOME >
+ *     用户目录 ~/.dsh-infinite-canvas/；本断言经 env DSH_IC_HOME 注入临时目录（密闭，
+ *     绝不写真实用户目录），DSH_IC_PROJECTS_DIR / DSH_IC_CONFIG_PATH 指向注入根之下
  *  6) dispose() 调用全部 disposer（工具/路由注册被逐一撤销）
  *
  * 运行：node scripts/test-adapters-host-adapter.mjs
  * 退出码：0 = 通过；1 = 失败。
  */
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
@@ -23,6 +26,7 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const require = createRequire(import.meta.url);
 
 const errs = [];
+let tmpHome = null; // os 临时目录（密闭数据根）；异常收尾也要删
 
 // ---------- 从 HOST-CONTRACT.md 解析 CANVAS_METHODS（文档即权威，不让清单漂移） ----------
 function canvasMethodsFromContract() {
@@ -37,18 +41,23 @@ function canvasMethodsFromContract() {
 try {
   const CANVAS_METHODS = canvasMethodsFromContract();
 
-  // ---------- 装载适配器（corePath 缺省 = 仓库根 index.js；存储根缺省 = adapters/.tmp-home/） ----------
+  // ---------- 密闭准备（数据根裁定 Task 7）：缺省存储根经 env DSH_IC_HOME 注入临时目录 ----------
+  // 必须在 createHostAdapter 之前设置（其内部读 env 决定缺省根）；绝不依赖/触碰真实用户目录，
+  // 也不再写仓库内 adapters/.tmp-home（旧缺省已废弃——包内数据随插件升级清空创作资产）。
+  tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-ic-host-adapter-home-'));
+  process.env.DSH_IC_HOME = tmpHome;
+
+  // ---------- 装载适配器（corePath 缺省按布局自解析，开发布局 = 仓库根 index.js） ----------
   const { createHostAdapter } = require(path.join(ROOT, 'adapters', 'shared', 'host-adapter.cjs'));
   const adapter = await createHostAdapter();
   const { ctx, tools, routes, dispose } = adapter;
 
-  // ---------- 断言 5：存储根约定（import core 前必须已生效） ----------
-  const tmpHome = path.join(ROOT, 'adapters', '.tmp-home');
+  // ---------- 断言 5：存储根约定（env DSH_IC_HOME 注入根；import core 前必须已生效） ----------
   if (process.env.DSH_IC_PROJECTS_DIR !== path.join(tmpHome, 'projects')) {
-    errs.push(`DSH_IC_PROJECTS_DIR 应指向 adapters/.tmp-home/projects，实际 ${process.env.DSH_IC_PROJECTS_DIR}`);
+    errs.push(`DSH_IC_PROJECTS_DIR 应指向 DSH_IC_HOME（${tmpHome}）/projects，实际 ${process.env.DSH_IC_PROJECTS_DIR}`);
   }
   if (process.env.DSH_IC_CONFIG_PATH !== path.join(tmpHome, 'config.json')) {
-    errs.push(`DSH_IC_CONFIG_PATH 应指向 adapters/.tmp-home/config.json，实际 ${process.env.DSH_IC_CONFIG_PATH}`);
+    errs.push(`DSH_IC_CONFIG_PATH 应指向 DSH_IC_HOME（${tmpHome}）/config.json，实际 ${process.env.DSH_IC_CONFIG_PATH}`);
   }
 
   // ---------- 断言 1：假 ctx 喂 apply 后收集到全部工具 ----------
@@ -100,9 +109,10 @@ try {
   if (tools.length !== 0) errs.push(`dispose() 后 tools 应清空，实际剩 ${tools.length}`);
   if (routes.length !== 0) errs.push(`dispose() 后 routes 应清空，实际剩 ${routes.length}`);
 
-  // 清理测试存储根（里面只有空目录，不留仓库垃圾）
+  // 清理密闭数据根（里面只有空目录，不丢任何东西）
   try { fs.rmSync(tmpHome, { recursive: true, force: true }); } catch { /* 忽略 */ }
 } catch (e) {
+  try { if (tmpHome) fs.rmSync(tmpHome, { recursive: true, force: true }); } catch { /* 忽略 */ }
   console.error('✗ host-adapter 契约测试异常终止：' + ((e && e.stack) || e));
   process.exit(1);
 }

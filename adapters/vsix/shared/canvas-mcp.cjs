@@ -21,8 +21,10 @@
  * 复用同一份 tools/routes（web 承载由 Task 3 接线）。
  *
  * CLI：node canvas-mcp.cjs [--core-dir <path>] [--home <dir>] [--port <n>]
- *   --core-dir  core 入口所在目录（内含 index.js）；缺省 = 仓库根（与 host-adapter 同款解析）。
- *   --home      存储根（DSH_IC_* 注入）；缺省复用 host-adapter 默认（adapters/.tmp-home/）。
+ *   --core-dir  core 入口所在目录（内含 index.js）；缺省按布局自解析（host-adapter.defaultCorePath）：
+ *               发布布局 dist/core/ 与本文件同级优先，开发布局退仓库根——宿主 .mcp.json 可不传。
+ *   --home      存储根（DSH_IC_* 注入）；缺省复用 host-adapter 缺省（env DSH_IC_HOME ||
+ *               ~/.dsh-infinite-canvas/，数据根裁定 Task 7）。
  *   --port      可选画布 HTTP 端口：**给定时** MCP server 启动后用 canvas-web 的 startWeb
  *               顺带起画布 HTTP（复用同一份 routes；失败仅 stderr 告警不退出）；**未给定时**
  *               不启动 web（行为与 Task 2 完全一致）。
@@ -33,9 +35,8 @@ const path = require('node:path');
 const { parseArgs } = require('node:util');
 const modelBridge = require('./model-bridge.cjs');
 const { probeChannels } = require('./llm-channel.cjs');
+const { createHostAdapter, defaultCorePath } = require('./host-adapter.cjs');
 
-// 仓库根：本文件位于 adapters/shared/，向上两级即仓库根（与 host-adapter.cjs 同款解析）。
-const REPO_ROOT = path.resolve(__dirname, '..', '..');
 const PROTOCOL_VERSION_DEFAULT = '2025-06-18';
 const SERVER_INFO = { name: 'dsh-infinite-canvas', version: '0.1.0' };
 
@@ -70,7 +71,7 @@ function parseCliArgs(argv) {
   });
   const portNum = values.port !== undefined ? Number(values.port) : undefined;
   return {
-    coreDir: values['core-dir'] ? path.resolve(String(values['core-dir'])) : REPO_ROOT,
+    coreDir: values['core-dir'] ? path.resolve(String(values['core-dir'])) : path.dirname(defaultCorePath()),
     homeDir: values.home ? path.resolve(String(values.home)) : undefined,
     port: Number.isInteger(portNum) && portNum >= 0 ? portNum : undefined,
     portRaw: values.port,
@@ -293,12 +294,13 @@ async function buildByokChannel(routes) {
 
 async function main() {
   const { coreDir, homeDir, port, portRaw } = parseCliArgs(process.argv.slice(2));
-  const { createHostAdapter } = require('./host-adapter.cjs');
   // 单例约束：每进程只 create 一次（HOST-CONTRACT.md §6）。corePath = --core-dir 下的 index.js。
   const adapter = await createHostAdapter({
     corePath: path.join(coreDir, 'index.js'),
     homeDir,
   });
+  // 实际生效的存储根（host-adapter 已注入 DSH_IC_* env；无论注入路径如何，以此为准记录）。
+  const effectiveHome = path.dirname(process.env.DSH_IC_CONFIG_PATH || '');
 
   // 30 个 canvas_* def → MCP tools：name/description/inputSchema 逐字透传（inputSchema = def.parameters），
   // 顺序与 CANVAS_METHODS（HOST-CONTRACT.md §3）一致。
@@ -428,7 +430,7 @@ async function main() {
   process.stdout.on('error', () => process.exit(0)); // 宿主先退（EPIPE）：静默收场
 
   ready = true;
-  log('ready: ' + mcpTools.length + ' tools; coreDir=' + coreDir + '; home=' + (homeDir || 'adapters/.tmp-home (默认)'));
+  log('ready: ' + mcpTools.length + ' tools; coreDir=' + coreDir + '; home=' + effectiveHome);
   pump(); // 泵出启动期间排队的消息
 
   // ---- 可选画布 HTTP（Task 3 接线）：MCP server 已就绪后顺带起 web；失败仅告警不退出 ----
