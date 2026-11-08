@@ -114,10 +114,35 @@ if (unrelHasEntries) {
 // OBS-1 硬要求（QA 判据）：清单**手工维护**，绝不从 `git log` 动态生成——动态清单会自证
 // （脚本生成的清单当然自己全中，"缺一必红"退化成摆设）。数量相等 + 逐 sha 关键词命中，两条都拦。
 const COVERAGE = [
-  // 0.20.0 已发布：历史行随发版清零（记录已在 [0.20.0] 段，0.19.21 先例同款）。
-  // 当前未发版：0.20.1 桥接 P0 修复 + 注入瘦身 + 监制轮技能配置。
-  { sha: '7cca4b8', keys: [/bridge fields survive flatten|bridge models actually generate|fight-rhythm conditional|fight-rhythm card injects only|skill profile/i] },
+  // 0.20.1 已发布：7cca4b8 历史行随发版清零（记录已在 [0.20.1] 段，0.20.0 先例同款）。
+  // 旧账清理（2026-11-08，docs(adapters) 提交随附）：该提交已随发版入 main，留在清单会被
+  // 存在性断言报红。
+  //
+  // 当前未发版（main..dev）：两条 .gitignore 仓库卫生提交。IC-B5 下泛化 `chore:` 主题不进
+  // 收尾白名单，按功能账对待，记录在 Unreleased/Internal。
+  { sha: '45c6d06', keys: [/\.worktrees|worktrees\/|隔离工作树/i] },
+  { sha: 'cb5e611', keys: [/\.superpowers|superpowers\/|SDD 过程目录/i] },
 ];
+// ---- multi-host-adapters 分支预写清单（该分支合并进 dev 后取消注释）----
+// 分支现有 12 个 adapters 功能提交 + 即将落地的 docs(adapters) 门禁接入提交；合并进 dev 后
+// 全部进 main..dev 功能账，数量相等断言会强制逐条登记——这正是「今后 adapters 提交必须进
+// CHANGELOG Unreleased」的门禁强制点：清单不扩，门禁必红。CHANGELOG Unreleased 的对应条目
+// 已随 docs(adapters) 提交写好，下列 keys 均可命中该段文本，取消注释即绿。
+// 合并方式注意：fast-forward 无额外账；--no-ff 的 merge 提交主题不在收尾白名单，也进功能账，
+// 需一并追加一行。
+// { sha: 'd7037bc', keys: [/host-adapter|工具注册表|webServer 路由/i] },
+// { sha: '1b39c58', keys: [/MCP stdio|canvas_llm_probe|31 个工具/i] },
+// { sha: '11127d1', keys: [/canvas-web|HTTP 承载|port 3210|port reuse|浏览器/i] },
+// { sha: '6369398', keys: [/model bridge|Host model bridge|gateway|网关直调/i] },
+// { sha: 'b391ed5', keys: [/redact|truncat|脱敏/i] },
+// { sha: '2604891', keys: [/four-tier|llm-channel|canvas_llm_probe/i] },
+// { sha: '062a574', keys: [/vsix|capability-detect/i] },
+// { sha: '3e815af', keys: [/qoder|DSH_IC_HOME|user directory/i] },
+// { sha: 'e0df4a1', keys: [/client\.js|RUNTIME_FILES/i] },
+// { sha: 'a4b8aee', keys: [/workbuddy/i] },
+// { sha: '32e6c3f', keys: [/workbuddy|staging/i] },
+// { sha: 'b7834b7', keys: [/build-adapters|npm pack|isolation|编排/i] },
+// { sha: '<docs(adapters)>', keys: [/ADAPTERS\.md|coverage list|changelog gate/i] }, // 提交落地后以 git log 取 sha 替换
 for (const c of COVERAGE) {
   ok(c.keys.some((re) => re.test(coverageText)), '未发版提交 ' + c.sha + ' 在 CHANGELOG（Unreleased 或最新已发布段）里找不到对应记录（补记不全）');
 }

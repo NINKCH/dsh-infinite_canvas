@@ -6,6 +6,60 @@ GitHub Releases carry the same notes in English; maintainer-facing runbooks live
 
 ## [Unreleased]
 
+### Added
+- **Multi-host adapter layer (`adapters/`) — one core, three shell families, six IDE hosts.** The
+  same zero-dependency core now ships to VS Code, CodeBuddy, Trae and Cursor through one
+  `dsh-infinite-canvas-0.1.0.vsix` whose extension picks its tool channel along a
+  capability-detect chain (`lm-tools` → `mcp-provider` → `cursor-mcp` → manual `mcp.json`), to
+  Qoder through the `dsh-infinite-canvas-qoder-0.1.0.zip` plugin shell, and to WorkBuddy through
+  a local-directory marketplace (`adapters/dist/workbuddy-marketplace/`, also packaged as
+  `dsh-marketplace-workbuddy-0.1.0.zip`). The six-host matrix, install guides and probe records
+  live in `docs/ADAPTERS.md`.
+- **Zero-dependency MCP stdio aggregation server.** A `host-adapter` loads the core once and
+  collects its full tool registry and webServer routes; the MCP server exposes them as 31 tools —
+  the 30 `canvas_*` tools unchanged plus a `canvas_llm_probe` — over newline-delimited JSON-RPC
+  2.0 on stdio, with buffer-level framing, no argument logging on stdout/stderr, and an optional
+  `--port` that brings the canvas HTTP server up in the same process.
+- **Canvas HTTP hosting (`canvas-web.cjs`).** The canvas panel is served over local HTTP: default
+  port 3210, an existing canvas service on that port is reused instead of double-started, an
+  EADDRINUSE from a foreign service walks the port upward (+1 steps, ceiling +10), and `--open`
+  opens the platform browser. The vsix shell embeds it in a WebviewPanel iframe (CSP `frame-src`
+  localhost); the qoder and workbuddy shells open it in the system browser.
+- **Host model bridge + four-tier text-LLM channel.** `model-bridge.cjs` calls the host's
+  officially-configured gateway directly (WorkBuddy verified: `~/.workbuddy/models.json`,
+  OpenAI-compatible `/v1/chat/completions` with a host-shaped User-Agent; Qoder pending probe;
+  Cursor not planned — API undisclosed, ToS-sensitive), and `llm-channel.cjs` orchestrates the
+  text channel as `vscode-lm` (vsix shell only, via `selectChatModels` → `sendRequest`) >
+  `bridge` > `sampling` (MCP client capability) > `byok` — always unavailable in MCP-hosted
+  shells, since the core has no BYOK url/apiKey store — > `none` (refuses with guidance).
+
+### Fixed
+- **Bridge error messages redact before truncating.** Outbound error text is sanitized first and
+  only then cut, so an API key fragment can no longer survive as a sliver across the truncation
+  boundary; the shorter non-JSON-response path applies the same order.
+
+### Changed
+- **Data root moved to the user directory.** All canvas data (projects, bibles, memory,
+  generated media, production state) now lives under `~/.dsh-infinite-canvas/`, overridable with
+  the `DSH_IC_HOME` environment variable — upgrading or reinstalling any shell no longer wipes
+  user-created assets (the old repo-internal default directory is retired).
+
+### Internal
+- **Adapter build orchestration + npm package isolation.** `adapters/scripts/build-adapters.mjs`
+  runs the three shells' builds sequentially with fail-fast and a cross-manifest
+  version-consistency assertion; `scripts/test-adapters-build.mjs` pins via `npm pack --dry-run`
+  that nothing under `adapters/` leaks into the published npm package.
+- **Qoder package slimming.** `client.js` (the DSH Harness console front-end, never imported by
+  core) is excluded from the qoder `dist/` and the packaged `RUNTIME_FILES` list is aligned with
+  core's real top-level imports — dead weight out of the ZIP.
+- **Changelog gate covers adapters paths + six-host docs.** The IC-07 manual coverage list is
+  updated (0.20.1's released commits archived, unreleased commits registered) so every future
+  adapters commit must land in this Unreleased section, and `docs/ADAPTERS.md` freezes the
+  six-host matrix, four-tier text-channel rules, per-host install guides and an empty
+  probe-record table for field results.
+- **Repo hygiene ignores.** `.gitignore` excludes `.worktrees/` (isolated git worktrees) and
+  `.superpowers/` (SDD process artifacts).
+
 ## [0.20.1] — 2026-11-06
 
 ### Added
