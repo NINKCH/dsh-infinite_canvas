@@ -21,6 +21,9 @@
  *  组4 端口复用（复用判定路径）：同参数二次 startWeb → isReuse===true 且 url 相同、server:null
  *  组5 EADDRINUSE 换口（换口路径）：非画布 http.createServer 占住随机端口 →
  *      startWeb({port: 占用端口}) → 成功返回、isReuse===false、实际端口 ∈ (占用端口, 占用端口+10]
+ *  组5b 200 无特征串不复用（复用判定盲区补钉）：占用者返回 200 + 非面板 body（无
+ *      `id="infinite-canvas-root"`）→ 探活必须判「非画布」，startWeb 不得复用
+ *      （isReuse===false）且照常换口——否则外来 200 服务会被静默误复用
  *  组6 pickOpenCommand('win32'|'darwin'|'linux'|'freebsd') → 三平台命令与 null
  *      （win32 语义 `cmd /c start "" "<url>"`；全程不真的打开浏览器，--open 只测命令构造）
  *  组7 canvas-mcp --port 接线：子进程拉起 canvas-mcp.cjs --port <P3> → 面板 200+特征串、
@@ -185,6 +188,29 @@ try {
   const panel3 = await httpHit(web3.url + '/');
   if (panel3.status !== 200 || !panel3.body.includes(PANEL_MARK)) {
     errs.push(`换口后的新 server 面板应可用（200 + 特征串），实际 ${panel3.status}`);
+  }
+
+  // ---------- 组5b：200 无特征串不复用（复用判定的假阳性盲区补钉） ----------
+  // 占用者返回 200 + 非面板 body（无 id="infinite-canvas-root"）：探活必须「状态码 + 特征串」
+  // 双条件都过才判复用。若实现退化成只看 200，这个外来服务会被静默误复用（isReuse:true 且
+  // url 指向别人的服务）——终审（2026-11-08）确认的测试盲区，本组钉死该分支。
+  const occupier200 = http.createServer((req, res) => {
+    res.statusCode = 200;
+    res.setHeader('content-type', 'text/html');
+    res.end('<!doctype html><html><body>another service, no panel mark here</body></html>');
+  });
+  const occupiedPort2 = await listenRandom(occupier200);
+  const web3b = await startWeb({ port: occupiedPort2, routes });
+  if (web3b.server) servers.add(web3b.server);
+  if (web3b.isReuse !== false) errs.push(`200 无特征串的占用端口必须不复用（isReuse===false，探活需状态码+特征串双条件），实际 ${web3b.isReuse}`);
+  const gotPort2 = Number(new URL(web3b.url).port);
+  if (gotPort2 === occupiedPort2) errs.push(`200 无特征串应按占用处理换口：url 端口仍等于被占用端口 ${occupiedPort2}`);
+  if (!(gotPort2 > occupiedPort2 && gotPort2 <= occupiedPort2 + 10)) {
+    errs.push(`200 无特征串占用换口应递增且上限 +10：实际端口 ${gotPort2}，占用端口 ${occupiedPort2}`);
+  }
+  const panel3b = await httpHit(web3b.url + '/');
+  if (panel3b.status !== 200 || !panel3b.body.includes(PANEL_MARK)) {
+    errs.push(`200 无特征串占用换口后的新 server 面板应可用（200 + 特征串），实际 ${panel3b.status}`);
   }
 
   // ---------- 组6：pickOpenCommand 三平台命令与 null（不真开浏览器） ----------

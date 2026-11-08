@@ -270,7 +270,8 @@ chat(model, messages, opts?) -> { text, usage? }   // Promise；opts: { timeout?
   降级矩阵（**绝不抛错**，宿主未登录/无配置是常态）：models.json 文件不存在 / 坏 JSON /
   非 JSON 数组 / 空数组 → `[]`；条目缺 url 或 apiKey / 非对象条目 → 跳过。
   workbuddy 结构已实测验证（全部走官方网关 `/v1/chat/completions`，OpenAI 兼容）；
-  qoder 目录结构（`<dir>/<uid>/`，uid 目录名枚举）**未经验证，首版恒 `[]`**（Task 11 探针后补），
+  qoder 本地模型目录为**加密 blob（catalog-v7，非 JSON）不可解析——桥接恒 `[]` 为最终结论
+  （实证，非待验证；not-planned：逆向加密/云鉴权涉 ToS 敏感，不做）**，
   `QODER_OPENAPI_ENDPOINT` 存在性只记布尔到 stderr、不发请求；cursor 恒 `[]`（后端未公开、
   ToS 敏感）。
 - **chat**：非流式 POST `model.url`，body `{model: model.id, messages, ...opts.body?}`

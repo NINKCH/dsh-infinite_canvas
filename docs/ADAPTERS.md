@@ -13,7 +13,7 @@
 | CodeBuddy | 同上 vsix | lm-tools / mcp-provider（有） | bridge（sampling 无） | 同 VS Code |
 | Trae | 同上 vsix | lm-tools / mcp-provider（同 CodeBuddy） | bridge；另有 `registerLanguageModelChat`（豆包模型在 selectChatModels 可见，待实测） | 同 VS Code |
 | Cursor | 同上 vsix | 仅 cursor-mcp | bridge（not-planned，见 §5） | 同 VS Code |
-| Qoder | `dsh-infinite-canvas-qoder-0.1.0.zip` | MCP（`.mcp.json`） | bridge > sampling（bridge pending-probe，见 §5） | 浏览器打开 |
+| Qoder | `dsh-infinite-canvas-qoder-0.1.0.zip` | MCP（`.mcp.json`） | bridge（恒空，最终结论见 §5）> sampling（待实测） | 浏览器打开 |
 | WorkBuddy | `workbuddy-marketplace/`（本地目录市场，含 `dsh-marketplace-workbuddy-0.1.0.zip`） | MCP（`.mcp.json`，stdio command 走 PATH node，样本实证） | bridge（**已验证**：`~/.workbuddy/models.json` 官方网关直调，UA 包装宿主客户端）> sampling | 浏览器打开 |
 
 > vsix 能力探测链（四路择一）：`lm-tools` → `mcp-provider` → `cursor-mcp` → `manual`（手配
@@ -25,7 +25,7 @@
 
 1. **vscode-lm** —— 仅 vsix 壳注入：`selectChatModels` → `sendRequest`。
 2. **bridge** —— 宿主官方网关直调（`model-bridge.cjs`）：读宿主本机配置的官方网关模型清单
-   （WorkBuddy 已验证；Qoder pending-probe；Cursor not-planned）。全链路脱敏：错误消息
+   （WorkBuddy 已验证；Qoder 恒空=最终结论，见 §5 第 3 条；Cursor not-planned）。全链路脱敏：错误消息
    **先脱敏后截断**，apiKey 不进日志/错误/工具返回。
 3. **sampling** —— MCP 客户端能力（`sampling/createMessage`）。三壳均未实测，待实测
    （Task 11）确认。
@@ -116,7 +116,9 @@ runtime）。画布数据根：`~/.dsh-infinite-canvas/`（env `DSH_IC_HOME` 可
    六宿主今天的画布面板都只能看到本地 HTTP 页的状态界面，不是完整画布。
 2. **byok 在 MCP 宿主不可用**：core 无 BYOK url/apiKey 存储，MCP 承载下 byok 恒 false
    （见 §2 第 4 级）。
-3. **qoder 模型桥接 pending-probe**：`~/.qoder-cn/.models` 目录结构未经验证，首版桥接恒空。
+3. **qoder 模型桥接恒空（最终结论，非待验证）**：`~/.qoder-cn/.models` 本地模型目录为加密
+   blob（catalog-v7，非 JSON），不可解析——桥接恒空为实证终局，与 cursor 同列 not-planned
+   （逆向加密/云鉴权涉 ToS 敏感，不做）。Qoder 文本通道实际=sampling（待实测）或 none。
 4. **cursor 桥接 not-planned**：后端 API 未公开 + ToS 敏感，不做。
 5. **三壳 sampling 未实测**：MCP `sampling/createMessage` 在 qoder / workbuddy（及 vsix manual
    路径）宿主的实际可用性待 Task 11 实测确认。

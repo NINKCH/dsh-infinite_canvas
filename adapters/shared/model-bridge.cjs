@@ -158,8 +158,9 @@ function discoverWorkbuddy(modelsFile) {
 }
 
 /**
- * qoder 模型发现：目录结构 <qoderModelsDir>/<uid>/（uid 为目录名枚举）**未经验证**，
- * 首版恒返回 []（Task 11 探针后补真实解析）；目录不存在/无法解析出模型 → []。
+ * qoder 模型发现：**最终结论（实证，非待验证）**——`<qoderModelsDir>` 本地模型目录为加密
+ * blob（catalog-v7，非 JSON），不可解析，桥接恒返回 []；同 cursor 列 not-planned
+ * （逆向加密/云鉴权涉 ToS 敏感，不做）。目录不存在/无法解析 → []（恒空路径）。
  * 同时检测 env QODER_OPENAPI_ENDPOINT 是否存在：只记录布尔到 stderr，不发请求。
  * 探测行输出受 Task 5 Ruling 控制：仅调用方显式传 log:true 时输出（discoverHosts 缺省静默）。
  */
@@ -173,7 +174,8 @@ function discoverQoder(modelsDir, shouldLog) {
   const hasEnvEndpoint = Boolean(process.env.QODER_OPENAPI_ENDPOINT);
   if (shouldLog) {
     log('qoder 探测: dir=' + modelsDir + ' exists=' + dirExists +
-        ' QODER_OPENAPI_ENDPOINT=' + hasEnvEndpoint + '；结构未验证，首版返回 []（Task 11 补实现）');
+        ' QODER_OPENAPI_ENDPOINT=' + hasEnvEndpoint +
+        '；目录为加密 blob（catalog-v7）不可解析，恒返回 []（最终结论，not-planned）');
   }
   return [];
 }
