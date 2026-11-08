@@ -1,0 +1,1165 @@
+{
+  "name": "dsh-infinite-canvas",
+  "displayName": "无限画布 Infinite Canvas",
+  "description": "无限画布 VS Code 系宿主壳（VS Code / CodeBuddy / Trae / Cursor 四家共用）：能力探测链选择工具通道，WebviewPanel 承载画布，vscode.lm 作文本后端。",
+  "version": "0.1.0",
+  "publisher": "ninkch",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/NINKCH/dsh-infinite_canvas.git"
+  },
+  "categories": [
+    "Other"
+  ],
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "main": "./extension.js",
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "contributes": {
+    "commands": [
+      {
+        "command": "dsh-canvas.openCanvas",
+        "title": "无限画布: 打开画布"
+      },
+      {
+        "command": "dsh-canvas.probeHost",
+        "title": "无限画布: 探测宿主能力"
+      },
+      {
+        "command": "dsh-canvas.openSettings",
+        "title": "无限画布: 打开设置页"
+      }
+    ],
+    "mcpServerDefinitionProviders": [
+      {
+        "id": "dsh-canvas.mcp",
+        "label": "无限画布 MCP（dsh-infinite-canvas）"
+      }
+    ],
+    "languageModelTools": [
+      {
+        "name": "canvas_list_projects",
+        "displayName": "canvas_list_projects",
+        "modelDescription": "列出无限画布的项目、每个项目下的画布（多画布：默认画布 + 子画布）及其节点（节点 id/类型/名称/状态）。用户提到画布项目、想看有哪些项目/画布、或要指定某个项目/画布/节点时使用。子画布用 canvasId 标识（缺省 = 默认画布）。",
+        "canBeReferencedInPrompt": false,
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "keyword": {
+              "type": "string",
+              "description": "按项目名称过滤（可选）"
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      {
+        "name": "canvas_create_project",
+        "displayName": "canvas_create_project",
+        "modelDescription": "在无限画布上创建一个新项目（可同时写好第一个剧本节点）。【硬约束】调用前必须先 canvas_list_projects 查重；同名项目会被自动复用并提示，绝不要为\"重试\"或为每个节点重复创建项目。剧本节点必须 idea（创作意图）+ output（剧本成稿）同属一个节点：创作意图填 scriptText，成稿填 scriptOutput，用 nodeName 命名。【注意】世界观/核心设定/风格基调等\"创作意图类\"内容一律写进设定集（canvas_update_bible），绝不要为它们单独建节点。",
+        "canBeReferencedInPrompt": false,
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string",
+              "description": "项目名称"
+            },
+            "scriptText": {
+              "type": "string",
+              "description": "可选：创作意图/提示词（写入首个剧本节点的 idea）"
+            },
+            "scriptOutput": {
+              "type": "string",
+              "description": "可选：剧本完整成稿（写入同一节点的 output）"
+            },
+            "nodeName": {
+              "type": "string",
+              "description": "可选：首个剧本节点的名字（建议填写，如\"第一节剧本\"）"
+            }
+          },
+          "required": [
+            "name"
+          ],
+          "additionalProperties": false
+        }
+      },
+      {
+        "name": "canvas_write_node",
+        "displayName": "canvas_write_node",
+        "modelDescription": "写入无限画布的项目内容。【硬约束】绝不要为了加节点而新建项目——一律指定已有 projectId。世界观/核心设定/风格基调等\"创作意图类\"内容写进设定集（canvas_update_bible），绝不要为它们建节点。剧本节点的 idea（创作意图）与 output（剧本成稿）必须在同一个节点里；分镜内容只能写进分镜表节点（storyboard）：text 为 {\"shots\":[…]} JSON 时写入镜头列表，普通文本则作为分镜的剧本来源——绝不要用剧本节点装分镜。复用规则：给 name 且能匹配已有节点名 → 更新该节点；给 name 但匹配不到 → **新建节点**（写新一集/新一节时就这样用）；不给 name → 只会复用\"有意图没成稿\"的剧本节点补全。已写成稿的节点默认拒绝覆盖，确认要覆盖请传 overwrite:true（否则报错而不是静默吃掉稿件）。target：idea=提示词（默认），output=成稿。",
+        "canBeReferencedInPrompt": false,
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "projectId": {
+              "type": "string",
+              "description": "项目 id（来自 canvas_list_projects 或 canvas_create_project）"
+            },
+            "canvasId": {
+              "type": "string",
+              "description": "可选：画布 id（项目下子画布；缺省 = 项目默认画布。多画布项目必须显式指定目标画布）"
+            },
+            "text": {
+              "type": "string",
+              "description": "要写入的内容（按 target 与节点类型决定写哪里）"
+            },
+            "kind": {
+              "type": "string",
+              "enum": [
+                "script",
+                "text"
+              ],
+              "description": "新节点类型：script=剧本（默认），text=纯文本"
+            },
+            "target": {
+              "type": "string",
+              "enum": [
+                "idea",
+                "output"
+              ],
+              "description": "写哪一部分：idea=提示词/创作意图（默认），output=成稿"
+            },
+            "nodeId": {
+              "type": "string",
+              "description": "可选：指定要更新的节点（最精确的定位方式）"
+            },
+            "name": {
+              "type": "string",
+              "description": "可选：节点名字。匹配到同名节点就更新它；匹配不到会新建节点（写新章节用这个）"
+            },
+            "idea": {
+              "type": "string",
+              "description": "可选：同时设置该剧本节点的创作意图（与 text/target 配合，一次写全意图与成稿）"
+            },
+            "overwrite": {
+              "type": "boolean",
+              "description": "可选：目标节点已有成稿时是否允许覆盖（默认 false，会报错保护稿件）"
+            }
+          },
+          "required": [
+            "projectId",
+            "text"
+          ],
+          "additionalProperties": false
+        }
+      },
+      {
+        "name": "canvas_run_node",
+        "displayName": "canvas_run_node",
+        "modelDescription": "触发画布用其自身配置的模型/接口真实执行某个节点（剧本生成、分镜拆解、图片生成、视频生成等）。执行在画布侧异步进行，随后可用 canvas_node_status 读取状态与产物。用户说\"生成剧本\"\"开始生成\"\"跑一下这个节点\"时使用。",
+        "canBeReferencedInPrompt": false,
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "projectId": {
+              "type": "string",
+              "description": "项目 id"
+            },
+            "canvasId": {
+              "type": "string",
+              "description": "可选：画布 id（项目下的子画布；缺省 = 项目默认画布。来自 canvas_list_projects 的画布清单）"
+            },
+            "nodeId": {
+              "type": "string",
+              "description": "节点 id（来自 canvas_list_projects）"
+            }
+          },
+          "required": [
+            "projectId",
+            "nodeId"
+          ],
+          "additionalProperties": false
+        }
+      },
+      {
+        "name": "canvas_node_status",
+        "displayName": "canvas_node_status",
+        "modelDescription": "查询画布节点的运行状态与产物（状态、错误、剧本成稿内容、生成出的资产 id）。分镜表节点会返回 shots（镜头清单：标题/时长/画面/动作/角色/场景/道具——视频提示词的镜头序列必须来自它）与 warnings（一致性告警：未登记/描述为空的实体清单）——warnings 非空时必须逐条 canvas_update_bible 补全，绝不忽略。",
+        "canBeReferencedInPrompt": false,
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "projectId": {
+              "type": "string",
+              "description": "项目 id"
+            },
+            "canvasId": {
+              "type": "string",
+              "description": "可选：画布 id（项目下的子画布；缺省 = 项目默认画布）"
+            },
+            "nodeId": {
+              "type": "string",
+              "description": "节点 id"
+            }
+          },
+          "required": [
+            "projectId",
+            "nodeId"
+          ],
+          "additionalProperties": false
+        }
+      },
+      {
+        "name": "canvas_update_node",
+        "displayName": "canvas_update_node",
+        "modelDescription": "修改无限画布上**已有节点**的字段（改提示词、改比例/清晰度/时长/分辨率等参数）——\"改节点\"的唯一入口，改完不必删节点重建。可改字段：prompt（图片/视频节点的对话框提示词）、idea/output（剧本节点）、text（文本节点的正文）、script/requirement（分镜表的剧本来源与额外要求）、shots（分镜镜头清单，JSON 数组）、label（节点名）、ratio、size、duration、resolution、frameMode、count、imageModel、videoModel、model、cont（分镜表「分镜衔接」开关，默认 true；关掉后拆镜不写衔接字段、视频不自动续帧）。结构字段（id/type/坐标/宽高）不可改。改完用 canvas_generate_node 触发生成。**这是迭代生成的主路径**：用户对某张图/某段视频不满意（\"重来/换一版/不像\"）时，改 prompt 后重生成即可，**绝不删掉节点再新建一个**——同一角色/场景/镜的节点永远只有一个，删了重建会丢连线、位置与历史。**前提**：先用 canvas_node_status 读到当前内容，再只传要改的字段。**注意 shots 是整表替换**：只改一镜也要先把 canvas_node_status 返回的全部 shots 取回、改完再整体传回；否则其它镜的 tail/cam/seg 会被冲掉（服务端会按镜序兜底保留，但不要依赖它）。",
+        "canBeReferencedInPrompt": false,
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "projectId": {
+              "type": "string",
+              "description": "项目 id"
+            },
+            "canvasId": {
+              "type": "string",
+              "description": "可选：画布 id（项目下的子画布；缺省 = 项目默认画布）"
+            },
+            "nodeId": {
+              "type": "string",
+              "description": "节点 id（来自 canvas_list_projects）"
+            },
+            "patch": {
+              "type": "object",
+              "description": "要修改的字段（只传需要改的，其余保持不动）",
+              "properties": {
+                "prompt": {
+                  "type": "string",
+                  "description": "图片/视频节点的提示词（对话框内容）"
+                },
+                "idea": {
+                  "type": "string",
+                  "description": "剧本节点的创作意图"
+                },
+                "output": {
+                  "type": "string",
+                  "description": "剧本节点的成稿"
+                },
+                "text": {
+                  "type": "string",
+                  "description": "文本节点的正文"
+                },
+                "script": {
+                  "type": "string",
+                  "description": "分镜表的剧本来源"
+                },
+                "requirement": {
+                  "type": "string",
+                  "description": "分镜表的额外要求"
+                },
+                "label": {
+                  "type": "string",
+                  "description": "节点名（≤40 字）"
+                },
+                "ratio": {
+                  "type": "string",
+                  "description": "比例，如 16:9 / 9:16 / 1:1"
+                },
+                "size": {
+                  "type": "string",
+                  "description": "图片清晰度：1K / 2K / 4K"
+                },
+                "duration": {
+                  "type": "number",
+                  "description": "视频时长（秒，正数）"
+                },
+                "resolution": {
+                  "type": "string",
+                  "description": "视频分辨率，如 720P / 1080P / 2K"
+                },
+                "frameMode": {
+                  "type": "string",
+                  "description": "衔接模式：auto / hard / off"
+                },
+                "count": {
+                  "type": "number",
+                  "description": "分镜表镜头数（0=自动）"
+                },
+                "imageModel": {
+                  "type": "string",
+                  "description": "图片模型（供应商|模型引用）"
+                },
+                "videoModel": {
+                  "type": "string",
+                  "description": "视频模型（供应商|模型引用）"
+                },
+                "model": {
+                  "type": "string",
+                  "description": "文本模型（剧本/分镜节点）"
+                },
+                "shots": {
+                  "type": "array",
+                  "items": {
+                    "type": "object"
+                  },
+                  "description": "分镜镜头清单（整表替换）"
+                }
+              },
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "projectId",
+            "nodeId",
+            "patch"
+          ],
+          "additionalProperties": false
+        }
+      },
+      {
+        "name": "canvas_generate_node",
+        "displayName": "canvas_generate_node",
+        "modelDescription": "触发节点执行并（可选）等到结束——\"改完提示词 → 点生成 → 拿结果\"的一站式入口（等价于点画布上的生成按钮）。执行由画布侧用节点上配置的模型真实运行，**画布页面必须处于打开状态**；等待超时不代表失败（任务仍在继续，可用 canvas_node_status 继续查）。waitSeconds=0 表示只触发不等待；图片通常 30–120s，视频数分钟。",
+        "canBeReferencedInPrompt": false,
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "projectId": {
+              "type": "string",
+              "description": "项目 id"
+            },
+            "canvasId": {
+              "type": "string",
+              "description": "可选：画布 id（项目下的子画布；缺省 = 项目默认画布）"
+            },
+            "nodeId": {
+              "type": "string",
+              "description": "节点 id"
+            },
+            "waitSeconds": {
+              "type": "number",
+              "description": "可选：等待秒数（0=只触发；上限 600）"
+            }
+          },
+          "required": [
+            "projectId",
+            "nodeId"
+          ],
+          "additionalProperties": false
+        }
+      },
+      {
+        "name": "canvas_delete_node",
+        "displayName": "canvas_delete_node",
+        "modelDescription": "删除无限画布项目中的一个节点（连同它的连线）。用于清理误创建的节点。",
+        "canBeReferencedInPrompt": false,
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "projectId": {
+              "type": "string",
+              "description": "项目 id"
+            },
+            "canvasId": {
+              "type": "string",
+              "description": "可选：画布 id（缺省 = 项目默认画布）"
+            },
+            "nodeId": {
+              "type": "string",
+              "description": "节点 id"
+            }
+          },
+          "required": [
+            "projectId",
+            "nodeId"
+          ],
+          "additionalProperties": false
+        }
+      },
+      {
+        "name": "canvas_relayout",
+        "displayName": "canvas_relayout",
+        "modelDescription": "一键粗排画布节点（兜底用，不是精确摆放）：按「行」排列——横向数据流决定列，竖向关系（prev/frame）不参与分列；每行 = 一个横向连通组，行间保留间距，多行按带宽分带左右铺开。**pinned（被 canvas_layout_node 钉住的节点）不会被移动**。需要精确到像素的摆放请用 canvas_layout_get + canvas_layout_node，不要用本工具。",
+        "canBeReferencedInPrompt": false,
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "projectId": {
+              "type": "string",
+              "description": "项目 id"
+            },
+            "canvasId": {
+              "type": "string",
+              "description": "可选：画布 id（缺省 = 项目默认画布）"
+            }
+          },
+          "required": [
+            "projectId"
+          ],
+          "additionalProperties": false
+        }
+      },
+      {
+        "name": "canvas_layout_get",
+        "displayName": "canvas_layout_get",
+        "modelDescription": "读取整画布几何视图：返回每个节点的 nodeId/名字/类型/x/y/w/h/pinned 与画布包围盒。精确摆放前先调它拿全图坐标（不要靠猜）。",
+        "canBeReferencedInPrompt": false,
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "projectId": {
+              "type": "string",
+              "description": "项目 id"
+            },
+            "canvasId": {
+              "type": "string",
+              "description": "可选：画布 id（缺省 = 项目默认画布）"
+            }
+          },
+          "required": [
+            "projectId"
+          ],
+          "additionalProperties": false
+        }
+      },
+      {
+        "name": "canvas_layout_node",
+        "displayName": "canvas_layout_node",
+        "modelDescription": "精准摆放节点（0.20.0）：批量设置坐标，媒体节点可同时改尺寸；pinned=true 钉住后 canvas_relayout 不会再动它。允许重叠（这是精确摆放，不是自动整理）。先 canvas_layout_get 读全图，再算好坐标一次传入。",
+        "canBeReferencedInPrompt": false,
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "projectId": {
+              "type": "string",
+              "description": "项目 id"
+            },
+            "canvasId": {
+              "type": "string",
+              "description": "可选：画布 id（缺省 = 项目默认画布）"
+            },
+            "nodes": {
+              "type": "array",
+              "description": "要摆放的节点数组（一次可传多个）",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "nodeId": {
+                    "type": "string"
+                  },
+                  "x": {
+                    "type": "number",
+                    "description": "目标 x（可为负）"
+                  },
+                  "y": {
+                    "type": "number",
+                    "description": "目标 y（可为负）"
+                  },
+                  "w": {
+                    "type": "number",
+                    "description": "可选：宽度（仅 image/video，≥160）"
+                  },
+                  "h": {
+                    "type": "number",
+                    "description": "可选：高度（仅 image/video，≥120）"
+                  },
+                  "pinned": {
+                    "type": "boolean",
+                    "description": "可选：钉住，canvas_relayout 不再移动它"
+                  }
+                },
+                "required": [
+                  "nodeId",
+                  "x",
+                  "y"
+                ],
+                "additionalProperties": false
+              }
+            }
+          },
+          "required": [
+            "projectId",
+            "nodes"
+          ],
+          "additionalProperties": false
+        }
+      },
+      {
+        "name": "canvas_director_stage",
+        "displayName": "canvas_director_stage",
+        "modelDescription": "3D 导演台（预演场景）的总控工具：用一段 JSON 规格直接生成/更新整场预演，无需手动搭场景。\naction=apply：把 spec 写入项目并落盘（客户端打开导演台时自动套用；再点「导出视频」即得白模预演片）。\naction=get：读回当前项目的规格。\naction=help：返回规格 schema 与可用姿态/预设清单。\nspec 结构：{ title, duration, env{preset,bg,ground,grid,exposure,tonemap}, characters[{name,pos:[x,y,z],rotY,h,pose,color,material{roughness,metallic,specular},path:[[x,z]...],pathFace,poseAnim[{t,pose}],loop,loopPeriod,keys[{t,pos,rotY}]}], props[{preset,pos,scale,color}], cameras[{name,pos,target,fov,keys[{t,pos,target}]}], shots[{camera,start,end}] }。\npose 取值见 action=help 的 poses；道具 preset 见 presets。坐标两维数组 [x,z] 自动补 y=0。",
+        "canBeReferencedInPrompt": false,
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "action": {
+              "type": "string",
+              "enum": [
+                "apply",
+                "get",
+                "help",
+                "brief"
+              ],
+              "description": "操作类型"
+            },
+            "brief": {
+              "type": "string",
+              "description": "一句话描述（action=brief 时用，如「两人在巷子里打斗，8秒」）；会套用打斗/追逐/对话模板生成规格并落盘"
+            },
+            "template": {
+              "type": "string",
+              "enum": [
+                "fight",
+                "chase",
+                "dialogue"
+              ],
+              "description": "强制指定模板（不传则按 brief 关键词自动判断）"
+            },
+            "duration": {
+              "type": "number",
+              "description": "时长秒数（不传则从 brief 里抓「N秒」，否则用模板默认值）"
+            },
+            "projectId": {
+              "type": "string",
+              "description": "项目 id"
+            },
+            "spec": {
+              "type": "object",
+              "description": "场景规格（action=apply 时必填）"
+            }
+          },
+          "required": [
+            "action"
+          ],
+          "additionalProperties": false
+        }
+      },
+      {
+        "name": "canvas_delete_project",
+        "displayName": "canvas_delete_project",
+        "modelDescription": "删除无限画布上的一个项目（含其全部节点）。用户明确要求删除项目、或清理误创建的空项目时使用；删除前请先用 canvas_list_projects 确认 id。",
+        "canBeReferencedInPrompt": false,
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "projectId": {
+              "type": "string",
+              "description": "项目 id"
+            }
+          },
+          "required": [
+            "projectId"
+          ],
+          "additionalProperties": false
+        }
+      },
+      {
+        "name": "canvas_get_bible",
+        "displayName": "canvas_get_bible",
+        "modelDescription": "读取项目的设定集（世界观/核心设定、风格基调、角色/场景/道具及描述）。【设定集先行】在写剧本或生成角色/场景/道具参考图之前，先读它；若为空，先与用户确认或按用户已给的创意补全设定集，再开始生成剧本。",
+        "canBeReferencedInPrompt": false,
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "projectId": {
+              "type": "string",
+              "description": "项目 id"
+            }
+          },
+          "required": [
+            "projectId"
+          ],
+          "additionalProperties": false
+        }
+      },
+      {
+        "name": "canvas_update_bible",
+        "displayName": "canvas_update_bible",
+        "modelDescription": "写入项目设定集（世界观/核心设定、风格基调、角色/场景/道具）。默认按名称合并：同名更新、不存在则追加；mode=\"replace\" 时条目整体替换。【设定集先行】先把世界观/风格/角色/场景/道具写进设定集，再生成剧本与参考图，保证跨镜跨集一致。写/改 style 时必须同时产出 styleAnchor（一句话 ≤40 字的全片视觉总锚；细节在 style，锚进生成请求总控）。",
+        "canBeReferencedInPrompt": false,
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "projectId": {
+              "type": "string",
+              "description": "项目 id"
+            },
+            "mode": {
+              "type": "string",
+              "enum": [
+                "merge",
+                "replace"
+              ],
+              "description": "条目合并方式，默认 merge"
+            },
+            "bible": {
+              "type": "object",
+              "description": "设定集内容（只传要改的字段）",
+              "properties": {
+                "worldview": {
+                  "type": "string",
+                  "description": "世界观/核心设定（题材、年代、核心规则、主线暗线）"
+                },
+                "style": {
+                  "type": "string",
+                  "description": "风格基调（画风、年代、色调、质感，可多句细节）"
+                },
+                "styleAnchor": {
+                  "type": "string",
+                  "description": "风格锚：一句话（≤40 字）全片视觉总锚，与 style 同时产出——style 写细节，锚进图片/视频生成请求的总控"
+                },
+                "characters": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "name": {
+                        "type": "string"
+                      },
+                      "desc": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "name"
+                    ]
+                  },
+                  "description": "角色设定（名称 + 外观/性格描述）"
+                },
+                "scenes": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "name": {
+                        "type": "string"
+                      },
+                      "desc": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "name"
+                    ]
+                  },
+                  "description": "场景设定"
+                },
+                "props": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "name": {
+                        "type": "string"
+                      },
+                      "desc": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "name"
+                    ]
+                  },
+                  "description": "道具设定"
+                }
+              }
+            }
+          },
+          "required": [
+            "projectId",
+            "bible"
+          ],
+          "additionalProperties": false
+        }
+      },
+      {
+        "name": "canvas_read_memory",
+        "displayName": "canvas_read_memory",
+        "modelDescription": "读取项目记忆：不带 canvasId 返回**调度索引**（每集画布的标题/摘要/关键词/状态，一眼看到全项目各集记忆脉络）；带 canvasId 额外返回该集**完整记忆正文**（剧情决策/人物状态变化/伏笔账本）。【记忆先行】写第 N 集剧本或分镜之前必须先读本集记忆（canvasId 从画布清单或索引对上号）；跨集要伏笔/人物状态连续性时先读索引再读相关集正文。世界观/风格/角色场景设定不在记忆里——那些用 canvas_get_bible。",
+        "canBeReferencedInPrompt": false,
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "projectId": {
+              "type": "string",
+              "description": "项目 id"
+            },
+            "canvasId": {
+              "type": "string",
+              "description": "画布 id（集）；缺省只回索引"
+            }
+          },
+          "required": [
+            "projectId"
+          ],
+          "additionalProperties": false
+        }
+      },
+      {
+        "name": "canvas_write_memory",
+        "displayName": "canvas_write_memory",
+        "modelDescription": "写入某集（画布）的项目记忆并自动更新调度索引：title 集标题、summary 一句话摘要（≤120 字，进索引供其他集快速检索）、keywords 关键词、body 完整记忆正文（剧情决策/人物状态变化/伏笔账本/未回收的钩子）、status 进度。【会话收尾铁律】一集创作告一段落（每场定稿/全集完成）必须回写本集记忆——记忆是跨集连续性的唯一载体，不回写 = 下一集会重复创作、重复设定、丢伏笔。",
+        "canBeReferencedInPrompt": false,
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "projectId": {
+              "type": "string",
+              "description": "项目 id"
+            },
+            "canvasId": {
+              "type": "string",
+              "description": "画布 id（集）——记忆按画布隔离"
+            },
+            "title": {
+              "type": "string",
+              "description": "集标题（如「第3集 雨夜追踪」）"
+            },
+            "summary": {
+              "type": "string",
+              "description": "一句话摘要（≤120 字，写入索引供跨集检索）"
+            },
+            "keywords": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "关键词（人物/地点/伏笔标记，≤10 个）"
+            },
+            "body": {
+              "type": "string",
+              "description": "完整记忆正文（markdown）：剧情决策、人物状态变化、伏笔登记与回收、生成要点"
+            },
+            "status": {
+              "type": "string",
+              "enum": [
+                "drafting",
+                "done"
+              ],
+              "description": "进度：进行中/已完结"
+            }
+          },
+          "required": [
+            "projectId",
+            "canvasId",
+            "title",
+            "summary",
+            "body"
+          ],
+          "additionalProperties": false
+        }
+      },
+      {
+        "name": "canvas_my_canvas",
+        "displayName": "canvas_my_canvas",
+        "modelDescription": "自证身份：返回当前会话绑定的画布项目与画布（第几集），以及本集记忆状态。【会话=画布工作台】开始任何创作前先调用它确认「我是哪一集」；此后所有 canvas_* 工具不传 projectId/canvasId 即默认作用于本集画布。**代码级禁令**：绑定会话只能操作本集画布——显式传其他项目/画布（含同项目其他画布）会被工具直接拒绝，确需操作先请用户解绑；未绑定会话可自由操作任意项目/画布。返回的记忆提示告知是否需要先读/写本集记忆。",
+        "canBeReferencedInPrompt": false,
+        "inputSchema": {
+          "type": "object",
+          "properties": {},
+          "additionalProperties": false
+        }
+      },
+      {
+        "name": "canvas_production_status",
+        "displayName": "canvas_production_status",
+        "modelDescription": "制作状态汇报（阶段机）：返回本集画布当前所处阶段（brief/bible/assets/script/storyboard/shots_ready/generating/qc/post/delivered）、各闸门（设定集 G1 / 分镜质量 G2）的通过情况与缺失清单、证据计数（剧本/镜头/资产/视频完成数）、以及当前阶段的下一步建议。【铁律】宣称\"完成/可以交付\"之前必须先调它：只有 ready:true 或用户明确验收才允许说完成；blockers 非空时逐条修复后再继续。开工、卡住、汇报前都应调用。",
+        "canBeReferencedInPrompt": false,
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "projectId": {
+              "type": "string",
+              "description": "项目 id"
+            },
+            "canvasId": {
+              "type": "string",
+              "description": "可选：画布 id（缺省 = 项目默认画布）"
+            }
+          },
+          "required": [
+            "projectId"
+          ],
+          "additionalProperties": false
+        }
+      },
+      {
+        "name": "canvas_production_advance",
+        "displayName": "canvas_production_advance",
+        "modelDescription": "显式推进/回退制作阶段（阶段机）：仅在两种情况使用——① 用户明确要求跳过某一步（如实说明后果后）；② 返工（如\"这集分镜推倒重来\"回退到 storyboard）。日常推进是自动的，不需要调它。必须携带 reason（写进审计），回退会同时下调阶段基线，后续按工具事件重新抬升。",
+        "canBeReferencedInPrompt": false,
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "projectId": {
+              "type": "string",
+              "description": "项目 id"
+            },
+            "canvasId": {
+              "type": "string",
+              "description": "可选：画布 id（缺省 = 项目默认画布）"
+            },
+            "to": {
+              "type": "string",
+              "enum": [
+                "brief",
+                "bible",
+                "assets",
+                "script",
+                "storyboard",
+                "shots_ready",
+                "generating",
+                "qc",
+                "post",
+                "delivered"
+              ],
+              "description": "目标阶段"
+            },
+            "reason": {
+              "type": "string",
+              "description": "原因（必填，进审计日志）"
+            }
+          },
+          "required": [
+            "projectId",
+            "to",
+            "reason"
+          ],
+          "additionalProperties": false
+        }
+      },
+      {
+        "name": "canvas_auto_status",
+        "displayName": "canvas_auto_status",
+        "modelDescription": "自动创作总状态：开关是否开启、宿主多智能体能力、编剧室运行进度（阶段/日志）、免费段预算单（场/镜/秒/待调用次数/估算金额）、付费段进度与成片节点。【自动模式开场先调它】它决定你走全自动分支还是引导式工作坊。",
+        "canBeReferencedInPrompt": false,
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "projectId": {
+              "type": "string",
+              "description": "项目 id"
+            },
+            "canvasId": {
+              "type": "string",
+              "description": "可选：画布 id（缺省 = 项目默认画布）"
+            }
+          },
+          "required": [
+            "projectId"
+          ],
+          "additionalProperties": false
+        }
+      },
+      {
+        "name": "canvas_auto_start",
+        "displayName": "canvas_auto_start",
+        "modelDescription": "启动全自动创作免费段（零付费）：自动打开画布 → 调研 → 编剧A/B 独立提案 → 互评 → 监制决策 → 设定集 → 剧本生成 → 按场拆分 → 逐场分镜表 → G2 校验 → 预算单。仅当自动创作开关已开启时可用。**自动模式下用户给出创意后直接调用它，不要逐步提问。**",
+        "canBeReferencedInPrompt": false,
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "projectId": {
+              "type": "string",
+              "description": "项目 id"
+            },
+            "canvasId": {
+              "type": "string",
+              "description": "可选：画布 id（缺省 = 项目默认画布）"
+            },
+            "brief": {
+              "type": "string",
+              "description": "一句话创意（拍什么/给谁看/什么情绪）——剧情走向的唯一源头"
+            }
+          },
+          "required": [
+            "projectId",
+            "brief"
+          ],
+          "additionalProperties": false
+        }
+      },
+      {
+        "name": "canvas_auto_budget",
+        "displayName": "canvas_auto_budget",
+        "modelDescription": "生成/查看免费段的预算单：场数、镜数、总秒数、待调用视频次数、配置单价时的估算金额。批准付费前必须先用它出单。",
+        "canBeReferencedInPrompt": false,
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "projectId": {
+              "type": "string",
+              "description": "项目 id"
+            },
+            "canvasId": {
+              "type": "string",
+              "description": "可选：画布 id（缺省 = 项目默认画布）"
+            },
+            "unitPricePerSecond": {
+              "type": "number",
+              "description": "可选：每秒单价（不传则用画布设置里的单价）"
+            }
+          },
+          "required": [
+            "projectId"
+          ],
+          "additionalProperties": false
+        }
+      },
+      {
+        "name": "canvas_auto_generate",
+        "displayName": "canvas_auto_generate",
+        "modelDescription": "付费段：仅在有有效批准后可用——逐分镜表创建视频节点并真实生成（按秒计费），失败重试 2 次，全部完成后创建「成片」节点。没有批准会被拒绝。",
+        "canBeReferencedInPrompt": false,
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "projectId": {
+              "type": "string",
+              "description": "项目 id"
+            },
+            "canvasId": {
+              "type": "string",
+              "description": "可选：画布 id（缺省 = 项目默认画布）"
+            }
+          },
+          "required": [
+            "projectId"
+          ],
+          "additionalProperties": false
+        }
+      },
+      {
+        "name": "canvas_auto_abort",
+        "displayName": "canvas_auto_abort",
+        "modelDescription": "中止正在运行的自动创作（免费段或付费段），保留已产出内容（会议记录/设定集/节点）。",
+        "canBeReferencedInPrompt": false,
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "projectId": {
+              "type": "string",
+              "description": "项目 id"
+            },
+            "canvasId": {
+              "type": "string",
+              "description": "可选：画布 id（缺省 = 项目默认画布）"
+            }
+          },
+          "required": [
+            "projectId"
+          ],
+          "additionalProperties": false
+        }
+      },
+      {
+        "name": "canvas_create_node",
+        "displayName": "canvas_create_node",
+        "modelDescription": "在项目画布上新建指定类型的节点（image 图片节点 / video 视频节点 / storyboard 分镜表 / finalcut 成片 / script 剧本 / text 文本）。图片与视频是**合并节点**：有 assetId 就是已有素材（资产），空节点在画布上点开生成面板填写提示词后生成；旧类型名 image-gen / image-asset / video-gen / video-asset 仍可用，会被自动映射为 image / video。【分镜必须用 type:\"storyboard\" 的分镜表节点，绝不要用剧本节点装分镜】。【工作流铁律】实际生成由节点完成：你只负责写提示词、连线（connectFrom）、canvas_run_node 触发，不要把成稿直接填进 output。分镜表用 connectFrom 连到上游剧本节点（内容来自连线，不要复制剧本全文）；image/video 没有上游提示词时才在 prompt 里写内容，有上游时靠连线取。",
+        "canBeReferencedInPrompt": false,
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "projectId": {
+              "type": "string",
+              "description": "项目 id"
+            },
+            "canvasId": {
+              "type": "string",
+              "description": "可选：画布 id（项目下的子画布；缺省 = 项目默认画布）"
+            },
+            "type": {
+              "type": "string",
+              "enum": [
+                "script",
+                "text",
+                "image",
+                "video",
+                "storyboard",
+                "finalcut",
+                "image-gen",
+                "image-asset",
+                "video-gen",
+                "video-asset"
+              ],
+              "description": "节点类型（image/video 为合并类型；旧名 image-gen 等仍接受并自动映射）"
+            },
+            "name": {
+              "type": "string",
+              "description": "节点名字（建议填写，如\"角色-陈拾 参考图\"）"
+            },
+            "prompt": {
+              "type": "string",
+              "description": "提示词（图片/视频用画面提示词；剧本用创作意图；文本用正文）"
+            },
+            "size": {
+              "type": "string",
+              "description": "可选：图片清晰度 1K/2K/4K"
+            },
+            "ratio": {
+              "type": "string",
+              "description": "可选：比例，如 16:9 / 9:16 / 1:1"
+            },
+            "connectFrom": {
+              "type": "string",
+              "description": "可选：创建后立即从该节点连一条线到新节点（如剧本节点→分镜表）"
+            },
+            "connectFromPort": {
+              "type": "string",
+              "description": "可选：连线源端口，默认源节点第一个输出端口"
+            },
+            "connectToPort": {
+              "type": "string",
+              "description": "可选：连线目标端口，默认新节点第一个输入端口"
+            },
+            "resolution": {
+              "type": "string",
+              "description": "可选：视频分辨率 480P/720P/1080P"
+            },
+            "duration": {
+              "type": "number",
+              "description": "可选：视频时长（秒）"
+            },
+            "count": {
+              "type": "number",
+              "description": "可选：分镜表镜头数"
+            },
+            "requirement": {
+              "type": "string",
+              "description": "可选：分镜表额外要求"
+            }
+          },
+          "required": [
+            "projectId",
+            "type"
+          ],
+          "additionalProperties": false
+        }
+      },
+      {
+        "name": "canvas_connect",
+        "displayName": "canvas_connect",
+        "modelDescription": "在项目画布上把两个节点连成工作流连线（剧本 → 分镜表 → 图片/视频 → 成片）。【工作流铁律】分镜表的内容来自连线的上游剧本节点，不要把剧本全文复制进分镜表节点；图片/视频节点没有上游提示词时才在 prompt 里写内容，有上游时靠连线取。端口类型必须匹配（text→text、image→image、video→video），不匹配会报错；单线输入端口（script/prompt/frame/in）重复连线会替换旧线，ref 类端口允许多条。目标端口缺省时按语义自动选：文本→分镜表 script、分镜表→分镜表 prev、文本→图片/视频 prompt、图片→图片/视频 ref、视频→视频 frame / 成片 in。",
+        "canBeReferencedInPrompt": false,
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "projectId": {
+              "type": "string",
+              "description": "项目 id"
+            },
+            "canvasId": {
+              "type": "string",
+              "description": "可选：画布 id（项目下的子画布；缺省 = 项目默认画布）"
+            },
+            "fromNode": {
+              "type": "string",
+              "description": "源节点 id（连出方）"
+            },
+            "fromPort": {
+              "type": "string",
+              "description": "可选：源端口，默认该节点第一个输出端口（剧本/文本/图片/视频都是 out）"
+            },
+            "toNode": {
+              "type": "string",
+              "description": "目标节点 id（连入方）"
+            },
+            "toPort": {
+              "type": "string",
+              "description": "可选：目标端口，缺省按语义自动选择（分镜表=script/prev、图片=prompt/ref、视频=prompt/ref/frame、成片=in）"
+            }
+          },
+          "required": [
+            "projectId",
+            "fromNode",
+            "toNode"
+          ],
+          "additionalProperties": false
+        }
+      },
+      {
+        "name": "canvas_open",
+        "displayName": "canvas_open",
+        "modelDescription": "打开无限画布页面并跳到指定项目（画布侧会在几秒内自动切换）。用户想查看/编辑画布时使用。",
+        "canBeReferencedInPrompt": false,
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "projectId": {
+              "type": "string",
+              "description": "要打开的项目 id（缺省只打开画布页）"
+            },
+            "canvasId": {
+              "type": "string",
+              "description": "可选：要打开的画布 id（缺省 = 项目默认画布）"
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      {
+        "name": "canvas_list_skills",
+        "displayName": "canvas_list_skills",
+        "modelDescription": "列出本插件（无限画布）提供的全部技能，以及技能包（导演透镜 / 题材 / 规格 / 影调 / 运镜）的完整清单和当前项目的已选配置。【开始任何画布创作前先调它】：它会告诉你写剧本、分镜、图片提示词、视频提示词各自该加载哪份技能、可用哪些透镜与题材，随后用 canvas_skill_pack 取切片。",
+        "canBeReferencedInPrompt": false,
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "projectId": {
+              "type": "string",
+              "description": "可选：项目 id（给出时一并返回该项目的已选配置）"
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      {
+        "name": "canvas_skill_pack",
+        "displayName": "canvas_skill_pack",
+        "modelDescription": "按生成能力取「导演透镜 + 题材 + 规格 + 影调 + 运镜」的已拼装切片，用于写剧本（script）/ 分镜（storyboard）/ 图片与视频提示词（prompt）/ 角色场景道具设定图（assets）。返回切片全文、字节数与生效配置，可直接拼进你的系统提示或提示词。【这是让对话写出的内容与画布自生成保持同一口径的唯一入口】；也可以用 lens/genres/form/look 临时覆盖，或传 set:true 把配置写进项目（与画布 UI 选择同源）。",
+        "canBeReferencedInPrompt": false,
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "projectId": {
+              "type": "string",
+              "description": "项目 id"
+            },
+            "kind": {
+              "type": "string",
+              "enum": [
+                "script",
+                "storyboard",
+                "prompt",
+                "assets"
+              ],
+              "description": "生成能力：script=剧本，storyboard=分镜，prompt=图片/视频提示词，assets=资产设定图。缺省 script"
+            },
+            "lens": {
+              "type": "string",
+              "description": "可选：临时覆盖导演透镜 id（见 canvas_list_skills）"
+            },
+            "genres": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "可选：临时覆盖题材 id 数组（叙事题材与行业题材都可）"
+            },
+            "form": {
+              "type": "string",
+              "description": "可选：临时覆盖规格 id"
+            },
+            "look": {
+              "type": "string",
+              "description": "可选：临时覆盖影调 id；传空串表示跟随导演"
+            },
+            "set": {
+              "type": "boolean",
+              "description": "可选：true = 把本次生效的配置写进项目（之后画布自生成也用同一套）"
+            }
+          },
+          "required": [
+            "projectId"
+          ],
+          "additionalProperties": false
+        }
+      }
+    ]
+  }
+}

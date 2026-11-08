@@ -1,0 +1,10 @@
+# vsce 打包排除清单：只留 extension.js / lib/ / shared/ / README.md / LICENSE / package.json
+# 注意 lib/ 是运行时代码（extension.js require ./lib/detect.cjs、./lib/llm-vscode.cjs），不得排除；
+# scripts/ 是构建期工具（sync-shared / generate-tools-contribution），运行时不需要，排除。
+.vscode/**
+node_modules/**
+scripts/**
+**/*.map
+**/*.ts
+karma.conf.js
+src/**

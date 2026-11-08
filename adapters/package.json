@@ -1,0 +1,16 @@
+{
+  "name": "@ninkch/dsh-infinite-canvas-adapters",
+  "version": "0.1.0",
+  "private": true,
+  "description": "无限画布多宿主适配器开发/打包工作区（vsce + @types/vscode 仅为 devDependencies，运行时零依赖）",
+  "license": "Apache-2.0",
+  "scripts": {
+    "sync": "node vsix/scripts/sync-shared.mjs",
+    "generate:tools": "node vsix/scripts/generate-tools-contribution.mjs",
+    "package": "node vsix/scripts/sync-shared.mjs && node vsix/scripts/generate-tools-contribution.mjs && node -e \"require('node:fs').mkdirSync('dist',{recursive:true})\" && cd vsix && npx vsce package -o ../dist/dsh-infinite-canvas-0.1.0.vsix"
+  },
+  "devDependencies": {
+    "@types/vscode": "~1.90.0",
+    "@vscode/vsce": "^3.3.0"
+  }
+}

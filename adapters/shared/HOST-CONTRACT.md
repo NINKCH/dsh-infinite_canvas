@@ -340,3 +340,62 @@ probeChannels(channels) -> { vscodeLm:'n/a'|number, bridge:{<host>:count,...}|{}
 - 测试：`scripts/test-adapters-llm-channel.mjs`（全 fake 注入，5 组：优先级矩阵 7 例、chat
   委托透传、失败模式统一 3 例、probeChannels 计数/布尔/脱敏、返回形状）；`scripts/test-adapters-mcp.mjs`
   断言 1b 钉接线后 probe 应答（sampling 能力记录 + bridge 对象形态 + 无 `sk-`）。
+
+## 11. vsix 壳契约（Task 6 产出 adapters/vsix/，供 Task 11 四家实机探针消费）
+
+- **布局（sync-shared.mjs 产物，随仓提交；改 shared/core 后必须重跑 `npm run sync`）**：
+  `extension.js` + `lib/detect.cjs`（纯逻辑零依赖，可单测）+ `lib/llm-vscode.cjs` +
+  `shared/*.cjs`（五模块原样拷贝）+ `shared/core/`（§4 RUNTIME_FILES 6 文件 +
+  `assets/canvas-{studio,craft,layout,director}/SKILL.md` + `assets/canvas-director/**`）。
+  **vscode 依赖面纪律：vscode 只出现在 extension.js 与 lib/llm-vscode.cjs。**
+- **detect（lib/detect.cjs）**：`detect({lmTools,mcpProvider,cursorMcp,sampling}) ->
+  {path:'lm-tools'|'mcp-provider'|'cursor-mcp'|'manual', sampling}`；严格 `=== true` 才算真
+  （缺字段/多传/非布尔一律按 false，不抛错）。测试 `scripts/test-adapters-vsix-detect.mjs`。
+- **d.ts 裁决（静态 contributes 路线）**：最新 @types/vscode（1.145.0 实读）`lm.registerTool`
+  注释逐字要求『The tool must also be registered in the package.json `languageModelTools`
+  contribution point』；`lm.registerMcpServerDefinitionProvider` 注释要求先声明
+  `contributes.mcpServerDefinitionProviders` 同 id。两者都以静态声明落地：
+  - `adapters/vsix/scripts/generate-tools-contribution.mjs` 从 host-adapter defs 一次性生成
+    `contributes.languageModelTools`（name/modelDescription/inputSchema 逐字搬运；
+    canBeReferencedInPrompt:false）→ 再生成命令：adapters/ 内 `npm run generate:tools`
+    （**core 工具面变更后必须重跑，否则静态声明漂移**）。脚本自带写后逐条对账。
+  - vsix package.json 手工维护 `contributes.mcpServerDefinitionProviders:
+    [{id:'dsh-canvas.mcp',...}]`，与 extension.js 的 `MCP_PROVIDER_ID` 同字面。
+  - vsce 校验 @types/vscode 与 engines.vscode 同 major.minor → adapters devDeps 锁
+    `@types/vscode@~1.90.0`（=engines ^1.90.0 floor）；API 形状以 1.145.0 d.ts 实读为准。
+- **floor API 形状（1.90 d.ts 实读）**：`sendRequest(messages: LanguageModelChatMessage[],
+  ...)`——prompt 以 `LanguageModelChatMessage.User(prompt)` 单条传入（1.90 无 System 静态
+  构造器，system 前缀按 brief『简单拼接』折进 user 文本）；`response.text: AsyncIterable<string>`
+  （1.145 同形）。`registerTool`/`LanguageModelToolResult`/`LanguageModelTextPart`/
+  `McpStdioServerDefinition` 在 1.90 d.ts 不存在 → extension.js 一律 `typeof` 特性探测后
+  才调用（detect 链兜底）。
+- **lm-tools 路径**：activate 时 `getAdapter()` 一次收集并持有（§6 单例），30 个 defs 经
+  `vscode.lm.registerTool(def.name, {invoke})` 直挂；invoke → `def.execute(options.input)`，
+  结果包 `LanguageModelToolResult([LanguageModelTextPart(JSON.stringify(result))])`；
+  prepareInvocation 可省。dispose 链挂 context.subscriptions（含 adapter.dispose 幂等）。
+- **mcp-provider 路径**：`McpStdioServerDefinition(label, process.execPath,
+  [canvas-mcp.cjs, '--core-dir', core], {ELECTRON_RUN_AS_NODE:'1'})`（1.145 d.ts L20739：
+  cwd 不在构造器形参内）。**--core-dir 必传**：canvas-mcp/host-adapter 的缺省 REPO_ROOT
+  解析（自身 `../..`）在 vsix 内指向扩展根而非 core 目录。resolveMcpServerDefinition 可省
+  （无用户交互）。
+- **cursor-mcp 路径**：`vscode.cursor.mcp.registerServer({...同款 stdio 形状})`——Cursor 专有、
+  无 d.ts，形状为尽力传入（Task 11 实机校准）；注册抛错只记录降级到手配引导，不影响 activate。
+- **openCanvas**：`startWeb({port:3210, routes: adapter.routes})`（§6/§8：routes 传入不自建）；
+  WebviewPanel iframe html CSP 含 brief 逐字 `frame-src http://127.0.0.1:3210 http://127.0.0.1:*`；
+  `createWebviewPanel` 抛错 → `env.openExternal` 落浏览器。端口复用/换口语义全在 canvas-web（§8）。
+- **probeHost**：四能力布尔 + 决策路径 + selectChatModels 模型 id 清单 + Task 5 probeChannels
+  （vscodeLm 注入 llm-vscode 通道（带 count）；bridge 静默 discoverHosts 后第一个非空 host 列表
+  + `modelBridge.chat`；sampling 报告面恒 `'n/a'`（进程内语义，MCP server→client sampling 不适用）；
+  byok=false）——**每行经 model-bridge.redact**（Review Focus #3）。
+- **命令纪律**：三命令处理器统一 try/catch，错误 `showErrorMessage` + OutputChannel，message 全过
+  redact；deactivate 幂等 dispose adapter。
+- **存储与资源边界**：homeDir 走 host-adapter 缺省（vsix 内即 `<扩展目录>/adapters/.tmp-home/`
+  沙盒，不触真实用户数据；最终落位 globalStorage 待 Task 11 实测后定）；
+  `assets/director/**`（3D 引擎静态资源，npm files 有、§4 清单无）**不随 vsix**——画布 UI 若在
+  实机发现 director 引擎 404，补 sync 清单即可（数据补齐非代码变更）。
+- **打包**：adapters/ 内 `npm run package`（sync → generate:tools → vsce package）→
+  `adapters/dist/dsh-infinite-canvas-0.1.0.vsix`；.vscodeignore 排除 scripts/（构建期），
+  **lib/ 必须随包**（extension.js 运行时 require）。自检断言：zip 条目含
+  `extension/extension.js`、`extension/shared/canvas-mcp.cjs`、`extension/shared/core/index.js`。
+- **vsce/发布事实**：vsce 3.9.2 打包通过（142 files / 867.73 KB）；README/repository/LICENSE 齐
+  无告警；vsce 会把 README 规范化为 `readme.md`、LICENSE 规范化为 `LICENSE.txt`（zip 条目名）。
