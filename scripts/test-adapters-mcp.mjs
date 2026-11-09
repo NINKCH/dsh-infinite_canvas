@@ -4,7 +4,7 @@
  *
  * 以子进程拉起 node adapters/shared/canvas-mcp.cjs，经 newline-delimited JSON-RPC 2.0 over
  * stdio 逐条断言（需求：task-2-brief.md，六条断言全覆盖）：
- *  1) initialize 应答含 serverInfo.name==='dsh-infinite-canvas'、serverInfo.version==='0.3.1'
+ *  1) initialize 应答含 serverInfo.name==='dsh-infinite-canvas'、serverInfo.version==='0.3.3'
  *     （与三 manifest 版本对齐，防 SERVER_INFO 漂移）与 capabilities.tools
  *     （protocolVersion：client 提供则回显，未提供则缺省 2025-06-18）
  *  1b) canvas_llm_probe 真实编排（Task 5 接线）：client 声明 capabilities.sampling →
@@ -162,8 +162,8 @@ try {
     if (init1.result.serverInfo && init1.result.serverInfo.name !== 'dsh-infinite-canvas') {
       errs.push(`initialize.serverInfo.name 应为 dsh-infinite-canvas，实际 ${JSON.stringify(init1.result.serverInfo)}`);
     }
-    if (init1.result.serverInfo && init1.result.serverInfo.version !== '0.3.1') {
-      errs.push(`initialize.serverInfo.version 应为 0.3.1（与三 manifest 版本对齐），实际 ${JSON.stringify(init1.result.serverInfo)}`);
+    if (init1.result.serverInfo && init1.result.serverInfo.version !== '0.3.3') {
+      errs.push(`initialize.serverInfo.version 应为 0.3.3（与三 manifest 版本对齐），实际 ${JSON.stringify(init1.result.serverInfo)}`);
     }
     if (!init1.result.serverInfo) errs.push('initialize 应答缺 serverInfo');
     if (!init1.result.capabilities || !init1.result.capabilities.tools) {

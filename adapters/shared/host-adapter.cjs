@@ -11,7 +11,15 @@
  *   - routes[i] : Route = { kind: 'exact', path, handler(req, res) }
  *   - dispose() : 依次调用全部收集到的 disposer，幂等
  *
- * 零依赖（仅 node 内置）。CommonJS：六家 IDE 宿主加载器以 require 为主，发布物也是 .cjs。
+ * 假 ctx 服务面（Task 16 / v0.3.3）：
+ *   - effect(fn) 立即执行 fn（core 全部注册都在单个 effect 里，不执行连路由都收不到）；
+ *     回调抛错转 stderr 红字日志，不炸宿主进程，已完成的注册保留。
+ *   - get('llm') 返回桥接 llm 服务（llm-bridge-service.cjs，驱动 model-bridge 读宿主网关
+ *     配置直调官方网关）——画布设置页「文本模型」与编剧室 complete() 的供给源；其余服务名
+ *     恒返回 undefined（core 每个 get 用点都有守卫，防御式降级）。
+ *
+ * 依赖：node 内置 + 兄弟模块 llm-bridge-service.cjs（其自身仅依赖 node 内置 + model-bridge.cjs，
+ * 全链零 npm 运行时依赖）。CommonJS：六家 IDE 宿主加载器以 require 为主，发布物也是 .cjs。
  * 存储根（数据根裁定，Task 7）：import core 之前设置 DSH_IC_PROJECTS_DIR / DSH_IC_CONFIG_PATH
  * （core 模块顶层常量，import 后不可变）。缺省 = env DSH_IC_HOME，再缺省 = 用户目录
  * ~/.dsh-infinite-canvas/（包内 .tmp-home 随插件升级清空创作资产，已废弃——用户数据落用户目录，
@@ -23,6 +31,7 @@ const path = require('node:path');
 const fs = require('node:fs');
 const os = require('node:os');
 const { pathToFileURL } = require('node:url');
+const { createLlmBridgeService } = require('./llm-bridge-service.cjs');
 
 // 仓库根：本文件位于 adapters/shared/，向上两级即仓库根（开发期默认 core 入口所在地）。
 const REPO_ROOT = path.resolve(__dirname, '..', '..');
@@ -65,6 +74,7 @@ async function createHostAdapter(options) {
   const routes = [];
   const disposers = []; // LIFO：dispose() 按注册逆序撤销，与 cordis teardown 语义一致
   let disposed = false;
+  let llmService = null; // 懒创建：core 只在 RPC/工具路径读 get('llm')，不读就零开销
   const track = (off) => {
     if (typeof off === 'function') disposers.push(off);
     return off;
@@ -74,11 +84,28 @@ async function createHostAdapter(options) {
     /** cordis effect：立即同步执行 fn，fn 返回的清理函数收集到 dispose 链。label 仅诊断用。 */
     effect(fn, label) {
       if (typeof fn !== 'function') return;
-      track(fn()); // fn 同步跑完所有注册（HOST-CONTRACT.md §1：core 全部注册在单个 effect 里）
+      try {
+        track(fn()); // fn 同步跑完所有注册（HOST-CONTRACT.md §1：core 全部注册在单个 effect 里）
+      } catch (e) {
+        // Task 16：回调抛错转 stderr 红字日志，不炸宿主进程；fn 已完成的注册保留
+        try {
+          process.stderr.write('\x1b[31m[host-adapter] core effect 回调抛错（已保留此前注册）: '
+            + String((e && e.stack) || e) + '\x1b[0m\n');
+        } catch { /* stderr 不可用时静默 */ }
+      }
       void label;
     },
-    /** 可选服务一律防御式降级（core 每个 get 用点都有守卫），假宿主恒返回 undefined。 */
-    get() { return undefined; },
+    /**
+     * 可选服务：get('llm') 返回桥接 llm 服务（模型桥进画布设置页/编剧室，Task 16）；
+     * 其余一律防御式降级返回 undefined（core 每个 get 用点都有守卫）。
+     */
+    get(name) {
+      if (name === 'llm') {
+        if (!llmService) llmService = createLlmBridgeService();
+        return llmService;
+      }
+      return undefined;
+    },
     tools: {
       register(def) {
         tools.push(def);

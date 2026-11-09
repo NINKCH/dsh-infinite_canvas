@@ -32,12 +32,13 @@ const DIST_DIR = path.join(PLUGIN_DIR, 'dist');
 const CORE_DST = path.join(DIST_DIR, 'core');
 const OUT_DIR = path.join(ADAPTERS_DIR, 'dist');
 
-// shared 五模块（§5 dist 布局；**枚举清单 + 缺失报错**——勿自动发现，Task 7 评审 Minor #2 教训）
+// shared 六模块（§5 dist 布局；**枚举清单 + 缺失报错**——勿自动发现，Task 7 评审 Minor #2 教训）
 const SHARED_MODULES = [
   'canvas-mcp.cjs',
   'canvas-web.cjs',
   'host-adapter.cjs',
   'llm-channel.cjs',
+  'llm-bridge-service.cjs',
   'model-bridge.cjs',
 ];
 // HOST-CONTRACT.md §4 RUNTIME_FILES（import 闭包表 + client.js：仓库路径 → dist/core/ 下同名；

@@ -168,6 +168,7 @@ dist/
   canvas-web.cjs        # HTTP 承载（webServer 路由面）
   model-bridge.cjs      # 模型桥接
   llm-channel.cjs       # llm 通道
+  llm-bridge-service.cjs # 桥接 llm 服务（Task 16：core 消费形状包装 model-bridge）
   host-adapter.cjs      # adapters/shared/host-adapter.cjs 的发布拷贝
   core/                 # <RUNTIME_FILES>（§4 表格的 dist/core/ 列，含 assets/ 与 package.json）
 ```
@@ -175,15 +176,15 @@ dist/
 ## 6. createHostAdapter 接口契约（Task 1 产出，Task 2+ 消费）
 
 ```js
-// adapters/shared/host-adapter.cjs（CommonJS，零依赖，仅 node 内置）
+// adapters/shared/host-adapter.cjs（CommonJS，依赖 node 内置 + 兄弟模块 llm-bridge-service.cjs）
 const { ctx, tools, routes, dispose } = await createHostAdapter({
   corePath?: string,   // core 入口（index.js）路径；绝对路径直接用，相对路径相对仓库根解析；
                        // 缺省按布局自解析（defaultCorePath()）：发布布局取 <__dirname>/core/index.js
-                       // （HOST-CONTRACT §5，dist/ 内五模块与 core/ 同级——宿主 .mcp.json 无需 --core-dir），
+                       // （HOST-CONTRACT §5，dist/ 内六模块与 core/ 同级——宿主 .mcp.json 无需 --core-dir），
                        // 开发布局（core 不在同级）退仓库根 index.js
   homeDir?: string,    // 存储根；缺省见下方「数据根缺省」（option 优先级最高）
 });
-// ctx    : { effect(fn, label?), get(name) → undefined,
+// ctx    : { effect(fn, label?), get(name)（'llm' → 桥接 llm 服务，其余 → undefined）,
 //            tools: { register(def) → disposer }, webServer: { register(route) → disposer } }
 // tools  : Def[]    —— §2.1 形状，30 个，逐字复用 index.js 注册表（不改名、不裁剪）
 // routes : Route[]  —— §2.2 形状，9 条
@@ -215,7 +216,7 @@ const { ctx, tools, routes, dispose } = await createHostAdapter({
   `indexOf(0x0A)` + 整行 concat 后一次性 utf8 解码）——禁止 readline / toString 后 split，
   中文（3 字节 UTF-8）跨 chunk 边界会碎帧（测试 `scripts/test-adapters-mcp.mjs` 断言 5 已验证）。
 - 协议面（刻意最小）：`initialize`（protocolVersion 回显 client 版本，缺省 `2025-06-18`；
-  serverInfo `dsh-infinite-canvas@0.3.1`（version 与三 manifest 对齐）；capabilities.tools）/ `tools/list`（31 个：
+  serverInfo `dsh-infinite-canvas@0.3.3`（version 与三 manifest 对齐）；capabilities.tools）/ `tools/list`（31 个：
   30 个 canvas_* 顺序同 §3，`inputSchema = def.parameters`，末位追加 `canvas_llm_probe`，
   其 inputSchema 固定 `{type:'object',properties:{}}`）/ `tools/call`（成功 →
   `content:[{type:'text',text:JSON.stringify(result)}]`）。通知一律不回包；未知工具 →
@@ -508,8 +509,8 @@ probeChannels(channels) -> { vscodeLm:'n/a'|number, bridge:{<host>:count,...}|{}
 - **npm 包隔离断言**（Global Constraint #1 机械化验证）：`scripts/test-adapters-build.mjs` spawn
   `npm pack --dry-run`（仓库根；npm notice 清单走 stderr）解析 Tarball Contents，断言无任何
   `adapters/` 前缀条目；解析不出文件清单按失败处理（防 npm 输出格式漂移静默通过）。
-- **产物三件**（版本随三 manifest，当前 0.3.1；vsix 产物名由 vsce 依 vsix manifest 命名）：
-  `adapters/dist/dsh-infinite-canvas-0.3.1.vsix`、
+- **产物三件**（版本随三 manifest，当前 0.3.3；vsix 产物名由 vsce 依 vsix manifest 命名）：
+  `adapters/dist/dsh-infinite-canvas-0.3.3.vsix`、
   `adapters/dist/dsh-infinite-canvas-qoder-<version>.zip`、`adapters/dist/workbuddy-marketplace/`
   （目录）+ `adapters/dist/dsh-marketplace-workbuddy-<version>.zip`。
 - **测试**：`scripts/test-adapters-build.mjs`（隔离 / 编排 exit 0 / 三产物存在非空 / vsix 条目正向：

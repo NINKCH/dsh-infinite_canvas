@@ -64,8 +64,38 @@ GitHub Releases carry the same notes in English; maintainer-facing runbooks live
   asset — zero npm dependencies unchanged). Any failure — apply throw, missing render,
   mount error — now paints a red, HTML-escaped error card on the page instead of a silent
   black screen.
+- **Canvas text models bridge the local host gateway (0.3.3).** The adapter fake-ctx gains a
+  real `get('llm')`: `host-adapter` returns an `llm-bridge-service` (new shared module that
+  wraps `model-bridge`) so the canvas settings page「文本模型」lists the host's
+  officially-configured gateway models (WorkBuddy verified live; Qoder/Cursor stay empty and
+  unlisted — final conclusions) and the writers room `complete()` works through a
+  pseudo-stream (the full reply arrives as one `text-delta`; behavior is correct, there is
+  just no typewriter effect). The core interface is honored verbatim — `finish` travels in
+  `chunk.reason` (`{kind:'stop'}` / `{kind:'error', failure:{message}}` with `redact()`
+  applied), explicit-only parameter passthrough (no invented temperature/maxTokens), and
+  gateway errors surface `[redacted]`-sanitized, never with key material. `effect(fn)` in
+  the fake ctx now runs immediately with throw-capture to stderr (a throwing core callback
+  no longer kills the host process), which is what makes the RPC registration — and hence
+  the whole canvas settings page — come alive in hosted mode.
 
 ### Fixed
+- **The canvas page ships its own light theme and defaults to Chinese (0.3.3).** client.js
+  consumes 17 `--dsw-alias-*` theme tokens without defining any (the real Harness injects
+  them); the hosted shell had none, so the page rendered on a black base. The shell now
+  injects a complete `:root` token table sourced from the read-only visual baseline
+  `node-redesign-mockup.html` (missing values filled with neutral light tones) plus
+  `color-scheme: light`, ending the black background. For language, the「跟随 Harness」
+  option in the settings selector cannot be removed (three unconditionally-rendered
+  options in frozen client.js), so the shell does the guaranteed delivery instead: it
+  presets `localStorage['dsh-ic:settings'].lang` to `zh` before client.js loads
+  (explicit zh/en choices are respected) and its fake-ctx locale always reports
+  `active:'zh'` — the effective language is Chinese, and「跟随 Harness」means Chinese in
+  this shell too.
+- **Shell factory call moved into try (Task 15 review Minor).** `def.factory(require)` in
+  the inline shim now runs inside the error-capture path, so a missing vendor React UMD
+  paints the「画布装载失败」error card instead of crashing the loader script back into a
+  silent black screen; pinned by a vm regression that boots the real shim + client.js
+  without React.
 - **Blank/untrusted windows no longer disable the extension (vsix 0.2.0).** The manifest now
   declares `"capabilities": { "untrustedWorkspaces": { "supported": true }, "virtualWorkspaces":
   true }` and `"extensionKind": ["ui"]`, so restricted-mode welcome windows keep the extension

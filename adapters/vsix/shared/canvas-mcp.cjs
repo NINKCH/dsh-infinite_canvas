@@ -38,7 +38,7 @@ const { probeChannels } = require('./llm-channel.cjs');
 const { createHostAdapter, defaultCorePath } = require('./host-adapter.cjs');
 
 const PROTOCOL_VERSION_DEFAULT = '2025-06-18';
-const SERVER_INFO = { name: 'dsh-infinite-canvas', version: '0.3.1' }; // version 与三 manifest 对齐（build-adapters 版本单源；test-adapters-mcp 断言 1 钉住）
+const SERVER_INFO = { name: 'dsh-infinite-canvas', version: '0.3.3' }; // version 与三 manifest 对齐（build-adapters 版本单源；test-adapters-mcp 断言 1 钉住）
 
 // ---- canvas_llm_probe（Task 5 已接线）：定义固定不动，真实编排实现见 main() 内 llmProbe ----
 const LLM_PROBE_DEF = {
@@ -224,7 +224,8 @@ function invokeRoute(route, payload) {
  * （ctx.get('llm')），返回 {providers, resolved, error?}，**没有任何 BYOK url/apiKey 概念**
  * （index.js 全文 grep apiKey/baseUrl/byok 零命中）。因此：
  *   - available = llmOptions().resolved 非 null（Harness llm 服务已配置至少一个可用模型）；
- *     llm 服务不可用（MCP 承载的假 ctx 恒 undefined）→ false，绝不在探测时抛错。
+ *     llm 服务不可用（假 ctx 无 get('llm') 桥接——0.3.3 起 host-adapter get('llm') 返回
+ *     llm-bridge-service，本通道按 provider/model 已可解析与否自然取值）→ false，绝不在探测时抛错。
  *   - chat 不走 brief 假设的「url/apiKey 构造 Model + model-bridge 直调」（该配置在 core 不存在），
  *     改走 core 原生文本生成路径 /api/llm-stream：messages → complete(args) 形状
  *     （{system, user, temperature?, maxTokens?}，core 语义 system/user 为字符串），

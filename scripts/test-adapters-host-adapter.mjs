@@ -64,7 +64,30 @@ try {
   if (tools.length !== 30) {
     errs.push(`tools.length 应为 30（实测注册数），实际 ${tools.length}`);
   }
-  if (typeof ctx.get('llm') !== 'undefined') errs.push('ctx.get 应恒返回 undefined（可选服务防御式降级）');
+  // Task 16：get('llm') 返回桥接 llm 服务（同实例；形状=core 消费接口三件）；
+  // 其余服务名仍恒 undefined（防御式降级不变）
+  const llmSvc = ctx.get('llm');
+  if (!llmSvc || typeof llmSvc !== 'object') {
+    errs.push(`ctx.get('llm') 应返回桥接 llm 服务对象，实际 ${typeof llmSvc}`);
+  } else {
+    if (typeof llmSvc.listProviders !== 'function') errs.push("ctx.get('llm').listProviders 应为函数（core listLlmOptions 消费）");
+    if (typeof llmSvc.listModels !== 'function') errs.push("ctx.get('llm').listModels 应为函数（core listLlmOptions 消费）");
+    if (typeof llmSvc.stream !== 'function') errs.push("ctx.get('llm').stream 应为函数（core complete() 消费）");
+    if (ctx.get('llm') !== llmSvc) errs.push("ctx.get('llm') 应返回同一实例（懒创建单例）");
+  }
+  if (ctx.get('workspaceRegistry') !== undefined) errs.push("ctx.get('workspaceRegistry') 应恒返回 undefined（非 llm 服务防御式降级不变）");
+  if (ctx.get('anything-else') !== undefined) errs.push("ctx.get('anything-else') 应恒返回 undefined（非 llm 服务防御式降级不变）");
+  // Task 16：effect 回调抛错 → stderr 红字日志，不炸进程（不向上传播），已完成的注册保留
+  let effectDisposerRan = false;
+  ctx.effect(() => { // 正常路径：返回的清理函数进 dispose 链
+    return () => { effectDisposerRan = true; };
+  });
+  let threwFromEffect = null;
+  try {
+    ctx.effect(() => { throw new Error('effect 回调应被接住'); });
+  } catch (e) { threwFromEffect = e; }
+  if (threwFromEffect) errs.push('ctx.effect 回调抛错应被捕获转 stderr，不得向上传播：' + threwFromEffect.message);
+  ctx.effect('not-a-function'); // 非函数入参静默忽略（原契约）
 
   // ---------- 断言 2：工具名集合与 CANVAS_METHODS 逐项一致（数量+顺序） ----------
   if (CANVAS_METHODS) {
@@ -108,6 +131,7 @@ try {
   dispose(); // 幂等
   if (tools.length !== 0) errs.push(`dispose() 后 tools 应清空，实际剩 ${tools.length}`);
   if (routes.length !== 0) errs.push(`dispose() 后 routes 应清空，实际剩 ${routes.length}`);
+  if (!effectDisposerRan) errs.push('dispose() 应执行 effect 回调返回的清理函数（dispose 链含 effect 收集）');
 
   // 清理密闭数据根（里面只有空目录，不丢任何东西）
   try { fs.rmSync(tmpHome, { recursive: true, force: true }); } catch { /* 忽略 */ }

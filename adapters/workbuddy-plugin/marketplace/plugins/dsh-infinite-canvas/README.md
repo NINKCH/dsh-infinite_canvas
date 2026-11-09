@@ -9,7 +9,7 @@ WorkBuddy（OpenCode 系 Electron 应用）的插件分发走 **marketplace**：
 ```
 node adapters/scripts/build-workbuddy.mjs
 → adapters/dist/workbuddy-marketplace/          # staging 完整市场（目录形态，可直接作市场源）
-→ adapters/dist/dsh-marketplace-workbuddy-0.3.1.zip   # zip 分发物（ZIP 根含 .codebuddy-plugin/marketplace.json）
+→ adapters/dist/dsh-marketplace-workbuddy-0.3.3.zip   # zip 分发物（ZIP 根含 .codebuddy-plugin/marketplace.json）
 ```
 
 dist/ 为生成物，不进 git——先构建再安装。staging 目录与仓库内
@@ -27,7 +27,7 @@ WorkBuddy 的市场清单实证支持 `directory` 类型本地源。在 WorkBudd
 
 ## 安装方式 B：zip URL 模式
 
-`known_marketplaces.json` 实证同样支持 zip URL 源：把 `dsh-marketplace-workbuddy-0.3.1.zip`
+`known_marketplaces.json` 实证同样支持 zip URL 源：把 `dsh-marketplace-workbuddy-0.3.3.zip`
 放到可访问的 URL（或本地文件路径），按 zip 源添加市场后安装插件。ZIP 根直接含
 `.codebuddy-plugin/marketplace.json`（官方规范），插件 `.mcp.json` 用
 `${CODEBUDDY_PLUGIN_ROOT}` 指向插件根（stdio command 强制插件根内）。

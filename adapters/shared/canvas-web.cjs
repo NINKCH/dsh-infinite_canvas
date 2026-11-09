@@ -11,21 +11,30 @@
  * HTML 面板路由**（Task 3 实现前探针实测 GET / → 404）。因此面板页由本模块自备：exact `/`，
  * 200 text/html，挂载点 `id="infinite-canvas-root"` 即探活特征子串。
  *
- * 真 UI 装载壳（Task 14 起画布真 UI 浏览器化，Task 15 壳扮演 Harness 修黑屏）：`/` 不再是状态页，
- * 而是四 script 装载壳——
+ * 真 UI 装载壳（Task 14 起画布真 UI 浏览器化，Task 15 壳扮演 Harness 修黑屏，Task 16 主题+语言）：
+ * `/` 不再是状态页，而是装载壳——
  *   ① vendor React（`/infinite-canvas/api/vendor/react.production.min.js`，UMD 全局 window.React，
  *      来源 react@18.3.1，见 vendor/README.md——vendor 静态资产，非 npm 依赖）；
  *   ② vendor ReactDOM（`/infinite-canvas/api/vendor/react-dom.production.min.js`，UMD 全局
  *      window.ReactDOM，来源 react-dom@18.3.1——Task 15：壳自渲染必需，createRoot 挂载）；
- *   ③ `__ModuleLoader__` shim（内联：load(def) → def.factory(require)，require('react') 返回
+ *   ③ `__ModuleLoader__` shim（内联：load(def) → def.factory(require)（Task 16 Minor：factory
+ *      调用挪进 try——vendor React 缺失路径也有错误框而非脚本级崩溃）、require('react') 返回
  *      window.React，其余模块名一概抛错；**壳内模拟 Harness**——构造 Proxy 假 ctx 调
  *      desc.apply(fakeCtx)：effect 立即执行（样式/字典/Store 自举）、slots.inject 调 factory、
- *      slots.register 捕获渲染函数（优先 'main' 槽位=全屏画布），最后 ReactDOM.createRoot
- *      全屏挂载；任何失败都在页面显示红色错误文本而非黑屏——终结黑屏静默）；
- *   ④ client.js（`/infinite-canvas/api/client.js`，core 目录的浏览器应用，§4 RUNTIME_FILES——
+ *      slots.register 捕获渲染函数（优先 'main' 槽位=全屏画布）、locale 恒 active:'zh'（Task 16
+ *      生效语言确定中文），最后 ReactDOM.createRoot 全屏挂载；任何失败都在页面显示红色错误
+ *      文本而非黑屏——终结黑屏静默）；
+ *   ④ 语言预置（Task 16 底线交付，内联小 script，先于 client.js 执行）：把
+ *      localStorage['dsh-ic:settings'].lang 预置为 'zh'（用户显式选过 zh/en 则尊重）——client.js
+ *      的语言下拉把「跟随 Harness」选项写死（三 option 无条件渲染，client.js 冻结），预置让
+ *      默认显示/生效都是中文；本壳 fake ctx locale 恒 active:'zh'，「跟随 Harness」语义同中文；
+ *   ⑤ client.js（`/infinite-canvas/api/client.js`，core 目录的浏览器应用，§4 RUNTIME_FILES——
  *      装载契约已实证：client.js 以 window.__ModuleLoader__.load 自装载、factory 返回 cordis
  *      插件描述符 {inject:[6 服务], apply(ctx)}（Task 15 黑屏根因：0.3.0 壳只调 factory、
  *      apply 从未执行 → slots 从未注册 → 黑屏）、hostRpc 自 POST /api/rpc）。
+ * 浅色主题（Task 16）：client.js 消费 17 个 `--dsw-alias-*` 主题 token 且自身无 `:root` 定义
+ * （真 Harness 注入）——壳 `<style>` 供完整 token 表（取色基准=仓库根 node-redesign-mockup.html
+ * :root，只读视觉基准；mockup 缺项用中性浅色补齐），html/body 底色同步换浅色，终结黑底。
  * 原状态页**不删**，原样挪到 exact `/status`（探活/排错诊断页）。探活/复用语义不动（仍查 `/`
  * 的 PANEL_MARK）。三条资产路由文件在启动时一次性读入内存缓存（每请求零 IO）；client.js 基于
  * coreDir（与 core/index.js 同目录，发布布局 dist/core/、开发布局仓库根），vendor 基于
@@ -107,9 +116,40 @@ function openInBrowser(url, platform) {
 }
 
 /**
- * 真 UI 装载壳（Task 14 → Task 15）：四 script 齐活——vendor React UMD → vendor ReactDOM UMD →
- * __ModuleLoader__ shim（壳内模拟 Harness）→ client.js。挂载点 id 保持 `infinite-canvas-root`
- * （探活特征串 PANEL_MARK 不变）。
+ * 浅色主题 token 表（Task 16）：client.js 消费的 17 个 `--dsw-alias-*` 变量在此供值。
+ * 取色基准 = 仓库根 node-redesign-mockup.html :root（只读视觉基准，禁止修改该文件）：
+ *   bg-base←--bg #f7f7f8、label-primary←--ink #1b1c1f、label-secondary←--ink2 #5b5f66、
+ *   label-tertiary←--ink3 #8b9098、border-l1←--line #e4e5e9、border-l2←--line2 #d3d5da、
+ *   brand-primary←--accent #2b6dfd、brand-warning/state-warning/state-warn←--warn #d98b00、
+ *   state-success←--ok #12a150、interactive-bg-hover←.btn:hover #f4f5f7、
+ *   bg-layer-1←--card #ffffff、bg-layer-2←.chip #f2f3f6、bg-layer-3←.media/.empty-ic #eef0f4。
+ * mockup 缺项（中性浅色补齐，取值依据见任务 16 报告）：border-secondary←--dot #dcdce0（mockup 有此
+ * 值，作中线色）、state-error-primary #d93025（mockup 无错误色，标准浅色红）。
+ */
+const LIGHT_THEME_TOKENS = [
+  ['--dsw-alias-bg-base', '#f7f7f8'],
+  ['--dsw-alias-bg-layer-1', '#ffffff'],
+  ['--dsw-alias-bg-layer-2', '#f2f3f6'],
+  ['--dsw-alias-bg-layer-3', '#eef0f4'],
+  ['--dsw-alias-border-l1', '#e4e5e9'],
+  ['--dsw-alias-border-l2', '#d3d5da'],
+  ['--dsw-alias-border-secondary', '#dcdce0'],
+  ['--dsw-alias-brand-primary', '#2b6dfd'],
+  ['--dsw-alias-brand-warning', '#d98b00'],
+  ['--dsw-alias-interactive-bg-hover', '#f4f5f7'],
+  ['--dsw-alias-label-primary', '#1b1c1f'],
+  ['--dsw-alias-label-secondary', '#5b5f66'],
+  ['--dsw-alias-label-tertiary', '#8b9098'],
+  ['--dsw-alias-state-error-primary', '#d93025'],
+  ['--dsw-alias-state-success-primary', '#12a150'],
+  ['--dsw-alias-state-warning-primary', '#d98b00'],
+  ['--dsw-alias-state-warn-primary', '#d98b00'],
+];
+
+/**
+ * 真 UI 装载壳（Task 14 → Task 15 → Task 16）：vendor React UMD → vendor ReactDOM UMD →
+ * __ModuleLoader__ shim（壳内模拟 Harness）→ 语言预置 → client.js。挂载点 id 保持
+ * `infinite-canvas-root`（探活特征串 PANEL_MARK 不变）。
  *
  * shim 语义（Task 15 黑屏修复，contract 见文件头）：
  *   - client.js 自装载 def.factory(require)，require('react') 返回 UMD 全局 window.React，
@@ -120,8 +160,10 @@ function openInBrowser(url, platform) {
  *     立即执行 fn（样式/字典/Store 自举，失败捕获不中断后续注册）、ctx.slots.inject(seat, factory)
  *     调 factory（仓库既有测试约定同款语义）、ctx.slots.register(meta, render) 按 seat 捕获
  *     渲染函数（挂载优先级 'main' 全屏 → 'sidebar.right.pane.tab' → 首个捕获）；
- *   - ReactDOM.createRoot 全屏挂载捕获的渲染函数；任何失败（apply 抛错 / 无渲染函数 /
- *     createRoot 挂载异常）→ 挂载点显示红色错误文本（HTML 转义）——终结黑屏静默。
+ *   - ReactDOM.createRoot 全屏挂载捕获的渲染函数；任何失败（factory 抛错（Task 16 Minor）/ 
+ *     apply 抛错 / 无渲染函数 / createRoot 挂载异常）→ 挂载点显示红色错误文本（HTML 转义）
+ *     ——终结黑屏静默。
+ * 语言预置（Task 16 底线交付，文件头④）：独立内联小 script，先于 client.js 执行。
  */
 function shellHtml() {
   return [
@@ -130,7 +172,13 @@ function shellHtml() {
     '<head>',
     '<meta charset="utf-8">',
     '<title>无限画布</title>',
-    '<style>html,body{margin:0;height:100%;background:#111;color:#eee}</style>',
+    '<style>',
+    ':root{',
+    'color-scheme:light;',
+    ...LIGHT_THEME_TOKENS.map(([k, v]) => k + ':' + v + ';'),
+    '}',
+    'html,body{margin:0;height:100%;background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-primary)}',
+    '</style>',
     '</head>',
     '<body>',
     '<div id="infinite-canvas-root"></div>',
@@ -171,10 +219,13 @@ function shellHtml() {
     '    get:function(t,k){return k in t?t[k]:universal;},',
     '    has:function(){return true;},',
     '  });',
-    '  var desc=def.factory(function(name){',
-    '    if(name===\'react\')return window.React;',
-    '    throw new Error(\'unknown module: \'+name);',
-    '  });',
+    '  var desc=null;',
+    '  try{',
+    '    desc=def.factory(function(name){',
+    '      if(name===\'react\')return window.React;',
+    '      throw new Error(\'unknown module: \'+name);',
+    '    });',
+    '  }catch(e){if(!captured.error)captured.error=e;}',
     '  try{if(desc&&typeof desc.apply===\'function\')desc.apply(fakeCtx);}catch(e){captured.error=e;}',
     '  var el=document.getElementById(\'infinite-canvas-root\');',
     '  el.style.cssText=\'position:fixed;inset:0;overflow:hidden;\';',
@@ -185,11 +236,22 @@ function shellHtml() {
     '    if(typeof render!==\'function\')throw new Error(\'画布未注册渲染函数（slots.register 未被调用）\');',
     '    window.ReactDOM.createRoot(el).render(render());',
     '  }catch(e){',
-    '    el.innerHTML=\'<pre style="color:#ff6b6b;white-space:pre-wrap;padding:16px;font-family:monospace">画布装载失败：\'',
+    '    el.innerHTML=\'<pre style="color:var(--dsw-alias-state-error-primary,#d93025);white-space:pre-wrap;padding:16px;font-family:monospace">画布装载失败：\'',
     '      +String((e&&e.stack)||e).replace(/[<>&]/g,function(c){return {\'<\':\'&lt;\',\'>\':\'&gt;\',\'&\':\'&amp;\'}[c];})',
     '      +\'</pre>\';',
     '  }',
     '}};',
+    '</script>',
+    '<script>',
+    // 语言预置（Task 16 底线交付）：client.js 冻结、语言下拉的「跟随 Harness」选项无法移除
+    // （三 option 无条件渲染）——装载前把设置 lang 预置为中文（显式选过 zh/en 则尊重其选择）。
+    'try{',
+    '  var K=\'dsh-ic:settings\';',
+    '  var raw=null;try{raw=window.localStorage.getItem(K);}catch(e){}',
+    '  var s=null;try{s=raw?JSON.parse(raw):null;}catch(e){s=null;}',
+    '  if(!s||typeof s!==\'object\')s={};',
+    '  if(s.lang!==\'zh\'&&s.lang!==\'en\'){s.lang=\'zh\';try{window.localStorage.setItem(K,JSON.stringify(s));}catch(e){}}',
+    '}catch(e){}',
     '</script>',
     '<script src="/infinite-canvas/api/client.js"></script>',
     '</body>',

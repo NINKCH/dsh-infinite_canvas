@@ -5,7 +5,7 @@
  * 流程：测试内 spawn `node adapters/scripts/build-qoder.mjs` 构建产物 → Expand-Archive（PowerShell
  * spawn）解包到 os 临时目录 → 逐条断言。全程不触碰 ~/.qoder-cn（注册延后 Task 11）。
  *
- *  1) 产物存在：adapters/dist/dsh-infinite-canvas-qoder-0.3.1.zip，大小 > 50KB
+ *  1) 产物存在：adapters/dist/dsh-infinite-canvas-qoder-0.3.3.zip，大小 > 50KB
  *  2) ZIP 层布局（tar -tf）：ZIP 根直接含 .qoder-plugin/plugin.json（官方规范）+ .mcp.json + dist/*
  *  3) 解包目录树：.qoder-plugin/plugin.json、skills/canvas/SKILL.md、.mcp.json、
  *     dist/{canvas-mcp,canvas-web,model-bridge,llm-channel,host-adapter}.cjs、
@@ -38,7 +38,7 @@ import process from 'node:process';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const BUILD_SCRIPT = path.join(ROOT, 'adapters', 'scripts', 'build-qoder.mjs');
-const OUT_ZIP = path.join(ROOT, 'adapters', 'dist', 'dsh-infinite-canvas-qoder-0.3.1.zip');
+const OUT_ZIP = path.join(ROOT, 'adapters', 'dist', 'dsh-infinite-canvas-qoder-0.3.3.zip');
 const PANEL_MARK = 'id="infinite-canvas-root"'; // 面板挂载点特征子串（canvas-web.cjs 自备面板页）
 const KEY_RE = /sk-[A-Za-z0-9_-]{8,}/g;         // 密钥形状（与 model-bridge.cjs KEY_RE 同口径）
 
@@ -46,7 +46,7 @@ const KEY_RE = /sk-[A-Za-z0-9_-]{8,}/g;         // 密钥形状（与 model-brid
 const PLUGIN_JSON_VERBATIM = {
   name: 'dsh-infinite-canvas',
   displayName: '无限画布',
-  version: '0.3.1',
+  version: '0.3.3',
   description: '无限画布——可视化创作工作台（剧本/分镜/图片/视频节点编排）',
   author: { name: 'ninkch' },
   skills: './skills/',
@@ -71,6 +71,7 @@ const REQUIRED_TREE = [
   'dist/canvas-web.cjs',
   'dist/model-bridge.cjs',
   'dist/llm-channel.cjs',
+  'dist/llm-bridge-service.cjs', // Task 16：桥接 llm 服务（host-adapter get('llm') 供给源）
   'dist/host-adapter.cjs',
   'dist/core/index.js',
   'dist/core/client.js', // 0.3.0 Task 14 回归：canvas-web 壳装载的浏览器 UI 资产（正向断言防再丢）

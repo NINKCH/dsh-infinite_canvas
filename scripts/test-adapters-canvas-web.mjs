@@ -525,9 +525,64 @@ try {
         errs.push('组8c 错路：vm 执行抛错（错误框路径未接住 apply 抛错）: ' + ((e && e.stack) || e).toString().slice(0, 400));
       }
 
+      // 8c-错路2（Task 16 固化 Task 15 Minor）：vendor React 缺失（不装载 reactSrc）→
+      // def.factory 调用已在 try 内 → captured.error → 错误框 + 不挂载（修复前 factory 调用
+      // 在 try 外，抛错直接崩掉 load() → client.js 装载脚本级失败 → 黑屏静默）
+      try {
+        const noReactRun = makeSandbox(false);
+        noReactRun.run(shimJs, 'shell-inline-shim.js');
+        noReactRun.run(clientSrc, 'client.js');
+        const box2 = noReactRun.st.errorBox;
+        if (!box2.includes('画布装载失败')) {
+          errs.push(`组8c 错路2：React 缺失应显示错误框（factory 已挪进 try），实际 innerHTML: ${String(box2).slice(0, 200)}`);
+        }
+        if (noReactRun.st.mounted.length !== 0) {
+          errs.push(`组8c 错路2：React 缺失不得执行挂载（render 调用 ${noReactRun.st.mounted.length} 次）`);
+        }
+        noReactRun.dispose();
+      } catch (e) {
+        errs.push('组8c 错路2：vm 执行抛错（factory-in-try 回归——抛错逃出了 load()）: ' + ((e && e.stack) || e).toString().slice(0, 400));
+      }
+
       // 让沙箱内启动期 fetch 拒绝（内部全守卫）的微任务落定，避免污染后续组
       await new Promise((ok) => setTimeout(ok, 50));
     }
+  }
+
+  // ---------- 组9：浅色主题 token 表 + 语言预置（Task 16 / v0.3.3） ----------
+  // client.js 消费 17 个 --dsw-alias-* 主题 token 且自身无 :root 定义（真 Harness 注入）——
+  // 壳 <style> 必须供齐**每一个 client.js 实际消费的 token**（清单从磁盘 client.js 现场提取，
+  // 防两清单漂移）；html/body 底色换浅色（黑底终结）；语言预置 script 先于 client.js 装载
+  // （底线交付：lang 预置 zh；「跟随 Harness」选项在 client.js 里无条件渲染，壳无法移除）。
+  {
+    const clientSrc = fs.readFileSync(clientOnDisk, 'utf8');
+    const usedTokens = [...new Set(clientSrc.match(/--dsw-alias-[a-z0-9-]+/g) || [])];
+    if (!usedTokens.length) errs.push('组9：client.js 里未发现 --dsw-alias-* token 消费（清单提取前提不成立）');
+    for (const t of usedTokens) {
+      if (!panel.body.includes(t + ':')) {
+        errs.push(`组9：壳 <style> 缺 client.js 实际消费的主题 token ${t}（Harness 缺席时该变量无值，样式塌黑）`);
+      }
+    }
+    if (!/:root\s*\{/.test(panel.body)) errs.push('组9：壳应有 :root token 表（client.js 自身无 :root 定义，token 由壳供给）');
+    if (!panel.body.includes('color-scheme:light')) errs.push('组9：壳应声明 color-scheme:light（表单控件/滚动条浅色化）');
+    if (/background:#111\b/.test(panel.body)) errs.push('组9：壳 html/body 底色仍是旧黑底 #111（黑底回归）');
+    // 生效语言确定中文：fake ctx locale 恒 active:'zh'（hostLang 的唯一数据源）
+    if (!panel.body.includes("getLocale:function(){return{active:'zh'")) {
+      errs.push("组9：壳 fake ctx locale.getLocale 应恒返回 active:'zh'（生效语言中文）");
+    }
+    // 语言预置（底线交付）：设置 lang 预置 zh 的内联 script 必须存在且先于 client.js 装载
+    const presetMark = "localStorage.setItem(K,JSON.stringify(s))";
+    if (!panel.body.includes('dsh-ic:settings') || !panel.body.includes(presetMark)) {
+      errs.push('组9：壳应含语言预置 script（localStorage dsh-ic:settings.lang 预置 zh，client.js 冻结无法改选项列表）');
+    }
+    const iPreset = panel.body.indexOf('dsh-ic:settings');
+    const iClientTag = panel.body.indexOf('<script src="/infinite-canvas/api/client.js">');
+    if (!(iPreset >= 0 && iClientTag > iPreset)) {
+      errs.push(`组9：语言预置 script 应先于 client.js 装载（preset@${iPreset} < client.js@${iClientTag}）`);
+    }
+    // Task 15 评审 Minor：def.factory 调用挪进 try（vendor React 缺失路径也有错误框而非脚本崩溃）
+    const iFactoryTry = panel.body.indexOf('desc=def.factory(function(name){');
+    if (iFactoryTry < 0) errs.push('组9：shim 的 factory 调用形态被改写（desc=def.factory(...) 锚点丢失）');
   }
 
   // ---------- 组8b：startWeb 资产缺失即抛错，且自建 adapter 在抛错前 dispose（Task 14 评审 Minor） ----------
@@ -583,5 +638,5 @@ if (errs.length) {
   for (const e of errs) console.error('  - ' + e);
   process.exit(1);
 }
-console.log('\n✓ canvas-web 画布 HTTP 承载：契约全部通过（真 UI 壳四 script·顺序钉死/client.js·react·react-dom·status 路由/Harness 模拟 shim/资产缺失 dispose/RPC 分发/404/端口复用/EADDRINUSE 换口/open 命令/--port 接线）');
+console.log('\n✓ canvas-web 画布 HTTP 承载：契约全部通过（真 UI 壳四 script·顺序钉死/client.js·react·react-dom·status 路由/Harness 模拟 shim/浅色主题 token 表与语言预置（组9）/资产缺失 dispose/RPC 分发/404/端口复用/EADDRINUSE 换口/open 命令/--port 接线）');
 process.exit(0);

@@ -150,6 +150,8 @@ const COVERAGE = [
   // { sha: '<task14-sha>', keys: [/canvas UI|React UMD|client\.js|RUNTIME_FILES|\/status/i] },
   // ---- Task 15（0.3.1 壳内模拟 Harness 修复黑屏 + editor/title 页签栏入口）预写（注释态）----
   // { sha: '<task15-sha>', keys: [/full screen|fake-?ctx|Harness|black screen|editor\/title|tab-bar/i] },
+  // ---- Task 16（0.3.3 模型桥接进画布设置页 + 浅色主题 + 语言默认中文）预写（注释态）----
+  // { sha: '<task16-sha>', keys: [/llm-bridge|text model|pseudo-stream|文本模型|伪流|light theme|浅色|lang|中文|跟随 Harness/i] },
 ];
 for (const c of COVERAGE) {
   ok(c.keys.some((re) => re.test(coverageText)), '未发版提交 ' + c.sha + ' 在 CHANGELOG（Unreleased 或最新已发布段）里找不到对应记录（补记不全）');

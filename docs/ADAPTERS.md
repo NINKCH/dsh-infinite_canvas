@@ -9,12 +9,12 @@
 
 | 宿主 | 交付形态 | 工具通道 | 文本模型通道 | 画布 UI |
 | --- | --- | --- | --- | --- |
-| VS Code | `dsh-infinite-canvas-0.3.1.vsix` | lm-tools（30 工具直挂）或 mcp-provider | vscode-lm（四能力全有 + sampling） | WebviewPanel iframe（CSP `frame-src localhost`） |
+| VS Code | `dsh-infinite-canvas-0.3.3.vsix` | lm-tools（30 工具直挂）或 mcp-provider | vscode-lm（四能力全有 + sampling） | WebviewPanel iframe（CSP `frame-src localhost`） |
 | CodeBuddy | 同上 vsix | lm-tools / mcp-provider（有） | bridge（sampling 无） | 同 VS Code |
 | Trae | 同上 vsix | lm-tools / mcp-provider（同 CodeBuddy） | bridge（实测可达：workbuddy 网关，见 §4）；registerLanguageModelChat 有（静态探明），豆包未暴露给 vscode.lm（实测 selectChatModels 无模型） | 同 VS Code |
 | Cursor | 同上 vsix | 仅 cursor-mcp | bridge（not-planned，见 §5） | 同 VS Code |
-| Qoder | `dsh-infinite-canvas-qoder-0.3.1.zip` | MCP（`.mcp.json`） | bridge（恒空，最终结论见 §5）> sampling（待实测） | 浏览器打开（完整画布 UI，0.3.0 浏览器化） |
-| WorkBuddy | `workbuddy-marketplace/`（本地目录市场，含 `dsh-marketplace-workbuddy-0.3.1.zip`） | MCP（`.mcp.json`，stdio command 走 PATH node，样本实证） | bridge（**已验证**：`~/.workbuddy/models.json` 官方网关直调，UA 包装宿主客户端）> sampling | 浏览器打开（完整画布 UI，0.3.0 浏览器化） |
+| Qoder | `dsh-infinite-canvas-qoder-0.3.3.zip` | MCP（`.mcp.json`） | bridge（恒空，最终结论见 §5）> sampling（待实测） | 浏览器打开（完整画布 UI，0.3.0 浏览器化） |
+| WorkBuddy | `workbuddy-marketplace/`（本地目录市场，含 `dsh-marketplace-workbuddy-0.3.3.zip`） | MCP（`.mcp.json`，stdio command 走 PATH node，样本实证） | bridge（**已验证**：`~/.workbuddy/models.json` 官方网关直调，UA 包装宿主客户端）> sampling | 浏览器打开（完整画布 UI，0.3.0 浏览器化） |
 
 > vsix 能力探测链（四路择一）：`lm-tools` → `mcp-provider` → `cursor-mcp` → `manual`（手配
 > mcp.json 兜底，片段见 §3）。探测在扩展激活时进行，命中即注册对应工具通道。
@@ -48,7 +48,7 @@ runtime）。画布数据根：`~/.dsh-infinite-canvas/`（env `DSH_IC_HOME` 可
 
 ### vsix（VS Code / CodeBuddy / Trae / Cursor 通用）
 
-1. 构建或取件：`adapters/dist/dsh-infinite-canvas-0.3.1.vsix`。
+1. 构建或取件：`adapters/dist/dsh-infinite-canvas-0.3.3.vsix`。
 2. 安装：扩展面板 `…` 菜单 → **从 VSIX 安装…**（四家同源 VS Code 系，入口名称或有差异）。
 3. 重载窗口后扩展激活，能力探测链自动选择工具通道；画布面板在 WebviewPanel iframe 中打开
    （CSP `frame-src` 指向 localhost:3210）。
@@ -74,7 +74,7 @@ runtime）。画布数据根：`~/.dsh-infinite-canvas/`（env `DSH_IC_HOME` 可
 
 ### Qoder
 
-产物：`adapters/dist/dsh-infinite-canvas-qoder-0.3.1.zip`（ZIP 根直接含
+产物：`adapters/dist/dsh-infinite-canvas-qoder-0.3.3.zip`（ZIP 根直接含
 `.qoder-plugin/plugin.json`、`.mcp.json`、`skills/`、`dist/`）。两种安装法，细节以
 [`adapters/qoder-plugin/README.md`](../adapters/qoder-plugin/README.md) 为准：
 
@@ -82,13 +82,13 @@ runtime）。画布数据根：`~/.dsh-infinite-canvas/`（env `DSH_IC_HOME` 可
   `{"source": "local", "kind": "plugin", "filePath": "<ZIP 绝对路径>"}`，装完重启 Qoder。
 - **方式 B（手动 cache 注册，`install_extension` 不可用时）**：先备份
   `~/.qoder-cn/plugins/installed_plugins_v2.json` 与 `~/.qoder-cn/settings.json`，解压 ZIP 到
-  `~/.qoder-cn/plugins/cache/local/dsh-infinite-canvas/0.3.1/`，再 read-merge 注册
+  `~/.qoder-cn/plugins/cache/local/dsh-infinite-canvas/0.3.3/`，再 read-merge 注册
   `dsh-infinite-canvas@local` 并在 `enabledPlugins` 置 true，重启 Qoder。**绝不整文件覆盖。**
 
 ### WorkBuddy
 
 产物：`adapters/dist/workbuddy-marketplace/`（staging 目录，可直接作市场源）+
-`dsh-marketplace-workbuddy-0.3.1.zip`。装插件 = **加一个本地目录市场**，细节以
+`dsh-marketplace-workbuddy-0.3.3.zip`。装插件 = **加一个本地目录市场**，细节以
 [`adapters/workbuddy-plugin/marketplace/plugins/dsh-infinite-canvas/README.md`](../adapters/workbuddy-plugin/marketplace/plugins/dsh-infinite-canvas/README.md) 为准：
 
 1. 构建 staging：`node adapters/scripts/build-workbuddy.mjs`。
@@ -125,8 +125,8 @@ runtime）。画布数据根：`~/.dsh-infinite-canvas/`（env `DSH_IC_HOME` 可
    `desc.apply(fakeCtx)` 真调 cordis 描述符）→ `client.js`（§4 RUNTIME_FILES 回归）。0.3.0 黑屏
    根因（factory 返回描述符、apply 从未执行）由此修复；任何失败都在页面显示红色错误文本
    （HTML 转义）——终结黑屏静默。静态契约（四 script 顺序 + 三条资产路由字节一致）已被测试
-   钉死；**浏览器内 React 真渲染待用户实机验证**（CanvasHostedApp 渲染期可能调用 CTX 服务并
-   依赖返回值，undefined 会引发渲染异常——会被错误框接住并显示，是下一轮迭代输入）。
+   钉死；**0.3.1 用户实机（Trae）已验证画布 UI 完整渲染**（节点工具列/项目/技能/设置面板全出，
+   3B 闭环），0.3.3 修剩余三项：文本模型桥接、浅色主题、默认中文。
    原状态页挪 `/status`（诊断）。
 2. **byok 在 MCP 宿主不可用**：core 无 BYOK url/apiKey 存储，MCP 承载下 byok 恒 false
    （见 §2 第 4 级）。
@@ -138,6 +138,15 @@ runtime）。画布数据根：`~/.dsh-infinite-canvas/`（env `DSH_IC_HOME` 可
    路径）宿主的实际可用性待 Task 11 实测确认。
 6. **Trae 入口形态（实测 2026-11-08）**：Trae SOLO 首页为自研任务台，扩展入口在 IDE 模式
    （打开项目后）；0.2.0 起状态栏/标题栏入口在空白窗口亦可用（untrustedWorkspaces 已声明支持）。
+7. **画布设置页语言下拉的「跟随 Harness」选项无法移除（0.3.3 如实说明）**：选项列表在 client.js
+   里是三个 option 无条件渲染（跟随/中文/English），client.js 冻结不可改。壳（canvas-web）的
+   交付是**预置 + 恒中文语义**：装载前把 `localStorage['dsh-ic:settings'].lang` 预置为 `zh`
+   （用户显式选过 zh/en 则尊重），fake ctx 的 locale 服务恒 `active:'zh'`——生效语言确定中文，
+   默认显示中文；选「跟随 Harness」在本壳的语义同样是中文，仅下拉显示文案不同。
+8. **画布文本模型桥接（0.3.3）**：MCP/HTTP 承载的假 ctx `get('llm')` 返回 llm-bridge-service
+   （包装 model-bridge）——画布设置页「文本模型」列出本机网关模型（当前实测仅 WorkBuddy，
+   qoder/cursor 恒空不列），编剧室 complete() 经伪流（整段文本一个 delta，无打字机效果）调用。
+   桥接流是"伪流"：行为正确（onText 收到全文）但一次性到达，属已知形态。
 
 ## 6. RPC 面与工具面：两张表，勿混淆
 
