@@ -20,6 +20,8 @@
 
 import { existsSync, readFileSync, mkdirSync, copyFileSync, writeFileSync, renameSync } from 'node:fs';
 import path from 'node:path';
+// 按镜头切段（client.js planShotSegments 的逐字移植）：预算单的 videoCalls 口径与客户端执行同源
+import { planShotSegments } from './shot-segments.js';
 
 /** 阶段枚举（顺序即优先级，index 越大越靠后）。 */
 export const PRODUCTION_STAGES = ['brief', 'bible', 'assets', 'script', 'storyboard', 'shots_ready', 'generating', 'qc', 'post', 'delivered'];
@@ -191,7 +193,10 @@ export function createProduction(deps) {
   }
 
   /**
-   * 预算单（免费段终点）：只统计"将要花钱"的东西——每个分镜表一次视频调用、总秒数、场/镜数。
+   * 预算单（免费段终点）：只统计"将要花钱"的东西——每个分镜表按真实镜头边界切成生成段，
+   * 每段一次视频调用（一个分镜表 ≠ 一次生成）；总秒数、场/镜数照旧。
+   * 切段口径与客户端执行完全同源：同一个 planShotSegments（shot-segments.js，client.js 的逐字移植），
+   * maxSeconds 同样取分镜表节点 data.segMaxSeconds（缺省 15，client.js L13883 同式）。
    * 单价由调用方传入（画布设置里的单价，未配置则不给金额，只给调用次数与秒数）。
    */
   function quote(pid, cid, unitPricePerSecond) {
@@ -205,28 +210,40 @@ export function createProduction(deps) {
       const shots = n.data.shots || [];
       const secs = shots.reduce((a, s) => a + (Number(s && s.duration) || 0), 0);
       totalSeconds += secs;
+      const hasVideo = videoNodes.some((v) => (doc.edges || []).some((e) => e.fromNode === n.id && e.toNode === v.id));
+      const maxSeconds = Number(n.data.segMaxSeconds) || 15;
+      // 已有视频的表不产生新调用；待生成的表按切段算法数段（与客户端 expandStoryboard 同式同默认）
+      let calls = 0;
+      if (!hasVideo) {
+        const plan = planShotSegments(shots, { maxSeconds });
+        // 客户端兜底同款（L13884）：切段结果为空但表里有镜头时，客户端会整表按一段生成——估算按 1 次算
+        calls = plan.segments.length ? plan.segments.length : 1;
+      }
       return {
         scene: i + 1,
         storyboardId: n.id,
         name: String((n.data && n.data.label) || n.id),
         shots: shots.length,
         seconds: Math.round(secs * 10) / 10,
-        hasVideo: videoNodes.some((v) => (doc.edges || []).some((e) => e.fromNode === n.id && e.toNode === v.id)),
+        hasVideo,
+        maxSeconds,
+        videoCalls: calls,
       };
     });
-    const pending = scenes.filter((s) => !s.hasVideo).length;
+    const videoCalls = scenes.reduce((a, s) => a + s.videoCalls, 0);
     const price = Number(unitPricePerSecond);
-    const payload = { pid, cid: keyOf(cid), scenes: scenes.map((s) => [s.storyboardId, s.shots, s.seconds]), pending };
+    // 指纹吃切段结果与每场上限：段数/上限变了 → 旧批准自动失效 → 用户重新复核预算（预期行为，无兼容垫片）
+    const payload = { pid, cid: keyOf(cid), scenes: scenes.map((s) => [s.storyboardId, s.shots, s.seconds, s.videoCalls, s.maxSeconds]), pending: videoCalls };
     return {
       ok: true, quoteId: fingerprint(payload),
       projectId: pid, canvasId: keyOf(cid) === 'default' ? null : keyOf(cid),
       stage: st.stage,
       scenes, sceneCount: scenes.length, shotCount: scenes.reduce((a, s) => a + s.shots, 0),
       totalSeconds: Math.round(totalSeconds * 10) / 10,
-      videoCalls: pending,
+      videoCalls,
       unitPricePerSecond: Number.isFinite(price) && price > 0 ? price : null,
       estimatedCost: Number.isFinite(price) && price > 0 ? Math.round(price * totalSeconds * 100) / 100 : null,
-      note: pending === 0 ? '全部分镜表都已有视频节点：本次只做重生成，不产生新调用' : '批准后只按差分镜表各调用一次视频接口（按秒计费）',
+      note: videoCalls === 0 ? '全部分镜表都已有视频节点：本次只做重生成，不产生新调用' : '批准后按镜头切段逐段调用视频接口（按秒计费）',
     };
   }
 

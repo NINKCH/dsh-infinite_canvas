@@ -255,6 +255,69 @@ let sbNodeId = '';
   ok(q2 && q2.ok === false && q2.disabled === true, '关闭开关后 autoQuote 未被拒绝');
 }
 
+// 预算单口径（0.20.2 #8）：videoCalls 按镜头切段算法估算（一个分镜表 ≠ 一次生成），不再按分镜表数粗算
+{
+  const M = I.rpcMethods();
+  await M.autoModeSet({ enabled: true });
+  const segPid = (await byName.get('canvas_create_project').execute({ name: '预算切段口径测试' }, {})).projectId;
+  // 场 A：20s 分镜表（超默认 15s 上限、含 scene_change 切点）→ 客户端同款切段为 2 段（8s + 12s）
+  const sbA = await byName.get('canvas_create_node').execute({ projectId: segPid, type: 'storyboard', name: '长表分镜' }, {});
+  const shotsA = JSON.stringify({ shots: [
+    { title: '镜1', visual: '中景，陈拾收伞回望', motion: '横移跟随', duration: 4, seg: 'opening', tail: '转身欲走', cam: '横移回正' },
+    { title: '镜2', visual: '近景，伞面雨水滑落', motion: '缓推', duration: 4, seg: 'continuation', tail: '伞沿滴水', cam: '缓推' },
+    { title: '镜3', visual: '全景，邮局门口亮灯', motion: '横摇', duration: 4, seg: 'scene_change', tail: '门灯光稳定', cam: '横摇到位' },
+    { title: '镜4', visual: '中景，陈拾推门而入', motion: '跟拍', duration: 4, seg: 'continuation', tail: '手扶门框', cam: '跟拍向前' },
+    { title: '镜5', visual: '近景，信封放上柜台', motion: '俯拍缓降', duration: 4, seg: 'continuation', tail: '信封落定', cam: '俯拍' },
+  ] });
+  // 注意用 canvas_update_node 整表替换（patch.shots 保留 seg/tail/cam 衔接字段）：
+  // canvas_write_node 的 output→shots 解析会丢 seg，切段推断就退化成全续帧链了。
+  await byName.get('canvas_update_node').execute({ projectId: segPid, nodeId: sbA.nodeId, patch: { shots: JSON.parse(shotsA).shots } }, {});
+  // 场 B：5s 分镜表（15s 内）→ 1 段
+  const sbB = await byName.get('canvas_create_node').execute({ projectId: segPid, type: 'storyboard', name: '短表分镜' }, {});
+  const shotsB = JSON.stringify({ shots: [
+    { title: '镜1', visual: '近景，邮戳裂开', motion: '缓推', duration: 3, seg: 'opening', tail: '裂开定格', cam: '推进到位' },
+    { title: '镜2', visual: '大特写，火漆印反光', motion: '微移', duration: 2, seg: 'closeup', tail: '反光闪烁', cam: '微移' },
+  ] });
+  await byName.get('canvas_update_node').execute({ projectId: segPid, nodeId: sbB.nodeId, patch: { shots: JSON.parse(shotsB).shots } }, {});
+
+  const qs = await M.autoQuote({ projectId: segPid, unitPricePerSecond: 2 });
+  ok(qs && qs.ok === true, '预算口径：autoQuote 失败');
+  eq(qs.sceneCount, 2, '预算口径：两场分镜表');
+  eq(qs.videoCalls, 3, '预算口径：videoCalls 应为两场段数之和（场A 2 段 + 场B 1 段 = 3），≠ 分镜表数 2');
+  ok(qs.videoCalls !== qs.sceneCount, '预算口径：videoCalls 仍按分镜表数粗算（= 场数）→ 预算单再次失真');
+  // 每场行项目带 videoCalls / maxSeconds：用户能看到每场拆几段、用的什么上限
+  const scA = qs.scenes.find((s) => s.storyboardId === sbA.nodeId);
+  const scB = qs.scenes.find((s) => s.storyboardId === sbB.nodeId);
+  eq(scA && scA.videoCalls, 2, '预算口径：场 A（20s 含切点）应切 2 段');
+  eq(scA && scA.maxSeconds, 15, '预算口径：场 A 未配 segMaxSeconds → 默认上限 15');
+  eq(scB && scB.videoCalls, 1, '预算口径：场 B（5s）应 1 段');
+  eq(qs.totalSeconds, 25, '预算口径：totalSeconds 口径不变（20+5）');
+  eq(qs.estimatedCost, 50, '预算口径：估算金额仍按秒计（25s×2）');
+  ok(String(qs.note).includes('切段'), '预算口径：note 应如实描述按镜头切段调用（实际：' + qs.note + '）');
+
+  // 指纹自然变化（预期行为，无兼容垫片）：segMaxSeconds 挂在分镜表节点 data（客户端 L13883 同式），
+  // 上限变更 → 每场上限进指纹 → 旧批准自动失效 → 重新复核预算。
+  const ap0 = await M.autoApprove({ projectId: segPid, quoteId: qs.quoteId, confirm: '用户：按这个预算开机' });
+  ok(ap0 && ap0.ok === true, '预算口径：按段数批准失败');
+  const docSeg = await I.projectsGet({ id: segPid });
+  docSeg.nodes[sbB.nodeId].data.segMaxSeconds = 30;
+  await I.projectsPut({ id: segPid, doc: docSeg });
+  const stQ = await M.autoStatus({ projectId: segPid });
+  ok(stQ.approval && stQ.approval.valid === false, '预算口径：segMaxSeconds 变更后旧批准仍有效（指纹未吃每场上限）');
+  const q30 = P.quote(segPid, null, 2);
+  const scB30 = q30.scenes.find((s) => s.storyboardId === sbB.nodeId);
+  eq(scB30 && scB30.maxSeconds, 30, '预算口径：分镜表节点 data.segMaxSeconds=30 应被 quote 读取（客户端同式）');
+
+  // 已有视频的表不产生新调用：给场 B 接上视频 → 该场 videoCalls 归 0，总调用数降为 2
+  const vB = await byName.get('canvas_create_node').execute({ projectId: segPid, type: 'video', name: '短表视频', connectFrom: sbB.nodeId }, {});
+  ok(vB && vB.ok === true, '预算口径：场 B 建视频失败（' + JSON.stringify(vB && { gate: vB.gate, error: vB.error }) + '）');
+  const qv = await M.autoQuote({ projectId: segPid, unitPricePerSecond: 2 });
+  const scBv = qv.scenes.find((s) => s.storyboardId === sbB.nodeId);
+  eq(scBv && scBv.videoCalls, 0, '预算口径：已有视频的场不应再计调用');
+  eq(qv.videoCalls, 2, '预算口径：场 B 接视频后总调用数应为 2（只剩场 A 的 2 段）');
+  await M.autoModeSet({ enabled: false });
+}
+
 // 自动创作编剧室（免费段）：假 LLM 注入 → 全流水线落盘
 {
   const M = I.rpcMethods();
