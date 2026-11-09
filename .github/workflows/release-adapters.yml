@@ -69,7 +69,10 @@ jobs:
           fail_on_unmatched_files: true   # 通配没匹配到产物时直接失败，不静默空发
 
       # 可选步：仅当显式勾选且 secret 存在时执行；失败只标 warning，Release 产物不受影响
+      # （secrets 上下文不能进 if 表达式——映射到 env 再判，env 才是 if 里合法的引用）
       - name: Publish vsix to Open VSX (optional)
-        if: inputs.publish_openvsx == true && secrets.OVSX_PAT != ''
+        if: inputs.publish_openvsx == true && env.OVSX_PAT != ''
+        env:
+          OVSX_PAT: ${{ secrets.OVSX_PAT }}
         continue-on-error: true
         run: npx --yes @vscode/ovsx publish adapters/dist/dsh-infinite-canvas-${{ steps.build.outputs.version }}.vsix -p ${{ secrets.OVSX_PAT }}
