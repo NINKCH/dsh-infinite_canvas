@@ -820,6 +820,221 @@ let sbNodeId = '';
   eq(r4.sb && String(r4.sb.data.requirement || ''), '', '仍超时: requirement 仍应还原为原值（空）');
 }
 
+// ============================ 八、付费段按镜头切段拆分（0.20.2 T6：#10 长场整表一次请求撞厂商上限） ============================
+// 0.20.1 实机：手动 40s 场整场一次请求 → 中转站 400（超厂商上限）；autoPaid 旧逻辑每张分镜表只建
+// 1 个 video 节点、不带镜头区间，长场在付费段必然同样被拒，且与 T4 的按段预算脱节。
+// 回归：① 40s 场（15s 上限）拆 3 段、16s 场拆 2 段、5s 场仍 1 个节点（不退化），段名带「段k/N」、
+// 全部 connectFrom 分镜表，finalcut 连最后一个完成的段节点；② 每段 prompt 带「第 X-Y 镜」与段序号、
+// data 带客户端 videoSegmentOf 消费的段键（segShotFrom/To/segIndex/segCount/needsTailChain/seamRisk）；
+// ③ 批准后改 shots → 重新批准 → autoPaid 照跑，run.log 记「预算与实际段数不一致（预算 N / 实际 M）」。
+{
+  const M = I.rpcMethods();
+  await M.autoModeSet({ enabled: true });
+
+  // 三组 G2 合规 fixtures：40s（13+14+13，切段 3 段）/ 16s（4×4，镜3 换场切点 → 2 段）/ 5s（3+2，1 段）
+  const longShotsArr = [
+    { title: '镜1', visual: '全景，雨夜巷口霓虹湿漉', motion: '横移跟随', duration: 13, seg: 'opening', tail: '伞面合拢', cam: '横移回正' },
+    { title: '镜2', visual: '中景，陈拾踏水而行', motion: '跟拍向前', duration: 14, seg: 'continuation', tail: '脚步停住', cam: '跟拍减速' },
+    { title: '镜3', visual: '大特写，信封上火漆印裂开', motion: '缓推', duration: 13, seg: 'closeup', tail: '裂纹定格', cam: '推进到位' },
+  ];
+  const midShotsArr = [
+    { title: '镜1', visual: '中景，邮局门口灯亮起', motion: '横摇', duration: 4, seg: 'opening', tail: '灯光稳定', cam: '横摇到位' },
+    { title: '镜2', visual: '近景，陈拾推开邮局门', motion: '跟拍', duration: 4, seg: 'continuation', tail: '门被推开', cam: '跟拍向前' },
+    { title: '镜3', visual: '全景，营业厅内空无一人', motion: '拉升', duration: 4, seg: 'scene_change', tail: '厅内空镜', cam: '拉升' },
+    { title: '镜4', visual: '大特写，柜台上火漆信', motion: '缓推', duration: 4, seg: 'closeup', tail: '信封定格', cam: '推进到位' },
+  ];
+  const shortShotsArr = [
+    { title: '镜1', visual: '中景，陈拾收伞回望', motion: '横移跟随', duration: 3, seg: 'opening', tail: '转身欲走', cam: '横移回正' },
+    { title: '镜2', visual: '大特写，邮戳裂开', motion: '缓推', duration: 2, seg: 'closeup', tail: '裂开定格', cam: '推进到位' },
+  ];
+  // 前置自证：fixtures 的闸门/切段判据都对，否则整个块失效
+  eq(P.gateStoryboard(longShotsArr).ok, true, 'T6前置: 40s shots 必须先过 G2（否则触发面混淆）');
+  eq(P.gateStoryboard(midShotsArr).ok, true, 'T6前置: 16s shots 必须先过 G2');
+  eq(P.gateStoryboard(shortShotsArr).ok, true, 'T6前置: 5s shots 必须先过 G2');
+  const planLong = planShotSegments(longShotsArr).segments;
+  const planMid = planShotSegments(midShotsArr).segments;
+  eq(planLong.length, 3, 'T6前置: 40s shots 应切 3 段');
+  eq(planMid.length, 2, 'T6前置: 16s shots 应切 2 段（镜3 换场切点）');
+  eq(planShotSegments(shortShotsArr).segments.length, 1, 'T6前置: 5s shots 应 1 段');
+
+  // 假 LLM：非监制照旧；监制首轮即合法 JSON（聚焦付费段，不触发决策重试）
+  I.__auto.setRoomLlm(async ({ system }) => {
+    const s = String(system || '');
+    if (s.includes('调研员')) return JSON.stringify({ themes: [{ name: '时空邮差', why: 't' }], styles: ['写实电影感'] });
+    if (s.includes('编剧A')) return JSON.stringify({ logline: 'A案故事线', beats: ['b1', 'b2', 'b3'] });
+    if (s.includes('编剧B')) return JSON.stringify({ logline: 'B案故事线', beats: ['c1', 'c2', 'c3'] });
+    if (s.includes('剧评人')) return JSON.stringify({ critA: ['冲突可加强'], critB: ['动机可信'] });
+    if (s.includes('监制')) return JSON.stringify({ decision: 'merge', rationale: '取A冲突+B动机', logline: '雨夜邮差的最后一封信', beats: ['x', 'y', 'z'],
+      bible: { worldview: 'T6世界观：时空邮局', style: '写实电影感', characters: [{ name: '陈拾', desc: '24 岁，旧邮差制服' }], scenes: [{ name: '褶皱巷', desc: '雨夜窄巷' }], props: [{ name: '火漆信', desc: '火漆印' }],
+        scriptIdea: '写第一节剧本：雨夜邮差陈拾接到一封无法投递的信……每场结尾留因果钩子，每场至少一个冲突点。' } });
+    return '{}';
+  });
+
+  // 画布执行桩：分镜 shots 必须走 canvas_update_node 的 patch.shots 写入（canvasWriteNode 的
+  // output→shots 解析会丢 seg/tail/cam，切点就没了——T4 实证坑）；视频直接完成并计数。
+  const runWithShots = async (name, scriptOut, shotsByScene) => {
+    const videoExecs = [];
+    I.__auto.setCanvasRunner(async (pid2, cid2, nodeId) => {
+      const doc = await I.projectsGet({ id: pid2, ...(cid2 ? { canvasId: cid2 } : {}) });
+      const n = doc.nodes[nodeId];
+      if (!n) throw new Error('桩：节点不存在');
+      if (n.type === 'script') {
+        await I.canvasWriteNode({ projectId: pid2, canvasId: cid2 || undefined, nodeId, target: 'output', text: scriptOut, overwrite: true });
+        return { type: 'script', output: scriptOut };
+      }
+      if (n.type === 'storyboard') {
+        const label = String((n.data && n.data.label) || '');
+        const hit = Object.keys(shotsByScene).find((k) => label.startsWith(k));
+        const shots = hit ? shotsByScene[hit] : [];
+        await byName.get('canvas_update_node').execute({ projectId: pid2, nodeId, patch: { shots } }, {});
+        return { type: 'storyboard', shots };
+      }
+      if (n.type === 'video') { videoExecs.push(nodeId); return { type: 'video', status: 'done' }; }
+      return { type: n.type, status: 'done' };
+    });
+    const pidX = (await byName.get('canvas_create_project').execute({ name }, {})).projectId;
+    const started = await M.autoStart({ projectId: pidX, brief: name + '：付费段按镜头切段拆分回归' });
+    ok(started && started.ok === true, name + ': autoStart 未启动');
+    let v = null;
+    for (let i = 0; i < 100; i++) {
+      await new Promise((r) => setTimeout(r, 100));
+      v = (await M.autoStatus({ projectId: pidX })).run;
+      if (v && (v.status === 'done' || v.status === 'failed' || v.status === 'aborted')) break;
+    }
+    return { pid: pidX, v, videoExecs };
+  };
+  const waitPaid = async (pid2) => {
+    let paid = null;
+    for (let i = 0; i < 100; i++) {
+      await new Promise((r) => setTimeout(r, 100));
+      paid = (await M.autoStatus({ projectId: pid2 })).run;
+      if (paid && (paid.paid === 'done' || paid.paid === 'failed')) break;
+    }
+    return paid;
+  };
+  const vidsOf = (doc, sbId) => (doc.edges || []).filter((e) => e.fromNode === sbId).map((e) => doc.nodes[e.toNode]).filter((n) => n && n.type === 'video');
+
+  // ①② 拆分 + 区间元数据：场1 40s→3 段、场2 16s→2 段、场3 5s→1 个节点；finalcut 连最后完成的段节点
+  const t6a = await runWithShots('付费切段拆分回归',
+    '【场1】褶皱巷\n雨夜，陈拾收伞，发现邮戳裂开。\n【场2】邮局\n清晨，火漆印反光，陈拾推门而入。\n【场3】巷尾\n黄昏，信封投递，门缝里的字条。',
+    { 场1: longShotsArr, 场2: midShotsArr, 场3: shortShotsArr });
+  ok(t6a.v && t6a.v.status === 'done', 'T6①: 流水线未 done（status=' + (t6a.v && t6a.v.status) + ' error=' + (t6a.v && t6a.v.error) + '）');
+  ok(t6a.v && t6a.v.budget && t6a.v.budget.videoCalls === 6, 'T6①: 预算单 videoCalls 应为 3+2+1=6（实际：' + JSON.stringify(t6a.v && t6a.v.budget && t6a.v.budget.videoCalls) + '）');
+  const qT6 = await M.autoQuote({ projectId: t6a.pid, unitPricePerSecond: 2 });
+  ok(qT6 && qT6.ok === true && qT6.videoCalls === 6, 'T6①: autoQuote 失败或口径不符');
+  const apT6 = await M.autoApprove({ projectId: t6a.pid, quoteId: qT6.quoteId, confirm: '用户：按这个预算开机' });
+  ok(apT6 && apT6.ok === true, 'T6①: 付费批准失败');
+  const paidT6 = await M.autoGenerate({ projectId: t6a.pid });
+  ok(paidT6 && paidT6.ok === true, 'T6①: 付费段启动失败');
+  const paidViewT6 = await waitPaid(t6a.pid);
+  ok(paidViewT6 && paidViewT6.paid === 'done', 'T6①: 付费段未完成（' + (paidViewT6 && paidViewT6.paidError) + '）');
+  const runT6 = I.__auto.runs.get(t6a.pid + '::default'); // autoStatus 视图 log/paidLog 只留尾 6 条，断言吃全量
+  const docT6 = await I.projectsGet({ id: t6a.pid });
+  const sbsT6 = Object.values(docT6.nodes).filter((n) => n.type === 'storyboard');
+  eq(sbsT6.length, 3, 'T6①: 应有 3 张分镜表');
+  const sbByLabel = (lb) => sbsT6.find((n) => String((n.data && n.data.label) || '').startsWith(lb));
+  const sb1 = sbByLabel('场1');
+  const sb2 = sbByLabel('场2');
+  const sb3 = sbByLabel('场3');
+  ok(!!sb1 && !!sb2 && !!sb3, 'T6①: 分镜表节点缺失');
+  const vids1 = vidsOf(docT6, sb1.id);
+  const vids2 = vidsOf(docT6, sb2.id);
+  const vids3 = vidsOf(docT6, sb3.id);
+  // 拆分：每段一个节点、命名带「段k/N」、全部 connectFrom 分镜表
+  eq(vids1.length, 3, 'T6①: 40s 场应建 3 个 video 节点（实际 ' + vids1.length + '）');
+  eq(vids2.length, 2, 'T6①: 16s 场应建 2 个 video 节点');
+  eq(vids3.length, 1, 'T6①: 5s 场应只建 1 个 video 节点（不退化）');
+  const bySegIndex = (a, b) => (Number(a.data.segIndex) || 0) - (Number(b.data.segIndex) || 0);
+  vids1.sort(bySegIndex); vids2.sort(bySegIndex);
+  const segLabels1 = vids1.map((v) => String((v.data && v.data.label) || ''));
+  ok(segLabels1.some((l) => l.includes('段1/3')) && segLabels1.some((l) => l.includes('段2/3')) && segLabels1.some((l) => l.includes('段3/3')),
+    'T6①: 段节点命名缺「段k/N」区间（labels=' + JSON.stringify(segLabels1) + '）');
+  ok(segLabels1.every((l) => l.length <= 40), 'T6①: 段节点命名超 40 字符（canvasCreateNode 语义）');
+  ok(!segLabels1.some((l) => /镜\s*\d+/.test(l)), 'T6①: 段节点命名不得触发 G4「镜N」逐镜命名');
+  const segLabels2 = vids2.map((v) => String((v.data && v.data.label) || ''));
+  ok(segLabels2.some((l) => l.includes('段1/2')) && segLabels2.some((l) => l.includes('段2/2')), 'T6①: 场2 段命名缺「段k/N」');
+  eq(String((vids3[0].data && vids3[0].data.label) || ''), '场3视频', 'T6①: 单段场命名应保持「场N视频」（不得带段标记）');
+  ok(!!vids3[0] && !!vids2[1] && vids3[0].id !== vids2[1].id, 'T6①: 场3 节点与场2 段节点混淆');
+  // 区间元数据：data 段键（客户端 videoSegmentOf/segMeta 消费）+ prompt 范围约束
+  const segMetaOk = (v, from, to, idx, count, chain, risk, desc) => {
+    if (!v) { ok(false, desc + ': 段节点缺失（拆分未按段建节点）'); return; }
+    const d = (v.data || {});
+    eq(d.segShotFrom, from, desc + ': segShotFrom 不符');
+    eq(d.segShotTo, to, desc + ': segShotTo 不符');
+    eq(d.segIndex, idx, desc + ': segIndex 不符');
+    eq(d.segCount, count, desc + ': segCount 不符');
+    eq(d.needsTailChain, chain, desc + ': needsTailChain 不符');
+    eq(d.seamRisk, risk, desc + ': seamRisk 不符');
+  };
+  segMetaOk(vids1[0], 0, 0, 0, 3, false, 'none', 'T6② 场1段1');
+  segMetaOk(vids1[1], 1, 1, 1, 3, true, 'forced', 'T6② 场1段2');
+  segMetaOk(vids1[2], 2, 2, 2, 3, false, 'none', 'T6② 场1段3');
+  segMetaOk(vids2[0], 0, 2, 0, 2, false, 'none', 'T6② 场2段1');
+  segMetaOk(vids2[1], 3, 3, 1, 2, false, 'none', 'T6② 场2段2');
+  const promptHas = (v, parts, desc) => {
+    if (!v) { ok(false, desc + ': 段节点缺失（prompt 无从断言）'); return; }
+    const p = String((v.data && v.data.prompt) || '');
+    for (const part of parts) ok(p.includes(part), desc + ': prompt 缺「' + part + '」（实际：' + p + '）');
+  };
+  promptHas(vids1[0], ['本段 1/3', '第 1-1 镜', '共 3 镜', '时长约 13 秒', '只生成本段内容'], 'T6② 场1段1');
+  promptHas(vids1[1], ['本段 2/3', '第 2-2 镜', '时长约 14 秒', '只生成本段内容'], 'T6② 场1段2');
+  promptHas(vids1[2], ['本段 3/3', '第 3-3 镜', '只生成本段内容'], 'T6② 场1段3');
+  promptHas(vids2[0], ['本段 1/2', '第 1-3 镜', '时长约 12 秒', '只生成本段内容'], 'T6② 场2段1');
+  promptHas(vids2[1], ['本段 2/2', '第 4-4 镜', '时长约 4 秒', '只生成本段内容'], 'T6② 场2段2');
+  promptHas(vids3[0], ['本段 1/1', '第 1-2 镜', '共 2 镜', '只生成本段内容'], 'T6② 场3');
+  // 每段恰好执行一次（重试语义按段保留）；finalcut 连最后一个完成的段节点（场3 的节点）
+  eq(t6a.videoExecs.length, 6, 'T6①: 视频应恰好执行 6 次（每段一次，实际 ' + t6a.videoExecs.length + '）');
+  const allVidIds = [...vids1, ...vids2, vids3[0]].map((v) => v.id);
+  ok(allVidIds.every((id) => t6a.videoExecs.includes(id)), 'T6①: 有段节点未被执行');
+  const fcsT6 = Object.values(docT6.nodes).filter((n) => n.type === 'finalcut');
+  eq(fcsT6.length, 1, 'T6①: 成片节点应恰为 1 个');
+  const fcEdgeT6 = (docT6.edges || []).find((e) => e.toNode === fcsT6[0].id);
+  ok(!!fcEdgeT6 && fcEdgeT6.fromNode === vids3[0].id, 'T6①: finalcut 未连最后一个完成的段节点（场3）');
+  eq(fcEdgeT6 && fcEdgeT6.toPort, 'in', 'T6①: finalcut 连线端口应为 in');
+  const logsT6 = (runT6 && Array.isArray(runT6.log)) ? runT6.log.map((e) => String(e.summary)) : [];
+  ok(!logsT6.some((t) => t.includes('预算与实际段数不一致')), 'T6①: 预算一致时不应有偏差日志');
+  const paidLogT6 = (runT6 && Array.isArray(runT6.paidLog)) ? runT6.paidLog.map((e) => String(e.text)) : [];
+  ok(paidLogT6.some((t) => t.includes('段1/3') && t.includes('完成')), 'T6①: paidLog 缺段完成条目（' + JSON.stringify(paidLogT6) + '）');
+
+  // ③ 预算偏差日志：免费段后改 shots（40s→16s，段数 3→2）→ 重新 quote+approve（指纹绑定新状态）→
+  // autoPaid 照跑，run.budget 还是免费段快照 → 「预算 3 / 实际 2」日志诚实化，不阻塞
+  const t6b = await runWithShots('付费预算偏差日志回归', '【场1】褶皱巷\n雨夜，陈拾收伞，发现邮戳裂开。', { 场1: longShotsArr });
+  ok(t6b.v && t6b.v.status === 'done', 'T6③: 流水线未 done（status=' + (t6b.v && t6b.v.status) + ' error=' + (t6b.v && t6b.v.error) + '）');
+  ok(t6b.v && t6b.v.budget && t6b.v.budget.videoCalls === 3, 'T6③: 免费段预算 videoCalls 应为 3');
+  const docT6b = await I.projectsGet({ id: t6b.pid });
+  const sbT6b = Object.values(docT6b.nodes).find((n) => n.type === 'storyboard');
+  ok(!!sbT6b, 'T6③: 分镜表节点缺失');
+  await byName.get('canvas_update_node').execute({ projectId: t6b.pid, nodeId: sbT6b.id, patch: { shots: midShotsArr } }, {});
+  const qT6b = await M.autoQuote({ projectId: t6b.pid, unitPricePerSecond: 2 });
+  ok(qT6b && qT6b.ok === true && qT6b.videoCalls === 2, 'T6③: 改 shots 后 autoQuote 应如实为 2 段');
+  const apT6b = await M.autoApprove({ projectId: t6b.pid, quoteId: qT6b.quoteId, confirm: '用户：改过分镜了，按新预算开机' });
+  ok(apT6b && apT6b.ok === true, 'T6③: 重新批准失败');
+  const paidT6b = await M.autoGenerate({ projectId: t6b.pid });
+  ok(paidT6b && paidT6b.ok === true, 'T6③: 付费段启动失败');
+  const paidViewT6b = await waitPaid(t6b.pid);
+  ok(paidViewT6b && paidViewT6b.paid === 'done', 'T6③: 偏差不应阻塞付费段（' + (paidViewT6b && paidViewT6b.paidError) + '）');
+  const runT6b = I.__auto.runs.get(t6b.pid + '::default'); // 同上：断言吃全量 log/paidLog
+  const logsT6b = (runT6b && Array.isArray(runT6b.log)) ? runT6b.log.map((e) => String(e.summary)) : [];
+  ok(logsT6b.some((t) => t.includes('预算与实际段数不一致')), 'T6③: run.log 缺「预算与实际段数不一致」条目（logs=' + JSON.stringify(logsT6b) + '）');
+  ok(logsT6b.some((t) => t.includes('预算 3') && t.includes('实际 2')), 'T6③: 偏差日志缺「预算 3 / 实际 2」明细');
+  const paidLogT6b = (runT6b && Array.isArray(runT6b.paidLog)) ? runT6b.paidLog.map((e) => String(e.text)) : [];
+  ok(paidLogT6b.some((t) => t.includes('预算与实际段数不一致')), 'T6③: paidLog 缺偏差条目（操作侧也要看得见）');
+  const docT6b2 = await I.projectsGet({ id: t6b.pid });
+  const sbT6b2 = Object.values(docT6b2.nodes).find((n) => n.type === 'storyboard');
+  const vidsT6b = vidsOf(docT6b2, sbT6b2.id);
+  eq(vidsT6b.length, 2, 'T6③: 应按实际 2 段建节点（实际 ' + vidsT6b.length + '）');
+  const labelsT6b = vidsT6b.map((v) => String((v.data && v.data.label) || ''));
+  ok(labelsT6b.some((l) => l.includes('段1/2')) && labelsT6b.some((l) => l.includes('段2/2')), 'T6③: 段命名缺「段k/N」（' + JSON.stringify(labelsT6b) + '）');
+  eq(t6b.videoExecs.length, 2, 'T6③: 视频应恰好执行 2 次');
+  const fcsT6b = Object.values(docT6b2.nodes).filter((n) => n.type === 'finalcut');
+  eq(fcsT6b.length, 1, 'T6③: 成片节点应恰为 1 个');
+  const lastSegT6b = vidsT6b.find((v) => Number(v.data && v.data.segIndex) === 1);
+  const fcEdgeT6b = (docT6b2.edges || []).find((e) => e.toNode === fcsT6b[0].id);
+  ok(!!fcEdgeT6b && fcEdgeT6b.fromNode === (lastSegT6b && lastSegT6b.id), 'T6③: finalcut 未连最后一个段节点');
+
+  await M.autoModeSet({ enabled: false });
+}
+
 // ---------------- 工具 ----------------
 async function findNode(type) {
   const doc = await I.projectsGet({ id: projectId });

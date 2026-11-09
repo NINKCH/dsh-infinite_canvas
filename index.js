@@ -3994,7 +3994,10 @@ export function apply(ctx) {
         run.log.push({ at: Date.now(), role: 'runner', summary: '失败：' + run.error });
       }
     }
-    /** 付费段 v1：批准后逐分镜表建视频节点 → 生成 → 轮询（失败重试 2 次）→ 成片节点。 */
+    /** 付费段 v1：批准后按镜头切段逐段建视频节点 → 生成 → 轮询（失败重试 2 次）→ 成片节点。
+     *  0.20.2 T6（#10）：一个分镜表 ≠ 一次生成——planShotSegments 切出的每段各建一个 video 节点
+     * （命名带「段k/N」、prompt 带镜头范围约束、data 带客户端 videoSegmentOf 消费的段键），
+     * 长场（如 40s）不再整表一次请求撞厂商上限（实测中转站 400）；finalcut 连最后一个完成的段节点。 */
     async function autoPaid(pid, cid) {
       const cfg = readIcConfig();
       const price = Number(cfg.production && cfg.production.videoUnitPricePerSecond);
@@ -4006,29 +4009,74 @@ export function apply(ctx) {
       run.paid = 'running';
       run.paidAbort = false;
       run.paidLog = [{ at: Date.now(), text: '付费段启动（已批准预算 ' + ap.quoteId + '）' }];
+      const abortNow = () => { run.paid = 'aborted'; run.paidPhase = 'aborted'; run.paidLog.push({ at: Date.now(), text: '已中止（保留已完成视频）' }); };
       (async () => {
         try {
           const doc = readToolDoc({ projectId: pid, canvasId: cid });
           const boards = Object.values(doc.nodes || {}).filter((n) => n.type === 'storyboard' && Array.isArray(n.data && n.data.shots) && n.data.shots.length);
           let lastVideo = null;
           for (let i = 0; i < boards.length; i++) {
-            if (run.paidAbort) { run.paid = 'aborted'; run.paidPhase = 'aborted'; run.paidLog.push({ at: Date.now(), text: '已中止（保留已完成视频）' }); return; }
+            if (run.paidAbort) { abortNow(); return; }
             const sb = boards[i];
             run.paidPhase = 'video ' + (i + 1) + '/' + boards.length;
-            const hasVideo = (doc.edges || []).some((e) => e.fromNode === sb.id && doc.nodes[e.toNode] && doc.nodes[e.toNode].type === 'video');
-            if (hasVideo) continue;
-            const label = String((sb.data && sb.data.label) || ('场' + (i + 1))).replace(/分镜表$/, '') + '视频';
-            const v = canvasCreateNode({ projectId: pid, canvasId: cid, type: 'video', name: label.slice(0, 40), connectFrom: sb.id });
-            if (v && v.ok === false) throw new Error('[' + v.gate + '] ' + v.error);
-            let done = false; let err = null;
-            for (let attempt = 0; attempt < 2 && !done; attempt++) {
-              if (attempt > 0 && run.paidAbort) { run.paid = 'aborted'; run.paidPhase = 'aborted'; run.paidLog.push({ at: Date.now(), text: '已中止（保留已完成视频）' }); return; }
-              try { await canvasExec(pid, cid, v.nodeId, { timeoutMs: 15 * 60 * 1000 }); done = true; }
-              catch (e) { err = e; run.paidLog.push({ at: Date.now(), text: label + ' 第 ' + (attempt + 1) + ' 次失败：' + String((e && e.message) || e) }); }
+            const shots = Array.isArray(sb.data && sb.data.shots) ? sb.data.shots : [];
+            const segMax = Number(sb.data && sb.data.segMaxSeconds) || 15;
+            const plan = planShotSegments(shots, { maxSeconds: segMax });
+            // 客户端兜底同款（production.quote 同式）：切段为空但表里有镜头 → 整表按一段
+            const segs = plan.segments.length ? plan.segments
+              : [{ startIndex: 0, endIndex: shots.length - 1, duration: plan.total, needsTailChain: false, seamRisk: 'none' }];
+            const segCount = segs.length;
+            const baseLabel = String((sb.data && sb.data.label) || ('场' + (i + 1))).replace(/分镜表$/, '');
+            // ③ 预算一致性（只记日志不阻塞）：run.budget 是免费段终点的快照，镜头中途被用户改过就对不上；
+            //   批准令牌的指纹校验已在 autoPaid 入口把守，这里只是日志诚实化。
+            const budgetRow = run.budget && Array.isArray(run.budget.scenes) ? run.budget.scenes.find((r) => r && r.storyboardId === sb.id) : null;
+            if (budgetRow && Number(budgetRow.videoCalls) !== segCount) {
+              const msg = '预算与实际段数不一致（预算 ' + Number(budgetRow.videoCalls) + ' / 实际 ' + segCount + '），按实际执行';
+              run.log.push({ at: Date.now(), role: 'runner', summary: baseLabel + ' ' + msg });
+              run.paidLog.push({ at: Date.now(), text: msg });
             }
-            if (!done) throw err;
-            lastVideo = v.nodeId;
-            run.paidLog.push({ at: Date.now(), text: label + ' 完成' });
+            // 断点续跑：旧版整表单节点（名字不带「段k/N」）→ 整场跳过（该场已有视频、预算已计 0）；
+            // 本 hotfix 的段节点 → 只跳过已存在的那几段，缺的段照建（重试语义按段保留）。
+            const boardVideos = (doc.edges || []).filter((e) => e.fromNode === sb.id).map((e) => doc.nodes[e.toNode]).filter((n) => n && n.type === 'video');
+            const segNumOf = (v) => { const m = String((v.data && v.data.label) || '').match(/ · 段(\d+)\/(\d+)$/); return m ? Number(m[1]) : 0; };
+            if (boardVideos.length && !boardVideos.some((v) => segNumOf(v) > 0)) continue;
+            for (let k = 0; k < segCount; k++) {
+              if (run.paidAbort) { abortNow(); return; }
+              const seg = segs[k];
+              const suffix = segCount > 1 ? '视频 · 段' + (k + 1) + '/' + segCount : '视频';
+              // 段序号后缀整体进名字（G4 禁「镜N」式逐镜命名，这里带的是段区间不是单镜）；先切基础名保后缀完整
+              const label = baseLabel.slice(0, Math.max(1, 40 - suffix.length)) + suffix;
+              if (boardVideos.some((v) => String((v.data && v.data.label) || '') === label)) continue;
+              // G3 一表一视频的逃生舱只给「同场第 2 段起 / 续跑补建缺段」用；quote 引用用户批准过的预算单号（审计可查），
+              // 绝不伪造用户原话。首段不传 override：G2 不过的场在这里照旧硬失败（分镜带病不下场）。
+              const needOverride = boardVideos.length > 0 || k > 0;
+              const segDuration = Math.max(1, Math.round(Number(seg.duration) || 0));
+              const v = canvasCreateNode({ projectId: pid, canvasId: cid, type: 'video', name: label, connectFrom: sb.id, duration: segDuration,
+                ...(needOverride ? { override: { by: 'user-explicit', quote: '付费段按预算切段执行（批准单 ' + ap.quoteId + '）：' + label } } : {}) });
+              if (v && v.ok === false) throw new Error('[' + v.gate + '] ' + v.error);
+              // ② 镜头区间元数据：prompt 通道（白名单内、画布可见；分镜表不在上游时它就是生成提示词）
+              //    + data 段键（client.js videoSegmentOf/segMeta 消费——上游分镜表在 prompt 口时由它决定只取本段镜头）。
+              const shotFrom = Number.isFinite(Number(seg.startIndex)) ? Number(seg.startIndex) : 0;
+              const shotTo = Number.isFinite(Number(seg.endIndex)) ? Number(seg.endIndex) : shots.length - 1;
+              canvasUpdateNode({ projectId: pid, canvasId: cid, nodeId: v.nodeId, patch: { prompt: '【本段 ' + (k + 1) + '/' + segCount + '】本段覆盖分镜第 ' + (shotFrom + 1) + '-' + (shotTo + 1) + ' 镜（共 ' + shots.length + ' 镜），时长约 ' + seg.duration + ' 秒；只生成本段内容，不要越界到其他段的镜头。' } });
+              try {
+                const d2 = readToolDoc({ projectId: pid, canvasId: cid });
+                const n2 = d2.nodes[v.nodeId];
+                if (n2) {
+                  n2.data = { ...(n2.data || {}), segShotFrom: shotFrom, segShotTo: shotTo, segIndex: k, segCount, needsTailChain: seg.needsTailChain === true, seamRisk: String(seg.seamRisk || 'none') };
+                  writeToolDoc({ projectId: pid, canvasId: cid }, d2);
+                }
+              } catch { /* 段键写不进不阻塞：prompt 通道兜底 */ }
+              let done = false; let err = null;
+              for (let attempt = 0; attempt < 2 && !done; attempt++) {
+                if (attempt > 0 && run.paidAbort) { abortNow(); return; }
+                try { await canvasExec(pid, cid, v.nodeId, { timeoutMs: 15 * 60 * 1000 }); done = true; }
+                catch (e) { err = e; run.paidLog.push({ at: Date.now(), text: label + ' 第 ' + (attempt + 1) + ' 次失败：' + String((e && e.message) || e) }); }
+              }
+              if (!done) throw err;
+              lastVideo = v.nodeId;
+              run.paidLog.push({ at: Date.now(), text: label + ' 完成' });
+            }
           }
           if (lastVideo) {
             const fc = canvasCreateNode({ projectId: pid, canvasId: cid, type: 'finalcut', name: '成片', connectFrom: lastVideo });
