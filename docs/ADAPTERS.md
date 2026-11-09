@@ -110,6 +110,8 @@ runtime）。画布数据根：`~/.dsh-infinite-canvas/`（env `DSH_IC_HOME` 可
 | VS Code | 待实测（Task 11） | 待实测 | 待实测 | 待实测 |
 | CodeBuddy | 待实测（Task 11） | 待实测 | 待实测 | 待实测 |
 | Trae | **lm-tools**（Trae CN 3.4.15，host vscode 1.107.1；能力 lmTools/mcpProvider/sampling=true, cursorMcp=false） | vscode.lm：无模型（豆包未开放给扩展 API） | sampling=n/a（进程内语义）；通道探测 bridge=workbuddy:52，文本通道=bridge | 2026-11-08 |
+
+> **0.3.3 实机验收（Trae CN，2026-11-09，维护者本人）**：通过。画布设置页文本模型显示可用（WorkBuddy 模型桥 52 模型，默认 claude-sonnet-5）、白底浅色主题、界面默认中文。 Trae 验证即 0.3.3 的实机验收记录；vsix 产物见 GitHub Release `adapters-v0.3.3`。
 | Cursor | 待实测（Task 11） | 待实测 | 待实测 | 待实测 |
 | Qoder | 待实测（Task 11） | 待实测 | 待实测 | 待实测 |
 | WorkBuddy | 待实测（Task 11） | 待实测 | 待实测 | 待实测 |
