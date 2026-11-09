@@ -1509,6 +1509,273 @@ let sbNodeId = '';
   I.closeDb(); // 释放 SQLite 句柄：清理段的 fs.rm 才能删掉沙盒里的 canvas.db（Windows 文件锁）
 }
 
+// ============================ 十一、免费段断点续跑（0.20.2 T10：#2 + #14） ============================
+// 用户实测：监制决策轮失败后重试 = 免费段从头再跑（调研→A/B提案→互评→监制全部重走），前面成功阶段全浪费。
+// 修复：阶段产物持久化进制作状态文件（PROD.readState/writeState，ps.autoRun），autoStart 检测未完成 run
+// → 从断点续跑（已完成阶段不调 LLM、不重建节点、不再 exec）；传不同 brief = 全新启动（换创意是有意的）；
+//   中途 abort 同样可续跑。场景：① 监制轮失败→续跑 ② 互评轮阻塞→abort→续跑 ③ 换 brief=全新 / 已完结=全新
+//   ④ 无持久化 / 形状损坏=全新 ⑤ 场级断点（场1 分镜完成、场2 失败 → 续跑跳过场1）。
+{
+  const M = I.rpcMethods();
+  await M.autoModeSet({ enabled: true });
+  const drT10 = await M.dataRootSet({ root: path.join(SANDBOX, 't10-data-root') });
+  ok(drT10 && drT10.ok === true, 'T10前置: dataRootSet 失败');
+
+  const goodShots10 = JSON.stringify({ shots: [
+    { title: '镜1', visual: '中景，陈拾收伞回望', motion: '横移跟随', duration: 3, seg: 'opening', tail: '转身欲走', cam: '横移回正' },
+    { title: '镜2', visual: '大特写，邮戳裂开', motion: '缓推', duration: 2, seg: 'closeup', tail: '裂开定格', cam: '推进到位' },
+  ] });
+  const scriptOut10 = '【场1】巷口\n雨夜，陈拾收伞。\n【场2】邮局\n清晨，邮戳裂开。';
+  const execs10 = []; // 画布执行桩的成功 exec 记录（断言「不再 exec」用）
+  const setRunner10 = (failLabel) => {
+    I.__auto.setCanvasRunner(async (pid2, cid2, nodeId) => {
+      const d = await I.projectsGet({ id: pid2, ...(cid2 ? { canvasId: cid2 } : {}) });
+      const n = d.nodes[nodeId];
+      if (!n) throw new Error('桩：节点不存在');
+      const label = String((n.data && n.data.label) || '');
+      if (failLabel && failLabel.test(label)) throw new Error('桩注入：' + label + ' 生成失败');
+      execs10.push({ pid: pid2, nodeId, type: n.type, label });
+      if (n.type === 'script') {
+        await I.canvasWriteNode({ projectId: pid2, canvasId: cid2 || undefined, nodeId, target: 'output', text: scriptOut10, overwrite: true });
+        return { type: 'script', output: scriptOut10 };
+      }
+      if (n.type === 'storyboard') {
+        await I.canvasWriteNode({ projectId: pid2, canvasId: cid2 || undefined, nodeId, target: 'output', text: goodShots10, overwrite: true });
+        return { type: 'storyboard', shots: JSON.parse(goodShots10).shots };
+      }
+      return { type: n.type, status: 'done' };
+    });
+  };
+
+  // 带计数器的假 LLM（T2 骨架 + 逐角色计数）。每个角色的产物带 tag 前缀 → 「跳过」断言有牙：
+  // 续跑若错误重调某角色，该角色计数 >0 且落盘产物内容会变成新 tag（双重穿帮）。
+  const roomFake10 = (tag, opts = {}) => {
+    const calls = { research: 0, pitchA: 0, pitchB: 0, critique: 0, monitor: 0 };
+    let releaseCritique = null;
+    const critiqueGate = new Promise((res) => { releaseCritique = res; });
+    const fn = async ({ system }) => {
+      const s = String(system || '');
+      if (s.includes('调研员')) { calls.research++; return JSON.stringify({ themes: [{ name: tag + '调研', why: 't' }], styles: ['写实电影感'] }); }
+      if (s.includes('编剧A')) { calls.pitchA++; return JSON.stringify({ logline: tag + 'A案故事线', beats: ['b1', 'b2', 'b3'] }); }
+      if (s.includes('编剧B')) { calls.pitchB++; return JSON.stringify({ logline: tag + 'B案故事线', beats: ['c1', 'c2', 'c3'] }); }
+      if (s.includes('剧评人')) {
+        calls.critique++;
+        if (opts.blockCritique) return critiqueGate.then(() => JSON.stringify({ critA: [tag + '互评'], critB: ['动机可信'] }));
+        return JSON.stringify({ critA: [tag + '互评'], critB: ['动机可信'] });
+      }
+      if (s.includes('监制')) {
+        calls.monitor++;
+        if (opts.monitorProse) return opts.monitorProse(); // 散文两轮 → T2 原失败语义 → run failed
+        return JSON.stringify({ decision: 'merge', rationale: '取A冲突+B动机', logline: tag + '定稿故事线', beats: ['x', 'y', 'z'],
+          bible: { worldview: tag + '世界观：时空邮局', style: '写实电影感', characters: [{ name: '陈拾', desc: '24 岁，旧邮差制服' }], scenes: [{ name: '褶皱巷', desc: '雨夜窄巷' }], props: [{ name: '火漆信', desc: '火漆印' }],
+            scriptIdea: '写第一节剧本：雨夜邮差陈拾接到一封无法投递的信……每场结尾留因果钩子，每场至少一个冲突点。' } });
+      }
+      return '{}';
+    };
+    return { calls, fn, unblock: () => releaseCritique() };
+  };
+
+  const waitRun10 = async (pid2, want) => {
+    let v = null;
+    for (let i = 0; i < 100; i++) {
+      await new Promise((r) => setTimeout(r, 100));
+      v = (await M.autoStatus({ projectId: pid2 })).run;
+      if (v && want.includes(v.status)) break;
+    }
+    return v;
+  };
+  const doc10 = async (pid2) => I.projectsGet({ id: pid2 });
+  const nodes10 = (d, type, re) => Object.values(d.nodes).filter((n) => n.type === type && re.test(String((n.data && n.data.label) || '')));
+
+  setRunner10(null);
+
+  // ① 失败→续跑：监制两轮皆散文（T2 语义）→ run failed，research/pitchA/pitchB/crit 已持久化
+  const pidT10a = (await byName.get('canvas_create_project').execute({ name: 'T10断点续跑-失败续跑' }, {})).projectId;
+  const fBad = roomFake10('首轮', { monitorProse: () => '我们决定融合两案（无 JSON）。' });
+  I.__auto.setRoomLlm(fBad.fn);
+  const startedBad = await M.autoStart({ projectId: pidT10a, brief: 'T10：监制轮失败后从断点续跑（首轮创意）' });
+  ok(startedBad && startedBad.ok === true, 'T10①: 首轮 autoStart 未启动');
+  ok(String(startedBad.note).includes('全新启动'), 'T10①: 首轮 note 应注明全新启动（实际：' + (startedBad && startedBad.note) + '）');
+  const vBad = await waitRun10(pidT10a, ['failed']);
+  ok(vBad && vBad.status === 'failed', 'T10①: 首轮应 run failed（status=' + (vBad && vBad.status) + '）');
+  eq(fBad.calls.research, 1, 'T10①: 首轮调研调用数');
+  eq(fBad.calls.pitchA, 1, 'T10①: 首轮编剧A调用数');
+  eq(fBad.calls.pitchB, 1, 'T10①: 首轮编剧B调用数');
+  eq(fBad.calls.critique, 1, 'T10①: 首轮互评调用数');
+  eq(fBad.calls.monitor, 2, 'T10①: 监制散文应恰好局部重试一次（调用数应为 2）');
+  // 检查点已落盘：四个已完成阶段产物在、未完结、断点停在互评之后
+  const psBad = P.readState(pidT10a, null);
+  ok(!!psBad && !!psBad.autoRun && !psBad.autoRun.completed, 'T10①: 失败后 ps.autoRun 未完成检查点缺失');
+  eq(psBad && psBad.autoRun && psBad.autoRun.phase, 'critique', 'T10①: 断点应停在互评之后');
+  ok(!!(psBad && psBad.autoRun && psBad.autoRun.outputs.research && psBad.autoRun.outputs.pitchA && psBad.autoRun.outputs.pitchB && psBad.autoRun.outputs.crit), 'T10①: 四个已完成阶段产物未持久化');
+  ok(!(psBad && psBad.autoRun && psBad.autoRun.outputs.dec), 'T10①: 失败阶段（监制）产物不应持久化');
+  eq(psBad && psBad.autoRun && psBad.autoRun.brief, 'T10：监制轮失败后从断点续跑（首轮创意）', 'T10①: 检查点 brief 未落盘');
+  // 换好假 LLM（产物带「续跑」前缀 → 若被错误重调，调用数与落盘产物双重穿帮），不传 brief → 续跑
+  const fGood = roomFake10('续跑');
+  I.__auto.setRoomLlm(fGood.fn);
+  const resumed = await M.autoStart({ projectId: pidT10a });
+  ok(resumed && resumed.ok === true, 'T10①: 不传 brief 的续跑应放行（brief 用存储值）');
+  ok(String(resumed.note).includes('断点续跑') && String(resumed.note).includes('跳过 4 个已完成阶段'), 'T10①: note 未注明续跑与跳过数（实际：' + (resumed && resumed.note) + '）');
+  const vRes = await waitRun10(pidT10a, ['done', 'failed']);
+  ok(vRes && vRes.status === 'done', 'T10①: 续跑未 done（status=' + (vRes && vRes.status) + ' error=' + (vRes && vRes.error) + '）');
+  eq(fGood.calls.research, 0, 'T10①: 调研不该被重调');
+  eq(fGood.calls.pitchA, 0, 'T10①: 编剧A不该被重调');
+  eq(fGood.calls.pitchB, 0, 'T10①: 编剧B不该被重调');
+  eq(fGood.calls.critique, 0, 'T10①: 互评不该被重调');
+  ok(fGood.calls.monitor >= 1, 'T10①: 监制（失败阶段）应被重调');
+  // 落盘产物与首轮一致：会议记录里的调研/A/B提案仍是「首轮」产物（内容前缀穿帮断言）
+  const dRes = await doc10(pidT10a);
+  const meets10 = nodes10(dRes, 'text', /编剧室会议/);
+  eq(meets10.length, 1, 'T10①: 会议节点不应重复建（实际 ' + meets10.length + '）');
+  ok(!!meets10[0] && String(meets10[0].data.text || '').includes('首轮调研') && String(meets10[0].data.text || '').includes('首轮A案故事线') && String(meets10[0].data.text || '').includes('首轮B案故事线'),
+    'T10①: 会议记录未复用首轮产物（续跑重跑了已完成阶段）');
+  eq(nodes10(dRes, 'script', /第1节剧本/).length, 1, 'T10①: 剧本节点不应重复建');
+  const boardsRes = nodes10(dRes, 'storyboard', /分镜表/);
+  eq(boardsRes.length, 2, 'T10①: 续跑应产出两场分镜');
+  ok(boardsRes.every((b) => Array.isArray(b.data.shots) && b.data.shots.length >= 2), 'T10①: 续跑分镜未生成 shots');
+  eq(vRes && vRes.budget && vRes.budget.sceneCount, 2, 'T10①: 续跑预算单场数不符');
+  eq(vRes && vRes.budget && vRes.budget.videoCalls, 2, 'T10①: 续跑预算单视频调用数不符');
+  const runRes = I.__auto.runs.get(pidT10a + '::default');
+  ok(!!runRes && (runRes.log || []).some((e) => String(e.summary).includes('断点续跑')), 'T10①: run.log 缺断点续跑标记');
+  const bibleRes = await I.canvasGetBible({ projectId: pidT10a });
+  ok(!!bibleRes.bible && String(bibleRes.bible.worldview).indexOf('续跑世界观') === 0, 'T10①: 监制重做的新决策未落盘设定集（实际：' + (bibleRes.bible && bibleRes.bible.worldview) + '）');
+  // 完结后检查点标 completed，且已完成阶段产物仍是首轮原值（续跑不覆盖产物）
+  const psDone = P.readState(pidT10a, null);
+  ok(!!psDone && !!psDone.autoRun && psDone.autoRun.completed === true, 'T10①: 完结后检查点应标 completed');
+  ok(!!(psDone && psDone.autoRun && psDone.autoRun.outputs.research && psDone.autoRun.outputs.research.themes[0].name === '首轮调研'), 'T10①: 续跑不应覆盖已完成阶段的持久化产物');
+
+  // ② 中途 abort→续跑：互评轮阻塞（never-resolve）→ 前三阶段检查点落盘后 autoAbort → 释放阻塞
+  // → 互评照常完成并入检查点，监制入口检查 → run 以 aborted 结束 → 续跑从监制起（前四段零调用）。
+  const pidT10b = (await byName.get('canvas_create_project').execute({ name: 'T10断点续跑-abort续跑' }, {})).projectId;
+  const fBlock = roomFake10('阻塞轮', { blockCritique: true });
+  I.__auto.setRoomLlm(fBlock.fn);
+  const startedBlk = await M.autoStart({ projectId: pidT10b, brief: 'T10：中途中止后从断点续跑（阻塞轮创意）' });
+  ok(startedBlk && startedBlk.ok === true, 'T10②: 阻塞轮 autoStart 未启动');
+  let phaseBlk = null;
+  for (let i = 0; i < 50; i++) {
+    await new Promise((r) => setTimeout(r, 100));
+    phaseBlk = (await M.autoStatus({ projectId: pidT10b })).run;
+    if (phaseBlk && phaseBlk.phase === 'critique') break;
+  }
+  ok(!!phaseBlk && phaseBlk.phase === 'critique', 'T10②: 未进入互评阶段（phase=' + (phaseBlk && phaseBlk.phase) + '）');
+  const abBlk = await M.autoAbort({ projectId: pidT10b });
+  ok(abBlk && abBlk.ok === true, 'T10②: 运行中 autoAbort 应成功');
+  fBlock.unblock(); // 释放阻塞：互评完成入检查点，监制入口检查 → aborted
+  const vBlk = await waitRun10(pidT10b, ['aborted']);
+  ok(vBlk && vBlk.status === 'aborted', 'T10②: 释放后 run 应以 aborted 结束（status=' + (vBlk && vBlk.status) + '）');
+  const psBlk = P.readState(pidT10b, null);
+  ok(!!psBlk && !!psBlk.autoRun && !psBlk.autoRun.completed, 'T10②: aborted 后未完成检查点缺失');
+  eq(psBlk && psBlk.autoRun && psBlk.autoRun.phase, 'critique', 'T10②: 断点应停在互评之后（含释放后完成的互评产物）');
+  ok(!!(psBlk && psBlk.autoRun && psBlk.autoRun.outputs.crit && psBlk.autoRun.outputs.research), 'T10②: 释放后完成的互评产物未入检查点');
+  const fRes2 = roomFake10('续跑二');
+  I.__auto.setRoomLlm(fRes2.fn);
+  const resumed2 = await M.autoStart({ projectId: pidT10b });
+  ok(!!resumed2 && resumed2.ok === true && String(resumed2.note).includes('跳过 4 个已完成阶段'), 'T10②: 续跑 note 不符（实际：' + (resumed2 && resumed2.note) + '）');
+  const vRes2 = await waitRun10(pidT10b, ['done', 'failed']);
+  ok(vRes2 && vRes2.status === 'done', 'T10②: abort 后续跑未 done（status=' + (vRes2 && vRes2.status) + ' error=' + (vRes2 && vRes2.error) + '）');
+  eq(fRes2.calls.research + fRes2.calls.pitchA + fRes2.calls.pitchB + fRes2.calls.critique, 0, 'T10②: 断点之前的阶段被重调（' + JSON.stringify(fRes2.calls) + '）');
+  ok(fRes2.calls.monitor >= 1, 'T10②: 监制未被重调');
+  const dRes2 = await doc10(pidT10b);
+  eq(nodes10(dRes2, 'text', /编剧室会议/).length, 1, 'T10②: 会议节点不应重复建');
+  ok(nodes10(dRes2, 'text', /编剧室会议/).every((n) => String(n.data.text || '').includes('阻塞轮调研')), 'T10②: 会议记录未复用中止前的持久化产物');
+
+  // ③ 换 brief = 全新启动：再造一个未完成断点，然后传不同 brief → 全部阶段重调（检查点被覆盖）
+  const pidT10c = (await byName.get('canvas_create_project').execute({ name: 'T10断点续跑-换brief全新' }, {})).projectId;
+  const fBad3 = roomFake10('换brief前', { monitorProse: () => '散文（无 JSON）。' });
+  I.__auto.setRoomLlm(fBad3.fn);
+  await M.autoStart({ projectId: pidT10c, brief: 'T10：换brief前的失败创意' });
+  const vBad3 = await waitRun10(pidT10c, ['failed']);
+  ok(vBad3 && vBad3.status === 'failed', 'T10③: 前置失败轮未 failed');
+  const fNew3 = roomFake10('换brief后');
+  I.__auto.setRoomLlm(fNew3.fn);
+  const fresh3 = await M.autoStart({ projectId: pidT10c, brief: 'T10：完全不同的另一个创意方向' });
+  ok(!!fresh3 && fresh3.ok === true, 'T10③: 换 brief 启动失败');
+  ok(String(fresh3.note).includes('全新启动') && !String(fresh3.note).includes('断点续跑'), 'T10③: 换 brief 应全新启动（实际：' + (fresh3 && fresh3.note) + '）');
+  const vNew3 = await waitRun10(pidT10c, ['done', 'failed']);
+  ok(vNew3 && vNew3.status === 'done', 'T10③: 换 brief 全新流水线未 done（status=' + (vNew3 && vNew3.status) + '）');
+  ok(fNew3.calls.research === 1 && fNew3.calls.pitchA === 1 && fNew3.calls.pitchB === 1 && fNew3.calls.critique === 1, 'T10③: 换 brief 后全部阶段应重调（' + JSON.stringify(fNew3.calls) + '）');
+  const psNew3 = P.readState(pidT10c, null);
+  eq(psNew3 && psNew3.autoRun && psNew3.autoRun.brief, 'T10：完全不同的另一个创意方向', 'T10③: 检查点 brief 未被新 brief 覆盖');
+  // ③b 已完结 run（completed）→ 现行为：同一 brief 再启动也是全新（做新的一集）
+  const fAgain = roomFake10('再跑一集');
+  I.__auto.setRoomLlm(fAgain.fn);
+  const again = await M.autoStart({ projectId: pidT10a, brief: 'T10：监制轮失败后从断点续跑（首轮创意）' });
+  ok(!!again && again.ok === true && String(again.note).includes('全新启动'), 'T10③b: 已完结 run 再启动应全新（实际：' + (again && again.note) + '）');
+  const vAgain = await waitRun10(pidT10a, ['done', 'failed']);
+  ok(vAgain && vAgain.status === 'done', 'T10③b: 已完结 run 全新重跑未 done');
+  ok(fAgain.calls.research === 1 && fAgain.calls.pitchA === 1, 'T10③b: 已完结 run 不该续跑（' + JSON.stringify(fAgain.calls) + '）');
+  const dAgain = await doc10(pidT10a);
+  eq(nodes10(dAgain, 'text', /编剧室会议/).length, 2, 'T10③b: 全新启动应新建第二个会议节点');
+
+  // ④ 无持久化 → 现行为全新启动；ps.autoRun 形状损坏（旧版/缺字段）→ 视同无持久化，绝不带病续跑
+  const pidT10d = (await byName.get('canvas_create_project').execute({ name: 'T10断点续跑-无持久化' }, {})).projectId;
+  const fClean = roomFake10('干净项目');
+  I.__auto.setRoomLlm(fClean.fn);
+  const clean = await M.autoStart({ projectId: pidT10d, brief: 'T10：干净项目正常全新启动' });
+  ok(!!clean && clean.ok === true && String(clean.note).includes('全新启动'), 'T10④: 干净项目应全新启动');
+  const vClean = await waitRun10(pidT10d, ['done', 'failed']);
+  ok(vClean && vClean.status === 'done', 'T10④: 干净项目未 done');
+  ok(fClean.calls.research === 1 && fClean.calls.monitor >= 1, 'T10④: 干净项目流水线未完整跑（' + JSON.stringify(fClean.calls) + '）');
+  const pidT10e = (await byName.get('canvas_create_project').execute({ name: 'T10断点续跑-形状损坏' }, {})).projectId;
+  P.writeState(pidT10e, null, { version: 1, projectId: pidT10e, canvasKey: 'default', floor: 0, explicit: null, createdAt: Date.now(), updatedAt: 0, history: [], overrides: [], autoRun: { phase: 'decide', brief: '残缺形状的存储brief足够长' } });
+  const noBriefBroken = await M.autoStart({ projectId: pidT10e });
+  ok(noBriefBroken && noBriefBroken.ok === false, 'T10④: 形状损坏且未传 brief 应按缺 brief 拒绝（不得带病续跑）');
+  const fBroken = roomFake10('损坏形状');
+  I.__auto.setRoomLlm(fBroken.fn);
+  const broken = await M.autoStart({ projectId: pidT10e, brief: 'T10：形状损坏时全新启动（不带病续跑）' });
+  ok(!!broken && broken.ok === true && String(broken.note).includes('全新启动'), 'T10④: 形状损坏应视同无持久化');
+  const vBroken = await waitRun10(pidT10e, ['done', 'failed']);
+  ok(vBroken && vBroken.status === 'done', 'T10④: 形状损坏项目未 done');
+  eq(fBroken.calls.research, 1, 'T10④: 形状损坏不应吃检查点（调研被跳过了）');
+
+  // ⑤ 场级断点：场1 分镜完成后场2 exec 注入失败 → run failed（boardIds=[场1]）→ 续跑场1 跳过、场2 重做
+  const pidT10f = (await byName.get('canvas_create_project').execute({ name: 'T10断点续跑-场级断点' }, {})).projectId;
+  const fMid = roomFake10('场级');
+  I.__auto.setRoomLlm(fMid.fn);
+  setRunner10(/场2分镜表/);
+  const startedMid = await M.autoStart({ projectId: pidT10f, brief: 'T10：场级断点续跑（第二场分镜失败）' });
+  ok(startedMid && startedMid.ok === true, 'T10⑤: 场级失败轮未启动');
+  const vMid = await waitRun10(pidT10f, ['failed']);
+  ok(vMid && vMid.status === 'failed', 'T10⑤: 场2 失败轮未 failed');
+  const psMid = P.readState(pidT10f, null);
+  ok(!!psMid && !!psMid.autoRun && psMid.autoRun.phase === 'board1' && Array.isArray(psMid.autoRun.boardIds) && psMid.autoRun.boardIds.length === 1
+    && Array.isArray(psMid.autoRun.scenes) && psMid.autoRun.scenes.length === 2,
+    'T10⑤: 场级检查点缺失（' + JSON.stringify(psMid && psMid.autoRun && { p: psMid.autoRun.phase, b: psMid.autoRun.boardIds, s: psMid.autoRun.scenes && psMid.autoRun.scenes.length }) + '）');
+  const dMid1 = await doc10(pidT10f);
+  const sbMid1 = nodes10(dMid1, 'storyboard', /场1分镜表/);
+  eq(sbMid1.length, 1, 'T10⑤: 前置 场1分镜表 应恰 1 个');
+  ok(!!sbMid1[0] && Array.isArray(sbMid1[0].data.shots) && sbMid1[0].data.shots.length >= 2, 'T10⑤: 场1 shots 未生成');
+  // 续跑（不传 brief）：LLM 全零调用、剧本不重 exec、场1 不重建不重跑、场2 重做 → done
+  setRunner10(null);
+  const fMid2 = roomFake10('场级续跑');
+  I.__auto.setRoomLlm(fMid2.fn);
+  const resumedMid = await M.autoStart({ projectId: pidT10f });
+  ok(!!resumedMid && resumedMid.ok === true && String(resumedMid.note).includes('跳过 8 个已完成阶段'), 'T10⑤: 场级续跑 note 不符（实际：' + (resumedMid && resumedMid.note) + '）');
+  const vMid2 = await waitRun10(pidT10f, ['done', 'failed']);
+  ok(vMid2 && vMid2.status === 'done', 'T10⑤: 场级续跑未 done（status=' + (vMid2 && vMid2.status) + ' error=' + (vMid2 && vMid2.error) + '）');
+  eq(fMid2.calls.research + fMid2.calls.pitchA + fMid2.calls.pitchB + fMid2.calls.critique + fMid2.calls.monitor, 0, 'T10⑤: 场级续跑不应调任何 LLM（' + JSON.stringify(fMid2.calls) + '）');
+  const exF = execs10.filter((x) => x.pid === pidT10f);
+  eq(exF.filter((x) => x.type === 'script').length, 1, 'T10⑤: 剧本不应重新 exec（scenes 应走检查点）');
+  eq(exF.filter((x) => /场1分镜表/.test(x.label)).length, 1, 'T10⑤: 场1 分镜不应重新 exec');
+  eq(exF.filter((x) => /场2分镜表/.test(x.label)).length, 1, 'T10⑤: 场2 分镜应恰重做 1 次');
+  const dMid2 = await doc10(pidT10f);
+  eq(nodes10(dMid2, 'storyboard', /场1分镜表/).length, 1, 'T10⑤: 场1分镜表不应重建');
+  eq(nodes10(dMid2, 'text', /场1文本/).length, 1, 'T10⑤: 场1文本不应重建');
+  const boardsMid2 = nodes10(dMid2, 'storyboard', /分镜表/).filter((b) => Array.isArray(b.data.shots) && b.data.shots.length);
+  eq(boardsMid2.length, 2, 'T10⑤: 续跑后应有 2 个带 shots 的分镜表');
+  const sb1Mid2 = nodes10(dMid2, 'storyboard', /场1分镜表/)[0] || null;
+  const sb2Mid2 = nodes10(dMid2, 'storyboard', /场2分镜表/).find((b) => Array.isArray(b.data.shots) && b.data.shots.length) || null;
+  ok(!!sb1Mid2 && !!sb2Mid2 && !!(dMid2.edges || []).find((e) => e.fromNode === sb1Mid2.id && e.toNode === sb2Mid2.id && e.toPort === 'prev'), 'T10⑤: 续跑场2 分镜应接续场1（tail→prev）');
+  eq(vMid2 && vMid2.budget && vMid2.budget.sceneCount, 2, 'T10⑤: 续跑预算单场数不符');
+  eq(vMid2 && vMid2.budget && vMid2.budget.videoCalls, 2, 'T10⑤: 续跑预算单视频调用数不符');
+  const runMid2 = I.__auto.runs.get(pidT10f + '::default');
+  ok(!!runMid2 && (runMid2.log || []).some((e) => String(e.summary).includes('场1 分镜已存在（断点续跑），跳过重新生成')), 'T10⑤: 缺场1跳过日志');
+  ok(!!runMid2 && Array.isArray(runMid2.boards) && runMid2.boards.length === 2 && runMid2.boards[0].storyboardId === sb1Mid2.id, 'T10⑤: run.boards 未含跳过场的记账');
+
+  await M.autoModeSet({ enabled: false });
+  I.closeDb(); // 释放 SQLite 句柄：清理段的 fs.rm 才能删掉沙盒里的 canvas.db（Windows 文件锁）
+}
+
 // ---------------- 工具 ----------------
 async function findNode(type) {
   const doc = await I.projectsGet({ id: projectId });

@@ -3866,45 +3866,106 @@ export function apply(ctx) {
       if (!out.length) return [{ no: 1, head: '【场1】', lines: [src] }];
       return out.map((s, i) => ({ no: s.no || i + 1, text: (s.head + '\n' + s.lines.join('\n')).trim() }));
     }
-    async function autoRoom(pid, cid, brief) {
+    // 0.20.2 T10 断点续跑：免费段检查点的单位序（每完成一个单位就把 ps.autoRun 就地落盘一次）。
+    // phase 语义 =「最后完成的单位名」，续跑从它的下一个单位继续；pitchA/pitchB 拆成两个单位，
+    // 断在 A、B 之间只重跑 B。board 单位（'board<k>'）在 script 之后按场追加，数量随 scenes 定。
+    const AUTO_CKPT_ORDER = ['research', 'pitchA', 'pitchB', 'critique', 'decide', 'writeback', 'script'];
+    /** 持久化 run 形状校验：旧版/损坏/已完结 → 视同无持久化（全新启动），绝不带病续跑。 */
+    const autoCkptValid = (c) => !!c && typeof c === 'object' && !c.completed
+      && typeof c.brief === 'string' && c.brief.trim().length >= 4
+      && !!c.outputs && typeof c.outputs === 'object' && !Array.isArray(c.outputs)
+      && Array.isArray(c.boardIds);
+    /** 已完成单位数（note/日志的「跳过 N 个已完成阶段」）。 */
+    const autoCkptSkipCount = (c) => {
+      const i = AUTO_CKPT_ORDER.indexOf(c.phase);
+      if (i >= 0) return i + 1;
+      return String(c.phase || '').indexOf('board') === 0 ? AUTO_CKPT_ORDER.length + c.boardIds.filter(Boolean).length : 0;
+    };
+    /** 断点的展示阶段（run.phase 仅供 autoStatus 观察；autoRoom 执行时会按实际阶段覆盖）。 */
+    const autoCkptDisplayPhase = (c) => {
+      if (c.phase === 'pitchA' || c.phase === 'pitchB') return 'pitch';
+      if (AUTO_CKPT_ORDER.indexOf(c.phase) >= 0) return c.phase;
+      return String(c.phase || '').indexOf('board') === 0 ? 'boards' : 'start';
+    };
+    // resume 非空 = 断点续跑（autoStart 已校验形状）：已完成单位的产物直接吃检查点，不调 LLM、不重建节点。
+    async function autoRoom(pid, cid, brief, resume) {
       const runKey = runKeyOf(pid, cid);
       const run = AUTO_RUNS.get(runKey);
       const BASE = '你是短剧创作团队的一员。流程与格式是硬要求；剧情创意只来自用户 brief，绝不套模板。输出只给 JSON。';
+      // T10：run.ckpt = 制作状态文件 ps.autoRun 的内存镜像；ckptDone 每单位落盘一次
+      //（try/catch：状态文件损坏/写失败不炸流水线，内存 run 照常推进）。
+      run.ckpt = resume || { brief, phase: null, completed: false, outputs: {}, meetingNodeId: null, scriptNodeId: null, scenes: null, boardIds: [], startedAt: Date.now(), updatedAt: Date.now() };
+      const ckptDone = (phase) => {
+        run.ckpt.phase = phase;
+        run.ckpt.updatedAt = Date.now();
+        try {
+          const ps = PROD.readState(pid, cid) || { version: 1, projectId: pid, canvasKey: (cid || 'default'), floor: 0, explicit: null, createdAt: Date.now(), updatedAt: 0, history: [], overrides: [] };
+          ps.autoRun = JSON.parse(JSON.stringify(run.ckpt));
+          ps.updatedAt = Date.now();
+          PROD.writeState(pid, cid, ps);
+        } catch { /* 检查点写失败不阻塞主流程 */ }
+      };
+      const ckptOut = (k) => ((resume && resume.outputs && resume.outputs[k]) || null);
       try {
-        // ① 调研（离线知识；联网调研随会话执行器上线）
-        run.phase = 'research';
-        const research = await autoRoomStep(run, '调研', BASE + '\n你是题材调研员（当前离线：基于既有知识，标注「离线调研」）。给出 3 个与 brief 相关的热门题材方向与 3 种视觉风格建议。',
-          '用户 brief：' + brief, true);
-        // ② 编剧 A / B 独立提案（互不可见）
+        // ① 调研（离线知识；联网调研随会话执行器上线）——续跑时已完成单位直接吃检查点产物
+        let research = ckptOut('research');
+        if (!research) {
+          run.phase = 'research';
+          research = await autoRoomStep(run, '调研', BASE + '\n你是题材调研员（当前离线：基于既有知识，标注「离线调研」）。给出 3 个与 brief 相关的热门题材方向与 3 种视觉风格建议。',
+            '用户 brief：' + brief, true);
+          run.ckpt.outputs.research = research;
+          ckptDone('research');
+        }
+        // ② 编剧 A / B 独立提案（互不可见）——A/B 是两个独立检查点单位
         run.phase = 'pitch';
         const ctxUser = '用户 brief：' + brief + '\n调研建议：' + JSON.stringify(research).slice(0, 1200);
-        const pitchA = await autoRoomStep(run, '编剧A', BASE + '\n你是编剧A（强冲突/强反转取向）。给出 logline（≤40字）与 3 个节拍。',
-          ctxUser + '\n输出 {"logline":"…","beats":["…","…","…"]}', true);
-        const pitchB = await autoRoomStep(run, '编剧B', BASE + '\n你是编剧B（人物动机/情感真实取向）。给出 logline（≤40字）与 3 个节拍。与常规方案反着来。',
-          ctxUser, true);
+        let pitchA = ckptOut('pitchA');
+        if (!pitchA) {
+          pitchA = await autoRoomStep(run, '编剧A', BASE + '\n你是编剧A（强冲突/强反转取向）。给出 logline（≤40字）与 3 个节拍。',
+            ctxUser + '\n输出 {"logline":"…","beats":["…","…","…"]}', true);
+          run.ckpt.outputs.pitchA = pitchA;
+          ckptDone('pitchA');
+        }
+        let pitchB = ckptOut('pitchB');
+        if (!pitchB) {
+          pitchB = await autoRoomStep(run, '编剧B', BASE + '\n你是编剧B（人物动机/情感真实取向）。给出 logline（≤40字）与 3 个节拍。与常规方案反着来。',
+            ctxUser, true);
+          run.ckpt.outputs.pitchB = pitchB;
+          ckptDone('pitchB');
+        }
         // ③ 互评
-        run.phase = 'critique';
-        const crit = await autoRoomStep(run, '互评', BASE + '\n你是剧评人。分别评 A、B 两案各 ≤3 条（冲突强度/动机可信/成本可行性）。',
-          'A案：' + JSON.stringify(pitchA).slice(0, 800) + '\nB案：' + JSON.stringify(pitchB).slice(0, 800), true);
+        let crit = ckptOut('crit');
+        if (!crit) {
+          run.phase = 'critique';
+          crit = await autoRoomStep(run, '互评', BASE + '\n你是剧评人。分别评 A、B 两案各 ≤3 条（冲突强度/动机可信/成本可行性）。',
+            'A案：' + JSON.stringify(pitchA).slice(0, 800) + '\nB案：' + JSON.stringify(pitchB).slice(0, 800), true);
+          run.ckpt.outputs.crit = crit;
+          ckptDone('critique');
+        }
         // ④ 监制决策
-        run.phase = 'decide';
-        // 技能遵循度：监制轮带上项目技能包配置（renderProfile 头），决策/设定集不得与项目技能配置脱节——
-        // 未配置技能包的项目如实说「未配置」，行为不变。
-        let skillLine = '';
-        try {
-          const doc0 = readDoc(pid);
-          const inv0 = packInventory(HERE);
-          const prof0 = normalizeSkillProfile(doc0.skillProfile, allowedIds(inv0));
-          skillLine = '\n【项目技能包配置·决策须与之一致】' + renderProfile(prof0, inv0, true)
-            + '\n题材/影调/规格按上述配置取材；brief 的剧情创意仍优先，配置只约束风格与世界观口径。';
-        } catch { /* 项目文档读不到时跳过（与未配置同等对待） */ }
-        const dec = await autoRoomStep(run, '监制', BASE + skillLine + '\n你是监制。择一或融合，给出决策与理由，并把世界观/风格/角色/场景/道具写成设定集草案（描述要可生成：年龄/发型/服装/材质/光线）。',
-          ctxUser + '\nA案：' + JSON.stringify(pitchA).slice(0, 800) + '\nB案：' + JSON.stringify(pitchB).slice(0, 800) + '\n互评：' + JSON.stringify(crit).slice(0, 800) +
-          '\n输出 {"decision":"A|B|merge","rationale":"…","logline":"…","beats":["…"],"scriptIdea":"（写给剧本节点的创作提示词，含两条叙事硬约束：每场结尾因果钩子、每场至少一个冲突点）","bible":{"worldview":"…","style":"…","characters":[{"name":"…","desc":"…"}],"scenes":[{"name":"…","desc":"…"}],"props":[{"name":"…","desc":"…"}]}}' +
-          // 0.20.2 T5 防线①：监制轮明写每场 ≤15 秒硬约束（实测项目指南「每场 ≤15 秒」被无视，产出了 40s 的场）。
-          // 必须落进 scriptIdea，让剧本与分镜在源头就按短场写：剧情需要更长只能拆成多场，不能拖长单场。
-          '\n【时长硬约束·写进 scriptIdea】每场总时长（由该场分镜镜头 duration 累加）不得超过 15 秒；剧情需要更长必须拆成多场，绝不生成超长场。', true);
-        // ⑤ 落盘：讨论记录节点 + 设定集 + 剧本 idea
+        let dec = ckptOut('dec');
+        if (!dec) {
+          run.phase = 'decide';
+          // 技能遵循度：监制轮带上项目技能包配置（renderProfile 头），决策/设定集不得与项目技能配置脱节——
+          // 未配置技能包的项目如实说「未配置」，行为不变。
+          let skillLine = '';
+          try {
+            const doc0 = readDoc(pid);
+            const inv0 = packInventory(HERE);
+            const prof0 = normalizeSkillProfile(doc0.skillProfile, allowedIds(inv0));
+            skillLine = '\n【项目技能包配置·决策须与之一致】' + renderProfile(prof0, inv0, true)
+              + '\n题材/影调/规格按上述配置取材；brief 的剧情创意仍优先，配置只约束风格与世界观口径。';
+          } catch { /* 项目文档读不到时跳过（与未配置同等对待） */ }
+          dec = await autoRoomStep(run, '监制', BASE + skillLine + '\n你是监制。择一或融合，给出决策与理由，并把世界观/风格/角色/场景/道具写成设定集草案（描述要可生成：年龄/发型/服装/材质/光线）。',
+            ctxUser + '\nA案：' + JSON.stringify(pitchA).slice(0, 800) + '\nB案：' + JSON.stringify(pitchB).slice(0, 800) + '\n互评：' + JSON.stringify(crit).slice(0, 800) +
+            '\n输出 {"decision":"A|B|merge","rationale":"…","logline":"…","beats":["…"],"scriptIdea":"（写给剧本节点的创作提示词，含两条叙事硬约束：每场结尾因果钩子、每场至少一个冲突点）","bible":{"worldview":"…","style":"…","characters":[{"name":"…","desc":"…"}],"scenes":[{"name":"…","desc":"…"}],"props":[{"name":"…","desc":"…"}]}}' +
+            // 0.20.2 T5 防线①：监制轮明写每场 ≤15 秒硬约束（实测项目指南「每场 ≤15 秒」被无视，产出了 40s 的场）。
+            // 必须落进 scriptIdea，让剧本与分镜在源头就按短场写：剧情需要更长只能拆成多场，不能拖长单场。
+            '\n【时长硬约束·写进 scriptIdea】每场总时长（由该场分镜镜头 duration 累加）不得超过 15 秒；剧情需要更长必须拆成多场，绝不生成超长场。', true);
+          run.ckpt.outputs.dec = dec;
+          ckptDone('decide');
+        }
+        // ⑤ 落盘：讨论记录节点 + 设定集 + 剧本 idea（writeback 已完成的续跑不重建节点、不重写设定集）
         run.phase = 'writeback';
         const transcript = [
           '用户 brief：' + brief,
@@ -3915,17 +3976,35 @@ export function apply(ctx) {
           '监制决策：' + dec.decision + '——' + (dec.rationale || ''),
           '定稿 logline：' + (dec.logline || ''),
         ].join('\n\n');
-        const meet = canvasCreateNode({ projectId: pid, canvasId: cid, type: 'text', name: '编剧室会议' });
-        canvasWriteNode({ projectId: pid, canvasId: cid, nodeId: meet.nodeId, target: 'output', text: transcript.slice(0, 60000), overwrite: true });
-        const bi = dec.bible || {};
-        await canvasUpdateBible({ projectId: pid, bible: bi });
-        // scriptIdea 兼容两处：监制按指示写在根级，写歪时落到 bible 里（模型照抄示例的结构错误要容忍）
-        const idea = String(dec.scriptIdea || bi.scriptIdea || dec.logline || brief).slice(0, 4000);
-        const sc = canvasCreateNode({ projectId: pid, canvasId: cid, type: 'script', name: '第1节剧本', prompt: idea });
+        let meet = null;
+        let sc = null;
+        if (resume && resume.scriptNodeId) {
+          // 断点续跑：会议/剧本节点上次已建（id 从检查点读），不再重建
+          meet = { nodeId: resume.meetingNodeId || resume.scriptNodeId };
+          sc = { nodeId: resume.scriptNodeId };
+        } else {
+          if (resume && resume.meetingNodeId) meet = { nodeId: resume.meetingNodeId }; // 断在 writeback 中途：会议节点复用，记录重写（幂等）
+          else meet = canvasCreateNode({ projectId: pid, canvasId: cid, type: 'text', name: '编剧室会议' });
+          canvasWriteNode({ projectId: pid, canvasId: cid, nodeId: meet.nodeId, target: 'output', text: transcript.slice(0, 60000), overwrite: true });
+          const bi = dec.bible || {};
+          await canvasUpdateBible({ projectId: pid, bible: bi });
+          // scriptIdea 兼容两处：监制按指示写在根级，写歪时落到 bible 里（模型照抄示例的结构错误要容忍）
+          const idea = String(dec.scriptIdea || bi.scriptIdea || dec.logline || brief).slice(0, 4000);
+          sc = canvasCreateNode({ projectId: pid, canvasId: cid, type: 'script', name: '第1节剧本', prompt: idea });
+          run.ckpt.meetingNodeId = meet.nodeId;
+          run.ckpt.scriptNodeId = sc.nodeId;
+          ckptDone('writeback');
+        }
         // ⑥ 剧本自动生成 → 按场拆分 → 逐场分镜表（tail→prev 串联）→ 生成 → G2 校验
-        run.phase = 'script';
-        const st = await canvasExec(pid, cid, sc.nodeId, { timeoutMs: 10 * 60 * 1000 });
-        const scenes = splitScenes(st.output);
+        // （剧本已生成过的续跑不再 exec：scenes 直接吃检查点）
+        let scenes = (resume && Array.isArray(resume.scenes) && resume.scenes.length) ? resume.scenes : null;
+        if (!scenes) {
+          run.phase = 'script';
+          const st = await canvasExec(pid, cid, sc.nodeId, { timeoutMs: 10 * 60 * 1000 });
+          scenes = splitScenes(st.output);
+          run.ckpt.scenes = scenes;
+          ckptDone('script');
+        }
         const boards = [];
         let prevBoard = null;
         // 0.20.2 T5 防线②：分镜产出后的场时长校验。切段算法与 client.js 同源（shot-segments.js），
@@ -3937,7 +4016,24 @@ export function apply(ctx) {
           const overShot = (Array.isArray(shots) ? shots : []).some((s) => shotDurOf(s) > cap);
           return { plan, overShot, ok: plan.segments.length <= 1 && !overShot };
         };
+        // T10：读分镜表节点现况（该场已有 shots → 整场跳过；读不到按无处理）
+        const sbShotsOf = (nodeId) => {
+          try {
+            const d = readToolDoc({ projectId: pid, canvasId: cid });
+            const n = (d.nodes || {})[nodeId];
+            return (n && n.data && Array.isArray(n.data.shots) && n.data.shots.length) ? n.data.shots : null;
+          } catch { return null; }
+        };
         for (let i = 0; i < scenes.length; i++) {
+          const savedSbId = (resume && Array.isArray(resume.boardIds) && resume.boardIds[i]) || null;
+          const savedShots = savedSbId ? sbShotsOf(savedSbId) : null;
+          if (savedShots) { // T10 跳过语义：不建节点、不 exec、不注入，只按现况补记账（串联链以它为 prev）
+            prevBoard = savedSbId;
+            const g = PROD.gateStoryboard(savedShots);
+            boards.push({ no: scenes[i].no, storyboardId: savedSbId, gate: g.ok, fails: g.fails });
+            run.log.push({ at: Date.now(), role: 'runner', summary: '场' + scenes[i].no + ' 分镜已存在（断点续跑），跳过重新生成' });
+            continue;
+          }
           run.phase = 'boards ' + (i + 1) + '/' + scenes.length;
           const txt = canvasCreateNode({ projectId: pid, canvasId: cid, type: 'text', name: '场' + scenes[i].no + '文本' });
           canvasWriteNode({ projectId: pid, canvasId: cid, nodeId: txt.nodeId, target: 'output', text: scenes[i].text, overwrite: true });
@@ -3988,6 +4084,8 @@ export function apply(ctx) {
             run.log.push({ at: Date.now(), role: 'runner', summary: '场' + scenes[i].no + ' 仍超时长（' + dur.plan.total + ' 秒/' + dur.plan.segments.length + ' 段）' });
           }
           boards.push({ no: scenes[i].no, storyboardId: sb.nodeId, gate: gate.ok, fails: gate.fails });
+          run.ckpt.boardIds[i] = sb.nodeId;
+          ckptDone('board' + (i + 1));
           run.log.push({ at: Date.now(), role: 'runner', summary: '场' + scenes[i].no + ' 分镜：' + (gate.ok ? '过闸' : '仍有 ' + gate.fails.length + ' 项') });
         }
         // ⑦ 预算单（免费段终点）
@@ -3999,8 +4097,17 @@ export function apply(ctx) {
         run.scriptNodeId = sc.nodeId;
         run.status = 'done';
         run.phase = 'budget';
+        // T10：免费段完结 → 检查点标 completed 而不是清掉：brief/产物/预算留作「上一集」记录
+        //（autoStart 把 brief 落盘本就为重启后可查）；completed 与「未完成才续跑」判定天然互斥，
+        // 下次 autoStart 无论 brief 异同都是全新启动。
+        run.ckpt.completed = true;
+        run.ckpt.budget = run.budget;
+        run.ckpt.boards = boards;
+        ckptDone('budget');
         run.log.push({ at: Date.now(), role: 'runner', summary: '免费段完成：' + scenes.length + ' 场分镜 + 预算单（' + run.budget.videoCalls + ' 次视频调用 / ' + run.budget.totalSeconds + ' 秒）' });
       } catch (e) {
+        // T10：失败/中止不清检查点——未完成的 ps.autoRun 留在状态文件里，
+        // 下次 autoStart（不传 brief 或 brief 一致）从断点续跑。
         run.status = String((e && e.message) || e) === 'aborted' ? 'aborted' : 'failed';
         run.error = String((e && e.message) || e);
         run.log.push({ at: Date.now(), role: 'runner', summary: '失败：' + run.error });
@@ -4634,28 +4741,47 @@ export function apply(ctx) {
         };
       },
       /** 启动免费段（编剧室）：调研 → 编剧A/B 独立提案 → 互评 → 监制决策 → 设定集+剧本 idea 落盘。
-       *  全程零付费；讨论记录写进「编剧室会议」文本节点；剧情走向只来自 brief。 */
+       *  全程零付费；讨论记录写进「编剧室会议」文本节点；剧情走向只来自 brief。
+       *  0.20.2 T10 断点续跑：制作状态文件里有**未完成的** ps.autoRun 且（未传 brief 或 brief 与存储一致）
+       *  → 从断点续跑（已完成阶段不调 LLM、不重建节点，log/note 注明跳过数）；传了不同 brief → 全新启动
+       *  （检查点被覆盖——用户换创意是有意的）；上次已完结（completed）/无持久化/形状损坏 → 现行为全新启动。
+       *  续跑时 brief 非必需（用存储值）。 */
       async autoStart(args) {
         if (!autoEnabled()) return autoDisabled();
         const pid = String((args && args.projectId) || '');
         if (!pid) return { ok: false, error: '缺少 projectId' };
-        const brief = String((args && args.brief) || '').trim();
-        if (brief.length < 4) return { ok: false, error: '缺少 brief：请给一句话创意（至少 4 个字），它是剧情走向的唯一源头' };
         const cid = toolCanvasId(args);
+        const brief = String((args && args.brief) || '').trim();
+        // T10：读持久化 run（读失败/形状不对/已完结 → 视同无持久化，全新启动）
+        let saved = null;
+        try {
+          const ps = PROD.readState(pid, cid);
+          saved = (ps && ps.autoRun) || null;
+        } catch { saved = null; }
+        if (!autoCkptValid(saved)) saved = null;
+        const resuming = !!saved && (!brief || brief === saved.brief);
+        if (!resuming && brief.length < 4) return { ok: false, error: '缺少 brief：请给一句话创意（至少 4 个字），它是剧情走向的唯一源头' };
         const runKey = runKeyOf(pid, cid);
         const prev = AUTO_RUNS.get(runKey);
         if (prev && prev.status === 'running') return { ok: false, error: '该画布已有自动创作在跑（阶段 ' + prev.phase + '）：先 autoAbort 或等待完成' };
-        const run = { status: 'running', phase: 'start', log: [{ at: Date.now(), role: 'runner', summary: '启动：' + brief.slice(0, 60) }], error: null, brief, startedAt: Date.now(), meetingNodeId: null, scriptNodeId: null };
+        const effBrief = resuming ? saved.brief : brief;
+        const skipN = resuming ? autoCkptSkipCount(saved) : 0;
+        const run = { status: 'running', phase: resuming ? autoCkptDisplayPhase(saved) : 'start',
+          log: [{ at: Date.now(), role: 'runner', summary: resuming ? '断点续跑：跳过 ' + skipN + ' 个已完成阶段' : '启动：' + effBrief.slice(0, 60) }],
+          error: null, brief: effBrief, startedAt: resuming ? (Number(saved.startedAt) || Date.now()) : Date.now(), meetingNodeId: null, scriptNodeId: null };
         AUTO_RUNS.set(runKey, run);
-        // brief 记进制作状态（status 可见；重启后仍能查到这一集的创意源头）
+        // brief + 检查点记进制作状态（status 可见；重启后仍能查到这一集的创意源头与断点）
         try {
           const ps = PROD.readState(pid, cid) || { version: 1, projectId: pid, canvasKey: (cid || 'default'), floor: 0, explicit: null, createdAt: Date.now(), updatedAt: 0, history: [], overrides: [] };
-          ps.brief = brief;
+          ps.brief = effBrief;
+          ps.autoRun = resuming ? JSON.parse(JSON.stringify(saved)) : { brief: effBrief, phase: null, completed: false, outputs: {}, meetingNodeId: null, scriptNodeId: null, scenes: null, boardIds: [], startedAt: run.startedAt, updatedAt: Date.now() };
           ps.updatedAt = Date.now();
           PROD.writeState(pid, cid, ps);
         } catch { /* 状态写入失败不阻塞启动 */ }
-        autoRoom(pid, cid, brief).catch(() => { /* 兜底：autoRoom 内部已捕获并落状态 */ });
-        return { ok: true, runId: runKey, status: 'running', note: '免费段已启动（调研→提案→互评→决策→落盘）；用 autoStatus 查看进度' };
+        autoRoom(pid, cid, effBrief, resuming ? JSON.parse(JSON.stringify(saved)) : null).catch(() => { /* 兜底：autoRoom 内部已捕获并落状态 */ });
+        return { ok: true, runId: runKey, status: 'running', note: resuming
+          ? '已从断点续跑（跳过 ' + skipN + ' 个已完成阶段）；用 autoStatus 查看进度'
+          : '免费段已启动（调研→提案→互评→决策→落盘）·全新启动；用 autoStatus 查看进度' };
       },
       /** 中止运行中的自动创作（免费段或付费段）：保留已产出内容（讨论节点/设定集/节点/已完成视频）。 */
       async autoAbort(args) {
