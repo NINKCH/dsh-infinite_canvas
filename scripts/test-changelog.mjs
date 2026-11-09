@@ -222,7 +222,8 @@ if (cntAll && Number(cntAll) > 0) {
   /** `release:` 提交额外允许 package.json（只改版本号），其余仍受上面的文件面约束。 */
   const isReleaseFileAllowed = (paths) => (paths || []).every((p) => {
     const f = String(p || '').replace(/\\/g, '/');
-    return f === 'CHANGELOG.md' || f === 'package.json' || f.startsWith('scripts/') || f.startsWith('docs/');
+    // package-lock.json：发版提交同步锁文件 version 字段（npm ci 一致性），d24020d（0.20.1）实证先例
+    return f === 'CHANGELOG.md' || f === 'package.json' || f === 'package-lock.json' || f.startsWith('scripts/') || f.startsWith('docs/');
   });
   const isRelease = (subject) => /^release:\s*\d+\.\d+\.\d+/.test(String(subject || ''));
   const functional = [];
