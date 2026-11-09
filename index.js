@@ -5247,8 +5247,10 @@ export function apply(ctx) {
             const r = await methods.productionStatus(args);
             if (!r.ok) return { ok: false, text: '❌ ' + (r.error || '状态读取失败') };
             let capsLine = '';
+            let capsMultiAgent; // undefined = 探针失败（未知）；true/false = 探针实测
             try {
               const caps = await methods.productionCapabilities();
+              capsMultiAgent = !!caps.multiAgent;
               capsLine = '\n多智能体能力：' + (caps.multiAgent ? '可用（宿主已暴露会话服务）' : '不可用（宿主未暴露会话服务——自动创作保持休眠）');
             } catch { /* 探针失败不影响状态输出 */ }
             const lines = [
@@ -5262,7 +5264,7 @@ export function apply(ctx) {
             lines.push('下一步：' + r.next);
             lines.push('ready=' + (r.ready ? 'true（可宣称完成/进入下一步）' : 'false（不得宣称完成）'));
             if (capsLine) lines.push(capsLine.trim());
-            return { ok: true, projectId: r.projectId, ...(r.canvasId ? { canvasId: r.canvasId } : {}), stage: r.stage, ready: r.ready, blockers: r.blockers, multiAgent: (() => { try { return capsLine.includes('可用（'); } catch { return undefined; } })(), text: lines.join('\n') };
+            return { ok: true, projectId: r.projectId, ...(r.canvasId ? { canvasId: r.canvasId } : {}), stage: r.stage, ready: r.ready, blockers: r.blockers, multiAgent: capsMultiAgent, text: lines.join('\n') };
           },
         });
         reg({

@@ -410,6 +410,16 @@ let sbNodeId = '';
     const st2 = await statusTool.execute({ projectId }, {});
     ok(st2 && st2.ok === true, 'handler 直调: 探针抛错时 status 仍应 ok:true（catch 按设计生效）');
     ok(st2 && typeof st2.text === 'string' && st2.text.includes('多智能体能力：不可用（宿主未暴露'), 'handler 直调: 探针抛错时应降级显示「不可用」（裸调被吞时无此行）');
+    ok(st2 && st2.multiAgent === false, 'handler 直调: 探针抛错时 multiAgent 应为 false（svc 内部兜住，探针实测不可用）');
+
+    // 降级真话路径（multiAgent 误匹配回归）：恢复默认 mock（无任何会话服务）→ capabilities 正常执行
+    // 但 multiAgent:false → 返回字段必须如实为 false。修复前用 capsLine.includes('可用（') 判定，
+    // 「不可用（宿主未暴露…」同样含子串「可用（」→ 恒 true，误导下游自动创作判断。
+    fakeCtx.get = realGet;
+    const st3 = await statusTool.execute({ projectId }, {});
+    ok(st3 && st3.ok === true, 'handler 直调: 默认降级 mock 下 status 应 ok:true');
+    eq(st3 && st3.multiAgent, false, 'handler 直调: 无会话服务时返回 multiAgent 应如实为 false（includes 误匹配修复前恒 true）');
+    ok(st3 && typeof st3.text === 'string' && st3.text.includes('多智能体能力：不可用（宿主未暴露'), 'handler 直调: 无会话服务时文本行应显示「不可用」');
   } finally {
     fakeCtx.get = realGet; // 恢复降级 mock，不污染后续断言语境
   }
