@@ -6,6 +6,122 @@ GitHub Releases carry the same notes in English; maintainer-facing runbooks live
 
 ## [Unreleased]
 
+## [0.20.2] — 2026-11-09
+
+### Added
+- **Auto creation generates entity reference images before the paid run.** When a scene's
+  storyboard has segments still to generate, the runner first builds 「<类别>-<名> 设定图」
+  image nodes for the entities named in its shots (characters / scenes / props), generates
+  them, and connects each one (`ref` port) to every video segment node of that scene before
+  any video executes — generation reads references strictly from wired edges, so the wires
+  must exist first. Entities shared across scenes are generated once per run; entities that
+  already own a reference asset (name-boundary match against the project asset index) are
+  skipped; a failed reference image never blocks the video segments. The budget sheet gains
+  a reference-image row item so the cost of the setup pass is visible before approval.
+- **Partial paid runs: execute selected scenes only.** `canvas_auto_generate` accepts a
+  `scenes` array of 1-based scene numbers (matching the budget sheet's scene numbering);
+  only the picked scenes produce video nodes — excluded scenes build nothing, and their
+  entities are never collected (not even reference images). The approval token and its
+  fingerprint are untouched: the full-budget check still gates the run, `scenes` is purely
+  an execution filter, and omitting it keeps the old full-run behavior byte for byte.
+- **Free-phase checkpoint resume.** The writers-room free phase now persists its progress
+  into the canvas's production state after every completed unit (research → pitch A →
+  pitch B → critique → decision → write-back → script → per-scene boards). A run that died
+  mid-way (failure or abort) resumes from the checkpoint: completed units replay their
+  stored outputs directly — no LLM calls, no node rebuilding — and only the remaining units
+  execute. Corrupted, stale or already-finished checkpoints are treated as "no
+  persistence" and start fresh; a checkpoint write failure never blocks the pipeline.
+- **Video request preview, pre-submission checks, and a sanitized submission log.** The
+  video node panel gains a read-only 请求预览: model, duration, resolution, first-frame
+  anchor mode, reference-image roles and the full final prompt — computed with exactly the
+  same assembly as the real submission, so what you review is what gets sent. A
+  validation-checks block surfaces concrete problems (missing references, conflicting
+  anchor modes, empty prompts) before the money is spent. Every video submission, finish
+  and failure is appended to `<project>/submissions.jsonl` with method, parameters and
+  result summary — the host redacts secrets on write (sk- keys, Bearer tokens, signed
+  query URLs), the log is capped at 500 lines (oldest trimmed), and any log failure is
+  swallowed so bookkeeping can never block generation.
+- **Settings card gains the auto-creation action entries.** The 自动创作（实验） card now
+  carries the full action row: 启动创作 (one-line brief + start), 刷新预算, 批准付费
+  (with an inline confirmation input requiring your own words), 开始生成 and 中止 — plus
+  a live budget summary line (scenes / shots / seconds / pending calls / estimated cost)
+  and a hint pointing at the video unit-price setting when no price is configured. During
+  any action every button disables (re-entry guard).
+
+### Fixed
+- **Production tools crashed with a ReferenceError (P0).** The tool-registry wrappers for
+  `productionStatus` / `productionCapabilities` / `productionAdvance` invoked the methods
+  bare (missing the `methods.` prefix), so every call from the chat agent threw
+  ReferenceError instead of returning the stage report — the monitor round's main source
+  of ground truth was dead on real machines. All three now route through the method table,
+  pinned by registration-shape assertions.
+- **The multiAgent capability flag is read from the probe verdict, not a text line.**
+  `productionStatus` derived `multiAgent` from a substring match on a rendered text line,
+  which made the flag always-true. It now takes `caps.multiAgent` directly from the
+  capability probe (undefined when the probe itself fails — unknown, not "available").
+- **Prose no longer breaks the monitor's decision round.** A prose sentence containing
+  braces ("我认为{这是花括号}") before the real JSON made the parser latch onto the first
+  `{` and kill the genuine object; a prose-only reply failed the whole run. Extraction now
+  scans every `{` candidate with a string/escape-aware depth counter (fenced block first,
+  full text as fallback), and a failed parse retries the monitor round once locally
+  instead of sinking the entire free phase.
+- **G2 regeneration injects the complete failure list.** On a failed storyboard quality
+  gate, the automatic regeneration used to rerun with the node's original requirement —
+  the same prompt produced the same violations (11 items, verbatim, on a real machine).
+  The full numbered failure list is now appended to the storyboard's requirement before
+  the rerun (every item, not a truncated two) and the original requirement is restored
+  after the recheck passes, so node data is never polluted.
+- **Budget `videoCalls` is estimated by the same shot-segmentation algorithm that executes.**
+  The quote counted one video call per storyboard while the paid runner actually generates
+  per shot-segment, so a 40s scene billed 4 calls against a budget of 1. `planShotSegments`
+  is now a shared module (`shot-segments.js`) imported by both host and client — quote and
+  execution agree by construction (same empty-plan fallback: one call). The budget
+  fingerprint covers the segmentation results and per-board caps, so **approvals issued
+  before this change expire once and require a fresh human review** (deliberate, no
+  compatibility shim); the paid runner logs a budget-vs-actual deviation when shots were
+  edited after approval.
+- **Every scene is capped at 15 seconds — enforced twice.** A project guide saying 「每场
+  ≤15 秒」 was ignored and the writers room produced 40s scenes. The monitor round's
+  `scriptIdea` contract now states the cap explicitly (longer stories must split into more
+  scenes, never stretch one), and after storyboard generation each scene's shot durations
+  are checked with the shared segmentation algorithm (same `segMaxSeconds` source as the
+  client, default 15); an over-cap scene gets a repair requirement injected and is
+  regenerated automatically.
+- **Paid videos are split per shot-segment, not one request per storyboard.** The paid
+  runner generated a whole storyboard in a single video request — a 40s scene hit the
+  vendor's per-request limit (relay 400, money burned). Each segment from
+  `planShotSegments` now becomes its own video node (named 「…·段k/N」, prompt constrained
+  to its shot range, segment metadata in the node data for the client's tail-chaining),
+  the final-cut node connects to the last finished segment, and legacy single-node
+  storyboards still resume correctly (only the missing segments are built). Retry
+  semantics are per segment.
+- **Dialogue fragments no longer flagged as unregistered entities; bible edits refresh
+  storyboard warnings.** A line like 「来了个带纸的」 extracted a prop 「带纸的」 that
+  tripped the unregistered-entity warning on every storyboard. Names ending in 「的」 that
+  literally appear in the scene's dialogue text are now exempt (host
+  `storyboardConsistencyWarnings` and client `checkShotConsistency` share the identical
+  rule, guarded against drift; the @mention channel is never exempt). Separately, editing
+  the bible now bumps a `bibleTick` signal so open storyboard detail panels recompute
+  their consistency warnings automatically — no more stale warnings after fixing the
+  设定集.
+
+### Changed
+- **Budget approvals are invalidated by the new estimate basis (one-time).** Because
+  `videoCalls` now counts shot-segments (see above), the approval fingerprint changes for
+  every existing budget: a previously approved quote is rejected once and the budget must
+  be re-reviewed and re-approved with your own confirmation words. This is the intended
+  safety semantic — money-relevant numbers changed, so the old human sign-off no longer
+  applies.
+
+### Internal
+- **Settings-card actions are behavior-tested.** The panel suite gained real click
+  assertions for the start flow (brief carried into `autoStart`) and the approve flow
+  (recent quote id + confirmation words into `autoApprove`), and the busy-state
+  re-entry assertion was rewritten to match every action role exactly (the old regex
+  had a dead branch that could silently pass).
+- **Repo housekeeping.** `.superpowers/` (SDD process directories) and `.worktrees/`
+  (isolated work trees) are now git-ignored.
+
 ## [0.20.1] — 2026-11-06
 
 ### Added
