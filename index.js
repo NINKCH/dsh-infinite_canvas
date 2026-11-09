@@ -4014,8 +4014,12 @@ export function apply(ctx) {
      * 「<品类>-<名> 设定图」image 节点（命名即分类数据契约，client.js L4931-4946）并出图，再建视频段；
      * 生成时参考图严格只取连线（collectRefs，client.js L4949-4953），所以 ref 线必须在视频 exec 之前
      * 用 canvasConnect(toPort:'ref') 接到该场每个 video 段节点。跨场共享实体只生成一次（run 级 Map）；
-     * 已有参考资产（资产名边界匹配）跳过；参考图失败不阻塞视频段。 */
-    async function autoPaid(pid, cid) {
+     * 已有参考资产（资产名边界匹配）跳过；参考图失败不阻塞视频段。
+     *  0.20.2 T9（#9）：可选 scenes 选场执行——传入 1-based 场号数组时只跑选中场（boards[i] 场号 = i+1，
+     * 与 quote scenes 序号一致）：未选中场零视频节点、实体收集也不跑（连参考图都不生成）；finalcut 仍连
+     * 「最后一个完成的段节点」（本次执行范围内的）。批准令牌与指纹零改动：入口照旧按全量预算校验，
+     * scenes 只是执行过滤器——不传 scenes 时行为逐字节不变。 */
+    async function autoPaid(pid, cid, scenes) {
       const cfg = readIcConfig();
       const price = Number(cfg.production && cfg.production.videoUnitPricePerSecond);
       const ap = PROD.approvalOf(pid, cid, price);
@@ -4031,6 +4035,15 @@ export function apply(ctx) {
         try {
           const doc = readToolDoc({ projectId: pid, canvasId: cid });
           const boards = Object.values(doc.nodes || {}).filter((n) => n.type === 'storyboard' && Array.isArray(n.data && n.data.shots) && n.data.shots.length);
+          // T9 ②：选场执行——scenes 存在时按 boards 序号过滤（boards[i] 的场号 = i+1，与 quote scenes 序号一致）；
+          // 被排除的场不进循环：零视频节点、实体收集也不跑（连参考图都不生成）。批准令牌不受影响：
+          // 本函数入口的 approvalOf 已按全量预算指纹校验（PROD.approve 语义零改动），scenes 只是执行过滤器。
+          const picked = Array.isArray(scenes) && scenes.length ? scenes : null;
+          if (picked) {
+            const msg = '部分执行：本次跑 ' + boards.map((_b, i) => i + 1).filter((s) => picked.includes(s)).map((s) => '场' + s).join('/') + '（共 ' + boards.length + ' 场）';
+            run.log.push({ at: Date.now(), role: 'runner', summary: msg });
+            run.paidLog.push({ at: Date.now(), text: msg });
+          }
           // T8：参考图 run 级状态——实体键「品类|名」→ image 节点；跨场共享同一实体只生成一次。
           // 「已有参考资产」读项目资产索引一次（角色-<名>/场景-<名>/道具-<名> 边界匹配，client.js L4078 同款）。
           const refImageByEntity = new Map();
@@ -4048,6 +4061,7 @@ export function apply(ctx) {
           };
           let lastVideo = null;
           for (let i = 0; i < boards.length; i++) {
+            if (picked && !picked.includes(i + 1)) continue; // T9 ②：未选中场零节点零参考图
             if (run.paidAbort) { abortNow(); return; }
             const sb = boards[i];
             run.paidPhase = 'video ' + (i + 1) + '/' + boards.length;
@@ -4543,7 +4557,9 @@ export function apply(ctx) {
         writeIcConfig(cfg);
         return { ok: true, enabled };
       },
-      /** 预算单（免费段终点）：场/镜/秒数/视频调用次数（+配置了单价时的估算金额）。 */
+      /** 预算单（免费段终点）：场/镜/秒数/视频调用次数（+配置了单价时的估算金额）。
+       *  0.20.2 T9（#9）：没配单价时 estimatedCost 为 null、金额行不显示（无法算钱是设计），
+       *  但要在 note 追加配置引导（锚点词「视频每秒单价」）——note 不进预算指纹，批准校验不受影响。 */
       async autoQuote(args) {
         if (!autoEnabled()) return autoDisabled();
         const pid = String((args && args.projectId) || '');
@@ -4551,7 +4567,11 @@ export function apply(ctx) {
         const cfg = readIcConfig();
         const price = Number(args && args.unitPricePerSecond);
         const configured = Number(cfg.production && cfg.production.videoUnitPricePerSecond);
-        return PROD.quote(pid, toolCanvasId(args), Number.isFinite(price) && price > 0 ? price : configured);
+        const q = PROD.quote(pid, toolCanvasId(args), Number.isFinite(price) && price > 0 ? price : configured);
+        if (q && q.ok && q.estimatedCost == null) {
+          q.note = (q.note ? q.note + '；' : '') + '未配置视频单价——在画布设置 → 制作 → 视频每秒单价 填入后可显示估算金额';
+        }
+        return q;
       },
       /** 批准付费段：一次性令牌，绑定预算指纹；镜头/时长一变即失效（须重新复核）。 */
       async autoApprove(args) {
@@ -4562,12 +4582,34 @@ export function apply(ctx) {
         const price = Number(cfg.production && cfg.production.videoUnitPricePerSecond);
         return PROD.approve(pid, toolCanvasId(args), String((args && args.quoteId) || ''), String((args && args.confirm) || ''), price);
       },
-      /** 付费段：批准后逐分镜表生成视频（真实计费）；失败重试，全部完成建成片节点。 */
+      /** 付费段：批准后逐分镜表生成视频（真实计费）；失败重试，全部完成建成片节点。
+       *  0.20.2 T9（#9）：可选 scenes 选场执行——1-based 场号数组（对应预算单 scenes[].scene，
+       *  boards[i] 的场号 = i+1），不传 = 全量（现行为零变化）；被排除的场不建视频节点、
+       *  连参考图都不生成（实体收集只跑选中场）。批准令牌与指纹零改动：autoPaid 入口仍按
+       *  全量预算校验，scenes 只是执行过滤器——镜头变了要重新复核。非法 scenes（非数组/
+       *  空数组/含非正整数/场号越界）→ ok:false 业务错误，不启动。 */
       async autoGenerate(args) {
         if (!autoEnabled()) return autoDisabled();
         const pid = String((args && args.projectId) || '');
         if (!pid) return { ok: false, error: '缺少 projectId' };
-        return autoPaid(pid, toolCanvasId(args));
+        let scenes = null;
+        const rawScenes = args ? args.scenes : undefined;
+        if (rawScenes != null) {
+          if (!Array.isArray(rawScenes)) return { ok: false, error: 'scenes 必须是场号数组（1-based，对应预算单 scenes 的 scene 字段）；不传跑全部' };
+          if (!rawScenes.length) return { ok: false, error: 'scenes 不能是空数组：要么不传跑全部，要么至少给一个场号' };
+          let sceneCount = 0;
+          try {
+            const doc = readToolDoc({ projectId: pid, canvasId: toolCanvasId(args) });
+            sceneCount = Object.values(doc.nodes || {}).filter((n) => n.type === 'storyboard' && Array.isArray(n.data && n.data.shots) && n.data.shots.length).length;
+          } catch { sceneCount = 0; }
+          for (const s of rawScenes) {
+            const n = Number(s);
+            if (!Number.isInteger(n) || n <= 0) return { ok: false, error: 'scenes 含非法场号（必须是正整数，1-based）：' + JSON.stringify(rawScenes) };
+            if (n > sceneCount) return { ok: false, error: '场号 ' + n + ' 超出当前场数（当前 ' + sceneCount + ' 场分镜）：先完成免费段生成分镜，或修正 scenes' };
+          }
+          scenes = rawScenes.map(Number);
+        }
+        return autoPaid(pid, toolCanvasId(args), scenes);
       },
       /** 自动创作总状态：开关 / 阶段 / 当前批准是否仍有效 / 编剧室运行状态 / 下一步。 */
       async autoStatus(args) {
@@ -5566,6 +5608,7 @@ export function apply(ctx) {
             if (!r.ok) return { ok: false, text: '❌ ' + (r.error || '预算单生成失败') };
             const lines = ['预算单 ' + r.quoteId, '场 ' + r.sceneCount + ' / 镜 ' + r.shotCount + ' / ' + r.totalSeconds + ' 秒 / 待调用 ' + r.videoCalls + ' 次'];
             if (r.estimatedCost != null) lines.push('估算金额：' + r.estimatedCost + '（单价 ' + r.unitPricePerSecond + '/秒）');
+            else lines.push('提示：未配置视频单价——在画布设置 → 制作 → 视频每秒单价 填入后可显示估算金额'); // T9 ①：没配单价时给配置引导
             lines.push('批准：调用 autoApprove 或在设置卡点「批准付费段」（必须带用户原话）');
             return { ok: true, quoteId: r.quoteId, budget: r, text: lines.join('\n') };
           },
@@ -5576,13 +5619,15 @@ export function apply(ctx) {
           parameters: { type: 'object', properties: {
             projectId: { type: 'string', description: '项目 id' },
             canvasId: { type: 'string', description: '可选：画布 id（缺省 = 项目默认画布）' },
+            scenes: { type: 'array', items: { type: 'integer' }, description: '可选：只跑指定场号（1-based，对应预算单 scenes 的 scene 字段）；不传跑全部。批准令牌仍按全量预算校验——镜头变了要重新复核' },
           }, required: ['projectId'], additionalProperties: false },
           output: textOutput,
           timeoutMs: 30000,
           async execute(args) {
             const r = await methods.autoGenerate(args);
             if (!r.ok) return { ok: false, text: '❌ ' + (r.error || '付费段启动失败') };
-            return { ok: true, projectId: args.projectId, status: r.status, text: '🎬 付费段已启动（逐场建视频节点并生成，失败重试 2 次）。用 canvas_auto_status 查看进度。' };
+            const subset = Array.isArray(args.scenes) && args.scenes.length ? '，部分执行：本次跑 ' + args.scenes.map((n) => '场' + n).join('/') : ''; // T9 ②
+            return { ok: true, projectId: args.projectId, status: r.status, text: '🎬 付费段已启动（逐场建视频节点并生成，失败重试 2 次' + subset + '）。用 canvas_auto_status 查看进度。' };
           },
         });
         reg({

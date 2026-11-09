@@ -1279,6 +1279,236 @@ let sbNodeId = '';
   I.closeDb(); // 释放 SQLite 句柄：清理段的 fs.rm 才能删掉沙盒里的 canvas.db（Windows 文件锁）
 }
 
+// ============================ 十、预算单价引导 + 选场部分执行（0.20.2 T9：#9） ============================
+// 用户实测：① 预算单没配单价就不显示金额，也没有任何引导（不知道去哪配）；② 付费段只能全量跑，
+// 「只跑一部分场」没有官方入口，只能绕手动流程。回归：
+//  ④ 不配单价 → autoQuote / canvas_auto_budget 结果含锚点词「视频每秒单价」的配置引导；显式传价 →
+//     有估算金额、无引导（现有行为不变）；
+//  ③ scenes 参数校验：非数组 / 空数组 / 含非正整数（0、'a'、1.5）/ 越界场号 → 各自 ok:false 且付费段不启动；
+//  ① 部分跑：全量预算批准后 canvas_auto_generate({scenes:[2]}) → 只有场 2 建 video 段节点并 exec，
+//     场 1/3 零节点、连参考图设定图都不生成（实体收集只跑选中场）；finalcut 连场 2 末段；run.log 含「部分执行」；
+//  ② 续跑补齐：部分跑后旧批准令牌按全量预算指纹失效（要重新复核）→ 重新报价（场2 已有视频 → 4→3 次）
+//     批准 → 全量跑时场 1/3 建节点、场 2 的 hasVideo/段级恢复跳过（不重复 exec、不重复建设定图）；
+//     finalcut 移到全场末段（本次范围的最后完成段）；全量跑不再记「部分执行」。
+// 三场 fixtures 实体互不重叠（部分跑/续跑两轮各自建图，断言无歧义）。
+{
+  const M = I.rpcMethods();
+  await M.autoModeSet({ enabled: true });
+  const drT9 = await M.dataRootSet({ root: path.join(SANDBOX, 't9-data-root') });
+  ok(drT9 && drT9.ok === true, 'T9前置: dataRootSet 失败');
+
+  // fixtures：场1 = 13s+14s（2 段）、场2 = 3s+2s（1 段）、场3 = 3s+2s（1 段）；实体字段齐（G2 已预验证合规）
+  const t9Shots1 = [
+    { title: '镜1', visual: '全景，当铺柜台前陈拾递出火漆信', motion: '横移跟随', duration: 13, seg: 'opening', tail: '信入柜台', cam: '横移回正', characters: ['陈拾'], scene: '当铺', props: ['火漆信'] },
+    { title: '镜2', visual: '大特写，火漆印裂纹缓缓裂开', motion: '缓推', duration: 14, seg: 'closeup', tail: '裂纹定格', cam: '推进到位', characters: ['陈拾'], scene: '当铺', props: ['火漆信'] },
+  ];
+  const t9Shots2 = [
+    { title: '镜1', visual: '近景，阿禾在当铺门口递出门环', motion: '跟拍', duration: 3, seg: 'opening', tail: '门环入手', cam: '跟拍向前', characters: ['阿禾'], scene: '当铺门口', props: ['门环'] },
+    { title: '镜2', visual: '大特写，门环纹路在晨光里发亮', motion: '缓推', duration: 2, seg: 'closeup', tail: '反光定格', cam: '推进到位', characters: ['阿禾'], scene: '当铺门口', props: ['门环'] },
+  ];
+  const t9Shots3 = [
+    { title: '镜1', visual: '中景，巷尾黄昏老周驻足', motion: '横移跟随', duration: 3, seg: 'opening', tail: '驻足回望', cam: '横移回正', characters: ['老周'], scene: '巷尾', props: ['字条'] },
+    { title: '镜2', visual: '大特写，字条在门缝里露出一角', motion: '缓推', duration: 2, seg: 'closeup', tail: '展信定格', cam: '推进到位', characters: ['老周'], scene: '巷尾', props: ['字条'] },
+  ];
+  eq(P.gateStoryboard(t9Shots1).ok, true, 'T9前置: 场1 shots 必须过 G2');
+  eq(P.gateStoryboard(t9Shots2).ok, true, 'T9前置: 场2 shots 必须过 G2');
+  eq(P.gateStoryboard(t9Shots3).ok, true, 'T9前置: 场3 shots 必须过 G2');
+  eq(planShotSegments(t9Shots1).segments.length, 2, 'T9前置: 场1 27s 应切 2 段');
+  eq(planShotSegments(t9Shots2).segments.length, 1, 'T9前置: 场2 5s 应 1 段');
+  eq(planShotSegments(t9Shots3).segments.length, 1, 'T9前置: 场3 5s 应 1 段');
+
+  // 假 LLM（T8 同款骨架）；执行桩按 n.type 分支：分镜按 label 前缀取 shots，image/video 记 exec，
+  // video 额外捕获 exec 时刻的 ref 入线（先连后生成的直接证据）
+  const t9RoomLlm = async ({ system }) => {
+    const s = String(system || '');
+    if (s.includes('调研员')) return JSON.stringify({ themes: [{ name: '时空当铺', why: 't' }], styles: ['写实电影感'] });
+    if (s.includes('编剧A')) return JSON.stringify({ logline: 'A案故事线', beats: ['b1', 'b2', 'b3'] });
+    if (s.includes('编剧B')) return JSON.stringify({ logline: 'B案故事线', beats: ['c1', 'c2', 'c3'] });
+    if (s.includes('剧评人')) return JSON.stringify({ critA: ['冲突可加强'], critB: ['动机可信'] });
+    if (s.includes('监制')) return JSON.stringify({ decision: 'merge', rationale: '取A冲突+B动机', logline: '雨夜当铺的最后一封火漆信', beats: ['x', 'y', 'z'],
+      bible: { worldview: 'T9世界观：时空当铺', style: '写实电影感',
+        characters: [{ name: '陈拾', desc: '24 岁，旧邮差制服' }],
+        scenes: [{ name: '当铺', desc: '雨夜老当铺柜台' }],
+        props: [{ name: '火漆信', desc: '火漆印的密信' }],
+        scriptIdea: '写第一节剧本：雨夜当铺陈拾接到一封火漆信……每场结尾留因果钩子，每场至少一个冲突点。' } });
+    return '{}';
+  };
+  const t9ScriptOut = '【场1】当铺\n雨夜，陈拾在柜台递出火漆信，火漆印裂开。\n【场2】当铺门口\n清晨，阿禾把门环递还给陈拾，转身离去。\n【场3】巷尾\n黄昏，老周从门缝抽出字条，展信细读。';
+  const t9imgsOf = (doc) => Object.values(doc.nodes).filter((n) => n.type === 'image');
+  const t9imgByLabel = (doc, lb) => t9imgsOf(doc).find((n) => String((n.data && n.data.label) || '') === lb) || null;
+  const t9sbOf = (doc, prefix) => Object.values(doc.nodes).find((n) => n.type === 'storyboard' && String((n.data && n.data.label) || '').startsWith(prefix)) || null;
+  const t9vidsOf = (doc, sbId) => (doc.edges || []).filter((e) => e.fromNode === sbId).map((e) => doc.nodes[e.toNode]).filter((n) => n && n.type === 'video');
+  const t9refsOf = (doc, videoId) => (doc.edges || []).filter((e) => e.toNode === videoId && e.toPort === 'ref').map((e) => e.fromNode).sort();
+
+  const t9 = (() => {
+    const imageExecs = [];
+    const videoExecs = [];
+    const refAtVideoExec = [];
+    I.__auto.setRoomLlm(t9RoomLlm);
+    I.__auto.setCanvasRunner(async (pid2, cid2, nodeId) => {
+      const doc = await I.projectsGet({ id: pid2, ...(cid2 ? { canvasId: cid2 } : {}) });
+      const n = doc.nodes[nodeId];
+      if (!n) throw new Error('桩：节点不存在');
+      if (n.type === 'script') {
+        await I.canvasWriteNode({ projectId: pid2, canvasId: cid2 || undefined, nodeId, target: 'output', text: t9ScriptOut, overwrite: true });
+        return { type: 'script', output: t9ScriptOut };
+      }
+      if (n.type === 'storyboard') {
+        const label = String((n.data && n.data.label) || '');
+        const shots = label.startsWith('场1') ? t9Shots1 : label.startsWith('场2') ? t9Shots2 : t9Shots3;
+        await byName.get('canvas_update_node').execute({ projectId: pid2, nodeId, patch: { shots } }, {});
+        return { type: 'storyboard', shots };
+      }
+      if (n.type === 'image') { imageExecs.push(nodeId); return { type: 'image', status: 'done' }; }
+      if (n.type === 'video') {
+        const docNow = await I.projectsGet({ id: pid2, ...(cid2 ? { canvasId: cid2 } : {}) });
+        refAtVideoExec.push({ nodeId, refs: t9refsOf(docNow, nodeId) });
+        videoExecs.push(nodeId);
+        return { type: 'video', status: 'done' };
+      }
+      return { type: n.type, status: 'done' };
+    });
+    return { imageExecs, videoExecs, refAtVideoExec };
+  })();
+
+  const pid9 = (await byName.get('canvas_create_project').execute({ name: 'T9选场部分执行回归' }, {})).projectId;
+  const started9 = await M.autoStart({ projectId: pid9, brief: 'T9：选场部分执行回归（三场分镜）' });
+  ok(started9 && started9.ok === true, 'T9前置: autoStart 未启动');
+  let v9 = null;
+  for (let i = 0; i < 100; i++) {
+    await new Promise((r) => setTimeout(r, 100));
+    v9 = (await M.autoStatus({ projectId: pid9 })).run;
+    if (v9 && (v9.status === 'done' || v9.status === 'failed' || v9.status === 'aborted')) break;
+  }
+  ok(v9 && v9.status === 'done', 'T9前置: 免费段未 done（status=' + (v9 && v9.status) + ' error=' + (v9 && v9.error) + '）');
+  eq(v9 && v9.budget && v9.budget.sceneCount, 3, 'T9前置: 免费段应产出 3 场分镜');
+  eq(v9 && v9.budget && v9.budget.videoCalls, 4, 'T9前置: 预算口径应为 2+1+1=4');
+  eq(v9 && v9.budget && v9.budget.refImagesTotal, 9, 'T9前置: 预算参考图应为 9（三场实体互不重叠）');
+  const waitPaid9 = async () => {
+    let paid = null;
+    for (let i = 0; i < 100; i++) {
+      await new Promise((r) => setTimeout(r, 100));
+      paid = (await M.autoStatus({ projectId: pid9 })).run;
+      if (paid && (paid.paid === 'done' || paid.paid === 'failed')) break;
+    }
+    return paid;
+  };
+
+  // ④ 单价引导：不配单价 → note 含锚点词「视频每秒单价」；显式传价 → 有金额、无引导（现有断言口径不变）
+  const qNoPrice = await M.autoQuote({ projectId: pid9 });
+  ok(qNoPrice && qNoPrice.ok === true, 'T9④: autoQuote 失败');
+  ok(qNoPrice.estimatedCost == null, 'T9④: 未配单价时 estimatedCost 应为 null');
+  ok(String(qNoPrice.note).includes('视频每秒单价'), 'T9④: note 缺单价配置引导（实际：' + qNoPrice.note + '）');
+  const budgetNoPrice = await byName.get('canvas_auto_budget').execute({ projectId: pid9 }, {});
+  ok(budgetNoPrice && budgetNoPrice.ok === true && String(budgetNoPrice.text).includes('视频每秒单价'),
+    'T9④: canvas_auto_budget 输出缺单价提示行（实际：' + (budgetNoPrice && budgetNoPrice.text) + '）');
+  const qWithPrice = await M.autoQuote({ projectId: pid9, unitPricePerSecond: 2 });
+  ok(qWithPrice && qWithPrice.estimatedCost != null, 'T9④: 传价后应有估算金额');
+  ok(!String(qWithPrice.note).includes('视频每秒单价'), 'T9④: 配了单价不应再出现引导（实际：' + qWithPrice.note + '）');
+
+  // ③ 参数校验：非法 scenes 一律 ok:false，且错误必须来自参数校验本身（文案锚点锁定）而非下游批准闸；付费段不启动
+  const bad9 = [
+    { scenes: [0], word: '非法场号' },
+    { scenes: ['a'], word: '非法场号' },
+    { scenes: [1.5], word: '非法场号' },
+    { scenes: [99], word: '超出当前场数' },
+    { scenes: [], word: '空数组' },
+    { scenes: '2', word: '必须是场号数组' },
+  ];
+  for (const bad of bad9) {
+    const r = await M.autoGenerate({ projectId: pid9, scenes: bad.scenes });
+    ok(r && r.ok === false, 'T9③: scenes=' + JSON.stringify(bad.scenes) + ' 应拒绝');
+    ok(r && String(r.error || '').includes(bad.word), 'T9③: scenes=' + JSON.stringify(bad.scenes) + ' 错误应含「' + bad.word + '」（实际：' + (r && r.error) + '）');
+    const view = (await M.autoStatus({ projectId: pid9 })).run;
+    ok(view && view.paid !== 'running', 'T9③: 非法 scenes=' + JSON.stringify(bad.scenes) + ' 不应启动付费段');
+  }
+  ok((await M.autoGenerate({ projectId: pid9 })).ok === false, 'T9③: 未批准时全量跑仍应被拒（校验不得绕过批准）');
+
+  // ① 部分跑：全量预算批准后 scenes:[2] → 只有场 2 建段节点并 exec
+  const q9a = await M.autoQuote({ projectId: pid9, unitPricePerSecond: 2 });
+  ok(q9a && q9a.ok === true && q9a.videoCalls === 4, 'T9①: 首次报价应 4 次调用');
+  const ap9a = await M.autoApprove({ projectId: pid9, quoteId: q9a.quoteId, confirm: '用户：先只跑场2 看看效果' });
+  ok(ap9a && ap9a.ok === true, 'T9①: 付费批准失败');
+  const paid9a = await byName.get('canvas_auto_generate').execute({ projectId: pid9, scenes: [2] }, {});
+  ok(paid9a && paid9a.ok === true, 'T9①: 部分跑启动失败（' + (paid9a && paid9a.text) + '）');
+  ok(paid9a && String(paid9a.text).includes('部分执行：本次跑 场2'), 'T9②: 工具输出缺子集信息（实际：' + (paid9a && paid9a.text) + '）');
+  const paidView9a = await waitPaid9();
+  ok(paidView9a && paidView9a.paid === 'done', 'T9①: 部分跑未完成（' + (paidView9a && paidView9a.paidError) + '）');
+  const run9 = I.__auto.runs.get(pid9 + '::default'); // autoStatus 视图 log/paidLog 只留尾 6 条，断言吃全量
+  const logs9a = (run9 && Array.isArray(run9.log)) ? run9.log.map((e) => String(e.summary)) : [];
+  ok(logs9a.some((t) => t.includes('部分执行：本次跑') && t.includes('场2（共 3 场）')), 'T9①: run.log 缺「部分执行」条目（logs=' + JSON.stringify(logs9a) + '）');
+  const doc9a = await I.projectsGet({ id: pid9 });
+  const sb19 = t9sbOf(doc9a, '场1');
+  const sb29 = t9sbOf(doc9a, '场2');
+  const sb39 = t9sbOf(doc9a, '场3');
+  ok(!!sb19 && !!sb29 && !!sb39, 'T9①: 分镜表节点缺失');
+  const vids19 = t9vidsOf(doc9a, sb19.id);
+  const vids29 = t9vidsOf(doc9a, sb29.id);
+  const vids39 = t9vidsOf(doc9a, sb39.id);
+  eq(vids29.length, 1, 'T9①: 场2 应恰 1 个段节点');
+  eq(vids19.length, 0, 'T9①: 未选中的场1 不应有任何视频节点');
+  eq(vids39.length, 0, 'T9①: 未选中的场3 不应有任何视频节点');
+  eq(t9.videoExecs.length, 1, 'T9①: 付费段应恰 exec 1 次（场2 的段）');
+  // 被排除的场连参考图都不生成：image 节点恰为场2 的 3 个实体
+  const labels19 = t9imgsOf(doc9a).map((n) => String((n.data && n.data.label) || '')).sort();
+  eq(JSON.stringify(labels19), JSON.stringify(['场景-当铺门口 设定图', '角色-阿禾 设定图', '道具-门环 设定图'].sort()),
+    'T9①: 被排除场不得建设定图（实际：' + JSON.stringify(labels19) + '）');
+  eq(t9.imageExecs.length, 3, 'T9①: 应恰 exec 3 张设定图（场2 实体）');
+  // finalcut 连场2 末段（本次执行范围内）
+  const fcs9a = Object.values(doc9a.nodes).filter((n) => n.type === 'finalcut');
+  eq(fcs9a.length, 1, 'T9①: 成片节点应恰 1 个');
+  const fcEdge9a = (doc9a.edges || []).find((e) => e.toNode === fcs9a[0].id);
+  ok(!!fcEdge9a && fcEdge9a.fromNode === vids29[0].id, 'T9①: finalcut 未连场2 末段');
+  ok(logs9a.some((t) => t.includes('参考图预算与实际不一致（预算 9 / 实际 3）')), 'T9①: 部分跑应如实记参考图预算偏差（预算是全量快照）');
+
+  // ② 续跑补齐：旧令牌已按全量预算指纹失效（场2 已有视频 → 预算行变化）→ 重新复核批准 → 全量补齐
+  const apOld9 = await M.autoApprove({ projectId: pid9, quoteId: q9a.quoteId, confirm: '用户：按旧预算继续' });
+  ok(apOld9 && apOld9.ok === false && apOld9.expired === true, 'T9②: 部分跑后旧批准令牌应失效（预算变了要重新复核）');
+  const q9b = await M.autoQuote({ projectId: pid9, unitPricePerSecond: 2 });
+  eq(q9b && q9b.videoCalls, 3, 'T9②: 重报价应为 场1 2 + 场2 0(已有视频) + 场3 1 = 3');
+  const ap9b = await M.autoApprove({ projectId: pid9, quoteId: q9b.quoteId, confirm: '用户：补齐其余场' });
+  ok(ap9b && ap9b.ok === true, 'T9②: 重新批准失败');
+  const paid9b = await M.autoGenerate({ projectId: pid9 }); // 全量：不传 scenes，现行为零变化
+  ok(paid9b && paid9b.ok === true, 'T9②: 全量续跑启动失败');
+  const paidView9b = await waitPaid9();
+  ok(paidView9b && paidView9b.paid === 'done', 'T9②: 全量续跑未完成（' + (paidView9b && paidView9b.paidError) + '）');
+  const doc9b = await I.projectsGet({ id: pid9 });
+  eq(t9vidsOf(doc9b, sb19.id).length, 2, 'T9②: 场1 应补齐 2 段');
+  eq(t9vidsOf(doc9b, sb29.id).length, 1, 'T9②: 场2 不应重复建段');
+  eq(t9vidsOf(doc9b, sb39.id).length, 1, 'T9②: 场3 应补齐 1 段');
+  eq(t9.videoExecs.length, 4, 'T9②: 两次合计应恰 4 次视频 exec（场2 不重复）');
+  const vid2Id9 = vids29[0].id;
+  eq(t9.videoExecs.filter((id) => id === vid2Id9).length, 1, 'T9②: 场2 的段节点不得被再次 exec（hasVideo/段级恢复跳过）');
+  // 设定图不重建：9 个实体各恰 1 个节点、各恰 exec 1 次
+  const labels9b = t9imgsOf(doc9b).map((n) => String((n.data && n.data.label) || '')).sort();
+  const expected9 = ['场景-当铺 设定图', '场景-当铺门口 设定图', '场景-巷尾 设定图', '角色-阿禾 设定图', '角色-陈拾 设定图', '角色-老周 设定图', '道具-火漆信 设定图', '道具-字条 设定图', '道具-门环 设定图'].sort();
+  eq(JSON.stringify(labels9b), JSON.stringify(expected9), 'T9②: 续跑不得重建已有设定图（实际：' + JSON.stringify(labels9b) + '）');
+  eq(t9.imageExecs.length, 9, 'T9②: 两轮合计应恰 exec 9 张设定图');
+  ok(new Set(t9.imageExecs).size === 9, 'T9②: 设定图不得重复 exec');
+  // ref 连线口径：每个视频段 exec 时刻只连本场实体（先连后生成）
+  const id9 = {};
+  for (const lb of expected9) { const n = t9imgByLabel(doc9b, lb); ok(!!n, 'T9②: 设定图节点缺失 ' + lb); if (n) id9[lb] = n.id; }
+  const owner9 = (label) => label.startsWith('场1') ? ['场景-当铺 设定图', '角色-陈拾 设定图', '道具-火漆信 设定图']
+    : label.startsWith('场2') ? ['场景-当铺门口 设定图', '角色-阿禾 设定图', '道具-门环 设定图']
+    : ['场景-巷尾 设定图', '角色-老周 设定图', '道具-字条 设定图'];
+  eq(t9.refAtVideoExec.length, 4, 'T9②: 应捕获 4 次 video exec');
+  for (const cap of t9.refAtVideoExec) {
+    const node = doc9b.nodes[cap.nodeId];
+    const label = String((node && node.data && node.data.label) || '');
+    eq(JSON.stringify(cap.refs), JSON.stringify(owner9(label).map((lb) => id9[lb]).sort()), 'T9②: ' + (label || cap.nodeId) + ' exec 时刻 ref 入线应只连本场实体');
+  }
+  // finalcut 移到全场末段（本次范围的最后完成段 = 场3）；旧成片保留（已产出内容不回收）
+  const fcId9b = run9.finalcutNodeId;
+  const fcEdge9b = (doc9b.edges || []).find((e) => e.toNode === fcId9b);
+  const vids39b = t9vidsOf(doc9b, sb39.id);
+  ok(!!fcEdge9b && fcEdge9b.fromNode === vids39b[0].id, 'T9②: 新成片应连场3 末段（本次执行范围内最后完成段）');
+  const logs9b = (run9 && Array.isArray(run9.log)) ? run9.log.map((e) => String(e.summary)) : [];
+  eq(logs9b.filter((t) => t.includes('部分执行：本次跑')).length, 1, 'T9②: 全量续跑不应再记「部分执行」');
+
+  await M.autoModeSet({ enabled: false });
+  I.closeDb(); // 释放 SQLite 句柄：清理段的 fs.rm 才能删掉沙盒里的 canvas.db（Windows 文件锁）
+}
+
 // ---------------- 工具 ----------------
 async function findNode(type) {
   const doc = await I.projectsGet({ id: projectId });
