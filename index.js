@@ -214,6 +214,60 @@ function sanitizeFolderName(name) {
 }
 
 // ============================================================
+// 提交留痕（0.20.2 能力③）：视频提交请求的脱敏 JSONL 留底
+//   客户端在 onTask（submitted）/终态（done）/失败（failed）时各写一条 entry；
+//   Host 统一 redact 后追加到 <项目目录>/submissions.jsonl，>500 行裁最旧。
+//   红线条文（绝不落盘）：apiKey / 回调令牌 / taskQueryUrl（带签名地址）/ 素材数据——
+//   entry 本身就不含这些字段，redact 再对一切字符串兜底（error 消息里可能内嵌 URL/token）。
+// ============================================================
+const SUBMISSION_LOG_FILE = 'submissions.jsonl';
+const SUBMISSION_LOG_MAX_LINES = 500;
+/** 单条文本脱敏（可单测）：sk- 密钥、带签名参数的 URL、Bearer 令牌。正常文本不受影响。 */
+function redactSubmissionText(text) {
+  let s = String(text ?? '');
+  // 带签名参数的 URL 整体替换为 [signed-url]（X-Amz-Signature/Signature=AWS 系，sign=/token= 常见中转系）
+  s = s.replace(/https?:\/\/\S+/g, (u) => (/[?&](?:X-Amz-Signature|Signature|sign|token)=/i.test(u) ? '[signed-url]' : u));
+  s = s.replace(/Bearer \S+/gi, 'Bearer ***'); // 先于 sk-：Bearer 串里也可能内嵌 sk- 密钥
+  s = s.replace(/sk-[A-Za-z0-9]{8,}/g, 'sk-***');
+  return s;
+}
+/** entry 深度脱敏：所有字符串值逐个过 redactSubmissionText（嵌套对象/数组同样处理）。 */
+function redactSubmissionValue(v) {
+  if (typeof v === 'string') return redactSubmissionText(v);
+  if (Array.isArray(v)) return v.map(redactSubmissionValue);
+  if (v && typeof v === 'object') {
+    const o = {};
+    for (const k of Object.keys(v)) o[k] = redactSubmissionValue(v[k]);
+    return o;
+  }
+  return v;
+}
+/** 追加一条留痕（宿主核心实现，abs 为项目绝对目录；可单测）：
+ *  - 追加 JSONL 一行（整行先深度 redact，再序列化）
+ *  - 超过 500 行裁最旧（读全文重写；留痕是低频写，无需追加流优化）
+ *  - 任何写失败返回 ok:false，绝不 throw（留痕不能挡住生成主链路） */
+function submissionLogAppendImpl(abs, entry) {
+  if (!abs) return { ok: false, error: '项目目录不可用' };
+  if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return { ok: false, error: '缺少 entry 对象' };
+  let clean;
+  try { clean = redactSubmissionValue(entry); } catch (e) { return { ok: false, error: 'redact 失败: ' + String((e && e.message) || e) }; }
+  let line;
+  try { line = JSON.stringify(clean); } catch (e) { return { ok: false, error: 'entry 无法序列化: ' + String((e && e.message) || e) }; }
+  if (!line) return { ok: false, error: 'entry 序列化为空' };
+  const file = path.join(abs, SUBMISSION_LOG_FILE);
+  let lines = [];
+  try {
+    mkdirSync(abs, { recursive: true });
+    try { lines = readFileSync(file, 'utf8').split('\n').filter((l) => l.trim()); } catch { /* 首次写入无文件 */ }
+    lines.push(line);
+    while (lines.length > SUBMISSION_LOG_MAX_LINES) lines.shift();
+    writeFileSync(file, lines.join('\n') + '\n', 'utf8');
+  } catch (e) { return { ok: false, error: '写入失败: ' + String((e && e.message) || e) }; }
+  return { ok: true, lines: lines.length, file };
+}
+
+
+// ============================================================
 // 存储引擎 v2（0.18.0）：SQLite（node:sqlite）+ 项目文件夹落盘
 //   <dataRoot>/canvas.db                元数据 + 项目文档 = 唯一事实源
 //   <dataRoot>/projects/<项目>/<类型>/   媒体文件（0.18.5 起新上传一律落这里）
@@ -3596,6 +3650,8 @@ export const inject = ['webServer', 'tools'];
 // 仅供诊断 / 自动化测试（不属于 RPC 面，运行时行为不受影响）
 export const _internals = { THUMB_MAX_SIDE, thumbRelOf, isDerivedMedia, updateCheck, updateInstall, npmLatestVersion, cmpVer, findPnpm, NPM_REGISTRIES, pickUpdateRegistry, registryCacheValid, pnpmAddArgs, getProfileDir: () => PROFILE_DIR, getVersion: () => VERSION, dataRoot, setDataRoot, dataRootMigrate, dataRootImport, ensureProjectFolder, physicalRel, mirrorProjectToDataRoot, writeAssetIndex, removeAssetIndexEntry, readDataRootMeta, removeDataRootProject, sqlDeleteProjectRows, deletedProjectIds, addDeletedProjectId, clearDeletedProjectId, fetchProxyForward, storyboardConsistencyWarnings, readAssetIndexNames, safeJoin, mimeOf, pipeFile, getIcConfigPath: () => CONFIG_PATH, canvasCreateProject, canvasWriteNode, canvasConnect, canvasDeleteProject, canvasDeleteNode, canvasRunNode, canvasNodeStatus, canvasGetBible, canvasUpdateBible, canvasCreateNode, canvasOpen, canvasesList, canvasCreate, canvasRename, canvasDelete, canvasDocId, isCanvasDocId, splitCanvasDocId, normalizeCanvasId, canvasRegistry, sanitizeCanvases, wsProjectsScan, isWsProject, wsProjectHome, wsWatchTick, wsProjectCreateAt, projectHomeDir, memoryRead, memoryWrite, bindingsRead, bindingSet, bindingClear, readCanvasDoc, writeCanvasDoc, deleteCanvasDocsForProject, projectsList, projectsPut, projectsGet, projectsDelete, projectsSync, sqliteAvailable: () => !!SQLITE, getDb, closeDb, dbAssetsList, dbAssetsGet, dbAssetNames, dbAssetCreate, dbAssetUpdate, dbAssetDelete, objectAbsFor, ftsReconcile, readDocOrNull, docExists, sqlActive, rpcMethods: () => _rpcMethods, canvasUpdateNode, canvasGenerateNode, production: PROD, productionStages: PRODUCTION_STAGES,
   canvasLayoutNode, canvasLayoutGet, canvasRelayout,
+  // 提交留痕（0.20.2 T11）：redact 可单测（sk- 密钥/签名 URL/Bearer 三条 + 正常文本不受影响）
+  redactSubmissionText, redactSubmissionValue, submissionLogAppendImpl, SUBMISSION_LOG_MAX_LINES,
   __auto: __autoApi };
 
 function resolveModel(providers, want) {
@@ -4363,6 +4419,13 @@ export function apply(ctx) {
         const abs = path.join(root, 'projects', folder);
         try { mkdirSync(abs, { recursive: true }); } catch { /* 目录建不出来交给调用方报错 */ }
         return { ok: true, projectId: pid, folder, abs, dataRoot: root, legacy: !entry };
+      },
+      /** 提交留痕（0.20.2 能力③）：{projectId, entry} → 追加一行脱敏 JSONL 到 <项目目录>/submissions.jsonl。
+       *  目录解析与 projectDirGet 同一基准；写失败返回 ok:false（客户端留痕是尽力而为，绝不挡生成）。 */
+      async submissionLogAppend(args) {
+        const dir = await methods.projectDirGet({ projectId: args && args.projectId });
+        if (!dir || !dir.ok) return { ok: false, error: (dir && dir.error) || '项目目录不可用' };
+        return submissionLogAppendImpl(dir.abs, args && args.entry);
       },
       // IC-B4：FTS 存量孤儿一次性清理（幂等，可重复调；无 SQLite 时明确说不适用）
       async ftsReconcile() {

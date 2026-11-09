@@ -1291,6 +1291,20 @@ function revealCanvasInRight() {
       'mentionAssets': '已绑定资产 {n} 项（图片不自动上送，参考图请用连线）',
       'mentionNoAsset': '无绑定资产',
       'mentionNoAssetHint': '该实体没有绑定资产：@名称 只注入设定描述文字（外观/声音）；参考图必须用图片节点连线到 ref 口，资产库里的图不会自动追加',
+      'reqPreview': '请求预览',
+      'reqPreviewHint': '打开后按需计算：即将发送的模型、时长、分辨率、参考图角色与最终提示词全文（与正式提交同一组装逻辑，只读、零额外点击）',
+      'reqPreviewFail': '预览失败',
+      'reqPreviewModel': '模型',
+      'reqPreviewFrame': '首帧/锚定',
+      'reqPreviewRefs': '参考图',
+      'reqPreviewAudio': '声音参考',
+      'reqPreviewWarnings': '校验提示',
+      'reqPreviewPrompt': '最终提示词',
+      'reqPreviewCopy': '复制提示词',
+      'anchorFirstFrame': '首帧锚定',
+      'anchorRefImage': '参考图锚定（首帧图为图1）',
+      'frameOffNone': '不带首帧',
+      'frameAutoTail': '自动续帧（上一段尾帧）',
       'craftTimeout': 'Craft 任务超时（可在任务面板重试或取消）',
       'errNoImageApi': '未配置图片 API：请到画布设置里添加（未配置时可用演示模式）',
       'photoCmd': 'Craft 命令',
@@ -2272,6 +2286,20 @@ function revealCanvasInRight() {
       'mentionAssets': '{n} asset(s) bound (images are not auto-sent; wire references explicitly)',
       'mentionNoAsset': 'no bound asset',
       'mentionNoAssetHint': 'No asset bound to this entity: @name only injects bible text (looks/voice); reference images must be wired into the ref port — library images are never auto-added',
+      'reqPreview': 'Request preview',
+      'reqPreviewHint': 'Computed on demand: model, duration, resolution, reference roles and the full final prompt exactly as it will be sent (same assembly as the real submission; read-only, zero extra clicks)',
+      'reqPreviewFail': 'Preview failed',
+      'reqPreviewModel': 'Model',
+      'reqPreviewFrame': 'Frame/anchor',
+      'reqPreviewRefs': 'Refs',
+      'reqPreviewAudio': 'Voice refs',
+      'reqPreviewWarnings': 'Checks',
+      'reqPreviewPrompt': 'Final prompt',
+      'reqPreviewCopy': 'Copy prompt',
+      'anchorFirstFrame': 'first_frame anchor',
+      'anchorRefImage': 'reference_image anchor (frame is image #1)',
+      'frameOffNone': 'no frame',
+      'frameAutoTail': 'auto continuation (previous tail frame)',
       'craftTimeout': 'Craft job timed out (retry or cancel it in the job panel)',
       'errNoImageApi': 'No image API configured — add one in canvas settings (demo mode is available without one)',
       'photoCmd': 'Craft command',
@@ -3501,6 +3529,13 @@ body[data-ds-dark-theme] .dshic-storage-details{border-color:var(--dsw-alias-bor
   line-height:var(--dshic-panel-lh);padding:var(--dshic-panel-pad);}
 .dshic-composer .dshic-prompt-input{background:transparent;border-color:transparent;}
 .dshic-composer-extra{display:flex;flex-direction:column;gap:6px;padding:6px 12px 0;}
+/* 请求预览（0.20.2）：折叠区展开后的只读快照（模型/参数/参考图顺序/校验/最终提示词全文） */
+.dshic-req-preview{display:flex;flex-direction:column;gap:5px;padding:6px 8px;border:1px solid var(--dshic-line, rgba(128,128,128,.25));border-radius:8px;}
+.dshic-req-grid{display:flex;flex-direction:column;gap:4px;}
+.dshic-req-warns{display:flex;flex-direction:column;gap:3px;}
+.dshic-req-prompt{max-height:180px;overflow:auto;font-size:11px;line-height:16px;white-space:pre-wrap;word-break:break-word;
+  padding:6px 8px;border-radius:6px;background:color-mix(in srgb,var(--dshic-ink) 5%,transparent);
+  scrollbar-width:thin;scrollbar-color:var(--dshic-ink3, rgba(128,128,128,.5)) transparent;}
 /* 「更多」折叠开关：面板默认只显示「参考图条 / 提示词 / 一行控件」；
    高级项收进这里，默认收起、不渲染（不占版面），点开才出现。 */
 .dshic-composer-morebar{display:flex;align-items:center;flex:none;padding:2px 12px 0;}
@@ -10732,6 +10767,15 @@ function queueThumb(assetId) {
       }
     }
 
+    /** 提交留痕写入（0.20.2 能力③）：追加到项目目录 submissions.jsonl
+     *  （宿主侧统一 redact + 500 行裁剪；entry 形状见 index.js submissionLogAppend）。
+     *  留痕默认开启、自动、无感（预览面板不放入口）；写失败绝不影响生成主链路。 */
+    async function logVideoSubmission(entry) {
+      try {
+        await hostRpc('submissionLogAppend', { projectId: S.activeId, entry });
+      } catch { /* 留痕尽力而为：Host 不在/目录不可写都不能挡住生成 */ }
+    }
+
     async function runGenNode(n) {
       const type = n.type;
       const settings = loadSettings(); // 模型解析（供应商+模型）用
@@ -10814,55 +10858,12 @@ function queueThumb(assetId) {
           if (!cases.length) throw new Error(T('noResult'));
         } else {
           const { refs, entities, audioBlobs } = await collectRefs(n, prompt, bible);
-          // 上游是分镜表 → 走厂商「参考生成」结构化提示词（主体/分镜/台词/声音显式绑定，音画同步；
-          // 机械拼装会让模型把台词与场景判错）；节点上已手写结构化提示词则原样尊重。
-          const sbUp = storyboardInputOf(n);
-          const shotListAll = sbUp && Array.isArray(sbUp.data.shots) ? sbUp.data.shots : [];
-          // 按镜头切段：上游分镜表被"按镜头切段"铺开过时，每个视频节点只负责自己那一段镜头。
-          // 只取本段的镜头去组提示词——绝不把整表的镜头都塞进一次请求（那正是"动作被压成平移"的根因）。
-          const segMeta = (() => {
-            const d = (n.data || {});
-            if (!shotListAll.length) return null;
-            const from = Number(d.segShotFrom);
-            const to = Number(d.segShotTo);
-            if (!Number.isFinite(from) || !Number.isFinite(to) || to < from) return null;
-            return { from: Math.max(0, Math.floor(from)), to: Math.min(shotListAll.length - 1, Math.floor(to)), index: Number(d.segIndex) || 0, count: Number(d.segCount) || 1, needsTailChain: d.needsTailChain === true, seamRisk: String(d.seamRisk || 'none') };
-          })();
-          const shotList = segMeta ? shotListAll.slice(segMeta.from, segMeta.to + 1) : shotListAll;
-          // 时长策略：未连分镜用节点秒数；已连分镜按本段镜头节拍求和（节点秒数不进请求）
-          const durationPlan = videoDurationFor(n, shotList, !!sbUp);
-          const autoDuration = durationPlan.value || 5;
-          const handWritten = String(n.data.prompt || '').trim();
-          // 手写厂商结构化提示词 = 高级直通路径：保留用户的 subject/shot 结构，
-          // 只补实体设定文字；风格锁与承接前置块都不再追加，避免污染厂商协议格式。
-          const handStructured = handWritten.includes('subject_definitions');
-          // 分镜衔接规划：段落类型（续帧/换场/新角色/特写插入）+ 首镜承接口 + 是否接力尾帧
-          const zh = effLang() !== 'en';
-          const plan = (() => {
-            if (!shotList.length) return { first: null, chain: false, join: 'loose', seg: 'opening', fromShot: false };
-            const first = shotContinuityPlan(shotList[0], null, 0);
-            // 分镜衔接总开关（分镜表 cont）：关掉 = 不做跨段承接、不自动取尾帧、不写衔接块
-            const contOn = sbUp ? sbUp.data.cont !== false : true;
-            // 跨分镜表承接：上游分镜表「衔接上一镜」输入口 ← 上一个分镜表「尾镜」输出口
-            const prevSb = (() => {
-              const e2 = S.graph.edges.find((x) => x.toNode === (sbUp && sbUp.id) && x.toPort === 'prev');
-              const src = e2 && S.graph.nodes[e2.fromNode];
-              return src && src.type === 'storyboard' ? src : null;
-            })();
-            const prevNote = prevSb ? storyboardContinuityNote(prevSb.data.shots || [], String(prevSb.data.label || ''), zh) : null;
-            let seg = first.seg;
-            // 第 1 镜没有表内上一镜时，可承接上一个分镜表 → 实质是续帧
-            if (seg === 'opening' && prevNote) seg = 'continuation';
-            const join = (seg === 'scene_change' || seg === 'new_character') ? 'loose' : seg === 'closeup' ? 'cut' : 'strict';
-            // 接力判定：切段铺开时以**规划器**为准（它知道本段是否从切点开始）；
-            // 直接把整表塞一次生成的旧路径才退回"首镜是续帧就接力"。
-            const chain = contOn && (segMeta ? (segMeta.needsTailChain && seg === 'continuation') : seg === 'continuation');
-            return { first, chain, seg, join, fromShot: contOn && (segMeta ? segMeta.needsTailChain : !!prevNote), contOn, segMeta };
-          })();
+          // —— 决策基座（分镜切片/时长策略/衔接规划）：与「请求预览」共用同一份（assembleVideoRequest）——
+          const vctx = videoRequestContext(n);
           // 首帧来源：① frame 口连线（用户显式）② 续帧链自动取「上一个视频」的尾帧
           let frameBlob = await resolveAssetBlob(n.id, 'frame');
           let frameAuto = false;
-          if (!frameBlob && plan.chain) {
+          if (!frameBlob && vctx.plan.chain) {
             const prevVid = autoPrevVideoNode(n);
             if (prevVid && prevVid.data.assetId) {
               try {
@@ -10884,89 +10885,62 @@ function queueThumb(assetId) {
               } catch { /* 取不到尾帧则降级为纯参考图生成 */ }
             }
           }
-          const frameMode = n.data.frameMode || 'auto';
+          // 组装最终请求（与请求预览**同一函数**；p 内容与旧内联实现逐字等价——重构红线）
+          const assembled = await assembleVideoRequest(n, {
+            prompt, bible,
+            refs: refs.map((r) => ({ name: r.name, category: r.category, entity: r.entity || '' })),
+            entities,
+            audioNames: audioBlobs.map((a) => a.name),
+            hasFrame: !!frameBlob,
+            frameAuto,
+          });
+          const p = assembled.p;
+          const params = assembled.params;
+          const autoDuration = params.duration;
+          const frameMode = params.frameMode;
+          const hardFrame = params.hardFrame;
           const useFrame = frameMode !== 'off' && !!frameBlob;
-          // 硬首帧只在"不挂实体参考图"时可用（多数厂商 first_frame 与 reference_image 互斥）；
-          // 续帧段若还要实体参考图 → 尾帧降级为首张参考图 + 软锚定（frameAnchorText 会写明）
-          const hardFrame = useFrame && frameMode === 'hard';
-          const anchorRole = (useFrame && !hardFrame && refs.length) ? 'reference_image' : 'first_frame';
-          let music = '';
-          try { const ex2 = parseExtraParams(n.data.vidExtra); if (ex2 && typeof ex2.music === 'string') music = ex2.music; } catch { /* 扩展参数非法时忽略音乐提示 */ }
-          // 跨段承接说明：本分镜第 1 镜承接上一个分镜表尾镜（续帧时首帧图已带画面，这里补文字约束）
-          const continuity = (() => {
-            if (!plan.fromShot) return '';
-            const st = shotList[0] || {};
-            const tail = String(st.tail || '').trim();
-            const bits = [];
-            if (plan.seg === 'continuation') {
-              bits.push(zh ? '本段是上一段的直接续帧：第 1 帧从上一段结尾接着演，不重演、不重新建立场景、不切换机位' : 'This segment continues the previous one: start from its last frame, no replay, no re-establishing, no camera reset');
-              if (tail) bits.push((zh ? '起始状态：' : 'Start state: ') + tail);
-            } else if (plan.seg === 'scene_change') {
-              bits.push(zh ? '本段换场：不承接上一段画面，但环境声/情绪可延续' : 'Scene change: do not continue the previous frame; ambience and mood may carry over');
-            } else if (plan.seg === 'new_character') {
-              // 特效入场（灯闪现身/影子凝聚/影化实）合法：首镜 vfx/start 写明特效进入时不逼"走入"
-              const fxEntry = /凝聚|凭空|灯闪|黑场|影子|化实|现身|浮现/.test(
-                String(st.vfx || '') + String(st.start || '') + String(st.visual || '') + String(st.motion || ''));
-              bits.push(zh
-                ? (fxEntry
-                  ? '本段有新角色入场（特效进入）：灯闪/黑场后已在场、从影子凝聚立起、浮现成形——不得缓慢走入'
-                  : '本段有新角色入场：新角色必须从画面内自然进入（走入/被带入），不得凭空出现')
-                : (fxEntry
-                  ? 'A new character enters via an effect: already there after a flash/black frame, rises from a shadow, condenses into form - never walks in slowly'
-                  : 'A new character enters: they must enter naturally from within the frame, never pop in'));
-            }
-            return bits.join(zh ? '；' : '; ');
-          })();
-          let p;
-          // 图1=尾帧（降级模式）时实体参考图为图2..N+1：两条提示词组装路径都要同步偏移
-          const effOpts = { picOffset: (useFrame && anchorRole === 'reference_image') ? 1 : 0 };
-          if (handStructured) {
-            p = handWritten; // 高级用法：手写结构化提示词，结构原样保留
-            // 只追加 series_bible 文字块：不动用户写好的主体/镜头结构，也不追加任何参考图与风格锁。
-            if (!/series_bible/i.test(p)) {
-              const bb = entityBibleBlock(entities, bible, zh);
-              if (bb) p = p + '\n' + bb;
-            }
-          } else if (shotList.length) {
-            p = buildStructuredVideoPrompt(shotList, refs, bible, {
-              zh, prompt: handWritten, music, hasFrame: useFrame, frameRole: anchorRole, continuity,
-              // @引用命中实体的设定文字（外观/声音）：只注入文本，参考图仍严格只取 ref 连线
-              entities,
-            });
-            if (!p) p = buildEffectivePrompt(prompt, refs, entities, bible, false, effOpts); // 无参考图时回退
-          } else {
-            p = buildEffectivePrompt(prompt, refs, entities, bible, false, effOpts);
-          }
-          // 非结构化路径（无参考图/手写提示词）也要有首帧锚定与承接说明
-          if ((!shotList.length || !p.includes('subject_definitions')) && !handStructured) {
-            const pre = [frameAnchorText({ hasFrame: useFrame, role: anchorRole, zh }), continuity].filter(Boolean).join(zh ? '；' : '; ');
-            if (pre) p = pre + '\n' + p;
-          }
-          // 自动组装路径才追加技能包风格锁；手写厂商结构化提示词保持用户协议结构
-          if (!handStructured) {
-            try {
-              const lock = await buildShotLockText('prompt');
-              if (lock) p = p + '\n' + lock;
-            } catch { /* 技能包不可用时不影响生成 */ }
-          }
           const mcfg = resolveVideoModelCfg(settings, nodeVideoModelRef(n));
           if (!mcfg) throw new Error(T('errNoVideoModel'));
-          if (sbUp && !durationPlan.value) addWarn('已连接分镜但暂无镜头时长：视频时长回退 5s（先生成分镜镜头后重跑）');
-          const blob = await apiVideo(p, useFrame ? frameBlob : null, mcfg, {
+          // 提交前校验门（能力①）：warnings 单一事实源来自 assembleVideoRequest，生成时逐条显式提示
+          // （含旧有的「已连接分镜但暂无镜头时长」原文）——绝不静默修改请求
+          for (const w of params.warnings) addWarn(w);
+          // 脱敏留痕（能力③）：失败/未完成也要留底（saveAssetRecord 只在成功后写，追溯不到失败）。
+          // entry 绝不含 taskQueryUrl（带签名地址）/apiKey/素材数据——redact 在宿主侧统一执行。
+          const logBase = () => ({
+            at: Date.now(), projectId: S.activeId, nodeId: n.id, nodeLabel: (n.data && n.data.label) || '',
+            kind: 'video',
+            model: mcfg ? { provider: mcfg.providerName || mcfg.providerId, id: mcfg.model } : { provider: '', id: '' },
             duration: autoDuration, resolution: n.data.resolution, ratio: n.data.ratio,
-            frameMode, // auto=尾帧降级为参考图（保留实体参考图）/ hard=硬首帧（放弃参考图）/ off=忽略首帧
-            hardFrame,
-            refs: refs.map((r) => r.blob),
-            refNames: refs.map((r) => r.entity || r.name || ''), // 跨镜衔接标注用（图2..N 的实体名）
-            nodeExtra: n.data.vidExtra, // 节点级扩展参数（手动参数框，如 {"use_context_ir":true}）
-            warn: addWarn, // 参考素材超限等告警回传（节点上可见）
-            // 任务提交成功即持久化 task id：轮询中断/页面关闭后仍可凭 id 回查结果（钱花了就必须能找回）
-            onTask: (tid, qurl) => {
-              update((s) => { const nd = s.graph.nodes[n.id]; if (nd) { nd.data.taskId = String(tid || ''); nd.data.taskQueryUrl = String(qurl || ''); } });
-              flushSave();
-            },
-            audioRefs: audioBlobs.map((a) => a.blob), // 角色声音参考（@引用实体名下的音频资产）
+            frameMode, hardFrame,
+            refNames: params.refNames, audioNames: params.audioNames,
+            promptChars: p.length, effectivePrompt: p, taskId: '', status: 'submitted',
           });
+          let subTid = ''; // onTask 回传的任务 id（失败留痕要能对上已提交的任务）
+          let blob = null;
+          try {
+            blob = await apiVideo(p, useFrame ? frameBlob : null, mcfg, {
+              duration: autoDuration, resolution: n.data.resolution, ratio: n.data.ratio,
+              frameMode, // auto=尾帧降级为参考图（保留实体参考图）/ hard=硬首帧（放弃参考图）/ off=忽略首帧
+              hardFrame,
+              refs: refs.map((r) => r.blob),
+              refNames: refs.map((r) => r.entity || r.name || ''), // 跨镜衔接标注用（图2..N 的实体名）
+              nodeExtra: n.data.vidExtra, // 节点级扩展参数（手动参数框，如 {"use_context_ir":true}）
+              warn: addWarn, // 参考素材超限等告警回传（节点上可见）
+              // 任务提交成功即持久化 task id：轮询中断/页面关闭后仍可凭 id 回查结果（钱花了就必须能找回）
+              onTask: (tid, qurl) => {
+                update((s) => { const nd = s.graph.nodes[n.id]; if (nd) { nd.data.taskId = String(tid || ''); nd.data.taskQueryUrl = String(qurl || ''); } });
+                flushSave();
+                subTid = String(tid || '');
+                logVideoSubmission({ ...logBase(), taskId: subTid, status: 'submitted' }); // 提交留痕（自动、无感）
+              },
+              audioRefs: audioBlobs.map((a) => a.blob), // 角色声音参考（@引用实体名下的音频资产）
+            });
+          } catch (eSub) {
+            // 失败留痕（本能力的主要价值）：throw 前先落一条 failed，再原样抛出（异常时序与旧实现一致）
+            logVideoSubmission({ ...logBase(), taskId: subTid, status: 'failed', error: String((eSub && eSub.message) || eSub) });
+            throw eSub;
+          }
           const rec = await saveAssetRecord(S.activeId, 'video', blob, {
             name: assetNameFor(n, entities, 'video'),
             prompt: stripMentionMarks(prompt), effectivePrompt: p,
@@ -10976,6 +10950,7 @@ function queueThumb(assetId) {
             nodeLabel: (n.data && n.data.label) || '',
             category: 'finalcut', // 节点生成的视频 = 成片（实体归属由 entities 字段承担，不占用分类）
           });
+          logVideoSubmission({ ...logBase(), taskId: subTid, status: 'done' }); // 终态留痕（fire-and-forget，不改变回写时序）
           // 记录续帧来源（节点上可追溯：本段是从哪一段接过来的）
           if (useFrame) {
             update((s) => {
@@ -11033,14 +11008,14 @@ function queueThumb(assetId) {
             });
           }
           // 接缝校验：本段首帧 vs 上一段尾帧（续帧段才有意义）。不达标 → 节点上可见告警（不静默）
-          if (useFrame && plan.chain) {
+          if (useFrame && vctx.plan.chain) {
             try {
               const first = await extractFirstFrame(blob);
               if (first) {
                 const ga = await grayThumb(frameBlob, 32);
                 const gb = await grayThumb(first, 32);
                 const met = frameSeamMetrics(ga, gb);
-                const v = seamVerdict(met, plan.join);
+                const v = seamVerdict(met, vctx.plan.join);
                 update((s) => {
                   const nd = s.graph.nodes[n.id];
                   if (nd) nd.data.seam = { ok: v.ok, sim: v.sim == null ? null : Math.round(v.sim * 100) / 100, thr: v.thr, note: v.note, at: Date.now() };
@@ -12317,6 +12292,207 @@ function queueThumb(assetId) {
       return { controlled: false, value: cfg > 0 ? round1(cfg) : 5 };
     }
 
+    // ============================================================
+    // 视频请求组装（0.20.2）：run 路径与「请求预览」的单一事实源
+    // ============================================================
+    // 背景（外部用户 issue 三能力）：① 提交前自动校验（排除/降级素材时显式提示，不静默）；
+    // ② 真预览——与正式提交**同一组装逻辑**（不是另做一个近似预览），且普通生成零新增点击；
+    // ③ 失败可追溯（脱敏留痕见 index.js submissionLogAppend）。
+    // 因此把 runGenNode 视频分支里「从分镜切片到最终提示词」的纯决策+组装抽出来，
+    // run 与预览都调 assembleVideoRequest——p 逐字一致是重构红线（test-submission-log 断言）。
+    /** 本段镜头区间元数据（按镜头切段铺开时节点上写有 segShotFrom/To/Index/Count）。 */
+    function videoSegMetaOf(n, shotListAll) {
+      const d = (n.data || {});
+      if (!shotListAll.length) return null;
+      const from = Number(d.segShotFrom);
+      const to = Number(d.segShotTo);
+      if (!Number.isFinite(from) || !Number.isFinite(to) || to < from) return null;
+      return { from: Math.max(0, Math.floor(from)), to: Math.min(shotListAll.length - 1, Math.floor(to)), index: Number(d.segIndex) || 0, count: Number(d.segCount) || 1, needsTailChain: d.needsTailChain === true, seamRisk: String(d.seamRisk || 'none') };
+    }
+    /** 分镜衔接规划：段落类型（续帧/换场/新角色/特写插入）+ 首镜承接口 + 是否接力尾帧。
+     *  全部是同步图读取——同一节点同一图状态下结果恒定，run 与预览共用。 */
+    function videoContinuityPlan(n, shotList, segMeta, sbUp, zh) {
+      if (!shotList.length) return { first: null, chain: false, join: 'loose', seg: 'opening', fromShot: false };
+      const first = shotContinuityPlan(shotList[0], null, 0);
+      // 分镜衔接总开关（分镜表 cont）：关掉 = 不做跨段承接、不自动取尾帧、不写衔接块
+      const contOn = sbUp ? sbUp.data.cont !== false : true;
+      // 跨分镜表承接：上游分镜表「衔接上一镜」输入口 ← 上一个分镜表「尾镜」输出口
+      const prevSb = (() => {
+        const e2 = S.graph.edges.find((x) => x.toNode === (sbUp && sbUp.id) && x.toPort === 'prev');
+        const src = e2 && S.graph.nodes[e2.fromNode];
+        return src && src.type === 'storyboard' ? src : null;
+      })();
+      const prevNote = prevSb ? storyboardContinuityNote(prevSb.data.shots || [], String(prevSb.data.label || ''), zh) : null;
+      let seg = first.seg;
+      // 第 1 镜没有表内上一镜时，可承接上一个分镜表 → 实质是续帧
+      if (seg === 'opening' && prevNote) seg = 'continuation';
+      const join = (seg === 'scene_change' || seg === 'new_character') ? 'loose' : seg === 'closeup' ? 'cut' : 'strict';
+      // 接力判定：切段铺开时以**规划器**为准（它知道本段是否从切点开始）；
+      // 直接把整表塞一次生成的旧路径才退回"首镜是续帧就接力"。
+      const chain = contOn && (segMeta ? (segMeta.needsTailChain && seg === 'continuation') : seg === 'continuation');
+      return { first, chain, seg, join, fromShot: contOn && (segMeta ? segMeta.needsTailChain : !!prevNote), contOn, segMeta };
+    }
+    /** 跨段承接说明：本分镜第 1 镜承接上一个分镜表尾镜（续帧时首帧图已带画面，这里补文字约束）。 */
+    function videoContinuityText(plan, shotList, zh) {
+      if (!plan.fromShot) return '';
+      const st = shotList[0] || {};
+      const tail = String(st.tail || '').trim();
+      const bits = [];
+      if (plan.seg === 'continuation') {
+        bits.push(zh ? '本段是上一段的直接续帧：第 1 帧从上一段结尾接着演，不重演、不重新建立场景、不切换机位' : 'This segment continues the previous one: start from its last frame, no replay, no re-establishing, no camera reset');
+        if (tail) bits.push((zh ? '起始状态：' : 'Start state: ') + tail);
+      } else if (plan.seg === 'scene_change') {
+        bits.push(zh ? '本段换场：不承接上一段画面，但环境声/情绪可延续' : 'Scene change: do not continue the previous frame; ambience and mood may carry over');
+      } else if (plan.seg === 'new_character') {
+        // 特效入场（灯闪现身/影子凝聚/影化实）合法：首镜 vfx/start 写明特效进入时不逼"走入"
+        const fxEntry = /凝聚|凭空|灯闪|黑场|影子|化实|现身|浮现/.test(
+          String(st.vfx || '') + String(st.start || '') + String(st.visual || '') + String(st.motion || ''));
+        bits.push(zh
+          ? (fxEntry
+            ? '本段有新角色入场（特效进入）：灯闪/黑场后已在场、从影子凝聚立起、浮现成形——不得缓慢走入'
+            : '本段有新角色入场：新角色必须从画面内自然进入（走入/被带入），不得凭空出现')
+          : (fxEntry
+            ? 'A new character enters via an effect: already there after a flash/black frame, rises from a shadow, condenses into form - never walks in slowly'
+            : 'A new character enters: they must enter naturally from within the frame, never pop in'));
+      }
+      return bits.join(zh ? '；' : '; ');
+    }
+    /** 视频请求的公共决策基座：分镜输入/段元数据/切片/时长策略/手写判定/衔接规划。
+     *  run 路径（自动续帧要读 plan.chain）与 assembleVideoRequest 都从这里取，保证两边一致。 */
+    function videoRequestContext(n) {
+      const sbUp = storyboardInputOf(n);
+      const shotListAll = sbUp && Array.isArray(sbUp.data.shots) ? sbUp.data.shots : [];
+      const segMeta = videoSegMetaOf(n, shotListAll);
+      const shotList = segMeta ? shotListAll.slice(segMeta.from, segMeta.to + 1) : shotListAll;
+      // 时长策略：未连分镜用节点秒数；已连分镜按本段镜头节拍求和（节点秒数不进请求）
+      const durationPlan = videoDurationFor(n, shotList, !!sbUp);
+      const autoDuration = durationPlan.value || 5;
+      const handWritten = String(n.data.prompt || '').trim();
+      // 手写厂商结构化提示词 = 高级直通路径：保留用户的 subject/shot 结构，
+      // 只补实体设定文字；风格锁与承接前置块都不再追加，避免污染厂商协议格式。
+      const handStructured = handWritten.includes('subject_definitions');
+      const zh = effLang() !== 'en';
+      const plan = videoContinuityPlan(n, shotList, segMeta, sbUp, zh);
+      return { sbUp, shotListAll, segMeta, shotList, durationPlan, autoDuration, handWritten, handStructured, zh, plan };
+    }
+    /** 组装一次视频请求（blob 无关）：
+     *  - inputs = { prompt, bible, refs, entities, audioNames, hasFrame, frameAuto }
+     *    refs 传描述符 {name, category, entity}（组装只消费这三个字段，blob 由 run 路径在
+     *    真正调用 apiVideo 时映射）；hasFrame/frameAuto 由调用方按各自口径给
+     *    （run=blob 实际存在，预览=连线存在性），组装决策对两边一致。
+     *  - 返回 { p, params: { duration, resolution, ratio, frameMode, hardFrame, anchorRole,
+     *    useFrame, frameAuto, refNames, refRoles, audioNames, modelLabel, segMeta, warnings } }
+     *  - warnings = 提交前校验门（单一事实源）：每条都是显式提示，绝不静默修改请求；
+     *    run 路径逐条 addWarn（生成时节点可见），预览面板原样展示。 */
+    async function assembleVideoRequest(n, inputs) {
+      const i = inputs || {};
+      const refs = Array.isArray(i.refs) ? i.refs : [];
+      const entities = Array.isArray(i.entities) ? i.entities : [];
+      const audioNames = Array.isArray(i.audioNames) ? i.audioNames : [];
+      const hasFrame = !!i.hasFrame;
+      const frameAuto = !!i.frameAuto;
+      // 与旧内联实现同名（重构红线：p 逐字等价的最强自证——本函数体即原 runGenNode 视频分支原文）
+      const { shotList, autoDuration, handWritten, handStructured, zh, plan, durationPlan, sbUp, segMeta: segMetaRef } = videoRequestContext(n);
+      const prompt = String(i.prompt ?? '');
+      const bible = i.bible || null;
+      const frameMode = n.data.frameMode || 'auto';
+      const useFrame = frameMode !== 'off' && hasFrame;
+      // 硬首帧只在"不挂实体参考图"时可用（多数厂商 first_frame 与 reference_image 互斥）；
+      // 续帧段若还要实体参考图 → 尾帧降级为首张参考图 + 软锚定（frameAnchorText 会写明）
+      const hardFrame = useFrame && frameMode === 'hard';
+      const anchorRole = (useFrame && !hardFrame && refs.length) ? 'reference_image' : 'first_frame';
+      let music = '';
+      try { const ex2 = parseExtraParams(n.data.vidExtra); if (ex2 && typeof ex2.music === 'string') music = ex2.music; } catch { /* 扩展参数非法时忽略音乐提示 */ }
+      // 跨段承接说明：本分镜第 1 镜承接上一个分镜表尾镜（续帧时首帧图已带画面，这里补文字约束）
+      const continuity = videoContinuityText(plan, shotList, zh);
+      let p;
+      // 图1=尾帧（降级模式）时实体参考图为图2..N+1：两条提示词组装路径都要同步偏移
+      const effOpts = { picOffset: (useFrame && anchorRole === 'reference_image') ? 1 : 0 };
+      if (handStructured) {
+        p = handWritten; // 高级用法：手写结构化提示词，结构原样保留
+        // 只追加 series_bible 文字块：不动用户写好的主体/镜头结构，也不追加任何参考图与风格锁。
+        if (!/series_bible/i.test(p)) {
+          const bb = entityBibleBlock(entities, bible, zh);
+          if (bb) p = p + '\n' + bb;
+        }
+      } else if (shotList.length) {
+        p = buildStructuredVideoPrompt(shotList, refs, bible, {
+          zh, prompt: handWritten, music, hasFrame: useFrame, frameRole: anchorRole, continuity,
+          // @引用命中实体的设定文字（外观/声音）：只注入文本，参考图仍严格只取 ref 连线
+          entities,
+        });
+        if (!p) p = buildEffectivePrompt(prompt, refs, entities, bible, false, effOpts); // 无参考图时回退
+      } else {
+        p = buildEffectivePrompt(prompt, refs, entities, bible, false, effOpts);
+      }
+      // 非结构化路径（无参考图/手写提示词）也要有首帧锚定与承接说明
+      if ((!shotList.length || !p.includes('subject_definitions')) && !handStructured) {
+        const pre = [frameAnchorText({ hasFrame: useFrame, role: anchorRole, zh }), continuity].filter(Boolean).join(zh ? '；' : '; ');
+        if (pre) p = pre + '\n' + p;
+      }
+      // 自动组装路径才追加技能包风格锁；手写厂商结构化提示词保持用户协议结构
+      if (!handStructured) {
+        try {
+          const lock = await buildShotLockText('prompt');
+          if (lock) p = p + '\n' + lock;
+        } catch { /* 技能包不可用时不影响生成 */ }
+      }
+      const mcfg = resolveVideoModelCfg(loadSettings(), nodeVideoModelRef(n));
+      const frameWired = S.graph.edges.some((x) => x.toNode === n.id && x.toPort === 'frame');
+      // —— 提交前校验门（显式提示，绝不静默）——
+      const warnings = [];
+      if (!mcfg) warnings.push('未配置视频模型：请到画布设置里选择视频模型后再生成');
+      if (sbUp && !durationPlan.value) warnings.push('已连接分镜但暂无镜头时长：视频时长回退 5s（先生成分镜镜头后重跑）');
+      if (autoDuration > 15) warnings.push('时长 ' + autoDuration + 's 超过单次生成上限 15s：厂商可能直接拒绝（如中转站 400）——建议按镜头切段或压缩镜头');
+      if (refs.length > 4) warnings.push('参考图 ' + refs.length + ' 张可能超过厂商常见上限（4 张）：超出部分可能被忽略——请核对厂商文档');
+      if (useFrame && !hardFrame && refs.length) warnings.push('硬首帧与实体参考图互斥：已降级为参考图锚定');
+      if (frameMode === 'off' && frameWired) warnings.push('首帧已接线但 frameMode=off：本请求不带首帧');
+      return {
+        p,
+        params: {
+          duration: autoDuration, resolution: n.data.resolution, ratio: n.data.ratio,
+          frameMode, hardFrame, anchorRole, useFrame, frameAuto,
+          refNames: refs.map((r) => r.entity || r.name || ''),
+          refRoles: refs.map((r) => r.category || ''),
+          audioNames,
+          modelLabel: mcfg ? ((mcfg.providerName || mcfg.providerId) + ' / ' + mcfg.model) : '',
+          segMeta: segMetaRef,
+          warnings,
+        },
+      };
+    }
+    /** 请求预览的轻量 inputs（零 blob 解码）：连线存在性代替 blob 存在性
+     *  （frame 口有连线+上游 assetId → hasFrame=true；续帧链上有已生成的上一段 → frameAuto）。
+     *  refs 名称/分类取资产元数据缓存（assetMem），取不到退回节点标签——
+     *  组装只消费 name/category/entity 三个字段，与 run 路径的 collectRefs 产物同构。 */
+    async function previewVideoInputs(n) {
+      const bible = loadBible(S.activeId);
+      // 与 run 路径同口径：先做未闭合引用自愈（预览只读，不回写节点）
+      const prompt = repairUnclosedMentions(resolvePrompt(n), bibleNames(bible));
+      // @引用解析先行：idbByProject 会顺带预热 assetMem（资产元数据缓存），ref 名称从它取
+      // （先建 ref 再解析会把首帧预览锁在冷缓存上，名称退回节点标签）
+      const bundle = await resolveMentionBundle(prompt, bible, S.activeId);
+      const audioNames = (bundle.audioRefs || []).map((r) => r.name);
+      const refEdges = S.graph.edges.filter((e) => e.toNode === n.id && e.toPort === 'ref');
+      const refs = orderedRefEdgeIds(n, refEdges).map((id) => {
+        const e = refEdges.find((x) => x.id === id);
+        const src = e && S.graph.nodes[e.fromNode];
+        const aid = src ? servedAssetId(src, e.fromPort) : null;
+        const rec = aid ? assetMem.get(aid) : null;
+        return { name: String((rec && rec.name) || (src && (src.data.label || src.data.placeholderName)) || '…'), category: (rec && rec.category) || 'general', entity: '' };
+      });
+      let hasFrame = false;
+      let frameAuto = false;
+      const fe = S.graph.edges.find((x) => x.toNode === n.id && x.toPort === 'frame');
+      const faid = fe ? servedAssetId(S.graph.nodes[fe.fromNode], fe.fromPort) : null;
+      if (faid) hasFrame = true;
+      if (!hasFrame && videoRequestContext(n).plan.chain) {
+        const pv = autoPrevVideoNode(n);
+        if (pv && pv.data.assetId) { hasFrame = true; frameAuto = true; }
+      }
+      return { prompt, bible, refs, entities: bundle.entities, audioNames, hasFrame, frameAuto };
+    }
+
     /** 自定义数值的统一夹取：低于下限视为无效（0 是“自动”等保留值，不能悄悄变成 1）；
      *  超上限夹回上限；整数/一位小数口径固定；非法输入回退当前值。 */
     function clampCustomNumber(raw, opts) {
@@ -13003,6 +13179,7 @@ function queueThumb(assetId) {
             })
           : null,
         (isImage || isVideo) ? h(MentionInfo, { n }) : null,
+        isVideo ? h(RequestPreview, { n }) : null, // 请求预览（0.20.2）：只读折叠区，打开才计算，零新增点击
         (n.data.history || []).length > 1
           ? h('div', { className: 'dshic-hist' },
               (n.data.history || []).map((hh) => h(HistThumb, {
@@ -13503,6 +13680,104 @@ function queueThumb(assetId) {
             entityLabelOf(r.kind) + ' · ' + (r.count ? T('mentionAssets').replace('{n}', String(r.count)) : T('mentionNoAsset'))),
         )),
         all === 0 ? h('div', { className: 'dshic-hint' }, T('mentionNoAssetHint')) : null,
+      );
+    }
+
+    /** 请求预览（0.20.2 能力①②）：只读、按需计算、普通生成零新增点击。
+     *  折叠区打开时才调 assembleVideoRequest——与正式提交**同一组装函数**（轻量 inputs：
+     *  连线存在性代替 blob 存在性），展示模型/时长/分辨率/锚定角色/参考图顺序/声音参考/
+     *  校验 warnings/最终提示词全文。不是另做的近似预览，p 与正式提交逐字一致。 */
+    function RequestPreview({ n }) {
+      const [open, setOpen] = useState(false);
+      const [snap, setSnap] = useState(null); // { p, params, error }
+      useEffect(() => {
+        if (!open) return undefined;
+        let alive = true;
+        (async () => {
+          try {
+            const inputs = await previewVideoInputs(n);
+            const out = await assembleVideoRequest(n, inputs);
+            if (alive) setSnap({ error: null, p: out.p, params: out.params });
+          } catch (e) {
+            if (alive) setSnap({ error: String((e && e.message) || e), p: null, params: null });
+          }
+        })();
+        return () => { alive = false; };
+      }, [open, n && n.data.prompt, n && n.data.frameMode, n && n.data.duration, n && n.data.resolution,
+        n && n.data.ratio, n && n.data.vidExtra, ((n && n.data.refOrder) || []).length, S.assetsTick, S.activeId]);
+      const toggle = (v) => (e) => { e.stopPropagation(); setOpen(v); };
+      if (!open) {
+        return h('button', {
+          type: 'button', className: 'dshic-mini is-ghost', 'data-req-preview': 'closed', title: T('reqPreviewHint'),
+          onPointerDown: (e) => e.stopPropagation(),
+          onClick: toggle(true),
+        }, '👁 ' + T('reqPreview'));
+      }
+      const ps = snap && snap.params;
+      const modeLabel = (m) => (m === 'hard' ? T('frameModeHard') : m === 'off' ? T('frameModeOff') : T('frameModeAuto'));
+      // 图1=尾帧（降级锚定）时实体参考图实际是图2..N+1——与请求侧 picOffset 同一口径
+      const off = ps && ps.useFrame && ps.anchorRole === 'reference_image' ? 1 : 0;
+      return h('div', { className: 'dshic-req-preview', 'data-req-preview': 'open', onPointerDown: (e) => e.stopPropagation() },
+        h('div', { className: 'dshic-row', style: { gap: 6, alignItems: 'center' } },
+          h('span', { className: 'dshic-shot-label' }, T('reqPreview')),
+          h('span', { style: { flex: 1 } }),
+          h('button', {
+            type: 'button', className: 'dshic-mini is-ghost', title: T('lbHint'),
+            onPointerDown: (e) => e.stopPropagation(),
+            onClick: toggle(false),
+          }, '▾')),
+        snap && snap.error ? h('div', { className: 'dshic-err' }, T('reqPreviewFail') + '：' + snap.error) : null,
+        !snap ? h('div', { className: 'dshic-hint' }, '…') : null,
+        ps ? h('div', { className: 'dshic-req-grid' },
+          h('div', { className: 'dshic-row' },
+            h('span', { className: 'dshic-shot-label', style: { flex: 'none' } }, T('reqPreviewModel')),
+            h('span', { className: 'dshic-hint', style: { flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, ps.modelLabel || '—')),
+          h('div', { className: 'dshic-row' },
+            h('span', { className: 'dshic-shot-label', style: { flex: 'none' } }, T('durationLabel')),
+            h('span', { className: 'dshic-hint' }, ps.duration + 's')),
+          h('div', { className: 'dshic-row' },
+            h('span', { className: 'dshic-shot-label', style: { flex: 'none' } }, T('resolutionLabel')),
+            h('span', { className: 'dshic-hint' }, String(ps.resolution || '—') + ' · ' + String(ps.ratio || '—'))),
+          h('div', { className: 'dshic-row' },
+            h('span', { className: 'dshic-shot-label', style: { flex: 'none' } }, T('reqPreviewFrame')),
+            h('span', { className: 'dshic-hint', style: { flex: 1, minWidth: 0 } },
+              modeLabel(ps.frameMode) + ' · ' + (ps.frameMode === 'off'
+                ? T('frameOffNone')
+                : (ps.anchorRole === 'reference_image' ? T('anchorRefImage') : T('anchorFirstFrame')))
+              + (ps.frameAuto ? ' · ' + T('frameAutoTail') : ''))),
+          h('div', { className: 'dshic-shot-label' }, T('reqPreviewRefs') + '（' + ps.refNames.length + '）'),
+          ps.refNames.length
+            ? ps.refNames.map((nm, i2) => h('div', { key: i2, className: 'dshic-row', style: { gap: 5 } },
+                h('span', { className: 'dshic-mention' }, '[图' + (i2 + 1 + off) + ']'),
+                h('span', { className: 'dshic-hint', style: { flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } },
+                  String(nm || '—') + (ps.refRoles[i2] ? '（' + catLabel(ps.refRoles[i2]) + '）' : ''))))
+            : h('div', { className: 'dshic-hint' }, '—'),
+          ps.useFrame && off
+            ? h('div', { className: 'dshic-row', style: { gap: 5 } },
+                h('span', { className: 'dshic-mention' }, '[图1]'),
+                h('span', { className: 'dshic-hint' }, T('frameModeAuto') + (ps.frameAuto ? '（' + T('frameAutoTail') + '）' : '')))
+            : null,
+          h('div', { className: 'dshic-row' },
+            h('span', { className: 'dshic-shot-label', style: { flex: 'none' } }, T('reqPreviewAudio')),
+            h('span', { className: 'dshic-hint', style: { flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } },
+              ps.audioNames.length ? ps.audioNames.join('、') : '—')),
+          ps.warnings.length
+            ? h('div', { className: 'dshic-req-warns', 'data-req-warnings': String(ps.warnings.length) },
+                ps.warnings.map((w, i2) => h('div', { key: i2, className: 'dshic-hint', style: { color: 'var(--dsw-alias-state-warning-primary, #d08700)' } }, '⚠ ' + w)))
+            : null,
+          h('div', { className: 'dshic-row', style: { gap: 6, alignItems: 'center' } },
+            h('span', { className: 'dshic-shot-label' }, T('reqPreviewPrompt')),
+            h('span', { style: { flex: 1 } }),
+            h('button', {
+              type: 'button', className: 'dshic-mini is-ghost',
+              onPointerDown: (e) => e.stopPropagation(),
+              onClick: (e) => {
+                e.stopPropagation();
+                try { navigator.clipboard.writeText(snap.p).then(() => toast(T('copiedOk'))).catch(() => {}); } catch { /* 剪贴板不可用时忽略 */ }
+              },
+            }, '⧉ ' + T('reqPreviewCopy'))),
+          h('div', { className: 'dshic-req-prompt', 'data-req-prompt': '1' }, snap.p),
+        ) : null,
       );
     }
 
@@ -21903,6 +22178,10 @@ const DIRECTOR_KEY_HELP = [
           // 供 scripts/test-segment-plan.mjs 直接断言
           window.__DSH_IC_SEGMENT__ = { planShotSegments, isCutPoint, segmentNeedsHardFrame, videoSegmentOf, shotContinuityPlan };
           window.__DSH_IC_STORYBOARD_PROMPT__ = { buildStoryboardVideoPrompt };
+          // 视频请求组装（0.20.2）：run 与「请求预览」的单一事实源——
+          // assembleVideoRequest（组装+校验门）/ previewVideoInputs（预览轻量 inputs）/ videoRequestContext（决策基座）
+          // 供 scripts/test-submission-log.mjs 断言 p 逐字一致与 warnings 三条逐一触发
+          window.__DSH_IC_VIDEO_REQUEST__ = { assembleVideoRequest, previewVideoInputs, videoRequestContext };
           // 3D 导演台：引擎在 assets/director/engine.js（代码分割），这里只导出面板与
           // 引擎加载器；引擎内部的纯函数由测试直接 ESM import engine.js 断言——
           // 两端同一份代码，不存在"测试测的是拷贝"的问题。
