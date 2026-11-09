@@ -9,6 +9,7 @@ import path from 'node:path';
 import fsSync from 'node:fs';
 import fs from 'node:fs/promises';
 import { pathToFileURL, fileURLToPath } from 'node:url';
+import { planShotSegments } from '../shot-segments.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(HERE, '..');
@@ -681,6 +682,142 @@ let sbNodeId = '';
   const runG = I.__auto.runs.get(pidG + '::default');
   ok(!!runG && Array.isArray(runG.log) && runG.log.some((e) => /G2 未过，自动重生成（已注入清单）/.test(String(e.summary))), 'G2注入: run.log 重生成条目缺「已注入清单」标记');
   ok(Array.isArray(vG && vG.boards) && vG.boards.length === 1 && vG.boards[0].gate === true, 'G2注入: 重生成后分镜应过闸（boards=' + JSON.stringify(vG && vG.boards) + '）');
+}
+
+// ============================ 七、场时长硬约束回归（0.20.2 T5：每场 ≤15 秒两层防线） ============================
+// 0.20.1 实机：项目指南写明「每场 ≤15 秒」，编剧室照样产出 40.0/16.0/33.9/29.5 秒的场——
+// 监制轮提示词对时长零约束（防线①缺失），分镜产出后也没有机械校验（防线②缺失）。
+// 回归：① 监制输出指令含「每场」「15 秒」锚点；② 超时 shots 触发 requirement 注入「时长约束」→
+// 桩照要求改正 → done、videoCalls=1、requirement 还原；③ G2+时长双违 → 合并注入、一次重跑两关都过；
+// ④ 复检仍超时 → 不阻塞（done），log 含「仍超时长（秒/段）」，videoCalls 如实 >1。
+{
+  const M = I.rpcMethods();
+  await M.autoModeSet({ enabled: true });
+
+  // 超时但 G2 合规的 shots（40s：13+14+13；景别齐全、含大特写、无连续三镜同运动）——防线②唯一触发面
+  const overShotsArr = [
+    { title: '镜1', visual: '全景，雨夜巷口霓虹湿漉', motion: '横移跟随', duration: 13, seg: 'opening', tail: '伞面合拢', cam: '横移回正' },
+    { title: '镜2', visual: '中景，陈拾踏水而行', motion: '跟拍向前', duration: 14, seg: 'continuation', tail: '脚步停住', cam: '跟拍减速' },
+    { title: '镜3', visual: '大特写，信封上火漆印裂开', motion: '缓推', duration: 13, seg: 'closeup', tail: '裂纹定格', cam: '推进到位' },
+  ];
+  const goodShotsArr = [
+    { title: '镜1', visual: '中景，陈拾收伞回望', motion: '横移跟随', duration: 3, seg: 'opening', tail: '转身欲走', cam: '横移回正' },
+    { title: '镜2', visual: '大特写，邮戳裂开', motion: '缓推', duration: 2, seg: 'closeup', tail: '裂开定格', cam: '推进到位' },
+  ];
+  // 既 G2 不合规（景别不具体 + 无大特写）又超时（22s/18s 超限单镜）——合并注入触发面
+  const badAndOverArr = [
+    { title: '镜1', visual: '他走过来', motion: '推', duration: 22 },
+    { title: '镜2', visual: '他停下', motion: '推', duration: 18 },
+  ];
+  // 前置自证：三组 fixtures 吃的闸门/切段判据都对，否则整个块失效
+  eq(P.gateStoryboard(overShotsArr).ok, true, '时长前置: 超时 shots 必须先过 G2（否则触发面混淆）');
+  eq(P.gateStoryboard(goodShotsArr).ok, true, '时长前置: goodShots 应过 G2');
+  const preGateT5 = P.gateStoryboard(badAndOverArr);
+  ok(preGateT5.ok === false && preGateT5.fails.length >= 2, '时长前置: 双违 shots 应被 G2 拒绝（fails=' + JSON.stringify(preGateT5.fails) + '）');
+  ok(planShotSegments(overShotsArr).segments.length > 1, '时长前置: 40s shots 应切 >1 段');
+  eq(planShotSegments(goodShotsArr).segments.length, 1, '时长前置: goodShots 应 1 段');
+  ok(planShotSegments(badAndOverArr).segments.length > 1, '时长前置: 双违 shots 应切 >1 段');
+
+  // 假 LLM：非监制照旧；监制首轮即合法 JSON（聚焦分镜循环），并捕获监制轮 system+user（防线①锚点断言用）
+  const monCaptured = [];
+  I.__auto.setRoomLlm(async ({ system, user }) => {
+    const s = String(system || '');
+    if (s.includes('监制')) {
+      monCaptured.push({ system: s, user: String(user || '') });
+      return JSON.stringify({ decision: 'merge', rationale: '取A冲突+B动机', logline: '雨夜邮差的最后一封信', beats: ['x', 'y', 'z'],
+        bible: { worldview: '时长回归世界观：时空邮局', style: '写实电影感', characters: [{ name: '陈拾', desc: '24 岁，旧邮差制服' }], scenes: [{ name: '褶皱巷', desc: '雨夜窄巷' }], props: [{ name: '火漆信', desc: '火漆印' }],
+          scriptIdea: '写第一节剧本：雨夜邮差陈拾接到一封无法投递的信……每场结尾留因果钩子，每场至少一个冲突点。' } });
+    }
+    if (s.includes('调研员')) return JSON.stringify({ themes: [{ name: '时空邮差', why: 't' }], styles: ['写实电影感'] });
+    if (s.includes('编剧A')) return JSON.stringify({ logline: 'A案故事线', beats: ['b1', 'b2', 'b3'] });
+    if (s.includes('编剧B')) return JSON.stringify({ logline: 'B案故事线', beats: ['c1', 'c2', 'c3'] });
+    if (s.includes('剧评人')) return JSON.stringify({ critA: ['冲突可加强'], critB: ['动机可信'] });
+    return '{}';
+  });
+
+  const waitDoneT5 = async (pid2) => {
+    let v = null;
+    for (let i = 0; i < 100; i++) {
+      await new Promise((r) => setTimeout(r, 100));
+      v = (await M.autoStatus({ projectId: pid2 })).run;
+      if (v && (v.status === 'done' || v.status === 'failed' || v.status === 'aborted')) break;
+    }
+    return v;
+  };
+  // 画布执行桩工厂：脚本产出一场；分镜桩在 exec 前捕获节点 requirement，由 pickShots 决定返回哪版 shots
+  const runWith = async (name, pickShots, reqSeen) => {
+    I.__auto.setCanvasRunner(async (pid2, cid2, nodeId) => {
+      const doc = await I.projectsGet({ id: pid2, ...(cid2 ? { canvasId: cid2 } : {}) });
+      const n = doc.nodes[nodeId];
+      if (!n) throw new Error('桩：节点不存在');
+      if (n.type === 'script') {
+        const out = '【场1】褶皱巷\n雨夜，陈拾收伞，发现邮戳裂开。';
+        await I.canvasWriteNode({ projectId: pid2, canvasId: cid2 || undefined, nodeId, target: 'output', text: out, overwrite: true });
+        return { type: 'script', output: out };
+      }
+      if (n.type === 'storyboard') {
+        const req = String((n.data && n.data.requirement) || '');
+        reqSeen.push(req);
+        const shots = pickShots(req);
+        await I.canvasWriteNode({ projectId: pid2, canvasId: cid2 || undefined, nodeId, target: 'output', text: JSON.stringify({ shots }), overwrite: true });
+        return { type: 'storyboard', shots };
+      }
+      return { type: n.type, status: 'done' };
+    });
+    const pidX = (await byName.get('canvas_create_project').execute({ name }, {})).projectId;
+    const started = await M.autoStart({ projectId: pidX, brief: name + '：场时长硬约束回归' });
+    ok(started && started.ok === true, name + ': autoStart 未启动');
+    const v = await waitDoneT5(pidX);
+    const run = I.__auto.runs.get(pidX + '::default');
+    const doc = await I.projectsGet({ id: pidX });
+    const sb = Object.values(doc.nodes).find((n2) => n2.type === 'storyboard');
+    return { v, run, doc, sb };
+  };
+
+  // ①② 防线①锚点 + 防线②生效：首轮超时 → 注入「时长约束」→ 桩改正 → done + videoCalls=1 + 还原
+  const reqSeen2 = [];
+  const r2 = await runWith('时长防线②修复回路', (req) => (req.includes('时长约束') ? goodShotsArr : overShotsArr), reqSeen2);
+  ok(r2.v && r2.v.status === 'done', '防线②: 流水线未 done（status=' + (r2.v && r2.v.status) + ' error=' + (r2.v && r2.v.error) + '）');
+  ok(monCaptured.length >= 1, '防线①: 监制轮未被调用');
+  const monText = monCaptured.map((c) => c.system + '\n' + c.user).join('\n');
+  ok(monText.includes('每场') && monText.includes('15 秒'), '防线①: 监制轮 system+user 缺「每场 / 15 秒」硬约束锚点');
+  eq(reqSeen2.length, 2, '防线②: 分镜应恰好执行两次（首轮+重生成一次，实际 ' + reqSeen2.length + '）');
+  eq(reqSeen2[0], '', '防线②: 首轮 exec 前 requirement 应为原值（空）');
+  ok(String(reqSeen2[1]).startsWith('【时长约束】'), '防线②: 原 requirement 为空时应只写时长块（不带前导追加）');
+  ok(String(reqSeen2[1]).includes('40 秒超过 15 秒上限'), '防线②: 时长块缺超时事实（40 秒超过 15 秒上限，实际：' + JSON.stringify(reqSeen2[1]) + '）');
+  ok(String(reqSeen2[1]).includes('镜1=13s') && String(reqSeen2[1]).includes('镜3=13s'), '防线②: 时长块缺逐镜超时明细');
+  ok(!String(reqSeen2[1]).includes('G2 复检'), '防线②: G2 已过时不应混入「G2 复检」块（触发面混淆）');
+  ok(!!r2.sb, '防线②: 分镜节点缺失');
+  eq(r2.sb && String(r2.sb.data.requirement || ''), '', '防线②: 复检后 requirement 未还原为原值（空）');
+  ok(r2.v && r2.v.budget && r2.v.budget.videoCalls === 1, '防线②: 改正后预算单 videoCalls 应为 1（实际：' + JSON.stringify(r2.v && r2.v.budget && r2.v.budget.videoCalls) + '）');
+  ok(Array.isArray(r2.v && r2.v.boards) && r2.v.boards.length === 1 && r2.v.boards[0].gate === true, '防线②: 改正后分镜应过闸');
+  const logs2 = (r2.run && Array.isArray(r2.run.log)) ? r2.run.log.map((e) => String(e.summary)) : [];
+  ok(logs2.some((t) => t.includes('已注入时长约束')), '防线②: run.log 缺重生成条目「已注入时长约束」');
+  ok(!logs2.some((t) => t.includes('仍超时长')), '防线②: 改正后不应有「仍超时长」条目');
+
+  // ③ 合并注入：首轮既不合规又超时 → 重试 requirement 同时含「G2 复检」与「时长约束」，一次重跑两关都过
+  const reqSeen3 = [];
+  const r3 = await runWith('时长防线③合并注入', (req) => ((req.includes('时长约束') && req.includes('G2 复检')) ? goodShotsArr : badAndOverArr), reqSeen3);
+  ok(r3.v && r3.v.status === 'done', '合并注入: 流水线未 done（status=' + (r3.v && r3.v.status) + ' error=' + (r3.v && r3.v.error) + '）');
+  eq(reqSeen3.length, 2, '合并注入: 两块必须合并为一次重跑（分镜应恰好执行两次，实际 ' + reqSeen3.length + '）');
+  ok(String(reqSeen3[1]).includes('G2 复检'), '合并注入: 重试 requirement 缺「G2 复检」块');
+  ok(String(reqSeen3[1]).includes('【时长约束】'), '合并注入: 重试 requirement 缺「时长约束」块');
+  ok(String(reqSeen3[1]).startsWith('【G2 复检'), '合并注入: G2 块应在前（原 requirement 为空时不带前导追加）');
+  const missingFails3 = preGateT5.fails.filter((f) => !String(reqSeen3[1]).includes(f));
+  eq(missingFails3.length, 0, '合并注入: G2 全清单必须逐条进 requirement，缺失 → ' + JSON.stringify(missingFails3));
+  ok(Array.isArray(r3.v && r3.v.boards) && r3.v.boards[0] && r3.v.boards[0].gate === true, '合并注入: 复检应过闸');
+  ok(r3.v && r3.v.budget && r3.v.budget.videoCalls === 1, '合并注入: 一次重生成后两关都过，videoCalls 应为 1（实际：' + JSON.stringify(r3.v && r3.v.budget && r3.v.budget.videoCalls) + '）');
+
+  // ④ 复检仍超时不阻塞：桩始终返回超时 shots → 流水线仍 done，log 记「仍超时长（秒/段）」，videoCalls 如实 >1
+  const reqSeen4 = [];
+  const r4 = await runWith('时长防线④仍超时不阻塞', () => overShotsArr, reqSeen4);
+  ok(r4.v && r4.v.status === 'done', '仍超时: 复检超时不应炸流水线（status=' + (r4.v && r4.v.status) + ' error=' + (r4.v && r4.v.error) + '）');
+  eq(reqSeen4.length, 2, '仍超时: 重跑上限仍是一次（实际执行 ' + reqSeen4.length + ' 次）');
+  const logs4 = (r4.run && Array.isArray(r4.run.log)) ? r4.run.log.map((e) => String(e.summary)) : [];
+  ok(logs4.some((t) => t.includes('仍超时长')), '仍超时: run.log 缺「仍超时长」条目');
+  ok(logs4.some((t) => t.includes('仍超时长（40 秒/3 段）')), '仍超时: 「仍超时长」条目缺秒数/段数明细（logs=' + JSON.stringify(logs4) + '）');
+  ok(r4.v && r4.v.budget && r4.v.budget.videoCalls > 1, '仍超时: 预算单 videoCalls 应如实 >1（实际：' + JSON.stringify(r4.v && r4.v.budget && r4.v.budget.videoCalls) + '）');
+  eq(r4.sb && String(r4.sb.data.requirement || ''), '', '仍超时: requirement 仍应还原为原值（空）');
 }
 
 // ---------------- 工具 ----------------

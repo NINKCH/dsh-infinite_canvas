@@ -17,6 +17,7 @@ import { normalizeSkillProfile, DEFAULT_SKILL_PROFILE } from './index-core-skill
 import { initPackBase, packInventory, allowedIds } from './skill-pack-loader.js';
 import { buildSkillPack, SKILL_CATALOG, renderInventory, renderProfile } from './skill-pack.js';
 import { createProduction, PRODUCTION_STAGES, PRODUCTION_STAGE_ZH } from './production.js';
+import { planShotSegments } from './shot-segments.js';
 
 /** 制作阶段机与流程闸门（0.20.0）：deps 全是本模块的函数声明（已提升，运行时才调用）。 */
 const PROD = createProduction({
@@ -3887,7 +3888,10 @@ export function apply(ctx) {
         } catch { /* 项目文档读不到时跳过（与未配置同等对待） */ }
         const dec = await autoRoomStep(run, '监制', BASE + skillLine + '\n你是监制。择一或融合，给出决策与理由，并把世界观/风格/角色/场景/道具写成设定集草案（描述要可生成：年龄/发型/服装/材质/光线）。',
           ctxUser + '\nA案：' + JSON.stringify(pitchA).slice(0, 800) + '\nB案：' + JSON.stringify(pitchB).slice(0, 800) + '\n互评：' + JSON.stringify(crit).slice(0, 800) +
-          '\n输出 {"decision":"A|B|merge","rationale":"…","logline":"…","beats":["…"],"scriptIdea":"（写给剧本节点的创作提示词，含两条叙事硬约束：每场结尾因果钩子、每场至少一个冲突点）","bible":{"worldview":"…","style":"…","characters":[{"name":"…","desc":"…"}],"scenes":[{"name":"…","desc":"…"}],"props":[{"name":"…","desc":"…"}]}}', true);
+          '\n输出 {"decision":"A|B|merge","rationale":"…","logline":"…","beats":["…"],"scriptIdea":"（写给剧本节点的创作提示词，含两条叙事硬约束：每场结尾因果钩子、每场至少一个冲突点）","bible":{"worldview":"…","style":"…","characters":[{"name":"…","desc":"…"}],"scenes":[{"name":"…","desc":"…"}],"props":[{"name":"…","desc":"…"}]}}' +
+          // 0.20.2 T5 防线①：监制轮明写每场 ≤15 秒硬约束（实测项目指南「每场 ≤15 秒」被无视，产出了 40s 的场）。
+          // 必须落进 scriptIdea，让剧本与分镜在源头就按短场写：剧情需要更长只能拆成多场，不能拖长单场。
+          '\n【时长硬约束·写进 scriptIdea】每场总时长（由该场分镜镜头 duration 累加）不得超过 15 秒；剧情需要更长必须拆成多场，绝不生成超长场。', true);
         // ⑤ 落盘：讨论记录节点 + 设定集 + 剧本 idea
         run.phase = 'writeback';
         const transcript = [
@@ -3912,6 +3916,15 @@ export function apply(ctx) {
         const scenes = splitScenes(st.output);
         const boards = [];
         let prevBoard = null;
+        // 0.20.2 T5 防线②：分镜产出后的场时长校验。切段算法与 client.js 同源（shot-segments.js），
+        // 上限同式取分镜表节点 data.segMaxSeconds（缺省 15，不另立常量）。判据：切段段数 >1
+        //（该场要拆多次生成才装得下）或任一单镜 duration 超上限 → 场超时长。
+        const shotDurOf = (s) => Math.max(0.3, Math.round((Number(s && s.duration) || 3) * 10) / 10);
+        const durCheck = (shots, cap) => {
+          const plan = planShotSegments(shots, { maxSeconds: cap });
+          const overShot = (Array.isArray(shots) ? shots : []).some((s) => shotDurOf(s) > cap);
+          return { plan, overShot, ok: plan.segments.length <= 1 && !overShot };
+        };
         for (let i = 0; i < scenes.length; i++) {
           run.phase = 'boards ' + (i + 1) + '/' + scenes.length;
           const txt = canvasCreateNode({ projectId: pid, canvasId: cid, type: 'text', name: '场' + scenes[i].no + '文本' });
@@ -3921,25 +3934,46 @@ export function apply(ctx) {
           prevBoard = sb.nodeId;
           // 0.20.2 T3：首轮 exec 前记下节点原有 requirement（重生成注入要在它基础上追加，复检后还原，不污染节点数据）
           let origReq = '';
+          let segMax = 15;
           try {
             const sbDoc = readToolDoc({ projectId: pid, canvasId: cid });
-            origReq = String((sbDoc.nodes[sb.nodeId] && sbDoc.nodes[sb.nodeId].data && sbDoc.nodes[sb.nodeId].data.requirement) || '');
+            const sbNode0 = sbDoc.nodes[sb.nodeId];
+            origReq = String((sbNode0 && sbNode0.data && sbNode0.data.requirement) || '');
+            segMax = Number(sbNode0 && sbNode0.data && sbNode0.data.segMaxSeconds) || 15;
           } catch { /* 读不到按空处理 */ }
           let sbSt = await canvasExec(pid, cid, sb.nodeId, { timeoutMs: 10 * 60 * 1000 });
           let gate = PROD.gateStoryboard(sbSt.shots);
-          if (!gate.ok) { // 不过闸自动重生成一次（分镜重生成不花钱）
-            run.log.push({ at: Date.now(), role: 'runner', summary: '场' + scenes[i].no + ' G2 未过，自动重生成（已注入清单）：' + gate.fails.slice(0, 2).join('；') });
-            // 0.20.2 T3：重跑前把 gate.fails **全清单**写进分镜节点 requirement（客户端 aiStoryboardShots
-            // 每次生成都读它拼进提示词）——不注入则重生成提示词与首轮逐字相同，模型原样再犯（实测 11 项依旧）。
-            // 全清单逐条编号，不是 slice(0,2)：日志可以截断，提示词不能。
-            canvasUpdateNode({ projectId: pid, canvasId: cid, nodeId: sb.nodeId, patch: { requirement: (origReq ? origReq + '\n\n' : '') + '【G2 复检·必须逐项修复】上一版分镜未通过质量闸门，以下是全部不合规项，重新生成时逐项改正：\n' + gate.fails.map((f, j) => (j + 1) + '. ' + f).join('\n') } });
+          let dur = durCheck(sbSt.shots, segMax);
+          if (!gate.ok || !dur.ok) { // 不过闸/超时长都自动重生成一次（两块合并注入，重跑上限仍是一次，不拆两次）
+            const logParts = [];
+            const injParts = [];
+            if (!gate.ok) {
+              logParts.push('G2 未过，自动重生成（已注入清单）：' + gate.fails.slice(0, 2).join('；'));
+              // 0.20.2 T3：重跑前把 gate.fails **全清单**写进分镜节点 requirement（客户端 aiStoryboardShots
+              // 每次生成都读它拼进提示词）——不注入则重生成提示词与首轮逐字相同，模型原样再犯（实测 11 项依旧）。
+              // 全清单逐条编号，不是 slice(0,2)：日志可以截断，提示词不能。
+              injParts.push('【G2 复检·必须逐项修复】上一版分镜未通过质量闸门，以下是全部不合规项，重新生成时逐项改正：\n' + gate.fails.map((f, j) => (j + 1) + '. ' + f).join('\n'));
+            }
+            if (!dur.ok) {
+              // 0.20.2 T5：场超时长——事实与修复要求并入同一条 requirement（同一次重生成既修合规又修时长）。
+              logParts.push('分镜超时长（' + dur.plan.total + ' 秒/' + dur.plan.segments.length + ' 段），自动重生成（已注入时长约束）');
+              injParts.push('【时长约束】本场总时长 ' + dur.plan.total + ' 秒超过 ' + segMax + ' 秒上限：删减镜头或压缩每镜 duration，确保总时长 ≤' + segMax + ' 秒；若剧情需要更长必须拆成多场。超时明细：'
+                + (Array.isArray(sbSt.shots) ? sbSt.shots : []).map((s, k) => '镜' + (k + 1) + '=' + shotDurOf(s) + 's').join('，')
+                + '（切段 ' + dur.plan.segments.length + ' 段）');
+            }
+            run.log.push({ at: Date.now(), role: 'runner', summary: '场' + scenes[i].no + ' ' + logParts.join('；') });
+            canvasUpdateNode({ projectId: pid, canvasId: cid, nodeId: sb.nodeId, patch: { requirement: (origReq ? origReq + '\n\n' : '') + injParts.join('\n\n') } });
             try {
               sbSt = await canvasExec(pid, cid, sb.nodeId, { timeoutMs: 10 * 60 * 1000 });
               gate = PROD.gateStoryboard(sbSt.shots);
+              dur = durCheck(sbSt.shots, segMax);
             } finally {
               // 复检结束（无论过没过，重跑炸了也一样）还原 requirement 为原值；还原失败不阻塞
               try { canvasUpdateNode({ projectId: pid, canvasId: cid, nodeId: sb.nodeId, patch: { requirement: origReq } }); } catch { /* 还原失败不阻塞 */ }
             }
+          }
+          if (!dur.ok) { // 复检仍超时：不阻塞（预算单照出，场行 videoCalls 已如实反映成本），只记 log
+            run.log.push({ at: Date.now(), role: 'runner', summary: '场' + scenes[i].no + ' 仍超时长（' + dur.plan.total + ' 秒/' + dur.plan.segments.length + ' 段）' });
           }
           boards.push({ no: scenes[i].no, storyboardId: sb.nodeId, gate: gate.ok, fails: gate.fails });
           run.log.push({ at: Date.now(), role: 'runner', summary: '场' + scenes[i].no + ' 分镜：' + (gate.ok ? '过闸' : '仍有 ' + gate.fails.length + ' 项') });
