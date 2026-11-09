@@ -3774,28 +3774,44 @@ export function apply(ctx) {
       const r = await complete({ system, user });
       return (r && r.text) || '';
     };
-    /** 从模型输出提取第一个平衡的 JSON 对象（容忍 ```json 围栏与前后闲话）。 */
+    /** 从模型输出提取第一个可解析的平衡 JSON 对象（容忍 ```json 围栏、前后闲话与散文里的非 JSON 花括号）。 */
     function roomJson(text) {
       const s = String(text || '');
       const fence = s.match(/```(?:json)?\s*([\s\S]*?)```/i);
-      const src = fence ? fence[1] : s;
-      const start = src.indexOf('{');
-      if (start < 0) return null;
-      let depth = 0, inStr = false, esc = false;
-      for (let i = start; i < src.length; i++) {
-        const ch = src[i];
-        if (inStr) { if (esc) esc = false; else if (ch === '\\') esc = true; else if (ch === '"') inStr = false; continue; }
-        if (ch === '"') inStr = true;
-        else if (ch === '{') depth++;
-        else if (ch === '}') { depth--; if (depth === 0) { try { return JSON.parse(src.slice(start, i + 1)); } catch { return null; } } }
+      // 围栏内扫不出可用 JSON 时退回全文扫描（散文先于/后于围栏出现花括号时，真 JSON 不被围栏边界误杀）
+      for (const src of (fence ? [fence[1], s] : [s])) {
+        // 循环所有 `{` 候选位：首个平衡对象解析失败就从下一个 `{` 继续，全失败才 null
+        // （0.20.1 实机：散文「我认为{这是花括号}」先出现 → 第一个 `{` 被误当 JSON 起点 → 真 JSON 被误杀）
+        let from = src.indexOf('{');
+        while (from >= 0) {
+          let depth = 0, inStr = false, esc = false; // 换起点时转义/字符串状态机完整重置
+          for (let i = from; i < src.length; i++) {
+            const ch = src[i];
+            if (inStr) { if (esc) esc = false; else if (ch === '\\') esc = true; else if (ch === '"') inStr = false; continue; }
+            if (ch === '"') inStr = true;
+            else if (ch === '{') depth++;
+            else if (ch === '}') { depth--; if (depth === 0) { try { return JSON.parse(src.slice(from, i + 1)); } catch { break; } } }
+          }
+          from = src.indexOf('{', from + 1);
+        }
       }
       return null;
     }
+    /** needJson 失败局部重试指令：追加在 user 尾部，测试以「只输出 JSON」识别重试轮。 */
+    const AUTO_JSON_RETRY = '\n\n【格式重试】上一轮输出无法解析为 JSON。只输出 JSON 对象本身：不要任何解释文字、不要 markdown 代码围栏、不要前后缀。';
     async function autoRoomStep(run, role, system, user, needJson) {
       if (run.status !== 'running') throw new Error('aborted');
       const raw = await roomLlm({ system, user });
       const parsed = needJson ? (roomJson(raw) || {}) : null;
-      if (needJson && !Object.keys(parsed).length) throw new Error(role + ' 输出不是可用 JSON');
+      if (needJson && !Object.keys(parsed).length) {
+        // 局部重试一次：只坏这一轮就局部救，不炸整个 run（0.20.1 实机：监制轮散文输出直接 fail 全流水线）
+        run.log.push({ at: Date.now(), role, summary: '输出无法解析为 JSON，自动重试一次（要求只输出 JSON）' });
+        const raw2 = await roomLlm({ system, user: user + AUTO_JSON_RETRY });
+        const reparsed = roomJson(raw2) || {};
+        if (!Object.keys(reparsed).length) throw new Error(role + ' 输出不是可用 JSON'); // 重试仍失败 → 原错误抛出（fail 语义不变）
+        run.log.push({ at: Date.now(), role, summary: String(raw2 || '').slice(0, 160) });
+        return reparsed;
+      }
       run.log.push({ at: Date.now(), role, summary: String(raw || '').slice(0, 160) });
       return parsed || raw;
     }

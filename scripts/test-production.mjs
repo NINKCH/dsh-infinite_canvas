@@ -425,6 +425,116 @@ let sbNodeId = '';
   }
 }
 
+// ============================ 五、监制决策轮 JSON 兜底回归（0.20.2 P1：解析健壮化 + 局部重试） ============================
+// 0.20.1 实机：监制轮散文夹杂非 JSON 花括号（roomJson 取第一个 `{` 误杀）或纯散文（needJson 失败直接 throw）
+// → 整个 run failed。回归：roomJson 循环所有 `{` 候选位；needJson 失败局部重试一次（user 尾带「只输出 JSON」）；
+//   两轮皆散文 → 原失败语义保留。
+{
+  const M = I.rpcMethods();
+  await M.autoModeSet({ enabled: true });
+
+  // 完整 decision/bible 形状（照抄编剧室块 fake；worldview 换值以证明断言吃的是本项目产出）
+  const baseDec = () => ({ decision: 'merge', rationale: '取A冲突+B动机', logline: '雨夜邮差的最后一封信', beats: ['x', 'y', 'z'],
+    bible: { worldview: '兜底世界观：时空邮局', style: '写实电影感', characters: [{ name: '陈拾', desc: '24 岁，旧邮差制服' }], scenes: [{ name: '褶皱巷', desc: '雨夜窄巷' }], props: [{ name: '火漆信', desc: '火漆印' }],
+      scriptIdea: '写第一节剧本：雨夜邮差陈拾接到一封无法投递的信……每场结尾留因果钩子，每场至少一个冲突点。' } });
+
+  // 画布执行桩（同编剧室块手法）：脚本产出两场、分镜产出合规 shots，其余类型直接完成
+  const goodShots = JSON.stringify({ shots: [
+    { title: '镜1', visual: '中景，陈拾收伞回望', motion: '横移跟随', duration: 3, seg: 'opening', tail: '转身欲走', cam: '横移回正' },
+    { title: '镜2', visual: '大特写，邮戳裂开', motion: '缓推', duration: 2, seg: 'closeup', tail: '裂开定格', cam: '推进到位' },
+  ] });
+  I.__auto.setCanvasRunner(async (pid2, cid2, nodeId) => {
+    const doc = await I.projectsGet({ id: pid2, ...(cid2 ? { canvasId: cid2 } : {}) });
+    const n = doc.nodes[nodeId];
+    if (!n) throw new Error('桩：节点不存在');
+    if (n.type === 'script') {
+      const out = '【场1】巷口\n雨夜，陈拾收伞。\n【场2】邮局\n清晨，邮戳裂开。';
+      await I.canvasWriteNode({ projectId: pid2, canvasId: cid2 || undefined, nodeId, target: 'output', text: out, overwrite: true });
+      return { type: 'script', output: out };
+    }
+    if (n.type === 'storyboard') {
+      await I.canvasWriteNode({ projectId: pid2, canvasId: cid2 || undefined, nodeId, target: 'output', text: goodShots, overwrite: true });
+      return { type: 'storyboard', shots: JSON.parse(goodShots).shots };
+    }
+    return { type: n.type, status: 'done' };
+  });
+
+  // 假 LLM：非监制角色照抄编剧室块；监制按 monitorRaws() 依次给输出（超次数复用最后一个），记录调用数与 user
+  const monitorFake = (monitorRaws) => {
+    const calls = { monitor: 0, users: [] };
+    const fn = async ({ system, user }) => {
+      const s = String(system || '');
+      if (s.includes('监制')) {
+        calls.monitor++;
+        calls.users.push(String(user || ''));
+        const outs = monitorRaws();
+        return outs[Math.min(calls.monitor - 1, outs.length - 1)];
+      }
+      if (s.includes('调研员')) return JSON.stringify({ themes: [{ name: '时空邮差', why: 't' }], styles: ['写实电影感'] });
+      if (s.includes('编剧A')) return JSON.stringify({ logline: 'A案故事线', beats: ['b1', 'b2', 'b3'] });
+      if (s.includes('编剧B')) return JSON.stringify({ logline: 'B案故事线', beats: ['c1', 'c2', 'c3'] });
+      if (s.includes('剧评人')) return JSON.stringify({ critA: ['冲突可加强'], critB: ['动机可信'] });
+      return '{}';
+    };
+    return { calls, fn };
+  };
+
+  const waitRunEnd = async (pid2) => {
+    let v = null;
+    for (let i = 0; i < 100; i++) {
+      await new Promise((r) => setTimeout(r, 100));
+      v = (await M.autoStatus({ projectId: pid2 })).run;
+      if (v && (v.status === 'done' || v.status === 'failed' || v.status === 'aborted')) break;
+    }
+    return v;
+  };
+
+  // ① 修复A：监制首轮 = 散文含非 JSON 花括号 + 围栏外合法 JSON → 首轮即可解析，不重试（监制调用 =1）
+  {
+    const pidA = (await byName.get('canvas_create_project').execute({ name: '监制JSON兜底A-扫描健壮化' }, {})).projectId;
+    const f = monitorFake(() => ['我认为{这是花括号}不算JSON……\n' + JSON.stringify(baseDec())]);
+    I.__auto.setRoomLlm(f.fn);
+    const started = await M.autoStart({ projectId: pidA, brief: '修复A回归：散文花括号不误杀后面的真 JSON' });
+    ok(started && started.ok === true, '修复A: autoStart 未启动');
+    const v = await waitRunEnd(pidA);
+    ok(v && v.status === 'done', '修复A: 流水线未 done（status=' + (v && v.status) + ' error=' + (v && v.error) + '）');
+    eq(f.calls.monitor, 1, '修复A: 首轮即可解析时不应触发重试（监制调用数应为 1）');
+    const bible = await I.canvasGetBible({ projectId: pidA });
+    ok(bible.bible && bible.bible.worldview === '兜底世界观：时空邮局', '修复A: 决策未落盘设定集');
+  }
+
+  // ② 修复B：首轮纯散文 → 局部重试一次（user 尾带「只输出 JSON」）→ 次轮合法 JSON → done，监制调用 =2，log 含重试标记
+  {
+    const pidB = (await byName.get('canvas_create_project').execute({ name: '监制JSON兜底B-局部重试' }, {})).projectId;
+    const f = monitorFake(() => ['我们决定融合两案，理由如下（没有任何 JSON）。', JSON.stringify(baseDec())]);
+    I.__auto.setRoomLlm(f.fn);
+    const started = await M.autoStart({ projectId: pidB, brief: '修复B回归：散文首轮局部重试一次' });
+    ok(started && started.ok === true, '修复B: autoStart 未启动');
+    const v = await waitRunEnd(pidB);
+    ok(v && v.status === 'done', '修复B: 重试后流水线未 done（status=' + (v && v.status) + ' error=' + (v && v.error) + '）');
+    eq(f.calls.monitor, 2, '修复B: 散文首轮应恰好局部重试一次（监制调用数应为 2）');
+    ok((f.calls.users[1] || '').includes('只输出 JSON'), '修复B: 重试轮 user 尾部未带「只输出 JSON」指令');
+    ok((f.calls.users[1] || '').startsWith(f.calls.users[0] || '\u0000'), '修复B: 重试轮未在原 user 基础上追加重试指令');
+    const runB = I.__auto.runs.get(pidB + '::default');
+    ok(!!runB && Array.isArray(runB.log) && runB.log.some((e) => /自动重试一次/.test(String(e.summary))), '修复B: run.log 缺重试标记');
+    const bible = await I.canvasGetBible({ projectId: pidB });
+    ok(bible.bible && bible.bible.worldview === '兜底世界观：时空邮局', '修复B: 重试轮决策未落盘设定集');
+  }
+
+  // ③ 失败语义保留：两轮都散文 → run failed，error 含「监制 输出不是可用 JSON」（重试恰一次）
+  {
+    const pidC = (await byName.get('canvas_create_project').execute({ name: '监制JSON兜底C-失败语义' }, {})).projectId;
+    const f = monitorFake(() => ['我们决定融合两案（无 JSON）。', '还是散文好写（依旧无 JSON）。']);
+    I.__auto.setRoomLlm(f.fn);
+    const started = await M.autoStart({ projectId: pidC, brief: '修复C回归：两轮皆散文保留原失败语义' });
+    ok(started && started.ok === true, '修复C: autoStart 未启动');
+    const v = await waitRunEnd(pidC);
+    ok(v && v.status === 'failed', '修复C: 两轮皆散文应 run failed（status=' + (v && v.status) + '）');
+    ok(String((v && v.error) || '').includes('监制 输出不是可用 JSON'), '修复C: error 未保留原失败语义（实际：' + (v && v.error) + '）');
+    eq(f.calls.monitor, 2, '修复C: 重试应恰好一次（监制调用数应为 2）');
+  }
+}
+
 // ---------------- 工具 ----------------
 async function findNode(type) {
   const doc = await I.projectsGet({ id: projectId });
