@@ -1372,10 +1372,13 @@ function cssRulesMatchingClass(name) {
     ok(!rolesOf(elsOn).includes('auto-confirm-input'), '未打开批准时不应渲染行内确认输入框');
     const elsConfirm = renderWith(enabledSt, { quote: { quoteId: 'qz1', summary: 'x' }, confirmOpen: true, confirm: '批准' });
     ok(rolesOf(elsConfirm).includes('auto-confirm-input'), '打开批准后行内确认输入框缺失');
-    // busy 态：全部动作按钮禁用（防重入）
+    // busy 态：全部动作按钮禁用（防重入）——含确认提交（data-role 无 -btn 后缀，regex 须两头都匹配）
     const elsBusy = renderWith(enabledSt, { busy: 'generate', quote: { quoteId: 'qz1', summary: 'x' }, confirmOpen: true, confirm: '批准' });
-    ok(elsBusy.filter((e) => e.props && /^auto-(start|quote|approve|generate|abort|confirm-submit)-btn$/.test(String(e.props['data-role'] || '')))
-      .every((e) => e.props.disabled === true), '动作执行中（busy）仍有按钮可点（防重入失效）');
+    const actionRoles = ['auto-start-btn', 'auto-quote-btn', 'auto-approve-btn', 'auto-generate-btn', 'auto-abort-btn', 'auto-confirm-submit'];
+    ok(actionRoles.every((role) => {
+      const b = elsBusy.find((e) => e.props && e.props['data-role'] === role);
+      return b && b.props.disabled === true;
+    }), '动作执行中（busy）仍有按钮可点（防重入失效）');
     // —— RPC 参数（源码级）：动作调用必须带 projectId（S.activeId），approve 必须 quoteId+confirm 齐全 ——
     const body = fnBody('AutoModeCard');
     ok(/hostRpc\('autoStart', \{ projectId: pid, brief \}/.test(body), 'autoStart 未带 projectId+brief');
@@ -1421,6 +1424,31 @@ function cssRulesMatchingClass(name) {
     const aCall = rpcCalls.find((c) => c.method === 'autoAbort');
     ok(!!aCall, '点「中止」没有发出 autoAbort RPC');
     eq(aCall && aCall.args.projectId, pidNow, 'autoAbort 的 projectId 不是当前活动项目');
+    // 启动：注入 brief（假 React 的 setState 是 noop，无法驱动 onChange 持久化——评审允许 state override）
+    rpcCalls.length = 0;
+    hookIndex = 0;
+    stateOverrides = [enabledSt, { brief: '一个赛博武侠短剧', confirm: '', quote: null, confirmOpen: false, busy: null, msg: '', err: '' }];
+    const live4 = all(AMC());
+    const sBtn = live4.find((e) => e.props && e.props['data-role'] === 'auto-start-btn');
+    ok(sBtn && sBtn.props.disabled !== true, '填了 brief 后启动创作按钮仍被禁用');
+    sBtn.props.onClick();
+    await new Promise((r) => setTimeout(r, 10));
+    const stCall = rpcCalls.find((c) => c.method === 'autoStart');
+    ok(!!stCall, '点「启动创作」没有发出 autoStart RPC');
+    eq(stCall && stCall.args.projectId, pidNow, 'autoStart 的 projectId 不是当前活动项目');
+    eq(stCall && stCall.args.brief, '一个赛博武侠短剧', 'autoStart 的 brief 与输入不一致');
+    // 确认批准：注入最近预算单 + 打开行内确认 → 点确认提交 → autoApprove 带 quoteId+confirm
+    rpcCalls.length = 0;
+    hookIndex = 0;
+    stateOverrides = [enabledSt, { brief: '', confirm: '批准', quote: { quoteId: 'qz1', summary: 'x' }, confirmOpen: true, busy: null, msg: '', err: '' }];
+    const live5 = all(AMC());
+    live5.find((e) => e.props && e.props['data-role'] === 'auto-confirm-submit').props.onClick();
+    await new Promise((r) => setTimeout(r, 10));
+    const apCall = rpcCalls.find((c) => c.method === 'autoApprove');
+    ok(!!apCall, '点「确认批准」没有发出 autoApprove RPC');
+    eq(apCall && apCall.args.quoteId, 'qz1', 'autoApprove 的 quoteId 不是卡片内存的最近预算单');
+    eq(apCall && apCall.args.confirm, '批准', 'autoApprove 的 confirm 不是输入的确认原话');
+    eq(apCall && apCall.args.projectId, pidNow, 'autoApprove 的 projectId 不是当前活动项目');
     rpcResponder = null;
     // —— 卡内显示：错误行 / 成功小字 / 预算摘要（渲染态注入断言） ——
     const elsErr = renderWith(enabledSt, { err: '预算单已过期' });
