@@ -1218,6 +1218,23 @@ function revealCanvasInRight() {
       'autoCapsOk': '多智能体：可用',
       'autoCapsNo': '多智能体：宿主未暴露会话服务（暂不可用）',
       'autoOldHost': '宿主插件是旧版本（不支持自动创作开关）：完全重启 Harness 后可用',
+      'autoStartBtn': '启动创作',
+      'autoBriefPh': '一句话创意…',
+      'autoQuoteBtn': '刷新预算',
+      'autoApproveBtn': '批准付费',
+      'autoApprovePh': '输入「批准」或你的确认原话',
+      'autoApproveSubmit': '确认批准',
+      'autoGenerateBtn': '开始生成',
+      'autoAbortBtn': '中止',
+      'autoNeedQuote': '先刷新预算',
+      'autoQuoteSummary': '{s} 场 / {sh} 镜 / {sec} 秒 / 待调用 {calls} 次',
+      'autoQuoteCost': '估算 ¥{cost}',
+      'autoQuoteNoPrice': '未配置视频每秒单价（设置→制作 填入后显示估算金额）',
+      'autoApproveNeedConfirm': '请输入确认原话（批准付费必须留痕）',
+      'autoApproved': '已批准付费（待调用 {calls} 次）',
+      'autoAborted': '已中止（保留已产出内容）',
+      'autoDone': '完成',
+      'autoFail': '操作失败',
       'stageCurrent': '制作阶段',
       'stageReadyYes': '可交付',
       'stageReadyNo': '未就绪',
@@ -2213,6 +2230,23 @@ function revealCanvasInRight() {
       'autoCapsOk': 'Multi-agent: available',
       'autoCapsNo': 'Multi-agent: host does not expose session services (unavailable)',
       'autoOldHost': 'The plugin backend is older and lacks the auto-creation switch — fully restart Harness to enable',
+      'autoStartBtn': 'Start creation',
+      'autoBriefPh': 'One-line idea…',
+      'autoQuoteBtn': 'Refresh budget',
+      'autoApproveBtn': 'Approve paid run',
+      'autoApprovePh': 'Type "approve" or your own confirmation words',
+      'autoApproveSubmit': 'Confirm',
+      'autoGenerateBtn': 'Start generating',
+      'autoAbortBtn': 'Abort',
+      'autoNeedQuote': 'Refresh the budget first',
+      'autoQuoteSummary': '{s} scenes / {sh} shots / {sec}s / {calls} video calls pending',
+      'autoQuoteCost': 'Est. ¥{cost}',
+      'autoQuoteNoPrice': 'No per-second video price configured (set it in Settings → Production to show an estimate)',
+      'autoApproveNeedConfirm': 'Type your confirmation words first (paid approval must leave a trace)',
+      'autoApproved': 'Approved ({calls} video calls pending)',
+      'autoAborted': 'Aborted (produced content kept)',
+      'autoDone': 'Done',
+      'autoFail': 'Action failed',
       'stageCurrent': 'Stage',
       'stageReadyYes': 'deliverable',
       'stageReadyNo': 'not ready',
@@ -20070,9 +20104,16 @@ const DIRECTOR_KEY_HELP = [
       );
     }
     /** 图片模型桥接卡（0.20.0）：检测 dsh-image-gen 并直接选用它的服务商/模型（密钥留在它宿主侧）。 */
-    /** 自动创作开关（实验）：只留开关与状态；入口在 Harness 原生对话框（canvas_auto_* 工具）。 */
+    /** 自动创作卡（实验）：开关 + 状态 + 快捷动作区。对话仍是主入口（canvas_auto_* 工具带完整上下文），
+     *  此卡提供与对话同 RPC 的快捷操作，不切对话也能：启动创作（brief）→ 刷新预算（autoQuote）→
+     *  批准付费（行内确认，quoteId+confirm）→ 开始生成（全量；部分选场是 T9 对话侧能力，卡片不放）→ 中止。
+     *  批准令牌语义：quoteId 用卡片最近一次 autoQuote 返回值（不自动重刷——预算指纹绑定，卡片刷新的即当前指纹）。
+     *  纪律：不新增轮询、不新增 RPC；单一 busy 防重入（动作互斥，避免并发计费操作）；错误 catch 接住显示卡内。 */
     function AutoModeCard() {
       const [st, setSt] = useState(null);
+      // 动作区状态（一个对象收口）：brief 输入 / 最近预算单 quote（quoteId+摘要）/ 行内确认开合与文本 /
+      // busy（在跑的动作名，防重入）/ msg 成功小字 / err 错误小字
+      const [act, setAct] = useState(() => ({ brief: '', confirm: '', quote: null, confirmOpen: false, busy: null, msg: '', err: '' }));
       const refresh = async () => {
         try {
           const r = await hostRpc('autoModeGet');
@@ -20092,6 +20133,54 @@ const DIRECTOR_KEY_HELP = [
           setSt({ ...st, busy: false });
         }
       };
+      const pid = S.activeId || '';
+      const multiAgent = !!(st && st.caps && st.caps.multiAgent);
+      const actionsOn = !!(st && !st.oldHost && st.enabled && multiAgent);
+      // 动作通用壳：结果 {ok:false,error} 视为业务失败，与网络异常同样接住显示在卡内
+      const runAction = async (key, fn, okMsgOf) => {
+        if (!pid || act.busy) return;
+        setAct((a) => ({ ...a, busy: key, err: '', msg: '' }));
+        try {
+          const r = await fn();
+          if (r && r.ok === false) throw new Error(r.error || T('autoFail'));
+          setAct((a) => ({ ...a, busy: null, msg: okMsgOf ? okMsgOf(r) : T('autoDone'), err: '' }));
+          refresh();
+        } catch (e) {
+          setAct((a) => ({ ...a, busy: null, err: String((e && e.message) || e) || T('autoFail') }));
+        }
+      };
+      // 预算小字：场/镜/秒/待调用次数 + 估算金额或单价引导（T9 锚点「视频每秒单价」）
+      const quoteLine = (r) => T('autoQuoteSummary').replace('{s}', String(r.sceneCount || 0)).replace('{sh}', String(r.shotCount || 0))
+        .replace('{sec}', String(r.totalSeconds || 0)).replace('{calls}', String(r.videoCalls || 0))
+        + ' · ' + (r.estimatedCost != null
+          ? T('autoQuoteCost').replace('{cost}', String(r.estimatedCost))
+          : T('autoQuoteNoPrice'));
+      const doQuote = () => runAction('quote', async () => {
+        const r = await hostRpc('autoQuote', { projectId: pid });
+        if (r && r.ok !== false && r.quoteId) {
+          // 批准令牌只信这次刷新返回的 quoteId（指纹绑定）；旧的行内确认随之作废收起
+          setAct((a) => ({ ...a, quote: { quoteId: r.quoteId, summary: quoteLine(r) }, confirmOpen: false, confirm: '' }));
+        }
+        return r;
+      });
+      const doStart = () => {
+        const brief = act.brief.trim();
+        if (!brief) return;
+        runAction('start', () => hostRpc('autoStart', { projectId: pid, brief }), (r) => (r && r.note) || T('autoDone'));
+      };
+      const doApprove = () => {
+        if (!act.quote) return;
+        const words = act.confirm.trim();
+        if (!words) { setAct((a) => ({ ...a, err: T('autoApproveNeedConfirm') })); return; }
+        runAction('approve', () => hostRpc('autoApprove', { projectId: pid, quoteId: act.quote.quoteId, confirm: words }),
+          (r) => T('autoApproved').replace('{calls}', String((r && r.videoCalls) || '')));
+      };
+      const doGenerate = () => runAction('generate', () => hostRpc('autoGenerate', { projectId: pid }), (r) => (r && r.note) || T('autoDone'));
+      const doAbort = () => runAction('abort', () => hostRpc('autoAbort', { projectId: pid }), () => T('autoAborted'));
+      const miniBtn = (role, label, onClick, disabled, extra) => h('button', Object.assign({
+        type: 'button', className: 'dshic-mini', 'data-role': role, disabled: !!disabled || !!act.busy,
+        onPointerDown: (e) => e.stopPropagation(), onClick,
+      }, extra || {}), label);
       const lines = [];
       if (!st) lines.push(T('storageLoading'));
       else if (st.oldHost) lines.push(T('autoOldHost'));
@@ -20099,7 +20188,7 @@ const DIRECTOR_KEY_HELP = [
         lines.push(st.enabled ? T('autoOn') : T('autoOff'));
         lines.push(st.caps && st.caps.multiAgent ? T('autoCapsOk') : T('autoCapsNo'));
       }
-      return h('div', { className: 'dshic-card' },
+      return h('div', { className: 'dshic-card', 'data-role': 'auto-mode-card' },
         h('div', { className: 'dshic-row' },
           Ic('spark', 12),
           h('strong', { style: { fontSize: 12, flex: 1, minWidth: 0 } }, T('autoTitle')),
@@ -20111,6 +20200,37 @@ const DIRECTOR_KEY_HELP = [
             : null,
         ),
         h('div', { className: 'dshic-hint', style: { marginTop: 4 }, 'data-role': 'auto-mode-status' }, lines.join(' · ')),
+        actionsOn ? h('div', { 'data-role': 'auto-actions', style: { marginTop: 6 } },
+          // 启动创作：brief 输入（为空禁用）+ 按钮
+          h('textarea', {
+            className: 'dshic-input', 'data-role': 'auto-brief-input', rows: 1, value: act.brief,
+            placeholder: T('autoBriefPh'), style: { width: '100%', fontSize: 11, resize: 'vertical', marginBottom: 4 },
+            onPointerDown: (e) => e.stopPropagation(), onChange: (e) => setAct((a) => ({ ...a, brief: e.target.value })),
+          }),
+          h('div', { className: 'dshic-row', style: { gap: 6, flexWrap: 'wrap' } },
+            miniBtn('auto-start-btn', T('autoStartBtn'), doStart, !act.brief.trim() || !pid),
+            miniBtn('auto-quote-btn', T('autoQuoteBtn'), doQuote, !pid),
+            miniBtn('auto-approve-btn', T('autoApproveBtn'),
+              () => setAct((a) => ({ ...a, confirmOpen: !a.confirmOpen, err: '', msg: '' })),
+              !act.quote || !pid, { title: act.quote ? '' : T('autoNeedQuote') }),
+            miniBtn('auto-generate-btn', T('autoGenerateBtn'), doGenerate, !pid),
+            miniBtn('auto-abort-btn', T('autoAbortBtn'), doAbort, !pid),
+          ),
+          // 最近一次刷新的预算单（批准令牌来源）+ 行内确认输入（confirm 用户原话）
+          act.quote ? h('div', { className: 'dshic-hint', 'data-role': 'auto-quote-line', style: { marginTop: 4 } }, act.quote.summary) : null,
+          act.quote && act.confirmOpen ? h('div', { className: 'dshic-row', style: { gap: 6, marginTop: 4 } },
+            h('input', {
+              className: 'dshic-input', 'data-role': 'auto-confirm-input', value: act.confirm,
+              placeholder: T('autoApprovePh'), style: { flex: 1, minWidth: 0, fontSize: 11 },
+              onPointerDown: (e) => e.stopPropagation(),
+              onChange: (e) => setAct((a) => ({ ...a, confirm: e.target.value })),
+              onKeyDown: (e) => { if (e.key === 'Enter') { e.preventDefault(); doApprove(); } },
+            }),
+            miniBtn('auto-confirm-submit', T('autoApproveSubmit'), doApprove, !act.confirm.trim()),
+          ) : null,
+          act.msg ? h('div', { className: 'dshic-hint', 'data-role': 'auto-act-msg', style: { marginTop: 4 } }, act.msg) : null,
+          act.err ? h('div', { className: 'dshic-err', 'data-role': 'auto-act-err', style: { marginTop: 4 } }, act.err) : null,
+        ) : null,
       );
     }
 
@@ -22057,6 +22177,8 @@ const DIRECTOR_KEY_HELP = [
         if (typeof window !== 'undefined' && window.__DSH_IC_SMOKE__) {
           window.__DSH_IC_TABS__ = {
             ProjectsTab, AssetsTab, BibleTab, SettingsTab, DataRootCard, CanvasPage, ShortcutsPanel, CanvasHostedApp, SkillPalette,
+            // 自动创作卡（0.20.2 T12）：快捷动作区（启动/预算/批准/生成/中止）——供 test-panel-layout 直渲染与断言
+            AutoModeCard,
             // 面板结构重构（左侧图标列 / 顶部工具栏 / 右侧面板 / 统一弹窗）
             Toolbar, Rightbar, IconRail, StudioModal, ProjectNameDialog,
             // 技能页（四层图标瓦片）：组件 + 图标表 + 配置读写 + 切片入口
