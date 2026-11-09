@@ -9463,7 +9463,10 @@ function queueThumb(assetId) {
       }));
     }
     /** 本地一致性检查：分镜里出现的角色/场景/道具（含 visual/motion 文本里的 @提及）是否都在
-     *  设定集/资产中登记；两级告警——「未登记」与「已登记但描述为空（待补全）」。 */
+     *  设定集/资产中登记；两级告警——「未登记」与「已登记但描述为空（待补全）」。
+     *  台词碎片豁免：名字以「的」结尾且出现在对白文本里的角色/场景/道具视为描述性片段（如台词
+     *  「来了个带纸的」被抽成道具「带纸的」），未登记不告警——与 Host index.js
+     *  storyboardConsistencyWarnings 同规则，两边必须字面同构（防漂移）。 */
     async function checkShotConsistency(shots) {
       const bible = loadBible(S.activeId);
       const entries = [];
@@ -9479,7 +9482,13 @@ function queueThumb(assetId) {
       const warnings = [];
       const seen = new Set();
       const warn = (line) => { if (!seen.has(line) && warnings.length < 12) { seen.add(line); warnings.push(line); } };
-      const check = (title, kind, name) => {
+      // 台词碎片收集（与 Host index.js storyboardConsistencyWarnings 同规则——两边必须字面同构，防漂移）：
+      // 拼接同 shots 数组内全部对白文本；shots 无 dialogue 字段（旧数据）时按「无对白可查」自然不跳过。
+      let dialogueAll = '';
+      for (const sh of shots || []) {
+        for (const d of ((sh && sh.dialogue) || [])) dialogueAll += ' ' + String((d && d.line) || '');
+      }
+      const check = (title, kind, name, entity) => {
         const q = String(name || '').trim().toLowerCase();
         if (!q) return;
         const exact = entries.find((e) => e.lower === q);
@@ -9487,17 +9496,19 @@ function queueThumb(assetId) {
           if (!exact.desc.trim()) warn(`${title} · ${kind}「${exact.name}」${T('warnEmptyDesc')}`);
           return;
         }
+        // 台词碎片跳过：仅 角色/场景/道具 三类（entity=true）；@提及 通道绝不跳过，「已登记但描述为空」路径（上方）不跳过
+        if (entity && String(name || '').trim().endsWith('的') && dialogueAll.includes(String(name || '').trim())) return;
         for (const k of known) { if (k.includes(q) || q.includes(k)) return; }
         warn(`${title} · ${kind}「${String(name).trim()}」${T('warnUnregistered')}`);
       };
       for (const sh of shots) {
         const title = String(sh.title || '').trim() || T('shotPrefix');
-        for (const nm of (sh.characters || [])) check(title, T('catCharacter'), nm);
-        check(title, T('catScene'), sh.scene);
-        for (const nm of (sh.props || [])) check(title, T('catProp'), nm);
+        for (const nm of (sh.characters || [])) check(title, T('catCharacter'), nm, true);
+        check(title, T('catScene'), sh.scene, true);
+        for (const nm of (sh.props || [])) check(title, T('catProp'), nm, true);
         // visual/motion 文本里的 @资产名@ 提及同样纳入检查（未登记的会提示补充资产——这是检查的价值所在）
         const text = String(sh.visual || '') + ' ' + String(sh.motion || '');
-        for (const mm of parseMentions(text)) check(title, T('catMention'), mm.name);
+        for (const mm of parseMentions(text)) check(title, T('catMention'), mm.name, false);
       }
       return warnings;
     }
@@ -9602,6 +9613,9 @@ function queueThumb(assetId) {
       menu: null,          // {x, y, kind:'add'}
       composerId: null,    // 生成面板当前挂靠的节点 id（单例；纯 UI 状态，不持久化）
       assetsTick: 0,
+      // 设定集更新信号：编辑器 persist 后自增，分镜详情据此自动重算一致性告警（旧告警自动消失，免手动 revalidate）。
+      // 不复用 assetsTick——它在资产事件上到处自增，会让无关事件反复触发重算。
+      bibleTick: 0,
       tick: 0,
       craftStatus: null, // {at, data} | {at, error}
       dataRoot: null,        // 数据根目录（Host 配置）；null = 未设置（资产走 IndexedDB）
@@ -13751,8 +13765,8 @@ function queueThumb(assetId) {
       // 切段预览：把"这张分镜表会被切成几次生成、每次几镜几秒、哪些段要接尾帧"直接显示在节点上，
       // 用户铺开前就知道会切成什么样——不用等到生成完才发现接不上。
       const segPlan = shots.length ? planShotSegments(shots, { maxSeconds: Number(n.data.segMaxSeconds) || 15 }) : null;
-      // 一致性告警的手动重校验：告警是**生成时刻**算的，之后补全设定集不会让它们自动消失——
-      // 点刷新按当前设定集重算（checkShotConsistency 读的是实时 bible/资产名索引）
+      // 一致性告警的重校验：告警是**生成时刻**算的；设定集更新后有 bibleTick 自动重算（见下），
+      // 这里保留手动入口兜底——点刷新按当前设定集重算（checkShotConsistency 读的是实时 bible/资产名索引）
       const [wvChecking, setWvChecking] = useState(false);
       const revalidate = async () => {
         if (wvChecking || !shots.length) return;
@@ -13763,6 +13777,15 @@ function queueThumb(assetId) {
         } catch { /* 校验失败保留旧告警 */ }
         setWvChecking(false);
       };
+      // 设定集更新自动刷新：bibleTick 在设定集编辑器 persist 后自增——变化时按当前设定集重算告警，
+      // 补全描述后节点上的旧告警自动消失，不再依赖用户点 revalidate（宿主侧重算只写 Host 文档，够不着本地状态）。
+      // ref 记上次已响应的 tick：首渲染（打开面板/重挂载）不触发；wvChecking 防重入。
+      const lastBibleTickRef = useRef(S.bibleTick);
+      useEffect(() => {
+        if (S.bibleTick === lastBibleTickRef.current) return;
+        lastBibleTickRef.current = S.bibleTick;
+        revalidate();
+      }, [S.bibleTick]);
       return [
         h('div', { key: 'sum', className: 'dshic-shot-summary' },
           h('b', {}, shots.length ? (shots.length + ' ' + T('shotsUnit')) : T('noShotsYet')),
@@ -20132,7 +20155,9 @@ const DIRECTOR_KEY_HELP = [
       const [bible, setBible] = useState(() => loadBible(S.activeId));
       const [busy, setBusy] = useState(false);
       useEffect(() => { setBible(loadBible(S.activeId)); }, [S.activeId, S.assetsTick]);
-      const persist = (next) => { setBible(next); saveBible(S.activeId, next); };
+      // persist：本地保存 + 推送防抖 + bibleTick 自增（分镜详情监听它自动重算一致性告警——
+      // 宿主侧重算只写 Host 文档，客户端本地节点的旧告警必须靠这条信号自己刷新）
+      const persist = (next) => { setBible(next); saveBible(S.activeId, next); update((s) => { s.bibleTick++; }); };
       /** 从项目里的创作意图/剧本一键起草设定集（设定集先行）。 */
       const draft = async () => {
         if (busy) return;

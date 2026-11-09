@@ -2886,7 +2886,10 @@ async function canvasRunNode(args) {
 /** 读取节点运行状态与产物（画布执行完成后会把结果推回 Host 文档）。 */
 /** 分镜一致性检查（与客户端 checkShotConsistency 同规则，Host 供状态查询/设定集更新后重算）：
  *  检查 shots 的角色/场景/道具数组 **以及 visual/motion 文本里的 @提及** 是否都在设定集登记；
- *  两级告警：「未登记」（设定集/资产都没有）与「已登记但描述为空」（待补全）。 */
+ *  两级告警：「未登记」（设定集/资产都没有）与「已登记但描述为空」（待补全）。
+ *  台词碎片豁免：名字以「的」结尾且出现在对白文本里的角色/场景/道具视为描述性片段（如台词
+ *  「来了个带纸的」被抽成道具「带纸的」），未登记不告警——与客户端 client.js
+ *  checkShotConsistency 同规则，两边必须字面同构（防漂移）。 */
 function storyboardConsistencyWarnings(bible, shots, extraNames) {
   const entries = [];
   const addEntry = (kind, name, desc) => {
@@ -2900,7 +2903,13 @@ function storyboardConsistencyWarnings(bible, shots, extraNames) {
   const warnings = [];
   const seen = new Set();
   const warn = (line) => { if (!seen.has(line) && warnings.length < 12) { seen.add(line); warnings.push(line); } };
-  const check = (title, kind, name) => {
+  // 台词碎片收集（与客户端 client.js checkShotConsistency 同规则——两边必须字面同构，防漂移）：
+  // 拼接同 shots 数组内全部对白文本；shots 无 dialogue 字段（旧数据）时按「无对白可查」自然不跳过。
+  let dialogueAll = '';
+  for (const sh of shots || []) {
+    for (const d of ((sh && sh.dialogue) || [])) dialogueAll += ' ' + String((d && d.line) || '');
+  }
+  const check = (title, kind, name, entity) => {
     const q = String(name || '').trim().toLowerCase();
     if (!q) return;
     const exact = entries.find((e) => e.lower === q);
@@ -2908,14 +2917,16 @@ function storyboardConsistencyWarnings(bible, shots, extraNames) {
       if (!exact.desc.trim()) warn(`${title} · ${kind}「${exact.name}」已登记但描述为空（待补全）`);
       return;
     }
+    // 台词碎片跳过：仅 角色/场景/道具 三类（entity=true）；@提及 通道绝不跳过，「已登记但描述为空」路径（上方）不跳过
+    if (entity && String(name || '').trim().endsWith('的') && dialogueAll.includes(String(name || '').trim())) return;
     for (const k of known) { if (k.includes(q) || q.includes(k)) return; }
     warn(`${title} · ${kind}「${String(name).trim()}」未在设定集中登记`);
   };
   for (const sh of shots || []) {
     const title = String((sh && sh.title) || '').trim() || '分镜';
-    for (const nm of (sh.characters || [])) check(title, '角色', nm);
-    check(title, '场景', sh && sh.scene);
-    for (const nm of (sh.props || [])) check(title, '道具', nm);
+    for (const nm of (sh.characters || [])) check(title, '角色', nm, true);
+    check(title, '场景', sh && sh.scene, true);
+    for (const nm of (sh.props || [])) check(title, '道具', nm, true);
     // visual/motion 文本里的 @资产名@ 提及同样纳入检查（未登记的提示补充——与客户端 parseMentions 词法一致）
     const text = String((sh && sh.visual) || '') + ' ' + String((sh && sh.motion) || '');
     const seenMention = new Set();
@@ -2923,7 +2934,7 @@ function storyboardConsistencyWarnings(bible, shots, extraNames) {
       const nm = m.replace(/^@/, '').replace(/@$/, '');
       if (seenMention.has(nm)) continue;
       seenMention.add(nm);
-      check(title, '提及', nm);
+      check(title, '提及', nm, false);
     }
   }
   return warnings;
