@@ -535,6 +535,91 @@ let sbNodeId = '';
   }
 }
 
+// ============================ 六、G2 重生成注入失败清单回归（0.20.2 P1：重生成不带清单=原样再犯） ============================
+// 0.20.1 实机：场2 分镜 G2 首轮 11 项不合规，自动重生成一次后「仍有 11 项」一模一样——宿主原样重跑，
+// 失败清单只进 run.log 没进提示词（客户端 aiStoryboardShots 每次生成都读节点 data.requirement 拼提示词）。
+// 回归：重跑前 requirement 必须含「G2 复检」+ gate.fails 全清单（逐条编号，不 slice）；复检后还原；log 条目带「已注入清单」。
+{
+  const M = I.rpcMethods();
+  await M.autoModeSet({ enabled: true });
+
+  // 首轮 shots：缺时长 + 景别不具体 + 全表无大特写——先实跑真闸门确认 fails.length > 0，否则整个用例失效
+  const badShotsArr = [{ title: '镜1', visual: '他走过来', motion: '', duration: 0 }];
+  const preGate = P.gateStoryboard(badShotsArr);
+  ok(preGate.ok === false && preGate.fails.length >= 3, 'G2注入前置: 首轮 shots 应被真闸门拒绝（fails=' + JSON.stringify(preGate.fails) + '）');
+  const goodShotsArr = [
+    { title: '镜1', visual: '中景，雨夜巷口，陈拾收伞', motion: '横移跟随', duration: 3, seg: 'opening', tail: '转身欲走', cam: '横移回正' },
+    { title: '镜2', visual: '大特写，邮戳裂开', motion: '缓推', duration: 2, seg: 'closeup', tail: '裂开定格', cam: '推进到位' },
+  ];
+  eq(P.gateStoryboard(goodShotsArr).ok, true, 'G2注入前置: 复检 shots 应过真闸门');
+
+  // 假 LLM：非监制角色照旧；监制首轮即合法 JSON（不触发决策重试，聚焦分镜重生成）
+  I.__auto.setRoomLlm(async ({ system }) => {
+    const s = String(system || '');
+    if (s.includes('调研员')) return JSON.stringify({ themes: [{ name: '时空邮差', why: 't' }], styles: ['写实电影感'] });
+    if (s.includes('编剧A')) return JSON.stringify({ logline: 'A案故事线', beats: ['b1', 'b2', 'b3'] });
+    if (s.includes('编剧B')) return JSON.stringify({ logline: 'B案故事线', beats: ['c1', 'c2', 'c3'] });
+    if (s.includes('剧评人')) return JSON.stringify({ critA: ['冲突可加强'], critB: ['动机可信'] });
+    if (s.includes('监制')) return JSON.stringify({ decision: 'merge', rationale: '取A冲突+B动机', logline: '雨夜邮差的最后一封信', beats: ['x', 'y', 'z'],
+      bible: { worldview: 'G2注入世界观：时空邮局', style: '写实电影感', characters: [{ name: '陈拾', desc: '24 岁，旧邮差制服' }], scenes: [{ name: '褶皱巷', desc: '雨夜窄巷' }], props: [{ name: '火漆信', desc: '火漆印' }],
+        scriptIdea: '写第一节剧本：雨夜邮差陈拾接到一封无法投递的信……每场结尾留因果钩子，每场至少一个冲突点。' } });
+    return '{}';
+  });
+
+  // 画布执行桩：脚本产出一场（聚焦单个分镜表的 G2 循环）；分镜**首轮**返回不合规 shots，
+  // 检测到节点 data.requirement 含「G2 复检」（宿主已注入清单）→ 返回合规 shots（模拟模型照清单改正）
+  const reqSeen = []; // 桩内捕获：每次分镜 exec 前节点的 data.requirement
+  I.__auto.setCanvasRunner(async (pid2, cid2, nodeId) => {
+    const doc = await I.projectsGet({ id: pid2, ...(cid2 ? { canvasId: cid2 } : {}) });
+    const n = doc.nodes[nodeId];
+    if (!n) throw new Error('桩：节点不存在');
+    if (n.type === 'script') {
+      const out = '【场1】褶皱巷\n雨夜，陈拾收伞，发现邮戳裂开。';
+      await I.canvasWriteNode({ projectId: pid2, canvasId: cid2 || undefined, nodeId, target: 'output', text: out, overwrite: true });
+      return { type: 'script', output: out };
+    }
+    if (n.type === 'storyboard') {
+      const req = String((n.data && n.data.requirement) || '');
+      reqSeen.push(req);
+      const shots = req.includes('G2 复检') ? goodShotsArr : badShotsArr;
+      await I.canvasWriteNode({ projectId: pid2, canvasId: cid2 || undefined, nodeId, target: 'output', text: JSON.stringify({ shots }), overwrite: true });
+      return { type: 'storyboard', shots };
+    }
+    return { type: n.type, status: 'done' };
+  });
+
+  const pidG = (await byName.get('canvas_create_project').execute({ name: 'G2重生成注入清单' }, {})).projectId;
+  const started = await M.autoStart({ projectId: pidG, brief: 'G2注入回归：重生成前必须把全量失败清单写进分镜额外要求' });
+  ok(started && started.ok === true, 'G2注入: autoStart 未启动');
+  let vG = null;
+  for (let i = 0; i < 100; i++) {
+    await new Promise((r) => setTimeout(r, 100));
+    vG = (await M.autoStatus({ projectId: pidG })).run;
+    if (vG && (vG.status === 'done' || vG.status === 'failed' || vG.status === 'aborted')) break;
+  }
+  // ① 流水线 done（首轮拒 → 注入清单 → 桩照清单改正 → 复检过闸）
+  ok(vG && vG.status === 'done', 'G2注入: 流水线未 done（status=' + (vG && vG.status) + ' error=' + (vG && vG.error) + '）');
+  eq(reqSeen.length, 2, 'G2注入: 分镜应恰好执行两次（首轮+重生成一次，实际 ' + reqSeen.length + '）');
+  ok(reqSeen[0] === '', 'G2注入: 首轮 exec 前节点 requirement 应为原值（空，实际：' + JSON.stringify(reqSeen[0]) + '）');
+  // ② 第二次 exec 前已注入「G2 复检」重试块与首个失败项关键字（桩内捕获）
+  ok(String(reqSeen[1] || '').includes('G2 复检'), 'G2注入: 重生成前 requirement 未含「G2 复检」重试块');
+  ok(String(reqSeen[1] || '').includes(preGate.fails[0]), 'G2注入: 重生成前 requirement 未含首个失败项（' + preGate.fails[0] + '）');
+  // 全清单，不是 slice(0,2)——日志可以截断，提示词不能：每一个失败项都要进提示词
+  const missingFails = preGate.fails.filter((f) => !String(reqSeen[1] || '').includes(f));
+  eq(missingFails.length, 0, 'G2注入: 清单被截断，缺失项 → ' + JSON.stringify(missingFails));
+  ok(String(reqSeen[1] || '').includes('1. ' + preGate.fails[0]), 'G2注入: 失败项未逐条编号列出');
+  ok(String(reqSeen[1] || '').startsWith('【G2 复检'), 'G2注入: 原 requirement 为空时应只写重试块（不带前导追加）');
+  // ③ 复检后还原 requirement 为原值（不污染节点数据）
+  const docG = await I.projectsGet({ id: pidG });
+  const sbG = Object.values(docG.nodes).find((n2) => n2.type === 'storyboard');
+  ok(!!sbG, 'G2注入: 分镜节点缺失（测试前置失败）');
+  eq(sbG && String(sbG.data.requirement || ''), '', 'G2注入: 复检后 requirement 未还原为原值（空）');
+  // ④ run.log 重生成条目保持现有格式并追加「已注入清单」
+  const runG = I.__auto.runs.get(pidG + '::default');
+  ok(!!runG && Array.isArray(runG.log) && runG.log.some((e) => /G2 未过，自动重生成（已注入清单）/.test(String(e.summary))), 'G2注入: run.log 重生成条目缺「已注入清单」标记');
+  ok(Array.isArray(vG && vG.boards) && vG.boards.length === 1 && vG.boards[0].gate === true, 'G2注入: 重生成后分镜应过闸（boards=' + JSON.stringify(vG && vG.boards) + '）');
+}
+
 // ---------------- 工具 ----------------
 async function findNode(type) {
   const doc = await I.projectsGet({ id: projectId });

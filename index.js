@@ -3919,12 +3919,27 @@ export function apply(ctx) {
           const sb = canvasCreateNode({ projectId: pid, canvasId: cid, type: 'storyboard', name: '场' + scenes[i].no + '分镜表', connectFrom: txt.nodeId });
           if (prevBoard) { try { canvasConnect({ projectId: pid, canvasId: cid, fromNode: prevBoard, toNode: sb.nodeId, fromPort: 'tail', toPort: 'prev' }); } catch { /* 端口异常不阻塞 */ } }
           prevBoard = sb.nodeId;
+          // 0.20.2 T3：首轮 exec 前记下节点原有 requirement（重生成注入要在它基础上追加，复检后还原，不污染节点数据）
+          let origReq = '';
+          try {
+            const sbDoc = readToolDoc({ projectId: pid, canvasId: cid });
+            origReq = String((sbDoc.nodes[sb.nodeId] && sbDoc.nodes[sb.nodeId].data && sbDoc.nodes[sb.nodeId].data.requirement) || '');
+          } catch { /* 读不到按空处理 */ }
           let sbSt = await canvasExec(pid, cid, sb.nodeId, { timeoutMs: 10 * 60 * 1000 });
           let gate = PROD.gateStoryboard(sbSt.shots);
           if (!gate.ok) { // 不过闸自动重生成一次（分镜重生成不花钱）
-            run.log.push({ at: Date.now(), role: 'runner', summary: '场' + scenes[i].no + ' G2 未过，自动重生成：' + gate.fails.slice(0, 2).join('；') });
-            sbSt = await canvasExec(pid, cid, sb.nodeId, { timeoutMs: 10 * 60 * 1000 });
-            gate = PROD.gateStoryboard(sbSt.shots);
+            run.log.push({ at: Date.now(), role: 'runner', summary: '场' + scenes[i].no + ' G2 未过，自动重生成（已注入清单）：' + gate.fails.slice(0, 2).join('；') });
+            // 0.20.2 T3：重跑前把 gate.fails **全清单**写进分镜节点 requirement（客户端 aiStoryboardShots
+            // 每次生成都读它拼进提示词）——不注入则重生成提示词与首轮逐字相同，模型原样再犯（实测 11 项依旧）。
+            // 全清单逐条编号，不是 slice(0,2)：日志可以截断，提示词不能。
+            canvasUpdateNode({ projectId: pid, canvasId: cid, nodeId: sb.nodeId, patch: { requirement: (origReq ? origReq + '\n\n' : '') + '【G2 复检·必须逐项修复】上一版分镜未通过质量闸门，以下是全部不合规项，重新生成时逐项改正：\n' + gate.fails.map((f, j) => (j + 1) + '. ' + f).join('\n') } });
+            try {
+              sbSt = await canvasExec(pid, cid, sb.nodeId, { timeoutMs: 10 * 60 * 1000 });
+              gate = PROD.gateStoryboard(sbSt.shots);
+            } finally {
+              // 复检结束（无论过没过，重跑炸了也一样）还原 requirement 为原值；还原失败不阻塞
+              try { canvasUpdateNode({ projectId: pid, canvasId: cid, nodeId: sb.nodeId, patch: { requirement: origReq } }); } catch { /* 还原失败不阻塞 */ }
+            }
           }
           boards.push({ no: scenes[i].no, storyboardId: sb.nodeId, gate: gate.ok, fails: gate.fails });
           run.log.push({ at: Date.now(), role: 'runner', summary: '场' + scenes[i].no + ' 分镜：' + (gate.ok ? '过闸' : '仍有 ' + gate.fails.length + ' 项') });
