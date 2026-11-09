@@ -5244,11 +5244,11 @@ export function apply(ctx) {
           output: textOutput,
           timeoutMs: 15000,
           async execute(args) {
-            const r = await productionStatus(args);
+            const r = await methods.productionStatus(args);
             if (!r.ok) return { ok: false, text: '❌ ' + (r.error || '状态读取失败') };
             let capsLine = '';
             try {
-              const caps = await productionCapabilities();
+              const caps = await methods.productionCapabilities();
               capsLine = '\n多智能体能力：' + (caps.multiAgent ? '可用（宿主已暴露会话服务）' : '不可用（宿主未暴露会话服务——自动创作保持休眠）');
             } catch { /* 探针失败不影响状态输出 */ }
             const lines = [
@@ -5282,7 +5282,7 @@ export function apply(ctx) {
           output: textOutput,
           timeoutMs: 15000,
           async execute(args) {
-            const r = await productionAdvance(args);
+            const r = await methods.productionAdvance(args);
             if (!r.ok) return { ok: false, text: '❌ ' + (r.error || '推进失败') };
             return { ok: true, projectId: args.projectId, stage: r.to, text: '✅ 阶段 ' + r.from + ' → ' + r.to + '（已记入审计）。' };
           },

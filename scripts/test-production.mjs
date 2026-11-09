@@ -366,6 +366,55 @@ let sbNodeId = '';
   }
 }
 
+// ============================ 四、工具 handler 直调回归（0.20.2 P0：裸调炸穿） ============================
+// 0.20.1 实机 bug：工具注册区 execute 裸调 methods 成员（productionStatus / productionCapabilities /
+// productionAdvance）→ ReferenceError（status 路径无兜底实机炸穿；capabilities 被外层 try/catch
+// 静默吞掉 → 「多智能体能力」行永不显示）。直调 methods（I.rpcMethods()）永远测不出此类 bug——
+// 那正是 0.20.0 漏测的原因。必须直调工具注册对象的 execute handler（fakeCtx 捕获的工具表）。
+{
+  const statusTool = byName.get('canvas_production_status');
+  const advanceTool = byName.get('canvas_production_advance');
+  ok(!!statusTool && typeof statusTool.execute === 'function', '工具表缺 canvas_production_status（execute）');
+  ok(!!advanceTool && typeof advanceTool.execute === 'function', '工具表缺 canvas_production_advance（execute）');
+
+  const realGet = fakeCtx.get;
+  try {
+    // 探针给真话：sessionController 在场 → capabilities 真实执行后 multiAgent 应为 true。
+    // （裸调版本：ReferenceError 被 execute 内 try/catch 吞掉 → capsLine 恒空 → multiAgent 恒 false）
+    fakeCtx.get = (key) => (key === 'sessionController' ? { __probe: true } : undefined);
+    const st = await statusTool.execute({ projectId }, {});
+    ok(st && st.ok === true, 'handler 直调: canvas_production_status 应 ok:true（裸调会炸 ReferenceError）');
+    ok(st && typeof st.stage === 'string' && st.stage.length > 0, 'handler 直调: status 应携带 stage 字段');
+    ok(st && typeof st.ready === 'boolean', 'handler 直调: status 应携带 ready 字段');
+    eq(st && st.multiAgent, true, 'handler 直调: capabilities 探针应真实执行（capsLine 已生成；裸调被吞时恒为 false）');
+    ok(st && typeof st.text === 'string' && st.text.includes('多智能体能力：可用（宿主已暴露会话服务'), 'handler 直调: capabilities 文本行应显示「可用」（sessionController 在场；裸调被吞时无此行）');
+
+    // advance：按 parameters 构造合法调用（projectId + 合法 to + 必填 reason），当前阶段 storyboard → shots_ready
+    const adv = await advanceTool.execute({ projectId, to: 'shots_ready', reason: '回归：显式推进到分镜就绪' }, {});
+    ok(adv && adv.ok === true, 'handler 直调: canvas_production_advance 合法推进应 ok:true');
+    eq(adv && adv.stage, 'shots_ready', 'handler 直调: advance 应返回目标阶段');
+
+    // 错误路径也不许裸调炸穿：缺 reason → 业务拒绝（ok:false），绝非 undefined function
+    const noReason = await advanceTool.execute({ projectId, to: 'bible' }, {});
+    ok(noReason && noReason.ok === false, 'handler 直调: 缺 reason 应业务拒绝');
+    ok(noReason && !/not defined|not a function|ReferenceError/i.test(String(noReason.text)), 'handler 直调: 缺 reason 的拒绝应为业务错误而非 undefined function');
+
+    // 缺 projectId → 业务拒绝
+    const noPid = await statusTool.execute({}, {});
+    ok(noPid && noPid.ok === false, 'handler 直调: 缺 projectId 应业务拒绝');
+    ok(noPid && !/not defined|not a function|ReferenceError/i.test(String(noPid.text)), 'handler 直调: 缺 projectId 的拒绝应为业务错误而非 undefined function');
+
+    // 探针失败路径：ctx.get 恒抛错 → productionCapabilities 内部 svc() 应兜住 → 降级行「不可用」，
+    // execute 主结果不受影响（catch 按设计吞探针失败，不吞主结果）
+    fakeCtx.get = () => { throw new Error('probe boom'); };
+    const st2 = await statusTool.execute({ projectId }, {});
+    ok(st2 && st2.ok === true, 'handler 直调: 探针抛错时 status 仍应 ok:true（catch 按设计生效）');
+    ok(st2 && typeof st2.text === 'string' && st2.text.includes('多智能体能力：不可用（宿主未暴露'), 'handler 直调: 探针抛错时应降级显示「不可用」（裸调被吞时无此行）');
+  } finally {
+    fakeCtx.get = realGet; // 恢复降级 mock，不污染后续断言语境
+  }
+}
+
 // ---------------- 工具 ----------------
 async function findNode(type) {
   const doc = await I.projectsGet({ id: projectId });
