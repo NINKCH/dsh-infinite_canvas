@@ -25,6 +25,7 @@ const PROD = createProduction({
   readToolDoc,
   readDoc,
   normalizeCanvasId,
+  readAssetIndexNames, // T8：预算单参考图行项要查「实体是否已有参考资产」
 });
 
 const NAME = 'infinite-canvas';
@@ -4008,7 +4009,12 @@ export function apply(ctx) {
     /** 付费段 v1：批准后按镜头切段逐段建视频节点 → 生成 → 轮询（失败重试 2 次）→ 成片节点。
      *  0.20.2 T6（#10）：一个分镜表 ≠ 一次生成——planShotSegments 切出的每段各建一个 video 节点
      * （命名带「段k/N」、prompt 带镜头范围约束、data 带客户端 videoSegmentOf 消费的段键），
-     * 长场（如 40s）不再整表一次请求撞厂商上限（实测中转站 400）；finalcut 连最后一个完成的段节点。 */
+     * 长场（如 40s）不再整表一次请求撞厂商上限（实测中转站 400）；finalcut 连最后一个完成的段节点。
+     *  0.20.2 T8（#6/#7）：参考图先行——有待生成段的场，先把 shots 里的 角色/场景/道具 实体建成
+     * 「<品类>-<名> 设定图」image 节点（命名即分类数据契约，client.js L4931-4946）并出图，再建视频段；
+     * 生成时参考图严格只取连线（collectRefs，client.js L4949-4953），所以 ref 线必须在视频 exec 之前
+     * 用 canvasConnect(toPort:'ref') 接到该场每个 video 段节点。跨场共享实体只生成一次（run 级 Map）；
+     * 已有参考资产（资产名边界匹配）跳过；参考图失败不阻塞视频段。 */
     async function autoPaid(pid, cid) {
       const cfg = readIcConfig();
       const price = Number(cfg.production && cfg.production.videoUnitPricePerSecond);
@@ -4025,6 +4031,21 @@ export function apply(ctx) {
         try {
           const doc = readToolDoc({ projectId: pid, canvasId: cid });
           const boards = Object.values(doc.nodes || {}).filter((n) => n.type === 'storyboard' && Array.isArray(n.data && n.data.shots) && n.data.shots.length);
+          // T8：参考图 run 级状态——实体键「品类|名」→ image 节点；跨场共享同一实体只生成一次。
+          // 「已有参考资产」读项目资产索引一次（角色-<名>/场景-<名>/道具-<名> 边界匹配，client.js L4078 同款）。
+          const refImageByEntity = new Map();
+          let refImagesMade = 0;
+          let assetNames = [];
+          try { assetNames = readAssetIndexNames(pid) || []; } catch { assetNames = []; }
+          // 设定集实体描述（prompt 用；名字精确匹配，与 matchBibleEntity 同式的大小写不敏感）
+          const bibleDescOf = (kind, name) => {
+            const bible = (doc && doc.bible) || {};
+            const key = kind === '角色' ? 'characters' : kind === '场景' ? 'scenes' : 'props';
+            const q = String(name || '').trim().toLowerCase();
+            const list = Array.isArray(bible[key]) ? bible[key] : [];
+            const hit = list.find((it) => String((it && it.name) || '').trim().toLowerCase() === q);
+            return String((hit && hit.desc) || '').trim();
+          };
           let lastVideo = null;
           for (let i = 0; i < boards.length; i++) {
             if (run.paidAbort) { abortNow(); return; }
@@ -4038,6 +4059,12 @@ export function apply(ctx) {
               : [{ startIndex: 0, endIndex: shots.length - 1, duration: plan.total, needsTailChain: false, seamRisk: 'none' }];
             const segCount = segs.length;
             const baseLabel = String((sb.data && sb.data.label) || ('场' + (i + 1))).replace(/分镜表$/, '');
+            // 段节点名（T6 原式提成函数：T8 判断「哪些段待生成」与建段要用同一个名字口径）
+            const segLabelOf = (k) => {
+              const suffix = segCount > 1 ? '视频 · 段' + (k + 1) + '/' + segCount : '视频';
+              // 段序号后缀整体进名字（G4 禁「镜N」式逐镜命名，这里带的是段区间不是单镜）；先切基础名保后缀完整
+              return baseLabel.slice(0, Math.max(1, 40 - suffix.length)) + suffix;
+            };
             // ③ 预算一致性（只记日志不阻塞）：run.budget 是免费段终点的快照，镜头中途被用户改过就对不上；
             //   批准令牌的指纹校验已在 autoPaid 入口把守，这里只是日志诚实化。
             const budgetRow = run.budget && Array.isArray(run.budget.scenes) ? run.budget.scenes.find((r) => r && r.storyboardId === sb.id) : null;
@@ -4051,12 +4078,59 @@ export function apply(ctx) {
             const boardVideos = (doc.edges || []).filter((e) => e.fromNode === sb.id).map((e) => doc.nodes[e.toNode]).filter((n) => n && n.type === 'video');
             const segNumOf = (v) => { const m = String((v.data && v.data.label) || '').match(/ · 段(\d+)\/(\d+)$/); return m ? Number(m[1]) : 0; };
             if (boardVideos.length && !boardVideos.some((v) => segNumOf(v) > 0)) continue;
+            // ── T8（#6/#7）：参考图先行 ──────────────────────────────────────
+            // 只有「有待生成段」的场才产生参考图需求（全完成/续跑完成的场不重复生成）；
+            // 该场的 image 设定图建好并出图之后，才轮到下面的 video 段节点——collectRefs 生成时
+            // 严格只读连线，ref 线在建段后、段 exec 前接上（先连后生成）。
+            const boardEntities = PROD.collectShotEntities(shots);
+            const hasPendingSeg = segs.some((_s, k) => !boardVideos.some((v) => String((v.data && v.data.label) || '') === segLabelOf(k)));
+            if (hasPendingSeg) {
+              run.paidPhase = '参考图 ' + (i + 1) + '/' + boards.length;
+              for (const ent of boardEntities) {
+                if (run.paidAbort) { abortNow(); return; }
+                if (refImageByEntity.has(ent.key)) continue; // 跨场共享：本 run 已生成，直接复用连线
+                if (PROD.hasRefAssetName(assetNames, ent.kind, ent.name)) {
+                  const msg = ent.name + ' 已有参考资产，跳过';
+                  run.log.push({ at: Date.now(), role: 'runner', summary: msg });
+                  run.paidLog.push({ at: Date.now(), text: msg });
+                  continue;
+                }
+                const label = ent.kind + '-' + ent.name + ' 设定图';
+                const desc = bibleDescOf(ent.kind, ent.name);
+                const prompt = '设定图：' + ent.kind + ' ' + ent.name + (desc ? '。设定集描述：' + desc : '');
+                let img = null;
+                try { img = canvasCreateNode({ projectId: pid, canvasId: cid, type: 'image', name: label, prompt, size: '2K', ratio: '16:9' }); }
+                catch (e) { img = { ok: false, error: String((e && e.message) || e) }; }
+                // 实测闸门行为：canvasCreateNode 的 G4（禁逐镜命名）没有 override 逃生舱（G2/G3 才有），
+                // 规范「<品类>-<名> 设定图」命名天然过闸；真被拒说明实体名病态（含「镜N」）——记日志跳过，不阻塞视频段。
+                if (!img || img.ok === false || !img.nodeId) {
+                  const msg = ent.name + '（' + ent.kind + '）参考图建点失败：' + String((img && img.error) || '未知');
+                  run.log.push({ at: Date.now(), role: 'runner', summary: msg });
+                  run.paidLog.push({ at: Date.now(), text: msg });
+                  continue;
+                }
+                let done = false; let err = null;
+                for (let attempt = 0; attempt < 2 && !done; attempt++) {
+                  if (attempt > 0 && run.paidAbort) { abortNow(); return; }
+                  try { await canvasExec(pid, cid, img.nodeId, { timeoutMs: 10 * 60 * 1000 }); done = true; }
+                  catch (e) { err = e; run.paidLog.push({ at: Date.now(), text: label + ' 第 ' + (attempt + 1) + ' 次失败：' + String((e && e.message) || e) }); }
+                }
+                if (!done) {
+                  const msg = ent.name + '（' + ent.kind + '）参考图生成失败：' + String((err && err.message) || err);
+                  run.log.push({ at: Date.now(), role: 'runner', summary: msg });
+                  run.paidLog.push({ at: Date.now(), text: msg });
+                  continue; // 不入 Map、不连线、不阻塞视频段
+                }
+                refImageByEntity.set(ent.key, { nodeId: img.nodeId, label });
+                refImagesMade++;
+                run.paidLog.push({ at: Date.now(), text: label + ' 完成' });
+              }
+              run.paidPhase = 'video ' + (i + 1) + '/' + boards.length;
+            }
             for (let k = 0; k < segCount; k++) {
               if (run.paidAbort) { abortNow(); return; }
               const seg = segs[k];
-              const suffix = segCount > 1 ? '视频 · 段' + (k + 1) + '/' + segCount : '视频';
-              // 段序号后缀整体进名字（G4 禁「镜N」式逐镜命名，这里带的是段区间不是单镜）；先切基础名保后缀完整
-              const label = baseLabel.slice(0, Math.max(1, 40 - suffix.length)) + suffix;
+              const label = segLabelOf(k);
               if (boardVideos.some((v) => String((v.data && v.data.label) || '') === label)) continue;
               // G3 一表一视频的逃生舱只给「同场第 2 段起 / 续跑补建缺段」用；quote 引用用户批准过的预算单号（审计可查），
               // 绝不伪造用户原话。首段不传 override：G2 不过的场在这里照旧硬失败（分镜带病不下场）。
@@ -4078,6 +4152,19 @@ export function apply(ctx) {
                   writeToolDoc({ projectId: pid, canvasId: cid }, d2);
                 }
               } catch { /* 段键写不进不阻塞：prompt 通道兜底 */ }
+              // T8：先连后生成——collectRefs 生成时严格只读连线，本段 exec 前必须把该场实体的
+              // 参考图全部接到 ref 口（Multi-input，可多张）；连线失败只记日志，不阻塞视频段。
+              for (const ent of boardEntities) {
+                const hit = refImageByEntity.get(ent.key);
+                if (!hit) continue;
+                try {
+                  canvasConnect({ projectId: pid, canvasId: cid, fromNode: hit.nodeId, toNode: v.nodeId, toPort: 'ref' });
+                } catch (e) {
+                  const msg = hit.label + ' → ' + label + ' ref 连线失败：' + String((e && e.message) || e);
+                  run.log.push({ at: Date.now(), role: 'runner', summary: msg });
+                  run.paidLog.push({ at: Date.now(), text: msg });
+                }
+              }
               let done = false; let err = null;
               for (let attempt = 0; attempt < 2 && !done; attempt++) {
                 if (attempt > 0 && run.paidAbort) { abortNow(); return; }
@@ -4088,6 +4175,14 @@ export function apply(ctx) {
               lastVideo = v.nodeId;
               run.paidLog.push({ at: Date.now(), text: label + ' 完成' });
             }
+          }
+          // T8 ③：参考图预算偏差诚实化——run.budget.refImagesTotal 是免费段终点的快照，
+          // 镜头/设定集中途变化就对不上；只记日志不阻塞（与段数偏差日志同一语义）。
+          const budgetRefs = run.budget && Number.isFinite(Number(run.budget.refImagesTotal)) ? Number(run.budget.refImagesTotal) : null;
+          if (budgetRefs != null && budgetRefs !== refImagesMade) {
+            const msg = '参考图预算与实际不一致（预算 ' + budgetRefs + ' / 实际 ' + refImagesMade + '）';
+            run.log.push({ at: Date.now(), role: 'runner', summary: msg });
+            run.paidLog.push({ at: Date.now(), text: msg });
           }
           if (lastVideo) {
             const fc = canvasCreateNode({ projectId: pid, canvasId: cid, type: 'finalcut', name: '成片', connectFrom: lastVideo });

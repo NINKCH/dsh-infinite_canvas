@@ -1035,6 +1035,250 @@ let sbNodeId = '';
   await M.autoModeSet({ enabled: false });
 }
 
+// ============================ 九、付费段参考图生成与 ref 连线（0.20.2 T8：#6/#7 角色一致性无保障） ============================
+// 0.20.1 实机：免费段全程不产出任何参考图，autoPaid 只建 video 节点 → 角色一致性无保障。
+// 回归：① 两场共享「陈拾」+ 场景/道具 → image 节点恰 3 个（跨场去重），命名逐字 =「角色-陈拾 设定图」
+//       等契约（命名即分类），2K/16:9、prompt 带设定集描述，全部被 exec；
+//       ② ref 连线：每个 video 段节点在 exec 时刻就已带齐其对应实体的 ref 入线（toPort:'ref'，
+//       先连后生成——collectRefs 生成时严格只读连线）；③ 资产索引预置「角色-陈拾 多视图」→
+//       陈拾不建点、不计数（边界匹配）；④ 预算单行项 refImages / 顶层 refImagesTotal 与建点数一致；
+//       ⑤ 镜头中途加角色 → 「参考图预算与实际不一致（预算 3 / 实际 4）」日志、不阻塞；
+//       ⑥ 单张参考图 exec 失败 → 重试 2 次、记「参考图生成失败」、不阻塞视频段、不连线。
+// 存储说明：readAssetIndexNames 需要数据根 → 本块 dataRootSet 打开（Node 26 自带 node:sqlite，
+// 会切到 SQL 存储）；块内自洽（项目全部在本块创建），块末 closeDb 释放句柄让清理段能删沙盒。
+{
+  const M = I.rpcMethods();
+  await M.autoModeSet({ enabled: true });
+  const drT8 = await M.dataRootSet({ root: path.join(SANDBOX, 't8-data-root') });
+  ok(drT8 && drT8.ok === true, 'T8前置: dataRootSet 失败（资产索引无数据根不可用）');
+
+  // fixtures：场1 = 13s+14s（切段 2 段）、场2 = 3s+2s（1 段）；实体字段齐（G2 已预验证合规）
+  const t8Shots1 = [
+    { title: '镜1', visual: '全景，当铺柜台前陈拾递出火漆信', motion: '横移跟随', duration: 13, seg: 'opening', tail: '信入柜台', cam: '横移回正', characters: ['陈拾'], scene: '当铺', props: ['火漆信'] },
+    { title: '镜2', visual: '大特写，火漆印裂纹缓缓裂开', motion: '缓推', duration: 14, seg: 'closeup', tail: '裂纹定格', cam: '推进到位', characters: ['陈拾'], scene: '当铺', props: ['火漆信'] },
+  ];
+  const t8Shots2 = [
+    { title: '镜1', visual: '近景，陈拾在当铺门前回望', motion: '跟拍', duration: 3, seg: 'opening', tail: '转身欲走', cam: '跟拍向前', characters: ['陈拾'], scene: '当铺' },
+    { title: '镜2', visual: '大特写，门环在陈拾眼前晃动', motion: '缓推', duration: 2, seg: 'closeup', tail: '门环定格', cam: '推进到位', characters: ['陈拾'], scene: '当铺' },
+  ];
+  eq(P.gateStoryboard(t8Shots1).ok, true, 'T8前置: 场1 shots 必须过 G2');
+  eq(P.gateStoryboard(t8Shots2).ok, true, 'T8前置: 场2 shots 必须过 G2');
+  eq(planShotSegments(t8Shots1).segments.length, 2, 'T8前置: 场1 27s 应切 2 段');
+  eq(planShotSegments(t8Shots2).segments.length, 1, 'T8前置: 场2 5s 应 1 段');
+
+  // 假 LLM：非监制照旧；监制首轮合法 JSON（设定集含 陈拾/当铺/火漆信 → prompt 描述断言的数据源）
+  const t8RoomLlm = async ({ system }) => {
+    const s = String(system || '');
+    if (s.includes('调研员')) return JSON.stringify({ themes: [{ name: '时空当铺', why: 't' }], styles: ['写实电影感'] });
+    if (s.includes('编剧A')) return JSON.stringify({ logline: 'A案故事线', beats: ['b1', 'b2', 'b3'] });
+    if (s.includes('编剧B')) return JSON.stringify({ logline: 'B案故事线', beats: ['c1', 'c2', 'c3'] });
+    if (s.includes('剧评人')) return JSON.stringify({ critA: ['冲突可加强'], critB: ['动机可信'] });
+    if (s.includes('监制')) return JSON.stringify({ decision: 'merge', rationale: '取A冲突+B动机', logline: '雨夜当铺的最后一封火漆信', beats: ['x', 'y', 'z'],
+      bible: { worldview: 'T8世界观：时空当铺', style: '写实电影感',
+        characters: [{ name: '陈拾', desc: '24 岁，旧邮差制服' }],
+        scenes: [{ name: '当铺', desc: '雨夜老当铺柜台' }],
+        props: [{ name: '火漆信', desc: '火漆印的密信' }],
+        scriptIdea: '写第一节剧本：雨夜当铺陈拾接到一封火漆信……每场结尾留因果钩子，每场至少一个冲突点。' } });
+    return '{}';
+  };
+
+  const t8ScriptOut = '【场1】当铺\n雨夜，陈拾在柜台递出火漆信，火漆印裂开。\n【场2】当铺门口\n清晨，陈拾回望当铺门环，转身离去。';
+  const t8imgsOf = (doc) => Object.values(doc.nodes).filter((n) => n.type === 'image');
+  const t8imgByLabel = (doc, lb) => t8imgsOf(doc).find((n) => String((n.data && n.data.label) || '') === lb) || null;
+  const t8sbOf = (doc, prefix) => Object.values(doc.nodes).find((n) => n.type === 'storyboard' && String((n.data && n.data.label) || '').startsWith(prefix)) || null;
+  const t8vidsOf = (doc, sbId) => (doc.edges || []).filter((e) => e.fromNode === sbId).map((e) => doc.nodes[e.toNode]).filter((n) => n && n.type === 'video');
+  const t8refsOf = (doc, videoId) => (doc.edges || []).filter((e) => e.toNode === videoId && e.toPort === 'ref').map((e) => e.fromNode).sort();
+
+  // 跑一个 T8 项目：免费段 → （可选改 shots）→ quote/approve → 付费段；桩按 n.type 分支并捕获执行时刻
+  const runT8 = async (name, opts = {}) => {
+    const imageExecs = [];
+    const refAtVideoExec = []; // 视频 exec 时刻已存在的 ref 入线（先连后生成的直接证据）
+    const failImageLabel = opts.failImageLabel || null;
+    const shots2 = opts.shots2 || t8Shots2;
+    I.__auto.setRoomLlm(t8RoomLlm);
+    I.__auto.setCanvasRunner(async (pid2, cid2, nodeId) => {
+      const doc = await I.projectsGet({ id: pid2, ...(cid2 ? { canvasId: cid2 } : {}) });
+      const n = doc.nodes[nodeId];
+      if (!n) throw new Error('桩：节点不存在');
+      if (n.type === 'script') {
+        await I.canvasWriteNode({ projectId: pid2, canvasId: cid2 || undefined, nodeId, target: 'output', text: t8ScriptOut, overwrite: true });
+        return { type: 'script', output: t8ScriptOut };
+      }
+      if (n.type === 'storyboard') {
+        const label = String((n.data && n.data.label) || '');
+        const shots = label.startsWith('场1') ? t8Shots1 : shots2;
+        await byName.get('canvas_update_node').execute({ projectId: pid2, nodeId, patch: { shots } }, {});
+        return { type: 'storyboard', shots };
+      }
+      if (n.type === 'image') {
+        imageExecs.push(nodeId);
+        if (failImageLabel && String((n.data && n.data.label) || '') === failImageLabel) throw new Error('桩：出图通道故障');
+        return { type: 'image', status: 'done' };
+      }
+      if (n.type === 'video') {
+        const docNow = await I.projectsGet({ id: pid2, ...(cid2 ? { canvasId: cid2 } : {}) });
+        refAtVideoExec.push({ nodeId, refs: t8refsOf(docNow, nodeId) });
+        return { type: 'video', status: 'done' };
+      }
+      return { type: n.type, status: 'done' };
+    });
+    const pidX = (await byName.get('canvas_create_project').execute({ name }, {})).projectId;
+    for (const a of (opts.preAssets || [])) await M.assetIndexPut({ projectId: pidX, asset: a });
+    const started = await M.autoStart({ projectId: pidX, brief: name + '：付费段参考图回归' });
+    ok(started && started.ok === true, name + ': autoStart 未启动');
+    let v = null;
+    for (let i = 0; i < 100; i++) {
+      await new Promise((r) => setTimeout(r, 100));
+      v = (await M.autoStatus({ projectId: pidX })).run;
+      if (v && (v.status === 'done' || v.status === 'failed' || v.status === 'aborted')) break;
+    }
+    ok(v && v.status === 'done', name + ': 免费段未 done（status=' + (v && v.status) + ' error=' + (v && v.error) + '）');
+    return { pid: pidX, v, imageExecs, refAtVideoExec, shots2 };
+  };
+  const t8ApproveAndPaid = async (pidX) => {
+    const q = await M.autoQuote({ projectId: pidX, unitPricePerSecond: 2 });
+    ok(q && q.ok === true, 'T8: autoQuote 失败');
+    const ap = await M.autoApprove({ projectId: pidX, quoteId: q.quoteId, confirm: '用户：按这个预算开机' });
+    ok(ap && ap.ok === true, 'T8: 付费批准失败');
+    const paid = await M.autoGenerate({ projectId: pidX });
+    ok(paid && paid.ok === true, 'T8: 付费段启动失败');
+    let paidView = null;
+    for (let i = 0; i < 100; i++) {
+      await new Promise((r) => setTimeout(r, 100));
+      paidView = (await M.autoStatus({ projectId: pidX })).run;
+      if (paidView && (paidView.paid === 'done' || paidView.paid === 'failed')) break;
+    }
+    return { q, paidView };
+  };
+
+  // ①②④ 基准：3 张参考图（跨场共享角色去重）+ ref 连线先于视频 exec + 预算行项一致
+  const t8a = await runT8('T8参考图基准回归');
+  ok(t8a.v && t8a.v.budget && t8a.v.budget.refImagesTotal === 3, 'T8①: 免费段预算 refImagesTotal 应为 3（实际：' + JSON.stringify(t8a.v && t8a.v.budget && t8a.v.budget.refImagesTotal) + '）');
+  eq(t8a.v && t8a.v.budget && t8a.v.budget.videoCalls, 3, 'T8①: 视频调用口径不变（场1 2 段 + 场2 1 段 = 3）');
+  const qa8 = await M.autoQuote({ projectId: t8a.pid, unitPricePerSecond: 2 });
+  const scA8 = qa8.scenes.find((s) => String(s.name || '').startsWith('场1'));
+  const scB8 = qa8.scenes.find((s) => String(s.name || '').startsWith('场2'));
+  eq(scA8 && scA8.refImages, 3, 'T8④: 场1 行项 refImages 应为 3（角色+场景+道具）');
+  eq(scB8 && scB8.refImages, 0, 'T8④: 场2 行项 refImages 应为 0（实体全部被场1 认领）');
+  eq(qa8 && qa8.refImagesTotal, 3, 'T8④: 顶层 refImagesTotal 应为 3（跨场共享实体只计一次）');
+  ok(String(qa8.note).includes('含参考图 3 张（未登记/未生成参考资产的实体）'), 'T8④: note 缺参考图行项说明（实际：' + qa8.note + '）');
+  const paidA8 = await t8ApproveAndPaid(t8a.pid);
+  ok(paidA8.paidView && paidA8.paidView.paid === 'done', 'T8①: 付费段未完成（' + (paidA8.paidView && paidA8.paidView.paidError) + '）');
+  const docA8 = await I.projectsGet({ id: t8a.pid });
+  const imgsA8 = t8imgsOf(docA8);
+  eq(imgsA8.length, 3, 'T8①: image 节点应恰 3 个（共享角色 1 张不重复，实际 ' + imgsA8.length + '）');
+  const labelsA8 = imgsA8.map((n) => String((n.data && n.data.label) || '')).sort();
+  eq(JSON.stringify(labelsA8), JSON.stringify(['场景-当铺 设定图', '角色-陈拾 设定图', '道具-火漆信 设定图']),
+    'T8①: 设定图命名必须逐字符合契约（实际：' + JSON.stringify(labelsA8) + '）');
+  const chenA8 = t8imgByLabel(docA8, '角色-陈拾 设定图');
+  const dangA8 = t8imgByLabel(docA8, '场景-当铺 设定图');
+  const xinA8 = t8imgByLabel(docA8, '道具-火漆信 设定图');
+  ok(!!chenA8 && !!dangA8 && !!xinA8, 'T8①: 设定图节点缺失');
+  eq(chenA8 && chenA8.data.size, '2K', 'T8①: 设定图 size 应为 2K');
+  eq(chenA8 && chenA8.data.ratio, '16:9', 'T8①: 设定图 ratio 应为 16:9');
+  const promptOf8 = (n) => String((n && n.data && n.data.prompt) || '');
+  ok(promptOf8(chenA8).includes('设定图：角色 陈拾') && promptOf8(chenA8).includes('设定集描述：24 岁，旧邮差制服'),
+    'T8①: prompt 未按「设定图：实体名。设定集描述：desc」构造（实际：' + promptOf8(chenA8) + '）');
+  ok(promptOf8(dangA8).includes('设定集描述：雨夜老当铺柜台') && promptOf8(xinA8).includes('设定集描述：火漆印的密信'),
+    'T8①: 场景/道具 prompt 缺设定集描述');
+  eq(t8a.imageExecs.length, 3, 'T8①: 3 张设定图应全部被 exec 恰一次（实际 ' + t8a.imageExecs.length + '）');
+  const idsA8 = { chen: chenA8.id, dang: dangA8.id, xin: xinA8.id };
+  const sorted3 = [idsA8.chen, idsA8.dang, idsA8.xin].sort();
+  const sb1A8 = t8sbOf(docA8, '场1');
+  const sb2A8 = t8sbOf(docA8, '场2');
+  ok(!!sb1A8 && !!sb2A8, 'T8①: 分镜表缺失');
+  const vids1A8 = t8vidsOf(docA8, sb1A8.id);
+  const vids2A8 = t8vidsOf(docA8, sb2A8.id);
+  eq(vids1A8.length, 2, 'T8①: 场1 应 2 个段节点');
+  eq(vids2A8.length, 1, 'T8①: 场2 应 1 个段节点');
+  // 每个段节点都连齐「该场对应实体」的 ref 入线：场1 = 3 张全连；场2（shots 无火漆信）= 陈拾+当铺
+  for (const vd of vids1A8) eq(JSON.stringify(t8refsOf(docA8, vd.id)), JSON.stringify(sorted3), 'T8②: 场1 段节点 ref 入线不齐（' + String((vd.data && vd.data.label) || '') + '）');
+  eq(JSON.stringify(t8refsOf(docA8, vids2A8[0].id)), JSON.stringify([idsA8.chen, idsA8.dang].sort()), 'T8②: 场2 段节点 ref 入线应为其对应实体（陈拾+当铺）');
+  // 先连后生成：视频 exec 时刻 ref 入线已存在（collectRefs 生成时只读连线）
+  eq(t8a.refAtVideoExec.length, 3, 'T8②: 应捕获 3 次 video exec');
+  ok(t8a.refAtVideoExec.every((r) => JSON.stringify(r.refs) === JSON.stringify(sorted3) || JSON.stringify(r.refs) === JSON.stringify([idsA8.chen, idsA8.dang].sort())),
+    'T8②: 视频 exec 时 ref 入线未就绪（先连后生成被破坏）：' + JSON.stringify(t8a.refAtVideoExec));
+  const runA8 = I.__auto.runs.get(t8a.pid + '::default');
+  const paidLogA8 = (runA8 && Array.isArray(runA8.paidLog)) ? runA8.paidLog.map((e) => String(e.text)) : [];
+  ok(paidLogA8.some((t) => t.includes('角色-陈拾 设定图 完成')), 'T8①: paidLog 缺设定图完成条目（' + JSON.stringify(paidLogA8) + '）');
+  const logsA8 = (runA8 && Array.isArray(runA8.log)) ? runA8.log.map((e) => String(e.summary)) : [];
+  ok(!logsA8.some((t) => t.includes('参考图预算与实际不一致')), 'T8①: 预算一致时不应有参考图偏差日志');
+  const fcsA8 = Object.values(docA8.nodes).filter((n) => n.type === 'finalcut');
+  eq(fcsA8.length, 1, 'T8①: 成片节点应恰 1 个');
+
+  // ③ 已有资产跳过：资产索引预置「角色-陈拾 多视图」→ 陈拾不建点、预算不计、日志可查
+  const t8b = await runT8('T8已有资产跳过回归', { preAssets: [{ id: 'ast-chen-t8', name: '角色-陈拾 多视图', kind: 'image', mime: 'image/png', category: 'character' }] });
+  const qb8 = await M.autoQuote({ projectId: t8b.pid, unitPricePerSecond: 2 });
+  eq(qb8 && qb8.refImagesTotal, 2, 'T8③: 已有资产的陈拾不应计入 refImagesTotal（应为 2）');
+  const paidB8 = await t8ApproveAndPaid(t8b.pid);
+  ok(paidB8.paidView && paidB8.paidView.paid === 'done', 'T8③: 付费段未完成');
+  const docB8 = await I.projectsGet({ id: t8b.pid });
+  const labelsB8 = t8imgsOf(docB8).map((n) => String((n.data && n.data.label) || '')).sort();
+  eq(JSON.stringify(labelsB8), JSON.stringify(['场景-当铺 设定图', '道具-火漆信 设定图']), 'T8③: 陈拾不应建设定图节点（实际：' + JSON.stringify(labelsB8) + '）');
+  eq(t8b.imageExecs.length, 2, 'T8③: 应只 exec 2 张设定图');
+  const runB8 = I.__auto.runs.get(t8b.pid + '::default');
+  const logsB8 = (runB8 && Array.isArray(runB8.log)) ? runB8.log.map((e) => String(e.summary)) : [];
+  const paidLogB8 = (runB8 && Array.isArray(runB8.paidLog)) ? runB8.paidLog.map((e) => String(e.text)) : [];
+  ok(logsB8.some((t) => t.includes('陈拾 已有参考资产，跳过')), 'T8③: run.log 缺「已有参考资产，跳过」条目');
+  ok(paidLogB8.some((t) => t.includes('陈拾 已有参考资产，跳过')), 'T8③: paidLog 缺「已有参考资产，跳过」条目');
+  const sb1B8 = t8sbOf(docB8, '场1');
+  const vids1B8 = t8vidsOf(docB8, sb1B8.id);
+  const dangB8 = t8imgByLabel(docB8, '场景-当铺 设定图');
+  const xinB8 = t8imgByLabel(docB8, '道具-火漆信 设定图');
+  ok(!!dangB8 && !!xinB8, 'T8③: 设定图节点缺失');
+  for (const vd of vids1B8) eq(JSON.stringify(t8refsOf(docB8, vd.id)), JSON.stringify([dangB8.id, xinB8.id].sort()), 'T8③: 场1 段节点应只连已生成的 2 张（陈拾走资产索引不连线）');
+
+  // ⑤ 预算偏差：免费段后给场2 加新角色「阿禾」→ 预算快照 3 / 实际 4 → 日志诚实化、不阻塞
+  const moreShots2 = [
+    { title: '镜1', visual: '近景，陈拾与阿禾在当铺门前回望', motion: '跟拍', duration: 3, seg: 'opening', tail: '转身欲走', cam: '跟拍向前', characters: ['陈拾', '阿禾'], scene: '当铺' },
+    { title: '镜2', visual: '大特写，门环在陈拾眼前晃动', motion: '缓推', duration: 2, seg: 'closeup', tail: '门环定格', cam: '推进到位', characters: ['陈拾'], scene: '当铺' },
+  ];
+  const t8c = await runT8('T8参考图预算偏差回归');
+  ok(t8c.v && t8c.v.budget && t8c.v.budget.refImagesTotal === 3, 'T8⑤: 免费段预算快照应为 3');
+  const docC0 = await I.projectsGet({ id: t8c.pid });
+  const sb2C = t8sbOf(docC0, '场2');
+  ok(!!sb2C, 'T8⑤: 场2 分镜表缺失');
+  await byName.get('canvas_update_node').execute({ projectId: t8c.pid, nodeId: sb2C.id, patch: { shots: moreShots2 } }, {});
+  const paidC8 = await t8ApproveAndPaid(t8c.pid);
+  ok(paidC8.q && paidC8.q.refImagesTotal === 4, 'T8⑤: 改 shots 后重报价 refImagesTotal 应为 4（实际：' + JSON.stringify(paidC8.q && paidC8.q.refImagesTotal) + '）');
+  ok(paidC8.paidView && paidC8.paidView.paid === 'done', 'T8⑤: 偏差不应阻塞付费段（' + (paidC8.paidView && paidC8.paidView.paidError) + '）');
+  const docC8 = await I.projectsGet({ id: t8c.pid });
+  const labelsC8 = t8imgsOf(docC8).map((n) => String((n.data && n.data.label) || '')).sort();
+  eq(JSON.stringify(labelsC8), JSON.stringify(['场景-当铺 设定图', '角色-阿禾 设定图', '角色-陈拾 设定图', '道具-火漆信 设定图']),
+    'T8⑤: 应按实际 4 个实体建设定图（实际：' + JSON.stringify(labelsC8) + '）');
+  eq(t8c.imageExecs.length, 4, 'T8⑤: 应 exec 4 张设定图');
+  const runC8 = I.__auto.runs.get(t8c.pid + '::default');
+  const logsC8 = (runC8 && Array.isArray(runC8.log)) ? runC8.log.map((e) => String(e.summary)) : [];
+  const paidLogC8 = (runC8 && Array.isArray(runC8.paidLog)) ? runC8.paidLog.map((e) => String(e.text)) : [];
+  ok(logsC8.some((t) => t.includes('参考图预算与实际不一致（预算 3 / 实际 4）')), 'T8⑤: run.log 缺参考图预算偏差条目（logs=' + JSON.stringify(logsC8.filter((t) => t.includes('参考图'))) + '）');
+  ok(paidLogC8.some((t) => t.includes('参考图预算与实际不一致（预算 3 / 实际 4）')), 'T8⑤: paidLog 缺参考图预算偏差条目');
+
+  // ⑥ 失败不阻塞：火漆信设定图 exec 恒败 → 重试恰 2 次、记「参考图生成失败」、不连线、视频照常完成
+  const t8d = await runT8('T8参考图失败不阻塞回归', { failImageLabel: '道具-火漆信 设定图' });
+  const paidD8 = await t8ApproveAndPaid(t8d.pid);
+  ok(paidD8.paidView && paidD8.paidView.paid === 'done', 'T8⑥: 参考图失败不应阻塞付费段（' + (paidD8.paidView && paidD8.paidView.paidError) + '）');
+  const docD8 = await I.projectsGet({ id: t8d.pid });
+  const xinD8 = t8imgByLabel(docD8, '道具-火漆信 设定图');
+  ok(!!xinD8, 'T8⑥: 失败的设定图节点仍应已建点');
+  eq(t8d.imageExecs.filter((id) => id === xinD8.id).length, 2, 'T8⑥: 失败设定图应恰好尝试 2 次（T6 同款重试语义）');
+  const runD8 = I.__auto.runs.get(t8d.pid + '::default');
+  const logsD8 = (runD8 && Array.isArray(runD8.log)) ? runD8.log.map((e) => String(e.summary)) : [];
+  const paidLogD8 = (runD8 && Array.isArray(runD8.paidLog)) ? runD8.paidLog.map((e) => String(e.text)) : [];
+  ok(logsD8.some((t) => t.includes('火漆信（道具）参考图生成失败')), 'T8⑥: run.log 缺「参考图生成失败」条目');
+  ok(paidLogD8.some((t) => t.includes('第 1 次失败')) && paidLogD8.some((t) => t.includes('第 2 次失败')), 'T8⑥: paidLog 缺逐次失败条目');
+  const sb1D8 = t8sbOf(docD8, '场1');
+  const dangD8 = t8imgByLabel(docD8, '场景-当铺 设定图');
+  const chenD8 = t8imgByLabel(docD8, '角色-陈拾 设定图');
+  ok(!!dangD8 && !!chenD8 && !!sb1D8, 'T8⑥: 其余设定图节点缺失');
+  for (const vd of t8vidsOf(docD8, sb1D8.id)) {
+    eq(JSON.stringify(t8refsOf(docD8, vd.id)), JSON.stringify([chenD8.id, dangD8.id].sort()), 'T8⑥: 失败的火漆信不得连线，其余照连');
+  }
+  ok(logsD8.some((t) => t.includes('参考图预算与实际不一致（预算 3 / 实际 2）')), 'T8⑥: 失败导致的偏差也应如实记日志');
+
+  await M.autoModeSet({ enabled: false });
+  I.closeDb(); // 释放 SQLite 句柄：清理段的 fs.rm 才能删掉沙盒里的 canvas.db（Windows 文件锁）
+}
+
 // ---------------- 工具 ----------------
 async function findNode(type) {
   const doc = await I.projectsGet({ id: projectId });

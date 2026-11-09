@@ -192,9 +192,51 @@ export function createProduction(deps) {
     return 'q' + h.toString(36) + '-' + s.length.toString(36);
   }
 
+  // ── T8（0.20.2 #6/#7）：参考图实体收集与「已有参考资产」判定 ──────────────────────────
+
+  /** 从 shots 收集 角色/场景/道具 实体（trim、去重、保序）。
+   *  预算单行项与付费段执行（index.js autoPaid）共用这一份口径——两边各写一份必然漂移，
+   *  「预算 N 张 / 实际 M 张」的对照关系靠同构保证。 */
+  function collectShotEntities(shots) {
+    const out = [];
+    const seen = new Set();
+    const add = (kind, name) => {
+      const nm = String(name || '').trim();
+      if (!nm) return;
+      const key = kind + '|' + nm;
+      if (seen.has(key)) return;
+      seen.add(key);
+      out.push({ kind, name: nm, key });
+    };
+    for (const sh of (Array.isArray(shots) ? shots : [])) {
+      const chars = Array.isArray(sh && sh.characters) ? sh.characters : [];
+      const props = Array.isArray(sh && sh.props) ? sh.props : [];
+      for (const nm of chars) add('角色', nm);
+      add('场景', sh && sh.scene);
+      for (const nm of props) add('道具', nm);
+    }
+    return out;
+  }
+
+  /** 实体是否已有参考资产：资产名 = 「<品类>-<名>…」且名称后必须是边界（client.js
+   *  assetBelongsToEntity 同款语义——rest 为空或首字符不是字母/数字，防「张山/张山峰」混淆：
+   *  「角色-陈拾 多视图」「角色-陈拾 设定图」算，「角色-陈拾设定图」「角色-陈拾峰」不算）。 */
+  function hasRefAssetName(assetNames, kindLabel, name) {
+    const pref = kindLabel + '-' + String(name || '').trim();
+    return (Array.isArray(assetNames) ? assetNames : []).some((raw) => {
+      const nm = String(raw || '').trim();
+      if (!nm.startsWith(pref)) return false;
+      const rest = nm.slice(pref.length);
+      return rest === '' || !/[\p{L}\p{N}]/u.test(rest[0]);
+    });
+  }
+
   /**
    * 预算单（免费段终点）：只统计"将要花钱"的东西——每个分镜表按真实镜头边界切成生成段，
    * 每段一次视频调用（一个分镜表 ≠ 一次生成）；总秒数、场/镜数照旧。
+   * 0.20.2 T8（#6/#7）：每个待生成分镜表加参考图行项 refImages（该场缺失参考资产的
+   * 角色/场景/道具 实体数），顶层 refImagesTotal；跨场共享实体只计一次（与执行侧
+   * run 级 Map 同序先到先得，归属第一场）。已有参考资产（readAssetIndexNames 边界匹配）的不计。
    * 切段口径与客户端执行完全同源：同一个 planShotSegments（shot-segments.js，client.js 的逐字移植），
    * maxSeconds 同样取分镜表节点 data.segMaxSeconds（缺省 15，client.js L13883 同式）。
    * 单价由调用方传入（画布设置里的单价，未配置则不给金额，只给调用次数与秒数）。
@@ -205,6 +247,11 @@ export function createProduction(deps) {
     const nodes = Object.values(doc.nodes || {});
     const sbs = nodes.filter((n) => n.type === 'storyboard' && Array.isArray(n.data && n.data.shots) && n.data.shots.length);
     const videoNodes = nodes.filter((n) => n.type === 'video');
+    // 项目资产名（SQL/JSON 双模由宿主 readAssetIndexNames 决定）；读失败视为无资产 → 全部计缺（诚实从宽）
+    let assetNames = [];
+    try { assetNames = (deps.readAssetIndexNames ? (deps.readAssetIndexNames(pid) || []) : []).map((n) => String(n || '').trim()).filter(Boolean); } catch { assetNames = []; }
+    const claimed = new Set();
+    let refImagesTotal = 0;
     let totalSeconds = 0;
     const scenes = sbs.map((n, i) => {
       const shots = n.data.shots || [];
@@ -214,11 +261,19 @@ export function createProduction(deps) {
       const maxSeconds = Number(n.data.segMaxSeconds) || 15;
       // 已有视频的表不产生新调用；待生成的表按切段算法数段（与客户端 expandStoryboard 同式同默认）
       let calls = 0;
+      let refImages = 0;
       if (!hasVideo) {
         const plan = planShotSegments(shots, { maxSeconds });
         // 客户端兜底同款（L13884）：切段结果为空但表里有镜头时，客户端会整表按一段生成——估算按 1 次算
         calls = plan.segments.length ? plan.segments.length : 1;
+        // T8 参考图行项：该场缺失参考资产的实体数（跨场共享只计一次）
+        for (const ent of collectShotEntities(shots)) {
+          if (claimed.has(ent.key)) continue;
+          claimed.add(ent.key);
+          if (!hasRefAssetName(assetNames, ent.kind, ent.name)) refImages++;
+        }
       }
+      refImagesTotal += refImages;
       return {
         scene: i + 1,
         storyboardId: n.id,
@@ -228,12 +283,15 @@ export function createProduction(deps) {
         hasVideo,
         maxSeconds,
         videoCalls: calls,
+        refImages,
       };
     });
     const videoCalls = scenes.reduce((a, s) => a + s.videoCalls, 0);
     const price = Number(unitPricePerSecond);
     // 指纹吃切段结果与每场上限：段数/上限变了 → 旧批准自动失效 → 用户重新复核预算（预期行为，无兼容垫片）
-    const payload = { pid, cid: keyOf(cid), scenes: scenes.map((s) => [s.storyboardId, s.shots, s.seconds, s.videoCalls, s.maxSeconds]), pending: videoCalls };
+    // T8：参考图行项一并进指纹——缺失实体集合变了（设定集/资产中途变化）同样要求重新复核
+    const payload = { pid, cid: keyOf(cid), scenes: scenes.map((s) => [s.storyboardId, s.shots, s.seconds, s.videoCalls, s.maxSeconds, s.refImages]), pending: videoCalls, refImages: refImagesTotal };
+    const baseNote = videoCalls === 0 ? '全部分镜表都已有视频节点：本次只做重生成，不产生新调用' : '批准后按镜头切段逐段调用视频接口（按秒计费）';
     return {
       ok: true, quoteId: fingerprint(payload),
       projectId: pid, canvasId: keyOf(cid) === 'default' ? null : keyOf(cid),
@@ -241,9 +299,10 @@ export function createProduction(deps) {
       scenes, sceneCount: scenes.length, shotCount: scenes.reduce((a, s) => a + s.shots, 0),
       totalSeconds: Math.round(totalSeconds * 10) / 10,
       videoCalls,
+      refImagesTotal,
       unitPricePerSecond: Number.isFinite(price) && price > 0 ? price : null,
       estimatedCost: Number.isFinite(price) && price > 0 ? Math.round(price * totalSeconds * 100) / 100 : null,
-      note: videoCalls === 0 ? '全部分镜表都已有视频节点：本次只做重生成，不产生新调用' : '批准后按镜头切段逐段调用视频接口（按秒计费）',
+      note: refImagesTotal > 0 ? baseNote + '；含参考图 ' + refImagesTotal + ' 张（未登记/未生成参考资产的实体）' : baseNote,
     };
   }
 
@@ -439,6 +498,7 @@ export function createProduction(deps) {
     readState, writeState, inferStage, stageOf, noteStage, advance, recordOverride, status,
     gateBible, gateStoryboard, gateStage, gateShotNodeName, gateOneVideoPerStoryboard,
     quote, approve, approvalOf,
+    collectShotEntities, hasRefAssetName,
     stageIndex: (name) => STAGE_INDEX[name], stageName: (idx) => PRODUCTION_STAGES[idx] || null,
   };
 }
