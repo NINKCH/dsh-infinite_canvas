@@ -3589,6 +3589,7 @@ body[data-ds-dark-theme] .dshic-storage-details{border-color:var(--dsw-alias-bor
 .dshic-pick-menu{position:fixed;z-index:240;background:var(--dsw-alias-bg-layer-1);border:1px solid var(--dshic-line2);border-radius:14px;box-shadow:var(--dshic-shadow-lg);display:flex;flex-direction:column;max-height:280px;overflow:hidden;box-sizing:border-box;}
 body[data-ds-dark-theme] .dshic-pick-menu{border-color:var(--dsw-alias-border-l2);}
 .dshic-pick-search{padding:7px;border-bottom:1px solid var(--dshic-line);flex:none;}
+.dshic-pick-search.is-flipped{border-bottom:none;border-top:1px solid var(--dshic-line);}
 .dshic-pick-search .dshic-input{height:26px;font-size:12px;}
 .dshic-pick-list{overflow-y:auto;padding:5px;flex:1;}
 /* 下拉 / 文本正文 / 分镜清单：滚动条必须可见且可命中；不能用系统默认的淡细条。
@@ -12611,7 +12612,7 @@ function queueThumb(assetId) {
       const [open, setOpen] = useState(false);
       const [q, setQ] = useState('');
       const [custom, setCustom] = useState('');
-      const [pos, setPos] = useState({ left: 0, top: 0, width: width || 160 });
+      const [pos, setPos] = useState({ left: 0, top: 0, width: width || 160, flipped: false });
       const btnRef = useRef(null);
       const menuRef = useRef(null);
       const openMenu = () => {
@@ -12624,10 +12625,10 @@ function queueThumb(assetId) {
           const vh = window.innerHeight || 800;
           const left = Math.max(8, Math.min(r.left, vw - mw - 8));
           const below = r.bottom + 6;
-          // 首选向下展开；空间不足先按估算高度决定向上翻（菜单实际高度渲染后由
-          // useLayoutEffect 精确校正——固定 286 是满高假设，实际菜单矮时会悬空飞离按钮）。
+          // 初定位：默认向下；按钮下方空间不足（按钮已处视口下半区）先按上翻定位，
+          // 精确方向与贴附由 useLayoutEffect 按菜单实际高度校正（镜像语义：上翻时搜索框贴按钮）。
           const top = (below + 280 > vh - 8) ? Math.max(8, r.top - 286) : below;
-          setPos({ left, top, width: mw });
+          setPos({ left, top, width: mw, flipped: below + 280 > vh - 8 });
         }
         setQ('');
         setCustom('');
@@ -12693,9 +12694,10 @@ function queueThumb(assetId) {
       const shown = (searchable && query)
         ? options.filter((o) => (String(o.label) + ' ' + String(o.sub || '') + ' ' + String(o.value)).toLowerCase().includes(query))
         : options;
-      // 菜单挂载/内容变化后按【实际高度】校正纵向位置：向上翻时菜单底 = 按钮顶 - 6，
-      // 向下展开时超视口则贴视口底。useLayoutEffect 在绘制前完成（无闪烁）。
-      // 注意：必须在 shown 声明之后（effect 依赖它）。
+      // 菜单纵向校正（useLayoutEffect 绘制前，无闪烁）：镜像贴附语义——
+      //   下翻：菜单顶 = 按钮底 + 6（搜索框在最上，紧贴按钮）
+      //   上翻：菜单底 = 按钮顶 - 6（搜索框在菜单最下，紧贴按钮）
+      // 初定位方向由 openMenu 的 top 与按钮的相对位置判定；上下都放不下才夹进视口。
       useLayoutEffect(() => {
         if (!open) return;
         const menu = menuRef.current;
@@ -12706,20 +12708,22 @@ function queueThumb(assetId) {
         if (!mr.height) return;
         const vh = window.innerHeight || 800;
         const pad = 8;
-        let top = pos.top;
-        const overlapsButton = top < br.bottom && top + mr.height > br.top;
-        const above = br.top - 6 - mr.height;
-        if (overlapsButton && top < br.top) {
-          // 菜单与按钮同列但悬空在按钮上方（向上翻过头）→ 贴按钮顶上方
-          top = above >= pad ? above : Math.max(pad, Math.min(br.bottom + 6, vh - mr.height - pad));
-        } else if (mr.bottom > vh - pad && above >= pad) {
-          // 向下展开底部越界且上方放得下 → 翻到按钮上方并贴住
-          top = above;
-        } else if (mr.bottom > vh - pad) {
-          // 上下都放不下 → 贴视口底
-          top = Math.max(pad, vh - mr.height - pad);
+        const gap = 6;
+        // 方向判定：初定位 top 在按钮上方 → 上翻；否则下翻。
+        const flipped = pos.top < br.top;
+        let top;
+        if (flipped) {
+          top = br.top - gap - mr.height;          // 上翻：底边贴按钮顶
+          if (top < pad) top = Math.max(pad, br.bottom + gap); // 上方放不下 → 退回下翻
+        } else {
+          top = br.bottom + gap;                   // 下翻：顶边贴按钮底
+          if (top + mr.height > vh - pad) {
+            const up = br.top - gap - mr.height;
+            top = up >= pad ? up : Math.max(pad, vh - mr.height - pad);
+          }
         }
-        if (Math.abs(top - pos.top) > 0.5) setPos((p) => ({ ...p, top }));
+        if (Math.abs(top - pos.top) > 0.5) setPos((p) => ({ ...p, top, flipped }));
+        else if (!!pos.flipped !== flipped) setPos((p) => ({ ...p, flipped }));
       }, [open, shown.length, editable]);
       return h('span', {
         className: cls('dshic-pick-wrap', className),
@@ -12740,11 +12744,11 @@ function queueThumb(assetId) {
           h('span', { className: 'dshic-pick-car' }, '▾')),
         open
           ? h('div', {
-              ref: menuRef, className: 'dshic-pick-menu',
+              ref: menuRef, className: cls('dshic-pick-menu', pos.flipped && 'is-flipped'),
               style: { left: pos.left, top: pos.top, width: pos.width },
               onPointerDown: (e) => e.stopPropagation(),
             },
-              searchable
+              searchable && !pos.flipped
                 ? h('div', { className: 'dshic-pick-search' },
                     h('input', {
                       className: 'dshic-input', autoFocus: true, placeholder: T('searchModelPh'), value: q,
@@ -12764,7 +12768,29 @@ function queueThumb(assetId) {
                       h('span', { className: 'dshic-pick-name' }, o.label),
                       o.sub ? h('span', { className: 'dshic-pick-sub' }, o.sub) : null))
                   : h('div', { className: 'dshic-pick-empty' }, T('noModelMatch'))),
-              editable
+              // 上翻（镜像）：搜索框/自定义输入框贴按钮的一侧（菜单最下）→ 渲染顺序整体倒置
+              searchable && pos.flipped
+                ? h('div', { className: 'dshic-pick-search is-flipped' },
+                    h('input', {
+                      className: 'dshic-input', autoFocus: true, placeholder: T('searchModelPh'), value: q,
+                      onChange: (e) => setQ(e.target.value), onPointerDown: (e) => e.stopPropagation(),
+                    }))
+                : null,
+              editable && pos.flipped
+                ? h('div', { className: 'dshic-pick-custom is-flipped' },
+                    h('input', {
+                      className: 'dshic-input', type: 'text',
+                      inputMode: integer ? 'numeric' : 'decimal',
+                      placeholder: customPlaceholder || T('customValuePh'),
+                      title: customPlaceholder || T('customValuePh'),
+                      value: custom,
+                      onChange: (e) => setCustom(e.target.value),
+                      onKeyDown: (e) => { if (e && e.key === 'Enter') { e.preventDefault(); submitCustom(); } },
+                      onBlur: submitCustom,
+                      onPointerDown: (e) => e.stopPropagation(),
+                    }))
+                : null,
+              editable && !pos.flipped
                 ? h('div', { className: 'dshic-pick-custom' },
                     h('input', {
                       className: 'dshic-input', type: 'text',
