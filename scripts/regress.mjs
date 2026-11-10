@@ -57,6 +57,7 @@ const SUITE = [
   { name: 'test-craft-base.mjs', desc: 'BLK-02 画布→ArtCraft base+path 契约' },
   { name: 'test-image-upload.mjs', desc: 'IC-04 参考图上传三件套（嗅探/原始尺寸/登记重试）' },
   { name: 'test-vendor-detect.mjs', desc: 'IC-03 视频厂商识别/前缀归一化/未知厂商降级' },
+  { name: 'test-6789-api.mjs', desc: '6789API 任务制视频厂商（两族请求体/size 映射/workflow 自动选/轮询状态机/下载重试口径）' },
   { name: 'test-fts-reconcile.mjs', desc: 'IC-B4 FTS 存量孤儿清理（幂等/双向）' },
   { name: 'test-craft-cleanup.mjs', desc: 'IC-B2 删项目清 craft 后期目录（幂等/失败可见）' },
   { name: 'test-ext-mapping.mjs', desc: 'IC-B3 三套扩展名映射分工（单一职责/零混用）' },

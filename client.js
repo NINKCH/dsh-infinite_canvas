@@ -6638,6 +6638,7 @@ function queueThumb(assetId) {
       kling:     { label: '快手可灵 Kling', base: 'https://api.klingai.com', keyPh: 'AK:SK（冒号分隔）', note: 'Key 填 AK:SK，代码自动签 JWT；国际站把 Base URL 改为 api-singapore.klingai.com；时长按官方 5/10s 取整' },
       wan:       { label: '阿里通义万相 Wan（DashScope）', base: 'https://dashscope.aliyuncs.com', note: '异步任务制；国际站把 Base URL 改为 dashscope-intl.aliyuncs.com；图生视频走 img_url' },
       sanbao:    { label: '三宝影像工坊（Sanbao 多参考）', base: 'https://sanbaobeauty.com', keyPh: 'sk-sanbao-…', note: '任务制 /openapi/v1/videos；本地素材 dataURL 直传（全模型 media_inputs 含 data_url，已实测）；报图片格式错误自动用扩展参数 {"uploadKey":"sk-sanbao-…"} 指定的专用 key 上传 /openapi/v1/uploads/raw 转公网 URL 后重试一次；resolution 小写（480p/720p/1080p/2k）；reference 固定 all（可扩展参数覆盖）；参考图上限按模型：wan/kling 系 10、hailuo/SD2.0 系 9、SD2.5 系 30，音频 3–10' },
+      api6789:   { label: '6789API（任务制 /v1/videos）', base: '', keyPh: 'sk-…', note: '任务制三段式：POST /v1/videos（Idempotency-Key 幂等）→ GET /v1/videos/{id} 每 5s 轮询 → file/download_url 或 /content 下载（任务成功后 CDN 就绪需等待：10 分钟重试窗口每 30s 一次）。请求体按模型分两族：seedance* 用 duration/ratio/resolution/image_urls（resolution 小写；seedance2.5 参考图 30 张、其余 9 张）；minimax* 用 seconds/size/workflow_id/images（比例×清晰度映射精确像素尺寸，2K/4K 大写且必须至少 1 张参考图，seconds 5–15）。Base URL 填站点根（…/v1、…/v1/videos 自动归一）；任何同格式站点都能用。本地参考图 dataURL 直发，站方要求公网直链时用扩展参数 {"image_urls":["https://…"]}（minimax 系字段名 images）直给' },
       minimax:   { label: 'MiniMax 海螺视频（V1 协议）', base: 'https://api.minimaxi.com', note: '异步任务制；时长按官方 6/10s 取整；首帧图支持 base64' },
       minimaxv2: { label: 'MiniMax H3 · V2 协议（优云智算 / 官方）', base: 'https://cp.compshare.cn', keyPh: 'sk-ml-…', note: 'V2 协议自动适配：优云智算走 /minimax/v2，官方（api.minimax.io/.cn）走 /v2；content[] 多模态（首帧/尾帧/参考图≤9/视频≤3/音频≤3），原生音频，分辨率 480P/768P/1080P/2K/4K（大小写敏感），时长 4-30s；use_context_ir / mute_audio 等走扩展参数' },
       vidu:      { label: '生数科技 Vidu', base: 'https://api.vidu.com', note: '图片支持 base64；时长按官方 4/8s 取整' },
@@ -6886,6 +6887,120 @@ function queueThumb(assetId) {
       const url = j && j.file && j.file.url;
       if (!/^https?:/.test(String(url || ''))) throw new Error('Sanbao 素材上传未返回 file.url');
       return url;
+    }
+    // —— 6789API：任务制 /v1/videos（同一路径按模型分两族请求体：seedance* / minimax*）——
+    /** 6789 图片数组上限（纯函数供回归断言）：seedance2.5 系 30 张、其余 9 张。 */
+    function api6789ImageCap(model) {
+      return /2\.5/.test(String(model || '')) ? 30 : 9;
+    }
+    /** 6789 请求体（纯函数供回归断言）：按模型名分两族——
+     *  · seedance*：{model, prompt, duration, ratio, resolution(小写), image_urls?}
+     *    时长/比例/分辨率一律透传（站方校验、报错可见，绝不静默裁剪）；
+     *  · minimax*：{model, prompt, seconds, size, workflow_id, images?}
+     *    比例×清晰度必须映射为精确像素 size（2K/4K 大写）；workflow_id 自动选：
+     *    无图 text-to-video / 有图普通 multi-reference / 有图 2K/4K cf-multi-reference。
+     *  images：首帧在前、参考图在后（dataURL 直发；站方要公网直链时扩展参数覆盖）。 */
+    function build6789VideoBody(spec, media) {
+      const sp = spec || {};
+      const m = media || {};
+      const model = String(sp.model || '').toLowerCase();
+      const frame = String(m.frameDataUrl || '');
+      const refs = (Array.isArray(m.refDataUrls) ? m.refDataUrls : []).map(String).filter(Boolean);
+      const isMini = model.includes('minimax');
+      if (isMini) {
+        const out = {
+          model,
+          prompt: String(sp.prompt || ''),
+          seconds: Math.round(Number(sp.duration)) || 5,
+          size: api6789SizeOf(sp.ratio, sp.resolution),
+          workflow_id: 'text-to-video',
+        };
+        const images = (frame ? [frame] : []).concat(refs);
+        if (images.length) {
+          out.images = images;
+          out.workflow_id = /^2K$|^4K$/i.test(String(out.size)) ? 'cf-multi-reference' : 'multi-reference';
+        }
+        return out;
+      }
+      const out = {
+        model,
+        prompt: String(sp.prompt || ''),
+        duration: Math.round(Number(sp.duration)) || 5,
+        ratio: String(sp.ratio || '16:9'),
+        resolution: String(sp.resolution || '720p').toLowerCase(),
+      };
+      const images = (frame ? [frame] : []).concat(refs);
+      if (images.length) out.image_urls = images;
+      return out;
+    }
+    /** 6789 minimax 系尺寸映射（纯函数供回归断言）：普通清晰度 = 比例×清晰度档的精确像素；
+     *  2K/4K 直接大写（站方要求）。480p 不在枚举 → 按最接近的 768P 档处理并告警可见。 */
+    function api6789SizeOf(ratio, resolution) {
+      const res = String(resolution || '720p').toLowerCase();
+      if (res.includes('2k')) return '2K';
+      if (res.includes('4k')) return '4K';
+      const hd = res.includes('1080');
+      const r = String(ratio || '16:9');
+      const MAP = {
+        //        720P 档        1080P 档
+        '16:9': ['1376x768', '1920x1088'],
+        '9:16': ['768x1376', '1088x1920'],
+        '1:1':  ['1024x1024', '1440x1440'],
+        '4:3':  ['1184x896', '1664x1248'],
+        '3:4':  ['896x1184', '1248x1664'],
+        '21:9': ['1568x672', '2208x960'],
+      };
+      const pair = MAP[r] || MAP['16:9'];
+      return hd ? pair[1] : pair[0];
+    }
+    /** 6789 任务 id（纯函数）：顶层 id / task_id，兼容 data 包装（data.task_id / data.id）。 */
+    function api6789TaskIdOf(j) {
+      if (!j || typeof j !== 'object') return null;
+      return j.id ?? j.task_id ?? (j.data && (j.data.task_id ?? j.data.id)) ?? null;
+    }
+    /** 6789 状态（纯函数）：顶层 status，兼容 data 包装（data.status）。 */
+    function api6789StatusOf(j) {
+      if (!j || typeof j !== 'object') return '';
+      return String(j.status ?? (j.data && j.data.status) ?? '').trim().toLowerCase();
+    }
+    /** 6789 结果地址（纯函数）：优先绝对地址（download_url → video_url → content/output.video_url →
+     *  data.video_url），file 为相对路径（/v1/videos/{id}/content）时原样返回（调用方拼 origin）。
+     *  空串视为「未提供」（站方成功响应里 file/download_url 可为 ''）。 */
+    function api6789VideoUrlOf(j) {
+      if (!j || typeof j !== 'object') return '';
+      const d = (j.data && typeof j.data === 'object') ? j.data : {};
+      const cands = [j.download_url, j.video_url, d.download_url, d.video_url,
+        j.content && j.content.video_url, j.output && j.output.video_url];
+      const abs = cands.find((u) => typeof u === 'string' && /^https?:/i.test(u));
+      if (abs) return abs;
+      const file = [j.file, d.file].find((u) => typeof u === 'string' && u.startsWith('/'));
+      return file || '';
+    }
+    /** 6789 失败原因（纯函数）：error → fail_reason → message → data.error。 */
+    function api6789ErrorOf(j) {
+      if (!j || typeof j !== 'object') return '';
+      const d = (j.data && typeof j.data === 'object') ? j.data : {};
+      const v = j.error || j.fail_reason || j.message || d.error || '';
+      if (!v) return '';
+      return (typeof v === 'string' ? v : JSON.stringify(v)).slice(0, 300);
+    }
+    /** 6789 轮询判定（纯函数）：queued/running 及未知状态 = 继续；成功集合取地址；
+     *  失败集合报错。与站方文档枚举一致（含 cancelled/canceled/expired）。 */
+    function api6789PollState(j) {
+      const st = api6789StatusOf(j);
+      if (['succeeded', 'completed', 'success'].includes(st)) {
+        const url = api6789VideoUrlOf(j);
+        return url ? { state: 'done', url } : { state: 'fail', error: '任务成功但响应中没有视频地址' };
+      }
+      if (['failed', 'error', 'cancelled', 'canceled', 'expired'].includes(st)) {
+        return { state: 'fail', error: api6789ErrorOf(j) || st };
+      }
+      return { state: 'wait' };
+    }
+    /** 6789 本地素材是否需要「公网直链」类重试提示（纯函数）：只认图片/URL/格式类错误。 */
+    function needs6789MediaHint(errText) {
+      const t = String(errText || '');
+      return /https?:|url|图片|image|格式|format/i.test(t);
     }
     /** 读取生成视频的真实尺寸与时长（用于「厂商是否忽略了参数」的可见校验）。 */
     function probeVideoMeta(blob) {
@@ -7139,6 +7254,91 @@ function queueThumb(assetId) {
           });
         } catch (e) {
           const err = new Error('三宝视频下载失败（任务 ' + tid + '）：' + ((e && e.message) || e));
+          err.status = e && e.status;
+          throw err;
+        }
+      },
+      // —— 6789API：任务制 /v1/videos，同一路径按模型分两族请求体（seedance* / minimax*）——
+      async api6789(prompt, frameBlob, s, o) {
+        if (!s.url) throw new Error('未配置视频 API（6789API 格式：Base URL 填站点根，…/v1 自动归一）');
+        if (!s.model) throw new Error('请在设置里为该视频 API 填写模型名（如 seedance2.0fast / minimax-h3）');
+        const base = vendorBase(s.url, '');
+        if (!base) throw new Error('6789API 需要填写 Base URL');
+        const headers = { 'Content-Type': 'application/json', Authorization: 'Bearer ' + (s.apiKey || '') };
+        const model = String(s.model || '').toLowerCase();
+        const isMini = model.includes('minimax');
+        // 参考图装填：首帧在前、参考图在后；上限按模型（2.5 系 30、其余 9）——超限告警可见
+        const cap = api6789ImageCap(model);
+        const rawRefs = o.hardFrame ? [] : (o.refs || []).slice(0, cap);
+        if (o.warn && (o.refs || []).length > rawRefs.length) {
+          o.warn('参考图 ' + (o.refs || []).length + ' 张超过「' + model + '」上限 ' + cap + ' 张，本次只使用前 ' + cap + ' 张');
+        }
+        let text = prompt;
+        if (frameBlob && rawRefs.length) text = videoRefNote(o.refNames) + '\n' + prompt;
+        // 本地素材 dataURL 直发（宽松尝试，与通用链同口径）；站方要求公网直链时报错原文透传
+        const media = {
+          frameDataUrl: frameBlob ? await blobToDataUrlScaled(frameBlob) : '',
+          refDataUrls: await Promise.all(rawRefs.map((b) => blobToDataUrlScaled(b))),
+        };
+        const spec = { model, prompt: text, duration: o.duration, ratio: o.ratio, resolution: o.resolution || '720p' };
+        const body = build6789VideoBody(spec, media);
+        // minimax 系 2K/4K 必须至少 1 张参考图（站方文档硬约束）——提交前明确报错
+        if (isMini && /^2K$|^4K$/i.test(String(body.size)) && !(body.images || []).length) {
+          throw new Error('「' + model + '」的 ' + body.size + ' 清晰度必须至少提供 1 张参考图（站方硬约束）：请连线参考图，或把清晰度改成 720P/1080P');
+        }
+        // 480p 不在 minimax 尺寸枚举 → 降档可见告警（build 内已按 768P 档映射）
+        if (isMini && o.warn && String(o.resolution || '').toLowerCase().includes('480')) {
+          o.warn('「' + model + '」没有 480p 尺寸档，本次按 768P 档发送（可选 720P/1080P/2K/4K）');
+        }
+        // 扩展参数：逃生舱（可覆盖任意字段，如 {"image_urls":["https://…"]} 公网直链直给）
+        mergeExtra(body, s);
+        // 幂等键：本次生成固定一个 UUID，网络重试复用（站方文档要求）
+        const idem = (globalThis.crypto && crypto.randomUUID) ? crypto.randomUUID() : ('idem-' + Date.now().toString(36) + Math.random().toString(36).slice(2));
+        const submitUrl = base + '/v1/videos';
+        const r1 = await fetchViaProxy(submitUrl, { headers: { ...headers, 'Idempotency-Key': idem }, body, timeoutMs: Number(s.timeoutMs) > 0 ? Number(s.timeoutMs) : 120000, label: '6789 提交' });
+        if (!r1.ok) {
+          const hint = needs6789MediaHint(r1.text) && (frameBlob || rawRefs.length)
+            ? '——该站参考图要求公网 https 直链：可在扩展参数填 {"image_urls":["https://…"]}（minimax 系字段名 images）直给，或改用文生视频'
+            : '';
+          throw new Error('6789 提交 HTTP ' + r1.status + ' @ ' + submitUrl + '：' + r1.text.slice(0, 300) + hint);
+        }
+        let j1 = null; try { j1 = JSON.parse(r1.text); } catch { throw new Error('6789 响应非 JSON：' + r1.text.slice(0, 200)); }
+        const tid = api6789TaskIdOf(j1);
+        if (!tid) throw new Error('6789 响应中没有任务 id：' + r1.text.slice(0, 200));
+        const taskUrl = base + '/v1/videos/' + encodeURIComponent(tid);
+        if (o.onTask) { try { o.onTask(tid, taskUrl); } catch { /* 持久化失败不影响生成 */ } }
+        const queryTask = async (label) => {
+          const r = await fetchViaProxy(taskUrl, { method: 'GET', headers, timeoutMs: 60000, label });
+          if (!r || !r.ok) return null;
+          try { return JSON.parse(r.text); } catch { return null; }
+        };
+        // 站方建议每 5s 查询一次；画布最长轮询 30 分钟（任务 id 已挂节点，超时可凭 id 回查）
+        const url = await vendorPoll('6789', 5000, async () => {
+          const j = await queryTask('6789 查询');
+          return j ? api6789PollState(j) : { state: 'wait' };
+        });
+        // 任务成功 ≠ 文件可下载：CDN 就绪窗口内重试（10 分钟、每 30s 一次，与三宝同款口径）。
+        // file 相对路径 → 拼 origin 且带 Bearer 下载；绝对地址裸 GET、401/403 自动带鉴权重试；
+        // 每次重试前重查任务刷新地址（download_url 可能是带 exp 的签名地址，会过期）。
+        const origin = (() => { try { return new URL(base).origin; } catch { return ''; } })();
+        const dlHeaders = (u) => String(u || '').startsWith('/') ? headers
+          : (() => { try { return new URL(u).origin === origin ? headers : {}; } catch { return {}; } })();
+        try {
+          return await downloadVideoWithRetry(url, dlHeaders(url), {
+            windowMs: SANBAO_DOWNLOAD_RETRY_MS,
+            stepMs: SANBAO_DOWNLOAD_RETRY_STEP_MS,
+            refreshUrl: async () => {
+              const j = await queryTask('6789 缓存查询');
+              if (!j) return '';
+              const st = api6789PollState(j);
+              return st.state === 'done' ? st.url : '';
+            },
+            onRetry: (e, n) => {
+              try { console.info('[IC] 6789 download not ready (' + ((e && e.message) || e) + ') — retry ' + n); } catch { /* 忽略 */ }
+            },
+          });
+        } catch (e) {
+          const err = new Error('6789 视频下载失败（任务 ' + tid + '）：' + ((e && e.message) || e));
           err.status = e && e.status;
           throw err;
         }
@@ -7436,6 +7636,8 @@ function queueThumb(assetId) {
       // 三宝：按最保守通用模型（hailuo/SD2.0 系 9 图 3 音频；wan/kling 系 10 图、SD2.5 系 30 图，见厂商 note）
       sanbao: { img: 9, audio: 3 },
       minimaxv2: { img: 9, audio: 3 },
+      // 6789：seedance2.5 系 30 图、其余 9 图（api6789ImageCap 按模型取精确值，此处按保守 9 告警）
+      api6789: { img: 9 },
       openai: { img: 8 },
       seedance: { img: 8 },
       // img:0 = 该厂商的协议**没有任何实体参考图入口**（已核对各自 runner：只收首帧/提示词）——
@@ -22286,7 +22488,7 @@ const DIRECTOR_KEY_HELP = [
           // IC-04：参考图上传三件套的纯函数出口（供 scripts/test-image-upload.mjs 直接断言）
           window.__DSH_IC_IMGREF__ = { rawImageDims, sniffImageEncoding, registerReferenceAsset };
           // IC-03：视频厂商识别/前缀归一化的纯函数出口（供 scripts/test-vendor-detect.mjs 直接断言）
-          window.__DSH_IC_VENDOR__ = { detectVideoVendor, gatewayPrefixFor, wanEndpoints, vendorBase, VIDEO_REF_CAPS, needsSimpleMediaRetry, buildSimpleMediaRetryBody, wanTaskIdOf, wanStatusOf, wanPollState, buildSanbaoVideoBody, sanbaoTaskIdOf, sanbaoPollState, needsSanbaoMediaRetry, retryableDownloadError, downloadVideoWithRetry, SANBAO_DOWNLOAD_RETRY_MS, SANBAO_DOWNLOAD_RETRY_STEP_MS, buildSanbaoImageBody, sanbaoImageResultOf, sanbaoImagePollState, bibleStyleAnchor };
+          window.__DSH_IC_VENDOR__ = { detectVideoVendor, gatewayPrefixFor, wanEndpoints, vendorBase, VIDEO_REF_CAPS, needsSimpleMediaRetry, buildSimpleMediaRetryBody, wanTaskIdOf, wanStatusOf, wanPollState, buildSanbaoVideoBody, sanbaoTaskIdOf, sanbaoPollState, needsSanbaoMediaRetry, retryableDownloadError, downloadVideoWithRetry, SANBAO_DOWNLOAD_RETRY_MS, SANBAO_DOWNLOAD_RETRY_STEP_MS, buildSanbaoImageBody, sanbaoImageResultOf, sanbaoImagePollState, bibleStyleAnchor, build6789VideoBody, api6789SizeOf, api6789ImageCap, api6789TaskIdOf, api6789StatusOf, api6789VideoUrlOf, api6789ErrorOf, api6789PollState, needs6789MediaHint };
           // 按镜头切段（分段生成本身就是最容易出错的地方）：规划器 + 强弱模型分流 + 节点段区间解析
           // 供 scripts/test-segment-plan.mjs 直接断言
           window.__DSH_IC_SEGMENT__ = { planShotSegments, isCutPoint, segmentNeedsHardFrame, videoSegmentOf, shotContinuityPlan };
