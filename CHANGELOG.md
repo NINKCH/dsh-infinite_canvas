@@ -23,6 +23,14 @@ GitHub Releases carry the same notes in English; maintainer-facing runbooks live
   duration gate all read the same total-duration value now.
 
 ### Fixed
+- **Dropdown menus kept snapping back to the pre-mirror layout.** The mirror
+  placement (search box hugging the button on flip) was computed in a layout
+  effect, but the composer-follow chain still used the old fixed-280px formula
+  and — worse — wrote its position without the `flipped` flag, so any node
+  drag / canvas zoom / reposition while a menu was open silently reverted the
+  whole menu to the legacy top placement. All three placement sites (open,
+  composer-follow, post-render measure) now share one `placeMenu()` that
+  decides mirror direction and clamps to the viewport in one place.
 - **Dropdown menus stay attached to their trigger wherever the composer sits.**
   Menus were placed with a fixed "menu max height 280px" assumption: when the
   composer sits below its node (near the viewport bottom) the menu flipped
