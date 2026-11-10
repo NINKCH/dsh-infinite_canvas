@@ -2,7 +2,7 @@
 // 漂移守卫：宿主预算单估算（shot-segments.js）必须与客户端执行（client.js）完全同源。
 //
 // 背景（#8，0.20.2）：真实视频调用次数由客户端 planShotSegments 按镜头边界切段决定
-// （一个分镜表 ≠ 一次生成；默认上限 15s，分镜表节点 data.segMaxSeconds 可调）。
+// （一个分镜表 ≠ 一次生成；默认上限 15s，分镜表节点 data.targetDuration 可调——0.20.3 起下拉即总时长语义）。
 // 宿主 production.js quote() 的 videoCalls 用的是 shot-segments.js——client.js
 // planShotSegments 的逐字移植。本测试用 test-segment-plan.mjs 的 vm 手法（假
 // React/DOM/localStorage 桩）加载真实 client.js，取测试缝

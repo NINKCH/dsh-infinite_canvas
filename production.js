@@ -238,7 +238,7 @@ export function createProduction(deps) {
    * 角色/场景/道具 实体数），顶层 refImagesTotal；跨场共享实体只计一次（与执行侧
    * run 级 Map 同序先到先得，归属第一场）。已有参考资产（readAssetIndexNames 边界匹配）的不计。
    * 切段口径与客户端执行完全同源：同一个 planShotSegments（shot-segments.js，client.js 的逐字移植），
-   * maxSeconds 同样取分镜表节点 data.segMaxSeconds（缺省 15，client.js L13883 同式）。
+   * maxSeconds 同样取分镜表节点 data.targetDuration（0.20.3 起下拉即总时长语义；缺省 15，client.js StoryboardNodeBody 同式）。
    * 单价由调用方传入（画布设置里的单价，未配置则不给金额，只给调用次数与秒数）。
    */
   function quote(pid, cid, unitPricePerSecond) {
@@ -258,7 +258,7 @@ export function createProduction(deps) {
       const secs = shots.reduce((a, s) => a + (Number(s && s.duration) || 0), 0);
       totalSeconds += secs;
       const hasVideo = videoNodes.some((v) => (doc.edges || []).some((e) => e.fromNode === n.id && e.toNode === v.id));
-      const maxSeconds = Number(n.data.segMaxSeconds) || 15;
+      const maxSeconds = Number(n.data.targetDuration) || 15;
       // 已有视频的表不产生新调用；待生成的表按切段算法数段（与客户端 expandStoryboard 同式同默认）
       let calls = 0;
       let refImages = 0;

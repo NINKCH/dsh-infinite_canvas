@@ -4064,7 +4064,7 @@ export function apply(ctx) {
         const boards = [];
         let prevBoard = null;
         // 0.20.2 T5 防线②：分镜产出后的场时长校验。切段算法与 client.js 同源（shot-segments.js），
-        // 上限同式取分镜表节点 data.segMaxSeconds（缺省 15，不另立常量）。判据：切段段数 >1
+        // 上限同式取分镜表节点 data.targetDuration（0.20.3 起下拉即总时长语义；缺省 15，不另立常量）。判据：切段段数 >1
         //（该场要拆多次生成才装得下）或任一单镜 duration 超上限 → 场超时长。
         const shotDurOf = (s) => Math.max(0.3, Math.round((Number(s && s.duration) || 3) * 10) / 10);
         const durCheck = (shots, cap) => {
@@ -4103,7 +4103,7 @@ export function apply(ctx) {
             const sbDoc = readToolDoc({ projectId: pid, canvasId: cid });
             const sbNode0 = sbDoc.nodes[sb.nodeId];
             origReq = String((sbNode0 && sbNode0.data && sbNode0.data.requirement) || '');
-            segMax = Number(sbNode0 && sbNode0.data && sbNode0.data.segMaxSeconds) || 15;
+            segMax = Number(sbNode0 && sbNode0.data && sbNode0.data.targetDuration) || 15;
           } catch { /* 读不到按空处理 */ }
           let sbSt = await canvasExec(pid, cid, sb.nodeId, { timeoutMs: 10 * 60 * 1000 });
           let gate = PROD.gateStoryboard(sbSt.shots);
@@ -4229,7 +4229,7 @@ export function apply(ctx) {
             const sb = boards[i];
             run.paidPhase = 'video ' + (i + 1) + '/' + boards.length;
             const shots = Array.isArray(sb.data && sb.data.shots) ? sb.data.shots : [];
-            const segMax = Number(sb.data && sb.data.segMaxSeconds) || 15;
+            const segMax = Number(sb.data && sb.data.targetDuration) || 15;
             const plan = planShotSegments(shots, { maxSeconds: segMax });
             // 客户端兜底同款（production.quote 同式）：切段为空但表里有镜头 → 整表按一段
             const segs = plan.segments.length ? plan.segments

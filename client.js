@@ -456,6 +456,8 @@ function revealCanvasInRight() {
       'segPlanHint': '按真实镜头边界把分镜切成若干次生成：切点只在换场/特写插入/新角色入场处；同一段连续动作不拆开。',
       'segMaxLabel': '单段上限',
       'segMaxHint': '单次生成的最大秒数（按厂商上限填，MiniMax 这类弱衔接模型建议 6–10 秒）',
+      'targetDurationLabel': '分镜总时长',
+      'targetDurationAuto': '按镜头节奏自动',
       'customValuePh': '自定义后回车',
       'customCountPh': '自定义 1–100 镜',
       'customSegMaxPh': '自定义 1–300 秒',
@@ -1461,6 +1463,8 @@ function revealCanvasInRight() {
       'segPlanHint': 'Split the storyboard into several generations at real shot boundaries: cuts only land on scene change / insert / new character; one continuous action is never split.',
       'segMaxLabel': 'Per-segment max',
       'segMaxHint': 'Max seconds per generation (match the vendor limit; for weak-continuity models like MiniMax use 6-10s)',
+      'targetDurationLabel': 'Storyboard total duration',
+      'targetDurationAuto': 'Auto by shot pacing',
       'customValuePh': 'Custom, press Enter',
       'customCountPh': 'Custom 1-100 shots',
       'customSegMaxPh': 'Custom 1-300 seconds',
@@ -9319,6 +9323,11 @@ function queueThumb(assetId) {
       const bible = bibleBlock(loadBible(S.activeId));
       const zh = effLang() !== 'en';
       const contOn = !(opts && opts.cont === false); // 分镜衔接开关（默认开）
+      // 分镜总时长（issue：下拉硬约束）：targetDuration > 0 = 用户手动设定的**本分镜节点总时长**，
+      // 严格 =X 秒——不论切 5 镜还是 50 镜，所有镜头 duration 之和必须等于 X；技能只管按节奏谱系
+      // 把 X 分配到各镜（快冲突 0.3-0.8s / 对白 2-4s / 情绪长镜 ≥5s），装不下压每镜时长而非删戏。
+      // 0/缺省 = 自动档：与旧版逐字一致（节奏自然决定，无硬上限）。
+      const targetDuration = Math.max(0, Math.round(Number(opts && opts.targetDuration) * 10) / 10) || 0;
       // 特效演绎开关：任一所选题材/影调卡 fx_motion:true → 追加特效演绎扩展块（见 FX_RULES）
       const fxOn = await fxMotionEnabledFor(S.activeId);
       const contFields = (() => {
@@ -9407,7 +9416,11 @@ function queueThumb(assetId) {
             '- **Never use straight double quotes " inside JSON string values** — quoted text (signs/subtitles/lines) uses 「」 instead;',
             '- **Split shots by actual content**: one continuous action beat = one shot; the count is decided by the content (3-10 shots are all normal) — never pad, never use a fixed number;',
             '- **[SEGMENTATION-FRIENDLY - HARD] shot boundaries must land where a cut can actually happen**: the system splits this storyboard into several generations, and a split is only allowed on a "cut" boundary - scene change / insert close-up / new character enters. Therefore: never break ONE character\'s ONE continuous action into several `continuation` shots (give that single shot a longer duration instead) - if it gets split across two generations, the two clips cannot be matched. When you genuinely change the camera, make the next shot one of scene change / insert close-up / new character (even a single insert close-up is enough) so the boundary is a clean cut rather than a forced match. **Do not fake it**: never label shots `scene_change` just to create cut points inside the same space - that reads as a jump;',
-            '- duration is the shot length in seconds, **one decimal allowed**; **assign by pacing spectrum, never uniform**: normal narrative/dialogue 2-4s, fast conflict/fight/chase 0.3-0.8s (rapid cuts), key reversal/impact 1-2s, long emotional take >=5s — every scene must contain at least one obvious rhythm change (e.g. 3s narrative -> 0.6s cuts x2 -> 1.5s reversal -> 5s emotional take); identical durations kill the rhythm; total duration follows what the scene needs - no hard cap (vendor limits differ and change; if exceeded the video call reports it explicitly, then you split or adjust); shot order = narrative order; last shot lands the emotion; **if a CONTINUITY CONSTRAINT is given below, shot 1 must continue the previous scene\'s last frame and character state (no re-establishing, no wide reset); only without a constraint does shot 1 establish the scene**;',
+            '- duration is the shot length in seconds, **one decimal allowed**; **assign by pacing spectrum, never uniform**: normal narrative/dialogue 2-4s, fast conflict/fight/chase 0.3-0.8s (rapid cuts), key reversal/impact 1-2s, long emotional take >=5s — every scene must contain at least one obvious rhythm change (e.g. 3s narrative -> 0.6s cuts x2 -> 1.5s reversal -> 5s emotional take); identical durations kill the rhythm; '
+            + (targetDuration
+              ? '**[TOTAL DURATION - HARD USER OVERRIDE] the user has fixed this storyboard\'s TOTAL duration at exactly ' + targetDuration + 's**: the sum of ALL shot durations must equal ' + targetDuration + 's (±0.3s rounding tolerance on the last shot, then settle). Distribute ' + targetDuration + 's across shots by the pacing spectrum above; more shots = each shot gets proportionally less, fewer shots = more each; when content cannot fit, compress per-shot durations — never drop dialogue or key actions; a shot may go below its usual spectrum floor if needed (a 0.5s beat is legal), but the TOTAL is inviolable'
+              : 'total duration follows what the scene needs - no hard cap (vendor limits differ and change; if exceeded the video call reports it explicitly, then you split or adjust)')
+            + '; shot order = narrative order; last shot lands the emotion; **if a CONTINUITY CONSTRAINT is given below, shot 1 must continue the previous scene\'s last frame and character state (no re-establishing, no wide reset); only without a constraint does shot 1 establish the scene**;',
             '- **Pick the shot size by emotion**: loneliness/despair/grand crisis = wide; confrontation/action/relationship = full; dialogue/probing/info exchange = medium; shock/suspicion/inner shake = close-up; breakdown/screaming/emotional burst = extreme close-up; key detail/prop reveal = big close-up — conflicts play wide, reveals move close, bursts go extreme, reversals can pull wide; the changing distance itself tells the emotion;',
             '- **Rapid cuts (<1.5s) get minimal visual/motion** (one action, one piece of in-frame information); long durations are earned by information density — duration must match content;',
             '- Output JSON only.',
@@ -9448,6 +9461,14 @@ function queueThumb(assetId) {
           ? `镜头数量：必须输出恰好 ${countNum} 镜（用户手动设置；硬性参数，不是参考值）。`
           : `Shot count: output EXACTLY ${countNum} shots (set by the user; hard parameter, not a reference).`)
         : `${zh ? '镜头数量' : 'Shot count'}：**不固定**——按实际动作节拍切分，由内容自然决定`;
+      // 分镜总时长行：手动档 = 硬性参数（与 countLine 同款口径）；自动档 = 如实说「不固定」。
+      const durationLine = targetDuration
+        ? (zh
+          ? `分镜总时长：所有镜头时长之和必须**恰好等于 ${targetDuration} 秒**（用户手动设定；硬性参数，不是参考值）。切 5 镜还是 50 镜都可以，镜头数由内容按节奏决定，但每个镜头 duration 相加必须等于 ${targetDuration} 秒。`
+          : `Storyboard total duration: the sum of ALL shot durations must be EXACTLY ${targetDuration} seconds (set by the user; hard parameter, not a reference). 5 shots or 50 are both fine — shot count follows the content's pacing, but the durations must add up to ${targetDuration}s.`)
+        : (zh
+          ? `分镜总时长：**不固定**——由技能按节奏自然分配`
+          : `Storyboard total duration: **not fixed** — distributed by pacing naturally`);
       // 承接约束：由连线指定（分镜表「衔接上一镜」输入口 ← 上游分镜表「尾镜」输出口）。
       // 只承接尾镜的**结尾瞬间**（≤0.2s 重叠），不重演上一镜——视频模型按秒计费，重演等于白花钱。
       const cont = (() => {
@@ -9498,6 +9519,7 @@ function queueThumb(assetId) {
         `${zh ? '剧本' : 'Script'}：\n${String(scriptText ?? '').trim()}`,
         `${zh ? '额外要求' : 'Extra requirements'}：${String(requirement ?? '').trim() || (zh ? '无' : 'none')}`,
         countLine,
+        durationLine,
         prevLine,
       ].filter(Boolean).join('\n\n');
       const text = await aiCompleteStream({
@@ -10701,7 +10723,24 @@ function queueThumb(assetId) {
       flushSave();
       try {
         const prev = prevSceneTail(n); // 场 N-1 的尾镜 → 作为本场第 1 镜的硬性承接约束
-        const shots = await aiStoryboardShots(st, n.data.requirement, Number(n.data.count) || 0, n.data.model, (kind, d) => aiStreamAppend(n.id, kind, d), prev, { cont: n.data.cont !== false });
+        const targetDur = Math.max(0, Math.round(Number(n.data.targetDuration) * 10) / 10) || 0;
+        const shots = await aiStoryboardShots(st, n.data.requirement, Number(n.data.count) || 0, n.data.model, (kind, d) => aiStreamAppend(n.id, kind, d), prev, { cont: n.data.cont !== false, targetDuration: targetDur });
+        // 总时长机械归位（issue：下拉硬约束的执行侧保底）：模型 Σ≠X 时按比例缩放各镜 duration，
+        // 末镜吸收舍入残差 → Σ 恰等于 X。只缩放时长，绝不动内容字段；自动档（targetDur=0）零操作。
+        if (targetDur && shots.length) {
+          const sum = shots.reduce((a, s) => a + (Number(s.duration) || 0), 0);
+          if (sum > 0 && Math.abs(sum - targetDur) > 0.05) {
+            const k = targetDur / sum;
+            let acc = 0;
+            for (let i = 0; i < shots.length; i++) {
+              const scaled = i === shots.length - 1
+                ? Math.round((targetDur - acc) * 10) / 10            // 末镜吸收残差
+                : Math.max(0.3, Math.round(Number(shots[i].duration) * k * 10) / 10);
+              shots[i].duration = scaled;
+              acc += scaled;
+            }
+          }
+        }
         // 未闭合引用自愈：句尾丢闭合 @ 的引用按设定集名补全（否则参考图静默丢失）
         const _known = bibleNames(loadBible(S.activeId));
         for (const sh of shots) {
@@ -13061,13 +13100,16 @@ function queueThumb(assetId) {
                 onChange: (v) => setStoryboardPrev(n.id, v || null),
               })
             : null,
-          // 单段生成上限：切段规划器按它决定"一张分镜表切成几次生成"。
-          // MiniMax 这类弱衔接模型建议填 6–10；Seedance 2.5 可以填到 15。
+          // 分镜总时长（issue：下拉硬约束）：首选项「按镜头节奏自动」（默认，data.targetDuration 缺省）
+          // = 技能按节奏谱系自然分配各镜时长；选任何秒数（预设或自定义 1–300）= 本分镜节点总时长
+          // 硬约束——不论切几镜，所有镜头 duration 之和严格等于该值（生成侧提示词注入 + 机械归位）。
+          // 与切段规划器（planShotSegments 的 maxSeconds，恒用默认 15）解耦：本下拉只管总时长。
           isStoryboard
             ? h(PopupSelect, {
-                value: String(Number(n.data.segMaxSeconds) || 15), width: 84, title: T('segMaxLabel'), className: 'is-segmax',
-                options: [6, 8, 10, 12, 15, 20, 30].map((x) => ({ value: String(x), label: x + 's' })),
-                onChange: (v) => setData('segMaxSeconds', Number(v)),
+                value: n.data.targetDuration != null && Number(n.data.targetDuration) > 0 ? String(Number(n.data.targetDuration)) : '',
+                width: 84, title: T('targetDurationLabel'), className: 'is-segmax',
+                options: [{ value: '', label: T('targetDurationAuto') }].concat([6, 8, 10, 12, 15, 20, 30].map((x) => ({ value: String(x), label: x + 's' }))),
+                onChange: (v) => setData('targetDuration', v === '' ? null : Number(v)),
                 editable: true, min: 1, max: 300, integer: false, decimals: 1,
                 customLabel: (v) => String(v) + 's', customPlaceholder: T('customSegMaxPh'),
               })
@@ -14089,7 +14131,7 @@ function queueThumb(assetId) {
       const totalDur = shots.reduce((a, sh) => a + Math.max(0, Number(sh.duration) || 0), 0);
       // 切段预览：把"这张分镜表会被切成几次生成、每次几镜几秒、哪些段要接尾帧"直接显示在节点上，
       // 用户铺开前就知道会切成什么样——不用等到生成完才发现接不上。
-      const segPlan = shots.length ? planShotSegments(shots, { maxSeconds: Number(n.data.segMaxSeconds) || 15 }) : null;
+      const segPlan = shots.length ? planShotSegments(shots, { maxSeconds: Number(n.data.targetDuration) || 15 }) : null;
       // 一致性告警的重校验：告警是**生成时刻**算的；设定集更新后有 bibleTick 自动重算（见下），
       // 这里保留手动入口兜底——点刷新按当前设定集重算（checkShotConsistency 读的是实时 bible/资产名索引）
       const [wvChecking, setWvChecking] = useState(false);
@@ -14228,7 +14270,7 @@ function queueThumb(assetId) {
       if (!shots.length) { toast(T('expandNoShots')); return; }
       const zh = effLang() !== 'en';
       // 切段规划：纯函数，可在面板上预览，也由 scripts/test-segment-plan.mjs 直接断言
-      const plan = planShotSegments(shots, { maxSeconds: Number(n.data.segMaxSeconds) || 15 });
+      const plan = planShotSegments(shots, { maxSeconds: Number(n.data.targetDuration) || 15 });
       const segs = plan.segments.length ? plan.segments : [{ index: 0, shots, startIndex: 0, endIndex: shots.length - 1, duration: plan.total, firstSeg: 'opening', lastSeg: 'continuation', opensOnCut: true, closesOnCut: true, seamRisk: 'none', needsTailChain: false, reason: '' }];
       // 项目资产名称索引（用于把角色/场景/道具连接到已有资产节点）
       const recs = await idbByProject(S.activeId).catch(() => []);

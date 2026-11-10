@@ -290,24 +290,24 @@ let sbNodeId = '';
   const scA = qs.scenes.find((s) => s.storyboardId === sbA.nodeId);
   const scB = qs.scenes.find((s) => s.storyboardId === sbB.nodeId);
   eq(scA && scA.videoCalls, 2, '预算口径：场 A（20s 含切点）应切 2 段');
-  eq(scA && scA.maxSeconds, 15, '预算口径：场 A 未配 segMaxSeconds → 默认上限 15');
+  eq(scA && scA.maxSeconds, 15, '预算口径：场 A 未配 targetDuration → 默认上限 15');
   eq(scB && scB.videoCalls, 1, '预算口径：场 B（5s）应 1 段');
   eq(qs.totalSeconds, 25, '预算口径：totalSeconds 口径不变（20+5）');
   eq(qs.estimatedCost, 50, '预算口径：估算金额仍按秒计（25s×2）');
   ok(String(qs.note).includes('切段'), '预算口径：note 应如实描述按镜头切段调用（实际：' + qs.note + '）');
 
-  // 指纹自然变化（预期行为，无兼容垫片）：segMaxSeconds 挂在分镜表节点 data（客户端 L13883 同式），
-  // 上限变更 → 每场上限进指纹 → 旧批准自动失效 → 重新复核预算。
+  // 指纹自然变化（预期行为，无兼容垫片）：targetDuration 挂在分镜表节点 data（0.20.3 起下拉即总时长
+  // 语义），上限变更 → 每场上限进指纹 → 旧批准自动失效 → 重新复核预算。
   const ap0 = await M.autoApprove({ projectId: segPid, quoteId: qs.quoteId, confirm: '用户：按这个预算开机' });
   ok(ap0 && ap0.ok === true, '预算口径：按段数批准失败');
   const docSeg = await I.projectsGet({ id: segPid });
-  docSeg.nodes[sbB.nodeId].data.segMaxSeconds = 30;
+  docSeg.nodes[sbB.nodeId].data.targetDuration = 30;
   await I.projectsPut({ id: segPid, doc: docSeg });
   const stQ = await M.autoStatus({ projectId: segPid });
-  ok(stQ.approval && stQ.approval.valid === false, '预算口径：segMaxSeconds 变更后旧批准仍有效（指纹未吃每场上限）');
+  ok(stQ.approval && stQ.approval.valid === false, '预算口径：targetDuration 变更后旧批准仍有效（指纹未吃每场上限）');
   const q30 = P.quote(segPid, null, 2);
   const scB30 = q30.scenes.find((s) => s.storyboardId === sbB.nodeId);
-  eq(scB30 && scB30.maxSeconds, 30, '预算口径：分镜表节点 data.segMaxSeconds=30 应被 quote 读取（客户端同式）');
+  eq(scB30 && scB30.maxSeconds, 30, '预算口径：分镜表节点 data.targetDuration=30 应被 quote 读取（客户端同式）');
 
   // 已有视频的表不产生新调用：给场 B 接上视频 → 该场 videoCalls 归 0，总调用数降为 2
   const vB = await byName.get('canvas_create_node').execute({ projectId: segPid, type: 'video', name: '短表视频', connectFrom: sbB.nodeId }, {});

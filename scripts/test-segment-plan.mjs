@@ -301,7 +301,7 @@ function assertSegments(label, shots, opts, check) {
   ok(/function segmentNeedsHardFrame\(/.test(src), 'segmentNeedsHardFrame 不存在（强弱模型分流被删除）');
   ok(/function videoSegmentOf\(/.test(src), 'videoSegmentOf 不存在（视频节点段区间解析被删除）');
   ok(/segShotFrom/.test(src) && /segShotTo/.test(src), '视频节点缺少 segShotFrom/segShotTo 字段');
-  ok(/segMaxSeconds/.test(src), '分镜表缺少 segMaxSeconds（单段上限）字段');
+  ok(/targetDuration/.test(src), '分镜表缺少 targetDuration（分镜总时长）字段');
   // 旧 expandStoryboard 里"每张分镜表只建一个 videoGen"的写法不得复活
   ok(!/const videoGen = mk\('video', baseX \+ 540, baseY \+ 20/.test(src), 'expandStoryboard 又退回"一个分镜表 = 一个视频节点"');
 }

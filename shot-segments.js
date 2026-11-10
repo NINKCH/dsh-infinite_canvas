@@ -8,7 +8,7 @@
  *   - planShotSegments     ← client.js L4389-4514
  *
  * 为什么必须逐字：真实视频调用次数由客户端切段决定（client.js expandStoryboard /
- * StoryboardNodeBody 都以 `planShotSegments(shots, { maxSeconds: Number(n.data.segMaxSeconds) || 15 })`
+ * StoryboardNodeBody 都以 `planShotSegments(shots, { maxSeconds: Number(n.data.targetDuration) || 15 })`
  * 的结果为准——一个分镜表 ≠ 一次生成）。宿主预算单（production.js quote）按这里的输出
  * 估算 videoCalls；任何语义简化都会让预算再次失真（#8：显示 4 次、实际 14 次）。
  *
