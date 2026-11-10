@@ -122,13 +122,16 @@ const present = new Set(files);
 // （from './x'、import('./x')、require('./x') 三种形态），按文件所在目录解析目标路径，
 // 逐一断言目标也在打包清单内。node: 前缀与裸说明符（非 ./ 开头）跳过。
 // 注意：只认静态 import 三形态；fetch / fs 读文件等动态引用不在扫描范围。
-// 匹配前先剥掉注释与字符串字面量（client.js 的 JSDoc 里有 import('./assets/...') 这类
+// 相对目标必须是带扩展名的文件路径；目录式导入（如 './lib'）解析不到清单条目，按缺失判 fail（fail-closed）。
+// 匹配前先剥掉注释（字符串字面量原样保留；client.js 的 JSDoc 里有 import('./assets/...') 这类
 // 文档性伪引用，0.20.2 事故复盘时曾造成误报），避免注释内容触发假失败。
 
 /**
  * 剥掉 JS 源码里的注释（行注释/块注释），字符串、模板字符串与正则字面量的内容原样保留。
  * 轻量单遍扫描器：靠「前一个有效字符」区分正则字面量与除号（经典 JSLint 启发式）。
- * 只为打包审计服务，不是完整词法器；对本仓库包内 .js 已验证无假阳性/假阴性。
+ * 只为打包审计服务，不是完整词法器：构造出来的正则字面量内容（含引号、`//` 等）可能
+ * 触发假阳性（审计多报一条 import → fail-closed）或罕见的假阴性；对本仓库包内 .js
+ * 已实测无假阳/假阴。代价模型：假阳性只是打包时多一次红，不会漏放真实缺口。
  */
 function stripJsComments(src) {
   const REGEX_ALLOWED_PREV = '(,=:[!&|?{};+-*%~^<>'; // 这些字符后跟 / 是正则字面量
@@ -177,7 +180,9 @@ function stripJsComments(src) {
       continue;
     }
     if (c === '/' && !(REGEX_ALLOWED_PREV.includes(prevSig)) && !/[a-zA-Z0-9_$)\]'"`]/.test(prevSig)) {
-      // 悬空的 / 开头正则字面量（如行首）：跳过其内容，避免正则里的引号污染扫描状态
+      // 启发式分支：判定为「悬空的 / 开头正则字面量」（如行首）时跳过其内容，避免
+      // 正则里的引号污染扫描状态。启发式而非词法级判定：构造性内容可能误入本分支
+      //（fail-closed 假阳）或漏进（罕见假阴）；见 stripJsComments JSDoc 的失败模式说明。
       out += ' '; i++;
       let inClass = false;
       while (i < n) {

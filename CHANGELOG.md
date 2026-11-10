@@ -48,7 +48,7 @@ GitHub Releases carry the same notes in English; maintainer-facing runbooks live
 - **check-pack gained an import-resolution audit over the packed file list.** After
   `npm pack --dry-run --json` produces the manifest, every packed `.js` file (including
   `assets/`) is scanned for static relative imports — `from './x'`, `import('./x')`,
-  `require('./x')` — with comments and string literals stripped first, each target
+  `require('./x')` — with comments stripped first (string literals preserved), each target
   resolved against the file's own directory, and any target outside the manifest fails
   the check with the offending pair named. This is the mechanical guard born from the
   0.20.2 shot-segments incident: hand-maintained required-file lists drift exactly like
