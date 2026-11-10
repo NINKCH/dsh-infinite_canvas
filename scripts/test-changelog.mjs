@@ -119,6 +119,7 @@ const COVERAGE = [
   { sha: '6811af3', keys: [/cross-card lost updates|updateSettings|freshest settings from disk|silently roll back/i] },
   { sha: 'fe8ad21', keys: [/mount first, then alternate writes|three-card snapshot-revert|behavior-level across every card/i] },
   { sha: 'f8d8ce0', keys: [/TTS editor.*provider \+ model|provider \+ model form|voice.*editable|ttsApis.*migrated|ttsApis/i] },
+  { sha: '8fc0c48', keys: [/packaging whitelist|shot-segments|ERR_MODULE_NOT_FOUND|import-resolution/i] },
 ];
 for (const c of COVERAGE) {
   ok(c.keys.some((re) => re.test(coverageText)), '未发版提交 ' + c.sha + ' 在 CHANGELOG（Unreleased 或最新已发布段）里找不到对应记录（补记不全）');
