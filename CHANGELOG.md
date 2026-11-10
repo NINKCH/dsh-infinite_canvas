@@ -23,6 +23,15 @@ GitHub Releases carry the same notes in English; maintainer-facing runbooks live
   duration gate all read the same total-duration value now.
 
 ### Fixed
+- **Dropdown menus stay attached to their trigger wherever the composer sits.**
+  Menus were placed with a fixed "menu max height 280px" assumption: when the
+  composer sits below its node (near the viewport bottom) the menu flipped
+  upward by that full height, but the real menu is much shorter — it ended up
+  floating ~130px above the button ("flies away when the composer is below the
+  node; fine when above"). After opening, the menu now measures its real height
+  in a layout effect and pins itself: upward flip = menu bottom exactly 6px
+  above the button top; downward overflow = clamp to the viewport; and the
+  composer's reposition chain (node drag / canvas zoom) keeps it attached.
 - **Model dropdowns no longer detach from their trigger or crash the canvas.** Two
   broken fixes taught the real root cause: the generate-composer is a live
   `position:fixed` overlay that repositions itself when the node moves or the
