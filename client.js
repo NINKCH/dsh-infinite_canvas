@@ -12625,11 +12625,9 @@ function queueThumb(assetId) {
           const left = Math.max(8, Math.min(r.left, vw - mw - 8));
           const below = r.bottom + 6;
           const top = (below + 280 > vh - 8) ? Math.max(8, r.top - 286) : below;
-          // 菜单 DOM 挂在本组件（可能位于 dshic-world transform 层内）：祖先有 transform 时
-          // position:fixed 相对该祖先而非视口——必须把视口坐标换算到世界系（screenToWorld 同式，
-          // L9985），否则画布缩放/平移后弹层飞到错误位置。
-          const sc = V.scale || 1;
-          setPos({ left: (left - V.x) / sc, top: (top - V.y) / sc, width: mw / sc });
+          // 菜单已 portal 到 body（见下方 useEffect）：position:fixed 恢复视口语义，
+          // 视口坐标直接可用——画布缩放/平移不再影响定位。
+          setPos({ left, top, width: mw });
         }
         setQ('');
         setCustom('');
@@ -12647,6 +12645,13 @@ function queueThumb(assetId) {
       };
       useEffect(() => {
         if (!open) return undefined;
+        // 菜单 portal 到 body：菜单原本渲染在 pick-wrap 内，祖先链（.dshic-media-foot 的
+        // overflow:hidden、.dshic-node 的 contain、dshic-world 的 transform）会裁剪或错位它。
+        // 挂到 body 后 position:fixed 恢复视口语义——openMenu 里保留视口坐标，无需换算。
+        // 手动 appendChild 移动的是 React 已渲染的容器节点（不含 React 管理 children 的
+        // menu 本体），React 的 ref/事件不受影响；关闭时菜单随组件卸载/重渲染自动消失。
+        const menu = menuRef.current;
+        if (menu && menu.parentElement !== document.body) document.body.appendChild(menu);
         // 下拉打开期间挂 body 标记：只禁用节点尺寸把手，不禁用节点本体，
         // 否则滚动条/菜单边缘的鼠标会先命中底层“拉宽箭头”。
         document.body.dataset.dshicPickOpen = '1';
@@ -12660,6 +12665,12 @@ function queueThumb(assetId) {
         return () => {
           delete document.body.dataset.dshicPickOpen;
           document.removeEventListener('pointerdown', onDown, true);
+          // 关闭时把菜单搬回原位（React 重渲染需要它在原父节点里保持一致），避免卸载时残留
+          if (menuRef.current && menuRef.current.parentElement === document.body) {
+            // wrap 是 menuRef.current.previousSibling 的父级——搬回 wrap 内
+            const wrap = btnRef.current && btnRef.current.parentElement;
+            if (wrap) wrap.appendChild(menuRef.current);
+          }
         };
       }, [open]);
       const cur = options.find((o) => String(o.value) === String(value));
@@ -12752,6 +12763,7 @@ function queueThumb(assetId) {
       const boxRef = useRef(null);
       const caretRef = useRef(null);
       const atBtnRef = useRef(null);
+      const atMenuRef = useRef(null);
       const fileRef = useRef(null);
       const taRef = useRef(null);
       const flippedRef = useRef(false);
@@ -12940,12 +12952,31 @@ function queueThumb(assetId) {
           const vh = window.innerHeight || 800;
           const left = Math.max(8, Math.min(r.left, vw - 228));
           const top = (r.bottom + 6 + 240 > vh) ? Math.max(8, r.top - 246) : r.bottom + 6;
-          // 同 PopupSelect：菜单在 dshic-world transform 层内，fixed 坐标须换算到世界系
-          const sc = V.scale || 1;
-          setAtPos({ left: (left - V.x) / sc, top: (top - V.y) / sc });
+          // 弹层 portal 到 body（setAtOpen 后由 portal effect 统一搬）——视口坐标直接可用
+          setAtPos({ left, top });
         }
         setAtOpen((x) => !x);
       };
+      // @ 弹层 portal：与 PopupSelect 同理（world 层内的 overflow/transform 祖先会裁剪/错位它）
+      useEffect(() => {
+        if (!atOpen) return undefined;
+        const host = atMenuRef.current;
+        if (host && host.parentElement !== document.body) document.body.appendChild(host);
+        const onDown = (e) => {
+          const t = e && e.target;
+          if (host && t && host.contains && host.contains(t)) return;
+          if (atBtnRef.current && t && atBtnRef.current.contains && atBtnRef.current.contains(t)) return;
+          setAtOpen(false);
+        };
+        document.addEventListener('pointerdown', onDown, true);
+        return () => {
+          document.removeEventListener('pointerdown', onDown, true);
+          if (atMenuRef.current && atMenuRef.current.parentElement === document.body) {
+            const wrap = atBtnRef.current && atBtnRef.current.parentElement;
+            if (wrap) wrap.appendChild(atMenuRef.current);
+          }
+        };
+      }, [atOpen]);
       const bible = loadBible(S.activeId);
       const entityNames = [...(bible.characters || []), ...(bible.scenes || []), ...(bible.props || [])].map((x) => String((x && x.name) || '').trim()).filter(Boolean);
       const insertMention = (name) => {
@@ -13167,6 +13198,7 @@ function queueThumb(assetId) {
             : Ic('arrowUp', 16))),
         atOpen
           ? h('div', {
+              ref: atMenuRef,
               className: 'dshic-pick-menu', style: { left: atPos.left, top: atPos.top, width: 220 },
               onPointerDown: (e) => e.stopPropagation(),
             },
