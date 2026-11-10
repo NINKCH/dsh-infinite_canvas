@@ -114,12 +114,10 @@ if (unrelHasEntries) {
 // OBS-1 硬要求（QA 判据）：清单**手工维护**，绝不从 `git log` 动态生成——动态清单会自证
 // （脚本生成的清单当然自己全中，"缺一必红"退化成摆设）。数量相等 + 逐 sha 关键词命中，两条都拦。
 const COVERAGE = [
-  // 0.20.3 已发布（2026-11-10）：设置卡跨卡丢失更新修复、TTS 供应商+模型编辑器。
-  // 0.20.2 已发布：历史行随发版清零（记录已在 [0.20.2] 段，0.20.0/0.20.2 先例同款）。
-  { sha: '6811af3', keys: [/cross-card lost updates|updateSettings|freshest settings from disk|silently roll back/i] },
-  { sha: 'fe8ad21', keys: [/mount first, then alternate writes|three-card snapshot-revert|behavior-level across every card/i] },
-  { sha: 'f8d8ce0', keys: [/TTS editor.*provider \+ model|provider \+ model form|voice.*editable|ttsApis.*migrated|ttsApis/i] },
-  { sha: '8fc0c48', keys: [/packaging whitelist|shot-segments|ERR_MODULE_NOT_FOUND|import-resolution/i] },
+  // 0.20.3 已发布（2026-11-10）：历史行随发版清零（记录已在 [0.20.3] 段，0.20.0/0.20.2 先例同款）。
+  // 当前未发版（0.20.4）：分镜总时长硬约束 + 模型下拉/弹层定位修复。
+  { sha: '83f3e02', keys: [/total duration.*hard constraint|TOTAL duration|按镜头节奏自动|auto pacing|segMaxSeconds.*retired|per-segment cap/i] },
+  { sha: '4b297f0', keys: [/follow settings|跟随设置|starred model|PopupSelect.*world|fly to a wrong position|world coordinates/i] },
 ];
 for (const c of COVERAGE) {
   ok(c.keys.some((re) => re.test(coverageText)), '未发版提交 ' + c.sha + ' 在 CHANGELOG（Unreleased 或最新已发布段）里找不到对应记录（补记不全）');

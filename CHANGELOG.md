@@ -6,6 +6,48 @@ GitHub Releases carry the same notes in English; maintainer-facing runbooks live
 
 ## [Unreleased]
 
+### Added
+- **Storyboard total duration is now a hard constraint.** The storyboard node's
+  duration dropdown gains a first option 「按镜头节奏自动」 (auto pacing, the new
+  default — behaves exactly as before: the skill distributes per-shot durations
+  by its pacing spectrum). Picking any preset (6-30s) or a custom value (1-300s,
+  one decimal) pins the storyboard node's TOTAL duration: whether the scene is
+  split into 5 shots or 50, the shot durations must add up to exactly the set
+  value. Enforced twice — a hard-override clause in the generation prompt (more
+  shots = proportionally shorter shots; compress rather than drop dialogue) and
+  a mechanical rescale after parsing (proportional scaling with the last shot
+  absorbing rounding residue), so what lands on the canvas always sums to the
+  target. The legacy `segMaxSeconds` (per-segment cap) field is retired — with
+  top vendors generating 30s in one call, capping a segment at 1-30s had no
+  meaning; segmentation planning, expansion, budget quotes and the auto-mode
+  duration gate all read the same total-duration value now.
+
+### Fixed
+- **Image/video model dropdowns no longer show 「跟随设置」 (follow settings).**
+  Language models legitimately have that option (the session model is the
+  fallback), but image/video models have a real default — the ★ starred model
+  in settings — so the node dropdown now lists only the configured models and
+  displays the starred one when the node has no explicit pick (matching what
+  the request side already did via `resolveImageModelCfg`/`resolveVideoModelCfg`).
+- **Dropdown menus no longer fly to a wrong position on zoomed/panned canvases.**
+  `PopupSelect` menus and the @-mention popover are rendered inside the
+  transformed `dshic-world` layer, where `position:fixed` resolves against the
+  transform ancestor instead of the viewport; their viewport-based coordinates
+  are now converted to world coordinates (same formula as `screenToWorld`), so
+  menus stay attached to their trigger at any zoom/pan.
+
+### Changed
+- **Segmentation planning reads the total duration.** With `segMaxSeconds`
+  retired, the per-storyboard cap used by segmentation planning, canvas
+  expansion, budget quotes and the auto-mode duration gate is now the node's
+  total-duration value (default 15s when unset) — one number, one meaning,
+  everywhere.
+
+### Internal
+- **Regression suites updated for the field retirement.** Budget-fingerprint,
+  segment-plan and drift-guard assertions now exercise `targetDuration`
+  instead of the removed `segMaxSeconds` field.
+
 ## [0.20.3] — 2026-11-10
 
 ### Fixed
