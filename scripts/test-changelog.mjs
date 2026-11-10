@@ -119,6 +119,8 @@ const COVERAGE = [
   { sha: '83f3e02', keys: [/total duration.*hard constraint|TOTAL duration|按镜头节奏自动|auto pacing|segMaxSeconds.*retired|per-segment cap/i] },
   { sha: '4b297f0', keys: [/follow settings|跟随设置|starred model|PopupSelect.*world|fly to a wrong position|world coordinates/i] },
   { sha: 'ac7cd63', keys: [/detach from their trigger|composerReposition|re-parenting the menu|removeChild|menu position/i] },
+  { sha: 'a514cd6', keys: [/detach from their trigger|composerReposition|menu position|静态快照|reposition chain/i] },
+  { sha: '7bc66ec', keys: [/attached to their trigger|menu max height|real height|layout effect|flies away|向上翻/i] },
 ];
 for (const c of COVERAGE) {
   ok(c.keys.some((re) => re.test(coverageText)), '未发版提交 ' + c.sha + ' 在 CHANGELOG（Unreleased 或最新已发布段）里找不到对应记录（补记不全）');
