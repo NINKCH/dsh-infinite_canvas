@@ -12615,21 +12615,38 @@ function queueThumb(assetId) {
       const [pos, setPos] = useState({ left: 0, top: 0, width: width || 160, flipped: false });
       const btnRef = useRef(null);
       const menuRef = useRef(null);
+      /** 统一定位器（三处同源：openMenu 初定位 / composerReposition 跟随 / layout effect 实高校正）。
+       *  镜像贴附语义：下翻菜单顶=按钮底+6（搜索框贴按钮）；上翻菜单底=按钮顶-6（搜索框在菜单
+       *  最下仍贴按钮）。menuH 传实际高度（layout effect 量得）；初定位/跟随阶段传 0 用估算 280。 */
+      const placeMenu = (menuH) => {
+        const btn = btnRef.current;
+        if (!btn || !btn.getBoundingClientRect) return null;
+        const r = btn.getBoundingClientRect();
+        const mw = Math.max(Number(width) || 160, 200);
+        const vw = window.innerWidth || 1200;
+        const vh = window.innerHeight || 800;
+        const pad = 8;
+        const gap = 6;
+        const left = Math.max(8, Math.min(r.left, vw - mw - 8));
+        const h = Math.max(60, Number(menuH) || 280);
+        // 空间裁决：向下放不下且上方更宽裕 → 上翻；否则下翻（下翻越界时夹视口底）。
+        const downOver = r.bottom + gap + h - (vh - pad); // 下翻超出视口底的量
+        const upSpace = r.top - gap - h - pad;            // 上翻后距视口顶的余量
+        const flipped = downOver > 0 && upSpace > -downOver; // 哪边溢出少选哪边
+        let top;
+        if (flipped) {
+          top = r.top - gap - h;                        // 上翻：菜单底贴按钮顶
+          if (top < pad) { top = Math.max(pad, Math.min(r.bottom + gap, vh - h - pad)); flipped = false; }
+        } else {
+          top = r.bottom + gap;                         // 下翻：菜单顶贴按钮底
+          if (top + h > vh - pad) top = Math.max(pad, vh - h - pad);
+        }
+        return { left, top, width: mw, flipped };
+      };
       const openMenu = () => {
         if (disabled) return;
-        const btn = btnRef.current;
-        if (btn && btn.getBoundingClientRect) {
-          const r = btn.getBoundingClientRect();
-          const mw = Math.max(Number(width) || 160, 200);
-          const vw = window.innerWidth || 1200;
-          const vh = window.innerHeight || 800;
-          const left = Math.max(8, Math.min(r.left, vw - mw - 8));
-          const below = r.bottom + 6;
-          // 初定位：默认向下；按钮下方空间不足（按钮已处视口下半区）先按上翻定位，
-          // 精确方向与贴附由 useLayoutEffect 按菜单实际高度校正（镜像语义：上翻时搜索框贴按钮）。
-          const top = (below + 280 > vh - 8) ? Math.max(8, r.top - 286) : below;
-          setPos({ left, top, width: mw, flipped: below + 280 > vh - 8 });
-        }
+        const p = placeMenu(0); // 初定位用估算高度（菜单未渲染）；layout effect 随后按实际高度校正
+        if (p) setPos(p);
         setQ('');
         setCustom('');
         setOpen(true);
@@ -12658,18 +12675,11 @@ function queueThumb(assetId) {
         document.addEventListener('pointerdown', onDown, true);
         // 菜单跟随：composer 是活的（跟随节点拖动/画布缩放重定位），菜单坐标若只是打开瞬间的
         // 快照就会「飞离选择位置」。把自己挂进 composerReposition 链——composer 每次重定位时
-        // 菜单同步重算（btnRef 的 rect 已是新位置）。
+        // 菜单同步重算（与 layout effect 同一 placeMenu：镜像方向 + flipped 一并保持）。
         const reposition = () => {
-          const btn = btnRef.current;
-          if (!btn || !btn.getBoundingClientRect) return;
-          const r = btn.getBoundingClientRect();
-          const mw = Math.max(Number(width) || 160, 200);
-          const vw = window.innerWidth || 1200;
-          const vh = window.innerHeight || 800;
-          const left = Math.max(8, Math.min(r.left, vw - mw - 8));
-          const below = r.bottom + 6;
-          const top = (below + 280 > vh - 8) ? Math.max(8, r.top - 286) : below;
-          setPos({ left, top, width: mw });
+          const menu = menuRef.current;
+          const p = placeMenu(menu && menu.getBoundingClientRect ? menu.getBoundingClientRect().height : 0);
+          if (p) setPos(p);
         };
         const prevReposition = composerReposition;
         composerReposition = () => { try { reposition(); } catch { /* 定位失败不影响画布 */ } if (prevReposition) prevReposition(); };
@@ -12694,36 +12704,18 @@ function queueThumb(assetId) {
       const shown = (searchable && query)
         ? options.filter((o) => (String(o.label) + ' ' + String(o.sub || '') + ' ' + String(o.value)).toLowerCase().includes(query))
         : options;
-      // 菜单纵向校正（useLayoutEffect 绘制前，无闪烁）：镜像贴附语义——
-      //   下翻：菜单顶 = 按钮底 + 6（搜索框在最上，紧贴按钮）
-      //   上翻：菜单底 = 按钮顶 - 6（搜索框在菜单最下，紧贴按钮）
-      // 初定位方向由 openMenu 的 top 与按钮的相对位置判定；上下都放不下才夹进视口。
+      // 菜单实际高度就位后的精确定位（useLayoutEffect 绘制前，无闪烁）：与 placeMenu 同源——
+      // 量真实高度重算镜像方向与贴附（初定位用估算 280，渲染后按实际高度修正）。
       useLayoutEffect(() => {
         if (!open) return;
         const menu = menuRef.current;
-        const btn = btnRef.current;
-        if (!menu || !btn || !menu.getBoundingClientRect) return;
+        if (!menu || !menu.getBoundingClientRect) return;
         const mr = menu.getBoundingClientRect();
-        const br = btn.getBoundingClientRect();
         if (!mr.height) return;
-        const vh = window.innerHeight || 800;
-        const pad = 8;
-        const gap = 6;
-        // 方向判定：初定位 top 在按钮上方 → 上翻；否则下翻。
-        const flipped = pos.top < br.top;
-        let top;
-        if (flipped) {
-          top = br.top - gap - mr.height;          // 上翻：底边贴按钮顶
-          if (top < pad) top = Math.max(pad, br.bottom + gap); // 上方放不下 → 退回下翻
-        } else {
-          top = br.bottom + gap;                   // 下翻：顶边贴按钮底
-          if (top + mr.height > vh - pad) {
-            const up = br.top - gap - mr.height;
-            top = up >= pad ? up : Math.max(pad, vh - mr.height - pad);
-          }
-        }
-        if (Math.abs(top - pos.top) > 0.5) setPos((p) => ({ ...p, top, flipped }));
-        else if (!!pos.flipped !== flipped) setPos((p) => ({ ...p, flipped }));
+        const p = placeMenu(mr.height);
+        if (!p) return;
+        const changed = Math.abs(p.top - pos.top) > 0.5 || Math.abs((p.left ?? 0) - (pos.left ?? 0)) > 0.5 || !!p.flipped !== !!pos.flipped;
+        if (changed) setPos(p);
       }, [open, shown.length, editable]);
       return h('span', {
         className: cls('dshic-pick-wrap', className),
