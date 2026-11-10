@@ -893,7 +893,6 @@ function revealCanvasInRight() {
       'videoApi': '视频 API（提交 + 轮询）',
       'baseUrl': '接口地址',
       'apiKey': 'API Key',
-      'model': '模型',
       'size': '尺寸',
       'apiHintImage': '留空则使用内置演示模式（本地合成占位图）。配置后请求 POST {baseUrl}/images/generations。',
       'apiHintVideo': 'POST 接口地址提交任务，轮询 GET {url}/{taskId} 直到返回视频地址；留空则使用演示模式（本地合成动画视频）。',
@@ -1060,11 +1059,7 @@ function revealCanvasInRight() {
       'defaultVideoCfg': '默认视频模型',
       'imageApisLabel': '图片模型（可配多个）',
       'videoApisLabel': '视频模型（可配多个）',
-      'addConfig': '新增配置',
-      'setDefault': '设为默认',
-      'isDefault': '默认',
       'cfgName': '名称',
-      'delConfig': '删除此配置',
       'noCfgHint': '尚未配置；生成节点将使用演示模式',
       'bibleTab': '设定集',
       'bibleStyle': '风格基调（画风、年代、色调…跨集保持一致）',
@@ -1280,7 +1275,6 @@ function revealCanvasInRight() {
       'renamed': '已重命名',
       'llmMaxTokens': '输出上限 maxTokens',
       'llmTemperature': '温度 temperature',
-      'llmParamAuto': '留空 = 用 Harness/模型默认',
       'llmParamHint': '留空则不下发该参数，直接使用你在 Harness 里为该模型配置的默认值（插件不会写死任何生成参数）',
       'imgSizeOverride': '尺寸覆盖 size',
       'imgSizePlaceholder': '如 1024x1024（留空=按清晰度×比例）',
@@ -1904,7 +1898,6 @@ function revealCanvasInRight() {
       'videoApi': 'Video API (submit + poll)',
       'baseUrl': 'Base URL',
       'apiKey': 'API Key',
-      'model': 'Model',
       'size': 'Size',
       'apiHintImage': 'Leave empty to use the built-in demo mode (local placeholder images). When set, requests go to POST {baseUrl}/images/generations.',
       'apiHintVideo': 'POSTs the task to the URL and polls GET {url}/{taskId} until a video URL appears; leave empty for demo mode.',
@@ -2071,11 +2064,7 @@ function revealCanvasInRight() {
       'defaultVideoCfg': 'Default video model',
       'imageApisLabel': 'Image models (multiple)',
       'videoApisLabel': 'Video models (multiple)',
-      'addConfig': 'Add config',
-      'setDefault': 'Make default',
-      'isDefault': 'default',
       'cfgName': 'Name',
-      'delConfig': 'Delete this config',
       'noCfgHint': 'Nothing configured yet; generation nodes will use demo mode',
       'bibleTab': 'Bible',
       'bibleStyle': 'Style baseline (art, era, palette… kept across episodes)',
@@ -2292,7 +2281,6 @@ function revealCanvasInRight() {
       'renamed': 'Renamed',
       'llmMaxTokens': 'Output cap (maxTokens)',
       'llmTemperature': 'Temperature',
-      'llmParamAuto': 'empty = Harness/model default',
       'llmParamHint': 'Left empty, the parameter is not sent at all — the model uses the default you configured in Harness. The plugin never hardcodes generation parameters.',
       'imgSizeOverride': 'Size override',
       'imgSizePlaceholder': 'e.g. 1024x1024 (empty = clarity × ratio)',
@@ -3645,8 +3633,8 @@ body[data-ds-dark-theme] .dshic-pick-item.is-on{background:color-mix(in srgb,var
       videoProviders: [],  // [{id, name, url, apiKey, extra, outputFormat?, generateAudio?, protocol?, watermark?, models: [{id, model}]}]
       imageStar: '',       // 'providerId|modelId'
       videoStar: '',
-      ttsApis: [],     // [{id, name, baseUrl, apiKey, model, voice}]
-      ttsApiId: '',
+      ttsProviders: [],  // [{id, name, baseUrl, apiKey, timeoutMs?, models: [{id, model, voice}]}] —— voice 每模型一个，timeoutMs 供应商级
+      ttsStar: '',       // 'providerId|modelId'
       lang: '',        // '' = 跟随 Harness
     };
     function loadSettings() {
@@ -3659,8 +3647,8 @@ body[data-ds-dark-theme] .dshic-pick-item.is-on{background:color-mix(in srgb,var
         videoStar: s.videoStar || '',
         // dsh-image-gen 桥接：启用后画布不自配图片 API，直接走它的 /studio（密钥留在它宿主侧）
         imageGen: { enabled: !!(s.imageGen && s.imageGen.enabled), provider: (s.imageGen && s.imageGen.provider) || '', model: (s.imageGen && s.imageGen.model) || '' },
-        ttsApis: Array.isArray(s.ttsApis) ? s.ttsApis : [],
-        ttsApiId: s.ttsApiId || '',
+        ttsProviders: Array.isArray(s.ttsProviders) ? s.ttsProviders : [],
+        ttsStar: s.ttsStar || '',
         lang: s.lang || '',
         // 专家：缺字段/非法值/旧字段（skillScript/skillStoryboard）→ 一律回退 general，不报错
       };
@@ -3707,6 +3695,18 @@ body[data-ds-dark-theme] .dshic-pick-item.is-on{background:color-mix(in srgb,var
         legacyVideoApiRefMap = {};
         for (const cfg of s.videoApis) legacyVideoApiRefMap[cfg.id] = 'p_' + cfg.id + '|m_' + cfg.id;
       }
+      // v0.20.2 及以前 TTS 扁平 API（一配置一模型一 voice）→ 供应商 + 模型列表（issue #6 第二阶段）：
+      // 与 image/video 同规：派生 id 确定性沿用旧 cfg id（loadSettings 高频调用，绝不用 uid()）；
+      // 节点数据只存 data.tts[edgeId] = {status, assetId}（无 ttsApiId），零节点迁移负担
+      if (!out.ttsProviders.length && Array.isArray(s.ttsApis) && s.ttsApis.length) {
+        out.ttsProviders = s.ttsApis.map((cfg) => ({
+          id: 'p_' + cfg.id, name: cfg.name || T('defaultTtsCfg'),
+          baseUrl: cfg.baseUrl || '', apiKey: cfg.apiKey || '',
+          timeoutMs: cfg.timeoutMs || '',
+          models: [{ id: 'm_' + cfg.id, model: cfg.model || '', voice: cfg.voice || 'alloy' }],
+        }));
+        out.ttsStar = (s.ttsApiId && 'p_' + s.ttsApiId + '|m_' + s.ttsApiId) || (out.ttsProviders[0] ? out.ttsProviders[0].id + '|' + out.ttsProviders[0].models[0].id : '');
+      }
       return out;
     }
     function saveSettings(s) {
@@ -3748,6 +3748,17 @@ body[data-ds-dark-theme] .dshic-pick-item.is-on{background:color-mix(in srgb,var
           if (!m || !m.id || !String(m.model || '').trim()) continue;
           // vendor 必须带出去：否则「显式选了厂商」在请求侧丢失，只能靠模型名/URL 猜协议（曾把万相误判成 Seedance）
           out.push({ ref: p.id + '|' + m.id, providerId: p.id, providerName: p.name || p.id, modelId: m.id, model: String(m.model).trim(), url: p.url || '', apiKey: p.apiKey || '', extra: p.extra || '', outputFormat: p.outputFormat || '', generateAudio: p.generateAudio, protocol: p.protocol || 'generic', watermark: p.watermark, vendor: p.vendor || '' });
+        }
+      }
+      return out;
+    }
+    /** 供应商列表 → 扁平 TTS 模型视图（ref = 'providerId|modelId'）；未填模型名的条目不进下拉（与 image/video 同规）。 */
+    function flattenTtsModels(settings) {
+      const out = [];
+      for (const p of settings.ttsProviders || []) {
+        for (const m of (p.models || [])) {
+          if (!m || !m.id || !String(m.model || '').trim()) continue;
+          out.push({ ref: p.id + '|' + m.id, providerId: p.id, providerName: p.name || p.id, modelId: m.id, model: String(m.model).trim(), voice: m.voice || 'alloy', baseUrl: p.baseUrl || '', apiKey: p.apiKey || '', timeoutMs: p.timeoutMs || '' });
         }
       }
       return out;
@@ -7626,11 +7637,6 @@ function queueThumb(assetId) {
     /** 任务是否已到达成功终态——轮询方据此终止，绝不无限轮询已完成的任务。 */
     function taskDoneOf(st) {
       return ['succeeded', 'success', 'completed', 'complete', 'done', 'finished'].includes(taskStatusOf(st));
-    }
-
-    function resolveApiCfg(list, defId, wantId) {
-      if (!Array.isArray(list) || !list.length) return null;
-      return list.find((x) => x.id === wantId) || list.find((x) => x.id === defId) || list[0];
     }
 
     /** PCM 采样数组 → WAV Blob（单声道 16-bit，声音参考不需要立体声）。 */
@@ -14403,7 +14409,8 @@ function queueThumb(assetId) {
       };
       const genTts = async (x) => {
         const settings = loadSettings();
-        const cfg = resolveApiCfg(settings.ttsApis, settings.ttsApiId, null);
+        const list = flattenTtsModels(settings);
+        const cfg = list.find((y) => y.ref === settings.ttsStar) || list[0];
         if (!cfg) { toast(T('errNoTts')); return; }
         const text = String(getSub(x) || '').trim();
         if (!text) { toast(T('subPlaceholder')); return; }
@@ -19507,26 +19514,29 @@ const DIRECTOR_KEY_HELP = [
         style: { flex: 'none', width: 14, height: 14, lineHeight: '13px', textAlign: 'center', fontSize: 10, borderRadius: '50%', border: '1px solid var(--dsw-alias-border-secondary, #777)', color: 'var(--dsw-alias-label-secondary, #999)', cursor: 'help', userSelect: 'none', opacity: 0.85 },
       }, 'i');
     }
-    /** 图片/视频模型配置（供应商 + 模型两级）：一个供应商配一次 URL/Key，下面挂多个模型；
-     *  ★星标模型 = 节点未指定时的默认路由。 */
+    /** 图片/视频/TTS 模型配置（供应商 + 模型两级）：一个供应商配一次 URL/Key，下面挂多个模型；
+     *  ★星标模型 = 节点未指定时的默认路由。TTS（issue #6 第二阶段）：
+     *  voice 是每模型字段（不同模型支持的音色清单不同），timeoutMs 是供应商级（一供应商=一连接）。 */
     function ModelProviderEditor({ kind }) {
       const [s, setS] = useState(loadSettings);
       const [openId, setOpenId] = useState(null);
-      const listKey = kind === 'image' ? 'imageProviders' : 'videoProviders';
-      const starKey = kind === 'image' ? 'imageStar' : 'videoStar';
-      const icon = kind === 'image' ? 'image' : 'video';
-      const labelKey = kind === 'image' ? 'imageApisLabel' : 'videoApisLabel';
-      const nameKey = kind === 'image' ? 'defaultImageCfg' : 'defaultVideoCfg';
-      const urlKey = kind === 'image' ? 'baseUrl' : 'url';
+      const listKey = kind === 'image' ? 'imageProviders' : kind === 'video' ? 'videoProviders' : 'ttsProviders';
+      const starKey = kind === 'image' ? 'imageStar' : kind === 'video' ? 'videoStar' : 'ttsStar';
+      const icon = kind === 'image' ? 'image' : kind === 'video' ? 'video' : 'audio';
+      const labelKey = kind === 'image' ? 'imageApisLabel' : kind === 'video' ? 'videoApisLabel' : 'ttsApisLabel';
+      const nameKey = kind === 'image' ? 'defaultImageCfg' : kind === 'video' ? 'defaultVideoCfg' : 'defaultTtsCfg';
+      const urlKey = kind === 'video' ? 'url' : 'baseUrl';
       const urlPh = kind === 'image'
         ? 'https://api.example.com/v1（或完整 /images/generations 端点）'
-        : 'https://api.example.com/v1/video/generations（或裸域 / /v1）';
+        : kind === 'video'
+          ? 'https://api.example.com/v1/video/generations（或裸域 / /v1）'
+          : 'https://api.example.com/v1';
       // issue #6：写回基底 = updateSettings 现取磁盘最新（不再是挂载时快照）；persist 只负责把返回的新值同步进本地快照
       const persist = (next) => setS(next);
       const mutate = (fn) => { persist(updateSettings((b) => { const d = JSON.parse(JSON.stringify(b)); fn(d); return d; })); };
       const addProvider = () => {
         const id = uid('prov');
-        mutate((d) => { d[listKey] = (d[listKey] || []).concat([{ id, name: T(nameKey) + ' ' + ((d[listKey] || []).length + 1), [urlKey]: '', apiKey: '', extra: '', models: [], ...(kind === 'image' ? { mode: 'generations' } : {}) }]); });
+        mutate((d) => { d[listKey] = (d[listKey] || []).concat([{ id, name: T(nameKey) + ' ' + ((d[listKey] || []).length + 1), [urlKey]: '', apiKey: '', ...(kind === 'tts' ? { timeoutMs: '' } : { extra: '' }), models: [], ...(kind === 'image' ? { mode: 'generations' } : {}) }]); });
         setOpenId(id);
       };
       const removeProvider = (id) => {
@@ -19534,7 +19544,7 @@ const DIRECTOR_KEY_HELP = [
         if (openId === id) setOpenId(null);
       };
       const patchProvider = (id, k, v) => mutate((d) => { d[listKey] = (d[listKey] || []).map((x) => (x.id === id ? { ...x, [k]: v } : x)); });
-      const addModel = (pid) => mutate((d) => { const p = (d[listKey] || []).find((x) => x.id === pid); if (p) p.models = (p.models || []).concat([{ id: uid('m'), model: '' }]); });
+      const addModel = (pid) => mutate((d) => { const p = (d[listKey] || []).find((x) => x.id === pid); if (p) p.models = (p.models || []).concat([Object.assign({ id: uid('m'), model: '' }, kind === 'tts' ? { voice: 'alloy' } : {})]); });
       const patchModel = (pid, mid, k, v) => mutate((d) => { const p = (d[listKey] || []).find((x) => x.id === pid); if (!p) return; p.models = (p.models || []).map((x) => (x.id === mid ? { ...x, [k]: v } : x)); });
       const removeModel = (pid, mid) => mutate((d) => {
         const p = (d[listKey] || []).find((x) => x.id === pid); if (!p) return;
@@ -19579,6 +19589,11 @@ const DIRECTOR_KEY_HELP = [
               ) : null,
               h(Field, { key: 'u', label: T('baseUrl'), value: p[urlKey] || '', onChange: (v) => patchProvider(p.id, urlKey, v), placeholder: kind === 'video' ? ((VIDEO_VENDORS[detectVideoVendor(p)] || {}).base || urlPh) : urlPh }),
               h(Field, { key: 'k', label: T('apiKey'), value: p.apiKey || '', onChange: (v) => patchProvider(p.id, 'apiKey', v), placeholder: kind === 'video' ? ((VIDEO_VENDORS[detectVideoVendor(p)] || {}).keyPh || 'sk-…') : 'sk-…', password: true }),
+              kind === 'tts' ? h(Field, {
+                key: 'to', label: T('apiTimeout'), value: p.timeoutMs || '',
+                placeholder: '留空 = 120000',
+                onChange: (v) => patchProvider(p.id, 'timeoutMs', v),
+              }) : null,
               kind === 'image' ? [
                 h(Field, { key: 'size', label: T('imgSizeOverride'), value: p.size || '', onChange: (v) => patchProvider(p.id, 'size', v), placeholder: T('imgSizePlaceholder') }),
                 h(Field, { key: 'rf', label: T('imgResponseFormat'), value: p.responseFormat || '', onChange: (v) => patchProvider(p.id, 'responseFormat', v), placeholder: 'b64_json / url（留空=API 默认）' }),
@@ -19589,12 +19604,12 @@ const DIRECTOR_KEY_HELP = [
                     h('option', { value: 'edits' }, T('modeEdits')),
                     h('option', { value: 'compshare' }, T('modeCompshare')),
                     h('option', { value: 'sanbao' }, T('modeSanbao')))),
-              ] : [
+              ] : kind === 'video' ? [
                 (detectVideoVendor(p) === 'openai' || detectVideoVendor(p) === 'seedance') ? h(Field, { key: 'of', label: T('vidOutFormat'), value: p.outputFormat || '', onChange: (v) => patchProvider(p.id, 'outputFormat', v), placeholder: 'mp4（留空不发送）' }) : null,
                 (detectVideoVendor(p) === 'openai' || detectVideoVendor(p) === 'seedance') ? h('label', { key: 'ga', className: 'dshic-row', style: { gap: 6, fontSize: 11 } },
                   h('input', { type: 'checkbox', checked: p.generateAudio === true, onChange: (e) => patchProvider(p.id, 'generateAudio', e.target.checked), onPointerDown: (e) => e.stopPropagation() }),
                   h('span', {}, T('vidAudioOpt'))) : null,
-              ],
+              ] : null,
               (kind === 'image' || kind === 'video') ? [
                 h(Field, { key: 'extra', label: T('cfgExtra'), value: p.extra || '', onChange: (v) => patchProvider(p.id, 'extra', v), placeholder: '{"watermark":false,"prompt_extend":false}', tip: T('cfgExtraHint') }),
               ] : null,
@@ -19609,6 +19624,8 @@ const DIRECTOR_KEY_HELP = [
                   onPointerDown: (e) => e.stopPropagation(), onClick: () => toggleStar(p.id, m.id),
                 }, s[starKey] === p.id + '|' + m.id ? '★' : '☆'),
                 h('input', { className: 'dshic-input', style: { flex: 1, minWidth: 0 }, value: m.model || '', placeholder: T('modelNamePh'), onChange: (e) => patchModel(p.id, m.id, 'model', e.target.value), onPointerDown: (e) => e.stopPropagation() }),
+                // TTS：voice 每模型一个（修复旧 ApiListEditor「voice 无编辑入口」的原始缺口）
+                kind === 'tts' ? h('input', { className: 'dshic-input', style: { flex: 1, minWidth: 0 }, value: m.voice || '', placeholder: 'alloy', 'aria-label': T('voice'), onChange: (e) => patchModel(p.id, m.id, 'voice', e.target.value), onPointerDown: (e) => e.stopPropagation() }) : null,
                 h('button', { type: 'button', className: 'dshic-iconbtn', title: T('doDelete'), onPointerDown: (e) => e.stopPropagation(), onClick: () => removeModel(p.id, m.id) }, '×'),
               )),
               !(p.models || []).length ? h('div', { className: 'dshic-hint' }, T('noModelsCfg')) : null,
@@ -19617,161 +19634,6 @@ const DIRECTOR_KEY_HELP = [
         }),
       );
     }
-    function ApiListEditor({ kind }) {
-      const [s, setS] = useState(loadSettings);
-      const [openId, setOpenId] = useState(null);
-      const listKey = kind === 'image' ? 'imageApis' : kind === 'video' ? 'videoApis' : 'ttsApis';
-      const defKey = kind === 'image' ? 'imageApiId' : kind === 'video' ? 'videoApiId' : 'ttsApiId';
-      const labelKey = kind === 'image' ? 'imageApisLabel' : kind === 'video' ? 'videoApisLabel' : 'ttsApisLabel';
-      const icon = kind === 'image' ? 'image' : kind === 'video' ? 'video' : 'audio';
-      const nameKey = kind === 'image' ? 'defaultImageCfg' : kind === 'video' ? 'defaultVideoCfg' : 'defaultTtsCfg';
-      // issue #6：写回基底 = updateSettings 现取磁盘最新（不再是挂载时快照）；persist 只负责把返回的新值同步进本地快照
-      const persist = (next) => setS(next);
-      const mutate = (fn) => {
-        persist(updateSettings((b) => {
-          const d = JSON.parse(JSON.stringify(b));
-          d[listKey] = fn(d[listKey] || []);
-          return d;
-        }));
-      };
-      const add = () => {
-        const id = uid('cfg');
-        mutate((list) => list.concat([{
-          id,
-          name: T(nameKey) + ' ' + ((s[listKey] || []).length + 1),
-          [kcUrlKey(kind)]: '',
-          apiKey: '',
-          model: '',
-          ...(kind === 'image' ? { mode: 'generations' } : {}),
-          ...(kind === 'tts' ? { voice: 'alloy' } : {}),
-        }]));
-        setOpenId(id);
-      };
-      const patch = (id, k, v) => mutate((list) => list.map((x) => (x.id === id ? { ...x, [k]: v } : x)));
-      const remove = (id) => {
-        mutate((list) => list.filter((x) => x.id !== id));
-        if (openId === id) setOpenId(null);
-      };
-      const list = s[listKey] || [];
-      const urlPh = kind === 'image' ? 'https://api.example.com/v1' : kind === 'video' ? 'https://api.example.com/v1/video/generations' : 'https://api.example.com/v1';
-      const urlKey = kind === 'image' ? 'baseUrl' : 'url';
-      return h('div', { className: 'dshic-card' },
-        h('div', { className: 'dshic-row' },
-          Ic(icon, 12),
-          h('strong', { style: { fontSize: 12, flex: 1, minWidth: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' } }, T(labelKey)),
-          h('span', { className: 'dshic-tag st' }, String(list.length)),
-          h('button', { type: 'button', className: 'dshic-mini', onClick: add, onPointerDown: (e) => e.stopPropagation() }, Ic('plus', 11), T('addConfig')),
-        ),
-        list.length === 0 ? h('div', { className: 'dshic-hint' }, T('noCfgHint')) : null,
-        list.map((cfg) => {
-          const open = openId === cfg.id;
-          const isDef = s[defKey] === cfg.id;
-          return h('div', { key: cfg.id, className: 'dshic-card', style: { padding: open ? 8 : 5, gap: 6, background: 'var(--dsw-alias-bg-layer-1)' } },
-            // 折叠头：箭头 + 名称 + 默认标记 + 删除
-            h('div', { className: 'dshic-row' },
-              h('button', {
-                type: 'button', className: 'dshic-iconbtn', title: open ? T('collapse') : T('unfold'),
-                onPointerDown: (e) => e.stopPropagation(),
-                onClick: () => setOpenId(open ? null : cfg.id),
-              }, open ? '▾' : '▸'),
-              open
-                ? h('input', {
-                    className: 'dshic-input', style: { flex: 1, minWidth: 0, fontWeight: 600 }, value: cfg.name || '',
-                    placeholder: T('cfgName'), autoFocus: true,
-                    onChange: (e) => patch(cfg.id, 'name', e.target.value),
-                    onPointerDown: (e) => e.stopPropagation(),
-                  })
-                : h('span', {
-                    style: { flex: 1, minWidth: 0, fontSize: 12, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', cursor: 'pointer', color: 'var(--dsw-alias-label-primary)' },
-                    onClick: () => setOpenId(cfg.id),
-                    onPointerDown: (e) => e.stopPropagation(),
-                    title: T('baseUrl') + ': ' + (cfg[kcUrlKey(kind)] || '—'),
-                  }, cfg.name || T('cfgName')),
-              isDef
-                ? h('span', { className: 'dshic-tag api' }, T('isDefault'))
-                : h('button', {
-                    type: 'button', className: 'dshic-mini is-ghost', title: T('setDefault'),
-                    onPointerDown: (e) => e.stopPropagation(),
-                    onClick: () => persist(updateSettings((b) => ({ ...b, [defKey]: cfg.id }))),
-                  }, '★'),
-              cfg.model ? h('span', { className: 'dshic-tag st' }, String(cfg.model).slice(0, 18)) : null,
-              h('button', {
-                type: 'button', className: 'dshic-iconbtn is-danger', title: T('delConfig'),
-                onPointerDown: (e) => e.stopPropagation(),
-                onClick: () => remove(cfg.id),
-              }, Ic('trash', 11)),
-            ),
-            open ? [
-              h(Field, { key: 'u', label: T('baseUrl'), value: cfg[kcUrlKey(kind)] || '', onChange: (v) => patch(cfg.id, urlKey, v), placeholder: urlPh }),
-              h(Field, { key: 'k', label: T('apiKey'), value: cfg.apiKey || '', onChange: (v) => patch(cfg.id, 'apiKey', v), placeholder: 'sk-…', password: true }),
-              h(Field, { key: 'm', label: T('model'), value: cfg.model || '', onChange: (v) => patch(cfg.id, 'model', v) }),
-              h(Field, {
-                key: 'to', label: T('apiTimeout'), value: cfg.timeoutMs || '',
-                placeholder: T('llmParamAuto'),
-                onChange: (v) => patch(cfg.id, 'timeoutMs', v),
-              }),
-              kind === 'image'
-                ? h(Field, { key: 'size', label: T('imgSizeOverride'), value: cfg.size || '', onChange: (v) => patch(cfg.id, 'size', v), placeholder: T('imgSizePlaceholder') })
-                : null,
-              kind === 'image'
-                ? h(Field, { key: 'rf', label: T('imgResponseFormat'), value: cfg.responseFormat || '', onChange: (v) => patch(cfg.id, 'responseFormat', v), placeholder: 'b64_json / url（留空=API 默认）' })
-                : null,
-              kind === 'image'
-                ? h('div', { key: 'mode', className: 'dshic-field' },
-                    h('span', { className: 'dshic-field-label' }, T('imgMode')),
-                    h('select', {
-                      className: 'dshic-select', value: cfg.mode || 'generations',
-                      onChange: (e) => patch(cfg.id, 'mode', e.target.value),
-                      onPointerDown: (e) => e.stopPropagation(),
-                    },
-                      h('option', { value: 'generations' }, T('modeGenerations')),
-                      h('option', { value: 'edits' }, T('modeEdits')),
-                      h('option', { value: 'sanbao' }, T('modeSanbao'))))
-                : null,
-              kind === 'video'
-                ? h('div', { key: 'proto', className: 'dshic-field' },
-                    h('span', { className: 'dshic-field-label' }, T('vidProtocol'), InfoTip(T('vidProtocolHint'))),
-                    h('select', {
-                      className: 'dshic-select', value: cfg.protocol || 'generic',
-                      onChange: (e) => patch(cfg.id, 'protocol', e.target.value),
-                      onPointerDown: (e) => e.stopPropagation(),
-                    },
-                      h('option', { value: 'generic' }, T('protoGeneric')),
-                      h('option', { value: 'seedance' }, T('protoSeedance'))))
-                : null,
-              kind === 'video'
-                ? h('label', { key: 'ga', className: 'dshic-row', style: { gap: 6, fontSize: 11 } },
-                    h('input', {
-                      type: 'checkbox', checked: cfg.generateAudio === true,
-                      onChange: (e) => patch(cfg.id, 'generateAudio', e.target.checked),
-                      onPointerDown: (e) => e.stopPropagation(),
-                    }),
-                    h('span', {}, T('vidAudioOpt')))
-                : null,
-              kind === 'video'
-                ? h(Field, { key: 'of', label: T('vidOutFormat'), value: cfg.outputFormat || '', onChange: (v) => patch(cfg.id, 'outputFormat', v), placeholder: 'mp4（留空不发送）' })
-                : null,
-              kind === 'video' && cfg.protocol === 'seedance'
-                ? h('label', { key: 'wm', className: 'dshic-row', style: { gap: 6, fontSize: 11 } },
-                    h('input', {
-                      type: 'checkbox', checked: cfg.watermark === true,
-                      onChange: (e) => patch(cfg.id, 'watermark', e.target.checked),
-                      onPointerDown: (e) => e.stopPropagation(),
-                    }),
-                    h('span', {}, T('seedanceWatermark')))
-                : null,
-              (kind === 'image' || kind === 'video')
-                ? h(Field, { key: 'extra', label: T('cfgExtra'), value: cfg.extra || '', onChange: (v) => patch(cfg.id, 'extra', v), placeholder: '{"watermark":false,"prompt_extend":false}', tip: T('cfgExtraHint') })
-                : null,
-              kind === 'tts'
-                ? h(Field, { key: 'voice', label: T('voice'), value: cfg.voice || '', onChange: (v) => patch(cfg.id, 'voice', v), placeholder: 'alloy' })
-                : null,
-            ] : null,
-          );
-        }),
-      );
-    }
-    function kcUrlKey(kind) { return kind === 'image' ? 'baseUrl' : 'url'; }
 
     /** T2：设置面板 Craft 后期卡片（连接状态 / 工具灯 / 数据目录）。 */
     function CraftCard() {
@@ -20421,7 +20283,7 @@ const DIRECTOR_KEY_HELP = [
         ),
         h(ModelProviderEditor, { key: 'imglist', kind: 'image' }),
         h(ModelProviderEditor, { key: 'vidlist', kind: 'video' }),
-        h(ApiListEditor, { key: 'ttslist', kind: 'tts' }),
+        h(ModelProviderEditor, { key: 'ttslist', kind: 'tts' }),
         // 帮助与反馈：一行入口（点开弹窗看二维码与提 Issue）
         h('div', {
           key: 'support', className: 'dshic-card', style: { cursor: 'pointer' },
@@ -22380,10 +22242,10 @@ const DIRECTOR_KEY_HELP = [
           // 设置迁移的测试缝隙
           window.__DSH_IC_SETTINGS__ = {
             DEFAULT_SETTINGS, loadSettings, saveSettings, updateSettings,
-            flattenImageModels, resolveImageModelCfg,
+            flattenImageModels, flattenTtsModels, resolveImageModelCfg,
             buildExpertContext,
             // 设置卡组件缝合口（跨卡丢失更新回归用，scripts/test-panel-layout.mjs；不进 __DSH_IC_TABS__，smoke 会遍历渲染）
-            LlmModelSelect, ModelProviderEditor, ApiListEditor,
+            LlmModelSelect, ModelProviderEditor,
           };
           // 创作上下文注入的测试缝隙（供 scripts/test-skill-inject.mjs 断言）
           window.__DSH_IC_SKILL__ = {

@@ -1478,12 +1478,14 @@ function cssRulesMatchingClass(name) {
 //   旧模式：每张设置卡持有挂载时快照、把整对象写回 → 碰第二张卡就把第一张的修改静默回滚。
 //   修复：updateSettings（现取磁盘最新做基底）+ 写回后 setS 同步刷新本地快照。
 //   有状态 useState（stateStore）让 setState 真正生效，才能同时验证修复的两半。
+//   0.20.3 T2：TTS 卡已从 ApiListEditor 迁到 ModelProviderEditor（kind='tts'），驱动方式同步更新。
 // ============================================================
 {
   const SET = sandbox.window.__DSH_IC_SETTINGS__;
   ok(typeof SET.updateSettings === 'function', '__DSH_IC_SETTINGS__ 缺 updateSettings（设置卡写回助手）');
-  ok(typeof SET.LlmModelSelect === 'function' && typeof SET.ModelProviderEditor === 'function' && typeof SET.ApiListEditor === 'function',
+  ok(typeof SET.LlmModelSelect === 'function' && typeof SET.ModelProviderEditor === 'function',
     '__DSH_IC_SETTINGS__ 缺设置卡组件缝合口（跨卡丢失更新回归需要）');
+  ok(typeof SET.ApiListEditor === 'undefined', 'ApiListEditor 已删除却仍挂在 __DSH_IC_SETTINGS__ 缝隙上（死代码未清）');
   stateStoreMap = {}; // 开启 useState 有状态模式（按组件 key 分仓）
   const settingsOf = () => JSON.parse(lsStub.getItem('dsh-ic:settings') || '{}');
   // mount(key)：为该组件开独立状态仓（= 重新挂载，useState 取 loadSettings() 快照）；render(key)：保留该仓状态（= 同卡重渲染）
@@ -1493,46 +1495,48 @@ function cssRulesMatchingClass(name) {
     && !String(e.props.className || '').includes('is-ghost') && typeof e.props.onClick === 'function');
   const nameInput = (els) => els.find((e) => e.type === 'input' && e.props.autoFocus === true);
   const starBtns = (els) => els.filter((e) => e.type === 'button' && String(e.props.className || '').includes('is-ghost') && typeof e.props.onClick === 'function');
+  const addModelBtnOf = (els) => els.filter((e) => e.type === 'button' && typeof e.props.onClick === 'function')
+    .find((e) => stringsOf(e).join('').includes('添加模型'));
 
   // —— 场景① 跨卡互不回滚（正向）：两卡都在任何写盘前挂载 → 交替写 → 磁盘两边都在。
   //   时序是牙齿的关键：若第二张卡在第一张写盘后才挂载，其挂载快照已含对方写入，回退成快照基底也能绿。
   lsStub.setItem('dsh-ic:settings', '{}');
-  let elsTts = mount('tts', SET.ApiListEditor, { kind: 'tts' });
+  let elsTts = mount('tts', SET.ModelProviderEditor, { kind: 'tts' });
   let elsLlm = mount('llm', SET.LlmModelSelect);
   let btn = addBtn(elsTts);
-  ok(!!btn, 'TTS 卡缺「新增配置」按钮（回归驱动不了）');
+  ok(!!btn, 'TTS 卡缺「新增供应商」按钮（回归驱动不了）');
   btn.props.onClick();
-  elsTts = render('tts', SET.ApiListEditor, { kind: 'tts' });
+  elsTts = render('tts', SET.ModelProviderEditor, { kind: 'tts' });
   let ni = nameInput(elsTts);
   ok(!!ni, 'TTS 卡新增后未展开名称输入');
   ni.props.onChange({ target: { value: 'tts-a' } });
-  eq((settingsOf().ttsApis || []).length, 1, 'TTS 新增未落盘');
-  eq(((settingsOf().ttsApis || [])[0] || {}).name, 'tts-a', 'TTS 配置名未落盘');
+  eq((settingsOf().ttsProviders || []).length, 1, 'TTS 新增供应商未落盘');
+  eq(((settingsOf().ttsProviders || [])[0] || {}).name, 'tts-a', 'TTS 供应商名未落盘');
   const sel = elsLlm.find((e) => e.type === 'select' && typeof e.props.onChange === 'function');
   ok(!!sel, '文本模型卡缺下拉（回归驱动不了）');
   sel.props.onChange({ target: { value: 'prov-a|model-a' } });
   let after = settingsOf();
   eq((after.textLlm || {}).provider, 'prov-a', '文本模型卡写回缺 provider');
   eq((after.textLlm || {}).model, 'model-a', '文本模型卡写回缺 model');
-  eq((after.ttsApis || []).length, 1, '跨卡丢失更新：文本模型卡写回把 TTS 配置回滚了（issue #6）');
-  eq(((after.ttsApis || [])[0] || {}).name, 'tts-a', '跨卡丢失更新：TTS 配置名被回滚（issue #6）');
+  eq((after.ttsProviders || []).length, 1, '跨卡丢失更新：文本模型卡写回把 TTS 供应商回滚了（issue #6）');
+  eq(((after.ttsProviders || [])[0] || {}).name, 'tts-a', '跨卡丢失更新：TTS 供应商名被回滚（issue #6）');
   // setS 同步渲染牙：同卡重渲染应显示新值（漏 setS 则显示挂载时陈旧快照）
   elsLlm = render('llm', SET.LlmModelSelect);
   const manual = elsLlm.find((e) => e.type === 'input');
   eq(manual && manual.props.value, 'prov-a|model-a', '文本模型卡写回后未 setS 同步本地快照（渲染值陈旧）');
   // 再交替一轮：TTS 卡再 patch（同卡二次编辑）→ 断言 textLlm 仍在（先挂载的卡把后写盘的别卡变更保住）
-  elsTts = render('tts', SET.ApiListEditor, { kind: 'tts' });
+  elsTts = render('tts', SET.ModelProviderEditor, { kind: 'tts' });
   ni = nameInput(elsTts);
   ok(!!ni, 'TTS 卡重渲染后未保留展开的名称输入');
   ni.props.onChange({ target: { value: 'tts-a2' } });
   after = settingsOf();
-  eq(((after.ttsApis || [])[0] || {}).name, 'tts-a2', 'TTS 卡二次改名未落盘');
+  eq(((after.ttsProviders || [])[0] || {}).name, 'tts-a2', 'TTS 卡二次改名未落盘');
   eq((after.textLlm || {}).provider, 'prov-a', '跨卡丢失更新：TTS 卡写回把文本模型选择回滚了（issue #6）');
 
   // —— 场景① 反向：图片卡 + TTS 卡都在任何写盘前挂载 → 图片先写 → TTS 再写 → 两边都在盘 ——
   lsStub.setItem('dsh-ic:settings', '{}');
   let elsImg = mount('img', SET.ModelProviderEditor, { kind: 'image' });
-  elsTts = mount('tts2', SET.ApiListEditor, { kind: 'tts' });
+  elsTts = mount('tts2', SET.ModelProviderEditor, { kind: 'tts' });
   btn = addBtn(elsImg);
   ok(!!btn, '图片卡缺「新增供应商」按钮（回归驱动不了）');
   btn.props.onClick();
@@ -1544,7 +1548,12 @@ function cssRulesMatchingClass(name) {
   eq((after.imageProviders || []).length, 1, '图片卡新增供应商未落盘');
   eq(((after.imageProviders || [])[0] || {}).name, 'img-b', '图片供应商名未落盘');
   addBtn(elsTts).props.onClick();
-  elsTts = render('tts2', SET.ApiListEditor, { kind: 'tts' });
+  elsTts = render('tts2', SET.ModelProviderEditor, { kind: 'tts' });
+  // 新编辑器供应商下没有预置配置：先加一个模型，才有星标可点
+  const ttsAddModelBtn = addModelBtnOf(elsTts);
+  ok(!!ttsAddModelBtn, 'TTS 卡展开区缺「添加模型」按钮（回归驱动不了）');
+  ttsAddModelBtn.props.onClick();
+  elsTts = render('tts2', SET.ModelProviderEditor, { kind: 'tts' });
   const stars = starBtns(elsTts);
   ok(stars.length === 1, 'TTS 卡星标按钮数不对（应为 1）');
   stars[0].props.onClick();
@@ -1555,32 +1564,164 @@ function cssRulesMatchingClass(name) {
   ni.props.onChange({ target: { value: 'img-b2' } });
   after = settingsOf();
   eq(((after.imageProviders || [])[0] || {}).name, 'img-b2', '图片卡二次改名未落盘');
-  eq((after.ttsApis || []).length, 1, '跨卡丢失更新：图片卡写回把 TTS 配置回滚了（issue #6）');
-  eq(after.ttsApiId, ((after.ttsApis || [])[0] || {}).id, '跨卡丢失更新：TTS 默认项被图片卡写回回滚（issue #6）');
+  eq((after.ttsProviders || []).length, 1, '跨卡丢失更新：图片卡写回把 TTS 供应商回滚了（issue #6）');
+  eq(String(after.ttsStar || '').startsWith(((after.ttsProviders || [])[0] || {}).id + '|'), true,
+    '跨卡丢失更新：TTS 星标被图片卡写回回滚（issue #6）');
   eq((after.imageProviders || []).length, 1, '跨卡丢失更新：图片供应商名被回滚（issue #6）');
 
   // —— 场景② 同卡连续两次编辑（setS 同步刷新的牙）：第一次编辑 → 直接 saveSettings 模拟别卡写入 → 第二次编辑 → 三次变更全在盘 ——
   lsStub.setItem('dsh-ic:settings', '{}');
-  elsTts = mount('tts3', SET.ApiListEditor, { kind: 'tts' });
+  elsTts = mount('tts3', SET.ModelProviderEditor, { kind: 'tts' });
   addBtn(elsTts).props.onClick();
-  elsTts = render('tts3', SET.ApiListEditor, { kind: 'tts' });
+  elsTts = render('tts3', SET.ModelProviderEditor, { kind: 'tts' });
   nameInput(elsTts).props.onChange({ target: { value: 'first' } });
   // 模拟另一卡（图片卡）直接写盘
   SET.saveSettings({ ...SET.loadSettings(), imageProviders: [{ id: 'p-ext', name: 'ext-img', models: [] }] });
   // 同一张卡不重新挂载，第二次编辑
-  elsTts = render('tts3', SET.ApiListEditor, { kind: 'tts' });
+  elsTts = render('tts3', SET.ModelProviderEditor, { kind: 'tts' });
   addBtn(elsTts).props.onClick();
-  elsTts = render('tts3', SET.ApiListEditor, { kind: 'tts' });
+  elsTts = render('tts3', SET.ModelProviderEditor, { kind: 'tts' });
   nameInput(elsTts).props.onChange({ target: { value: 'second' } });
   after = settingsOf();
-  eq((after.ttsApis || []).length, 2, '同卡二次编辑丢了第一次的配置');
-  ok((after.ttsApis || []).some((x) => x.name === 'first') && (after.ttsApis || []).some((x) => x.name === 'second'),
-    '同卡二次编辑后两次改名未同时落盘：' + JSON.stringify((after.ttsApis || []).map((x) => x.name)));
+  eq((after.ttsProviders || []).length, 2, '同卡二次编辑丢了第一次的供应商');
+  ok((after.ttsProviders || []).some((x) => x.name === 'first') && (after.ttsProviders || []).some((x) => x.name === 'second'),
+    '同卡二次编辑后两次改名未同时落盘：' + JSON.stringify((after.ttsProviders || []).map((x) => x.name)));
   eq((after.imageProviders || []).length, 1, '同卡二次编辑把别卡写回的配置回滚了（快照基底突变体，issue #6）');
-  // setS 同步渲染牙：重渲染应显示 2 行（每行一个星标按钮）；漏 setS 则本地快照仍陈旧
-  elsTts = render('tts3', SET.ApiListEditor, { kind: 'tts' });
-  eq(starBtns(elsTts).length, 2, '写回后未 setS 同步本地快照（同卡重渲染列表陈旧）');
+  // setS 同步渲染牙：重渲染应同时显示两行（折叠行=span 文本 'first'，展开行=input 值 'second'）；漏 setS 则本地快照仍陈旧
+  elsTts = render('tts3', SET.ModelProviderEditor, { kind: 'tts' });
+  const ttsNames = stringsOf(elsTts).join('|');
+  ok(ttsNames.includes('first'), '写回后未 setS 同步本地快照（同卡重渲染折叠行陈旧）');
+  const ttsOpenName = elsTts.find((e) => e.type === 'input' && e.props.autoFocus === true);
+  eq(ttsOpenName && ttsOpenName.props.value, 'second', '写回后未 setS 同步本地快照（同卡重渲染展开行陈旧）');
 
+  stateStoreMap = null; // 还原 useState 无状态模式
+}
+
+// ============================================================
+// 0.20.3 T2：TTS 编辑器统一到「供应商+模型」形态（issue #6 第二阶段）
+//   ① schema 迁移：ttsApis/ttsApiId → ttsProviders/ttsStar（确定性 id，loadSettings 直测）
+//   ② flattenTtsModels：形状 / 默认路由 / 空模型名过滤
+//   ③ 编辑器驱动：加供应商 → 加模型 → 填模型名/voice → 星标 → 写盘断言
+// ============================================================
+{
+  const SET = sandbox.window.__DSH_IC_SETTINGS__;
+  ok(typeof SET.flattenTtsModels === 'function', '__DSH_IC_SETTINGS__ 缺 flattenTtsModels（T2 行为回归需要）');
+  // T2 独立的挂载/渲染助手（stateStoreMap 有状态模式与上面跨卡场景同款）
+  const mount = (key, Comp, props) => { stateKey = key; stateStoreMap[key] = []; hookIndex = 0; return all(Comp(props || {})); };
+  const render = (key, Comp, props) => { stateKey = key; hookIndex = 0; return all(Comp(props || {})); };
+  const addBtnOf = (els) => els.find((e) => e.type === 'button' && String(e.props.className || '').split(/\s+/).includes('dshic-mini')
+    && !String(e.props.className || '').includes('is-ghost') && typeof e.props.onClick === 'function');
+  const nameInputOf = (els) => els.find((e) => e.type === 'input' && e.props.autoFocus === true);
+  const addModelBtnOf = (els) => els.filter((e) => e.type === 'button' && typeof e.props.onClick === 'function')
+    .find((e) => stringsOf(e).join('').includes('添加模型'));
+  const settingsOf = () => JSON.parse(lsStub.getItem('dsh-ic:settings') || '{}');
+  let after = null;
+
+  // —— ① 迁移：旧扁平 ttsApis + ttsApiId → 新供应商/星标，id 确定性（'p_'+id / 'm_'+id） ——
+  lsStub.setItem('dsh-ic:settings', JSON.stringify({
+    ttsApis: [
+      { id: 'cfgA', name: '配音甲', baseUrl: 'https://tts-a.example.com/v1', apiKey: 'sk-a', model: 'tts-model-a', voice: 'nova', timeoutMs: '90000' },
+      { id: 'cfgB', name: '配音乙', baseUrl: 'https://tts-b.example.com/v1', apiKey: 'sk-b', model: 'tts-model-b', voice: '', timeoutMs: '' },
+    ],
+    ttsApiId: 'cfgB',
+  }));
+  const migrated = SET.loadSettings();
+  eq(migrated.ttsProviders.length, 2, '迁移后应有 2 个 TTS 供应商');
+  eq(migrated.ttsProviders[0].id, 'p_cfgA', "迁移供应商 id 非确定性（必须 'p_'+旧cfg.id）");
+  eq(migrated.ttsProviders[0].name, '配音甲', '迁移丢供应商名');
+  eq(migrated.ttsProviders[0].baseUrl, 'https://tts-a.example.com/v1', '迁移丢 baseUrl');
+  eq(migrated.ttsProviders[0].apiKey, 'sk-a', '迁移丢 apiKey');
+  eq(migrated.ttsProviders[0].timeoutMs, '90000', '迁移丢供应商级 timeoutMs');
+  eq(migrated.ttsProviders[0].models.length, 1, '迁移后每旧配置应产出 1 个模型');
+  eq(migrated.ttsProviders[0].models[0].id, 'm_cfgA', "迁移模型 id 非确定性（必须 'm_'+旧cfg.id）");
+  eq(migrated.ttsProviders[0].models[0].model, 'tts-model-a', '迁移丢模型名');
+  eq(migrated.ttsProviders[0].models[0].voice, 'nova', '迁移丢 voice');
+  eq(migrated.ttsProviders[1].models[0].voice, 'alloy', '旧 voice 为空迁移未回退 alloy');
+  eq(migrated.ttsStar, 'p_cfgB|m_cfgB', '迁移后 ttsStar 未指向旧默认项的确定性 ref');
+  // 确定性牙：再跑一次 loadSettings 结果逐字段一致（uid() 突变体会漂移）
+  const migrated2 = SET.loadSettings();
+  eq(JSON.stringify(migrated2.ttsProviders), JSON.stringify(migrated.ttsProviders), 'loadSettings 两次迁移结果不一致（id 漂移 = 用了 uid()）');
+  eq(migrated2.ttsStar, migrated.ttsStar, 'ttsStar 在重复 loadSettings 间漂移');
+  // 新数据不重复迁移：已有 ttsProviders 时旧 ttsApis 不再映射
+  lsStub.setItem('dsh-ic:settings', JSON.stringify({
+    ttsProviders: [{ id: 'p_keep', name: '保留', baseUrl: '', apiKey: '', models: [{ id: 'm_keep', model: 'keep', voice: 'alloy' }] }],
+    ttsApis: [{ id: 'cfgX', name: 'x', baseUrl: '', apiKey: '', model: 'x', voice: '' }],
+    ttsApiId: 'cfgX',
+  }));
+  const noRemigrate = SET.loadSettings();
+  eq(noRemigrate.ttsProviders.length, 1, '已有 ttsProviders 时旧 ttsApis 仍被映射（迁移条件非空判断失效）');
+  eq(noRemigrate.ttsProviders[0].id, 'p_keep', '迁移覆盖了已有 ttsProviders');
+
+  // —— ② flattenTtsModels：形状 / 默认路由 / 空模型名过滤 ——
+  const ttsFlat = SET.flattenTtsModels({
+    ttsProviders: [
+      { id: 'p1', name: '甲', baseUrl: 'https://x/v1', apiKey: 'k1', timeoutMs: '60000',
+        models: [{ id: 'm1', model: 'model-1', voice: 'nova' }, { id: 'm2', model: '  ', voice: 'x' }] },
+      { id: 'p2', name: '乙', baseUrl: 'https://y/v1', apiKey: 'k2', models: [{ id: 'm3', model: 'model-3' }] },
+    ],
+    ttsStar: 'p2|m3',
+  });
+  eq(ttsFlat.length, 2, '空模型名条目未被过滤（应只剩 2 条）');
+  eq(ttsFlat[0].ref, 'p1|m1', 'flattenTtsModels ref 形状不对');
+  eq(ttsFlat[0].model, 'model-1', 'flattenTtsModels 模型名未 trim');
+  eq(ttsFlat[0].voice, 'nova', 'flattenTtsModels 丢每模型 voice');
+  eq(ttsFlat[0].baseUrl, 'https://x/v1', 'flattenTtsModels 丢 baseUrl');
+  eq(ttsFlat[0].apiKey, 'k1', 'flattenTtsModels 丢 apiKey');
+  eq(ttsFlat[0].timeoutMs, '60000', 'flattenTtsModels 丢供应商级 timeoutMs');
+  eq(ttsFlat[1].voice, 'alloy', 'voice 为空未回退 alloy（genTts 请求体会缺音色）');
+  // genTts 路由语义：ref === ttsStar 命中（genTts 同款表达式直测）
+  const routed = ttsFlat.find((x) => x.ref === 'p2|m3') || ttsFlat[0];
+  eq(routed.ref, 'p2|m3', '星标默认路由失效（genTts 应优先 ★）');
+
+  // —— ③ 编辑器驱动：加供应商 → 加模型 → 填模型名/voice → 星标 → 写盘 ——
+  stateStoreMap = {};
+  lsStub.setItem('dsh-ic:settings', '{}');
+  let elsTts = mount('tts4', SET.ModelProviderEditor, { kind: 'tts' });
+  addBtnOf(elsTts).props.onClick();
+  elsTts = render('tts4', SET.ModelProviderEditor, { kind: 'tts' });
+  ok(!!nameInputOf(elsTts), 'TTS 供应商新增后未自动展开（回归驱动不了）');
+  // 展开区：TTS 只应有 baseUrl / apiKey / timeoutMs 字段（不带 vendor/size/responseFormat/mode/extra）
+  // 假 React 不展开函数组件（Field）——直接断言 Field 元素的 label props
+  const fieldLabels = elsTts.filter((e) => typeof e.type === 'function' && e.props && e.props.label != null).map((e) => String(e.props.label));
+  ok(fieldLabels.some((t) => t.includes('接口地址')), 'TTS 展开区缺接口地址');
+  ok(fieldLabels.some((t) => t.includes('API Key')), 'TTS 展开区缺 API Key');
+  ok(fieldLabels.some((t) => t.includes('请求超时')), 'TTS 展开区缺供应商级 timeoutMs 字段');
+  for (const banned of ['厂商格式', '尺寸覆盖', 'response_format', '扩展参数']) {
+    ok(!fieldLabels.some((t) => t.includes(banned)), 'TTS 展开区混入了不该有的字段：' + banned);
+  }
+  // 加模型 → 填模型名 + voice（voice 编辑入口是本任务的原始缺口，必须有）
+  const addModelBtn = addModelBtnOf(elsTts);
+  ok(!!addModelBtn, 'TTS 展开区缺「添加模型」按钮');
+  addModelBtn.props.onClick();
+  elsTts = render('tts4', SET.ModelProviderEditor, { kind: 'tts' });
+  const modelRowInputs = elsTts.filter((e) => e.type === 'input' && !e.props.autoFocus);
+  const modelInput = modelRowInputs.find((e) => String(e.props.placeholder || '').includes('模型 ID'));
+  const voiceInput = modelRowInputs.find((e) => e.props.placeholder === 'alloy');
+  ok(!!modelInput, 'TTS 模型行缺模型名输入框');
+  ok(!!voiceInput, 'TTS 模型行缺 voice 输入框（voice 无编辑入口的原始缺口未修复）');
+  modelInput.props.onChange({ target: { value: 'gpt-4o-mini-tts' } });
+  elsTts = render('tts4', SET.ModelProviderEditor, { kind: 'tts' });
+  const voiceInput2 = elsTts.find((e) => e.type === 'input' && e.props.placeholder === 'alloy');
+  ok(!!voiceInput2, '填模型名后 voice 输入框丢失');
+  voiceInput2.props.onChange({ target: { value: 'shimmer' } });
+  after = settingsOf();
+  eq((after.ttsProviders || []).length, 1, 'TTS 供应商未落盘');
+  const prov = (after.ttsProviders || [])[0] || {};
+  eq((prov.models || []).length, 1, 'TTS 模型未落盘');
+  eq(((prov.models || [])[0] || {}).model, 'gpt-4o-mini-tts', 'TTS 模型名未落盘');
+  eq(((prov.models || [])[0] || {}).voice, 'shimmer', 'TTS voice 未落盘（voice 编辑入口失效）');
+  // 星标 → ttsStar 写盘
+  elsTts = render('tts4', SET.ModelProviderEditor, { kind: 'tts' });
+  const star = elsTts.find((e) => e.type === 'button' && String(e.props.className || '').includes('is-ghost') && typeof e.props.onClick === 'function');
+  ok(!!star, 'TTS 模型行缺星标按钮');
+  star.props.onClick();
+  after = settingsOf();
+  eq(after.ttsStar, prov.id + '|' + ((prov.models || [])[0] || {}).id, 'TTS 星标未写盘（ttsStar）');
+  // flattenTtsModels 消费一致性：编辑器写出的形状必须能被 flatten 消费出正确 ref/voice
+  const flatFromEditor = SET.flattenTtsModels(after);
+  eq(flatFromEditor.length, 1, '编辑器写出的 TTS 配置 flatten 后丢条目');
+  eq(flatFromEditor[0].ref, after.ttsStar, '编辑器写出的配置 flatten ref 与 ttsStar 不一致');
+  eq(flatFromEditor[0].voice, 'shimmer', '编辑器写出的 voice 在 flatten 中丢失');
   stateStoreMap = null; // 还原 useState 无状态模式
 }
 
