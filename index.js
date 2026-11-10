@@ -2208,6 +2208,12 @@ function canvasWriteNode(args) {
           camera: String((s && s.camera) || '').trim().slice(0, 200),
           vfx: String((s && s.vfx) || '').trim().slice(0, 160),
           negative: String((s && s.negative) || '').trim().slice(0, 200),
+          // 战斗因果字段（打斗镜专用，全部可选）同规则透传
+          attack: String((s && s.attack) || '').trim().slice(0, 160),
+          reaction: String((s && s.reaction) || '').trim().slice(0, 160),
+          impact: String((s && s.impact) || '').trim().slice(0, 160),
+          initiative: String((s && s.initiative) || '').trim().slice(0, 80),
+          nextCombat: String((s && s.nextCombat) || '').trim().slice(0, 80),
         }));
         node.data.aiStatus = 'idle';
         node.data.aiError = null;
@@ -3046,6 +3052,12 @@ async function canvasNodeStatus(args) {
       camera: String((s && s.camera) || '').slice(0, 200),
       vfx: String((s && s.vfx) || '').slice(0, 160),
       negative: String((s && s.negative) || '').slice(0, 200),
+      // 战斗因果字段（打斗镜专用，全部可选）：node_status 必须透出，否则对话侧读回再写回时会丢失
+      attack: String((s && s.attack) || '').slice(0, 160),
+      reaction: String((s && s.reaction) || '').slice(0, 160),
+      impact: String((s && s.impact) || '').slice(0, 160),
+      initiative: String((s && s.initiative) || '').slice(0, 80),
+      nextCombat: String((s && s.nextCombat) || '').slice(0, 80),
     }))
     : undefined;
   const d = n.data || {};
@@ -3117,7 +3129,7 @@ async function canvasNodeStatus(args) {
   };
 }
 /** 可被 canvas_update_node 修改的节点字段白名单（结构字段 id/type/x/y/w/h/data 一律不可写）。 */
-const NODE_PATCH_FIELDS = ['prompt', 'idea', 'output', 'text', 'script', 'requirement', 'label', 'ratio', 'size', 'duration', 'resolution', 'frameMode', 'count', 'imageModel', 'videoModel', 'model', 'cont'];
+const NODE_PATCH_FIELDS = ['prompt', 'idea', 'output', 'text', 'script', 'requirement', 'label', 'ratio', 'size', 'duration', 'resolution', 'frameMode', 'count', 'imageModel', 'videoModel', 'model', 'cont', 'targetDuration', 'combatMode'];
 /** 更新已有节点的字段：对话侧"改提示词 / 改参数"的唯一入口（此前只能删节点重建）。 */
 function canvasUpdateNode(args) {
   const pid = String((args && args.projectId) || '');
@@ -3146,6 +3158,14 @@ function canvasUpdateNode(args) {
       v = String(v == null ? '' : v).slice(0, 40);
     } else if (k === 'cont') {
       v = !(v === false || v === 'false' || v === 0 || v === '0'); // 分镜衔接开关：默认开
+    } else if (k === 'targetDuration') {
+      // 分镜总时长（秒，一位小数）：0/空 = 自动档（按镜头节奏）。与客户端 setData('targetDuration') 同口径。
+      const num = Math.round(Number(v) * 10) / 10;
+      if (!Number.isFinite(num) || num < 0 || num > 300) throw new Error('targetDuration 需要非负数（0=自动档，上限 300s），收到：' + JSON.stringify(v));
+      v = num || null;
+    } else if (k === 'combatMode') {
+      // 打斗判定三态覆盖：auto=按场检测（缺省）/ on=本场强制按打斗注入 / off=强制不注入
+      v = ['auto', 'on', 'off'].includes(String(v).toLowerCase()) ? String(v).toLowerCase() : 'auto';
     } else {
       v = String(v == null ? '' : v);
     }
@@ -3172,6 +3192,10 @@ function canvasUpdateNode(args) {
       // 只补「本来是空的 + 旧值有」的衔接字段，绝不覆盖调用方明确给的新值
       for (const k2 of ['tail', 'cam', 'start', 'seg']) {
         if (!out[k2] && old[k2]) out[k2] = old[k2];
+      }
+      // 战斗因果字段同规则兜底：旧镜带战斗态而新值没给时按镜序保留（与衔接字段同款，防整表替换冲掉）
+      for (const k2 of ['attack', 'reaction', 'impact', 'initiative', 'nextCombat']) {
+        if (!String(out[k2] || '').trim() && old[k2]) out[k2] = old[k2];
       }
       return out;
     });
@@ -5954,6 +5978,8 @@ export function apply(ctx) {
               genres: { type: 'array', items: { type: 'string' }, description: '可选：临时覆盖题材 id 数组（叙事题材与行业题材都可）' },
               form: { type: 'string', description: '可选：临时覆盖规格 id' },
               look: { type: 'string', description: '可选：临时覆盖影调 id；传空串表示跟随导演' },
+              sceneText: { type: 'string', description: '可选（仅 kind=storyboard 有意义）：本场剧本文本——战斗注入按场检测用，命中打斗才带「打斗节奏」卡；不传则不判定、绝不由题材猜测' },
+              combatMode: { type: 'string', enum: ['auto', 'on', 'off'], description: '可选：打斗判定覆盖——auto=按 sceneText 检测（缺省），on=本场强制按打斗注入，off=强制不注入' },
               set: { type: 'boolean', description: '可选：true = 把本次生效的配置写进项目（之后画布自生成也用同一套）' },
             },
             required: ['projectId'],
@@ -5978,7 +6004,10 @@ export function apply(ctx) {
             if (!['script', 'storyboard', 'prompt', 'assets'].includes(kind)) {
               throw new Error('kind 必须是 script / storyboard / prompt / assets，收到：' + kind);
             }
-            const built = await buildSkillPack({ kind, profile: merged, hereDir: HERE, zh: true });
+            const built = await buildSkillPack({
+              kind, profile: merged, hereDir: HERE, zh: true,
+              ...(kind === 'storyboard' && args.combatMode !== undefined ? { sceneText: String(args.sceneText || ''), combatMode: String(args.combatMode || 'auto') } : {}),
+            });
             if (args.set) {
               doc.skillProfile = merged;
               doc.skillUpdatedAt = Date.now();

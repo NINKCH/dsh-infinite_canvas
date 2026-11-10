@@ -8,23 +8,18 @@ import {
   getPackModule, packInventory, readCard, readMove, findEntry, allowedIds, readManifestRaw,
 } from './skill-pack-loader.js';
 import { normalizeSkillProfile } from './index-core-skill-profile.js';
+import { detectCombatScene } from './combat-semantics.js';
 
 /** moves 永远随 storyboard/prompt 走（运镜是这两类生成的必需品）。 */
 const MOVES_FOR_KIND = {
   script: [],
-  // 分镜要调度动作，运镜必备；打斗节奏卡只在动作/冲突类题材下跟随注入（悬疑/日常等非动作题材
-  // 带它 = 4.9KB 纯浪费且稀释正文）。提示词只需运镜。
+  // 分镜要调度动作，运镜必备；打斗节奏卡只在**按场检测命中打斗**时跟随注入
+  // （2026-11 定稿：题材不再参与判定——选了 wuxia 的文戏场不注入，没选动作题材
+  // 但剧本明确打斗的场仍注入。combatMode on/off 用户显式覆盖优先于检测）。
   storyboard: ['camera-moves'],
   prompt: ['camera-moves'],
   assets: [],
 };
-
-/** 动作/冲突强度高的题材 → 分镜链路额外带「打斗节奏」卡（它讲的是打斗/追逐场面的镜头组织）。 */
-const FIGHT_RHYTHM_GENRES = new Set([
-  'action-mission', 'wuxia', 'gunstandoff', 'adventure', 'crime-police', 'hk-retro',
-  'wasteland-chase', 'mo-lei-tau', 'revenge-face-slap', 'multi-thread-caper',
-  'neon-dystopia', 'rebirth-transmigration',
-]);
 
 /**
  * 构建某生成能力下的注入文本。
@@ -33,6 +28,9 @@ const FIGHT_RHYTHM_GENRES = new Set([
  * @param {object} opts.profile    技能配置（已归一或原始，函数内部会再归一）
  * @param {string} opts.hereDir    插件根目录
  * @param {boolean} opts.zh        中文
+ * @param {string} [opts.sceneText] 本场剧本文本（storyboard + combatMode 给出时才参与打斗判定）
+ * @param {string} [opts.combatMode] auto=按 sceneText 检测 / on=强制打斗 / off=强制非打斗；
+ *                                   不传 = 不判定、永不注入 fight-rhythm（老调用方行为不变）
  * @returns {Promise<{text:string,bytes:number,used:Array,profile:object,inventory:object}>}
  */
 export async function buildSkillPack(opts) {
@@ -78,9 +76,11 @@ export async function buildSkillPack(opts) {
   // 否则四层全空的项目也会被塞进 5KB 运镜词典 —— 违反「未配置不注入」（老项目零变化）。
   if (items.length) {
     const moves = [...(MOVES_FOR_KIND[kind] || [])];
-    // 打斗节奏：仅分镜链路 + 选了动作/冲突类题材时追加（它是打斗场面的镜头组织教材）
-    if (kind === 'storyboard' && (profile.genres || []).some((g) => FIGHT_RHYTHM_GENRES.has(g))) {
-      moves.push('fight-rhythm');
+    // 打斗节奏：仅分镜链路 + **按场检测命中打斗**（combatMode on=强制开 / off=强制关 /
+    // auto=看 sceneText）。对话侧拿不到本场文本时不判定（不臆造）——老调用方行为不变。
+    if (kind === 'storyboard' && o.combatMode !== undefined) {
+      const c = detectCombatScene(String(o.sceneText || ''), { mode: o.combatMode });
+      if (c.hit) moves.push('fight-rhythm');
     }
     for (const mid of moves) {
       const mv = (inv.moves || []).find((x) => x.id === mid);

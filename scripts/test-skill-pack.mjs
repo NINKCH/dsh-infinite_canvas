@@ -259,18 +259,29 @@ try { fs.rmSync(SANDBOX, { recursive: true, force: true }); } catch { /* 清理�
     const r = await buildSkillPack({ kind: "assets", profile: onlyForm, hereDir: ROOT, zh: true });
     ok(r.bytes === 0, "assets kind 在没有 assets 切片时必须返回 0 字节（实际 " + r.bytes + "）");
   }
-  // E) fight-rhythm 条件注入：打斗/强动作题材才带打斗节奏卡（悬疑/日常等非动作题材是 4.9KB 纯浪费）；
-  //    camera-moves（运镜词典）仍是分镜必备，任何配置都注入；提示词只带运镜不变
+  // E) fight-rhythm 条件注入（2026-11 定稿：**按场检测取代题材判定**）——
+  //    buildSkillPack 在调用方给出 combatMode 时按 sceneText 判定打斗；不给 combatMode
+  //    时永不注入（老调用方行为不变）。camera-moves（运镜词典）仍是分镜必备。
   {
-    const sbAction = await buildSkillPack({ kind: "storyboard", profile: { lens: "", genres: ["wuxia"], form: "cinematic", look: "" }, hereDir: ROOT, zh: true });
-    ok(sbAction.used.some((u) => u.layer === "moves"), "分镜链路应注入运镜/节奏卡");
-    ok(/打斗|节奏/.test(sbAction.text), "动作题材（wuxia）分镜应含打斗节奏内容");
-    const usedMoves = sbAction.used.filter((u) => u.layer === "moves").map((u) => u.id);
-    ok(usedMoves.includes("fight-rhythm"), "动作题材分镜应带 fight-rhythm（实际 moves: " + usedMoves.join(",") + "）");
-    const sbCalm = await buildSkillPack({ kind: "storyboard", profile: { lens: "", genres: ["slice-of-life"], form: "cinematic", look: "" }, hereDir: ROOT, zh: true });
+    const fightScene = "【场1】巷战（夜）\n@李寒@ 挥刀劈向 @沈铁@，@沈铁@ 单臂格挡，随即反击一拳将李寒击退半步。";
+    const calmScene = "【场1】茶馆（午后）\n两人对坐谈判，@李寒@ 说道：「当年的事，就此作罢。」@沈铁@ 点头。";
+    const base = { lens: "", genres: ["wuxia"], form: "cinematic", look: "" };
+    const sbFight = await buildSkillPack({ kind: "storyboard", profile: base, hereDir: ROOT, zh: true, sceneText: fightScene, combatMode: "auto" });
+    const fightMoves = sbFight.used.filter((u) => u.layer === "moves").map((u) => u.id);
+    ok(fightMoves.includes("fight-rhythm"), "按场检测：打斗场应带 fight-rhythm（实际 moves: " + fightMoves.join(",") + "）");
+    ok(/打斗|节奏/.test(sbFight.text), "打斗场分镜应含打斗节奏内容");
+    const sbCalm = await buildSkillPack({ kind: "storyboard", profile: base, hereDir: ROOT, zh: true, sceneText: calmScene, combatMode: "auto" });
     const calmMoves = sbCalm.used.filter((u) => u.layer === "moves").map((u) => u.id);
-    ok(!calmMoves.includes("fight-rhythm"), "非动作题材（slice-of-life）分镜不应带 fight-rhythm（4.9KB 纯浪费）");
-    ok(calmMoves.includes("camera-moves"), "非动作题材分镜仍必须带运镜词典 camera-moves");
+    ok(!calmMoves.includes("fight-rhythm"), "按场检测：文戏场（哪怕选了 wuxia）不应带 fight-rhythm");
+    ok(calmMoves.includes("camera-moves"), "文戏场分镜仍必须带运镜词典 camera-moves");
+    // 强制覆盖：on=文戏场也注入；off=打斗场也不注入（用户显式指令优先于检测）
+    const sbForcedOn = await buildSkillPack({ kind: "storyboard", profile: base, hereDir: ROOT, zh: true, sceneText: calmScene, combatMode: "on" });
+    ok(sbForcedOn.used.some((u) => u.id === "fight-rhythm"), "覆盖：combatMode=on 文戏场强制注入 fight-rhythm");
+    const sbForcedOff = await buildSkillPack({ kind: "storyboard", profile: base, hereDir: ROOT, zh: true, sceneText: fightScene, combatMode: "off" });
+    ok(!sbForcedOff.used.some((u) => u.id === "fight-rhythm"), "覆盖：combatMode=off 打斗场强制不注入");
+    // 老调用方（不给 combatMode）行为不变：永不注入打斗卡
+    const sbLegacy = await buildSkillPack({ kind: "storyboard", profile: base, hereDir: ROOT, zh: true });
+    ok(!sbLegacy.used.some((u) => u.id === "fight-rhythm"), "兼容：不给 combatMode 时永不注入（老调用方零变化）");
     const sbNoGenre = await buildSkillPack({ kind: "storyboard", profile: onlyForm, hereDir: ROOT, zh: true });
     const noGenreMoves = sbNoGenre.used.filter((u) => u.layer === "moves").map((u) => u.id);
     ok(noGenreMoves.includes("camera-moves") && !noGenreMoves.includes("fight-rhythm"), "未选题材时只带运镜（不打斗节奏）");

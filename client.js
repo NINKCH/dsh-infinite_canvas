@@ -458,6 +458,10 @@ function revealCanvasInRight() {
       'segMaxHint': '单次生成的最大秒数（按厂商上限填，MiniMax 这类弱衔接模型建议 6–10 秒）',
       'targetDurationLabel': '分镜总时长',
       'targetDurationAuto': '按镜头节奏自动',
+      'combatModeLabel': '打斗判定：命中打斗的场才注入战斗契约与打斗节奏（on=本场强制按打斗，off=强制不注入，auto=按剧本检测）',
+      'combatAuto': '打斗·自动',
+      'combatOn': '打斗·开',
+      'combatOff': '打斗·关',
       'customValuePh': '自定义后回车',
       'customCountPh': '自定义 1–100 镜',
       'customSegMaxPh': '自定义 1–300 秒',
@@ -1465,6 +1469,10 @@ function revealCanvasInRight() {
       'segMaxHint': 'Max seconds per generation (match the vendor limit; for weak-continuity models like MiniMax use 6-10s)',
       'targetDurationLabel': 'Storyboard total duration',
       'targetDurationAuto': 'Auto by shot pacing',
+      'combatModeLabel': 'Combat gating: only scenes detected as real combat inject the combat contract & fight-rhythm card (on = force combat for this scene, off = force none, auto = detect from script)',
+      'combatAuto': 'Combat · Auto',
+      'combatOn': 'Combat · On',
+      'combatOff': 'Combat · Off',
       'customValuePh': 'Custom, press Enter',
       'customCountPh': 'Custom 1-100 shots',
       'customSegMaxPh': 'Custom 1-300 seconds',
@@ -9526,6 +9534,10 @@ function queueThumb(assetId) {
       const bible = bibleBlock(loadBible(S.activeId));
       const zh = effLang() !== 'en';
       const contOn = !(opts && opts.cont === false); // 分镜衔接开关（默认开）
+      // 按场打斗检测（用户定稿口径：真实有打斗才注入，绝不按题材整表灌）：
+      // 三态覆盖 data.combatMode（auto/on/off，默认 auto）；on/off 用户显式覆盖优先于检测。
+      const combatMode = String((opts && opts.combatMode) || 'auto').toLowerCase();
+      const combat = detectCombatScene(scriptText, { mode: combatMode });
       // 分镜总时长（issue：下拉硬约束）：targetDuration > 0 = 用户手动设定的**本分镜节点总时长**，
       // 严格 =X 秒——不论切 5 镜还是 50 镜，所有镜头 duration 之和必须等于 X；技能只管按节奏谱系
       // 把 X 分配到各镜（快冲突 0.3-0.8s / 对白 2-4s / 情绪长镜 ≥5s），装不下压每镜时长而非删戏。
@@ -9587,7 +9599,7 @@ function queueThumb(assetId) {
             '- **按情绪选景别**：孤独/绝望/宏大危机=远景；对峙/动作/关系建立=全景；对话/试探/信息交换=中景；震惊/怀疑/内心动摇=近景；崩溃/嘶吼/情绪爆发=特写；关键细节/道具揭示=大特写——冲突用全景、揭秘转近景、爆发给特写、反转可拉远，景别变化本身在讲情绪；',
             '- **快切镜头（<1.5s）的 visual/motion 要极短**（一个动作、一句画内信息），信息量大的镜头才配长时长——时长与内容量必须匹配；',
             '- 只输出 JSON，不要输出任何其他内容。',
-          ].concat(FX_RULES, contOn ? [
+          ].concat(FX_RULES, combat.hit ? [combatContractAddendum(zh)] : [], contOn ? [
             '',
             '**【分镜衔接·硬性】成片是分段生成的，每段模型看不到上一段画面——衔接只能靠写在分镜里的"接点"。除末镜外，每镜都必须写 tail 与 cam：**',
             '- **tail（接点尾态）**：本镜**最后一刻**的状态，一行写清——人物姿势停在哪个动作的中途、朝向、视线落点、手持物位置、位置关系（如「右手抬到胸口一半，视线仍锁在 @陈拾@ 脸上，@糯糯@ 停在他左后方半步」「已侧身转到 3/4 面，还没完全转身面对对方」）。**必须是"动作进行中"的状态，不能写成"已经完成/站定/看向"**——切点停在静止定格，下一镜就没有动作可接，接缝必然暴露；',
@@ -9627,7 +9639,7 @@ function queueThumb(assetId) {
             '- **Pick the shot size by emotion**: loneliness/despair/grand crisis = wide; confrontation/action/relationship = full; dialogue/probing/info exchange = medium; shock/suspicion/inner shake = close-up; breakdown/screaming/emotional burst = extreme close-up; key detail/prop reveal = big close-up — conflicts play wide, reveals move close, bursts go extreme, reversals can pull wide; the changing distance itself tells the emotion;',
             '- **Rapid cuts (<1.5s) get minimal visual/motion** (one action, one piece of in-frame information); long durations are earned by information density — duration must match content;',
             '- Output JSON only.',
-          ].concat(FX_RULES, contOn ? [
+          ].concat(FX_RULES, combat.hit ? [combatContractAddendum(zh)] : [], contOn ? [
             '',
             '**[CONTINUITY - HARD] the film is generated in segments and each segment cannot see the previous one, so the "hand-off point" must be written into the storyboard. Every shot except the last MUST carry tail and cam:**',
             '- **tail (hand-off tail state)**: the state at the LAST instant of this shot, in one line - where the posture stops mid-motion, facing, gaze target, hand/prop position, blocking (e.g. "right hand half-way up to the chest, eyes still locked on @Chen@, @Nuonuo@ half a step behind his left shoulder"). It MUST be a mid-motion state, never a settled/completed pose: a cut on a static freeze leaves nothing for the next shot to continue, which is exactly what makes the seam visible;',
@@ -9762,6 +9774,14 @@ function queueThumb(assetId) {
         camera: String(s.camera || '').trim().slice(0, 160),
         vfx: String(s.vfx || '').trim().slice(0, 160),
         negative: String(s.negative || '').trim().slice(0, 200),
+        // 战斗因果字段（打斗镜专用，全部可选）：逐镜存分镜数据，编译与衔接链透传——
+        // attack/reaction/impact/initiative/nextCombat，tail 追加「｜战斗态：…」段。
+        // 与 timeBeats 同一「没写就是空、绝不臆造」口径；宿主 index.js 三处映射同步放行。
+        attack: String(s.attack || '').trim().slice(0, 160),
+        reaction: String(s.reaction || '').trim().slice(0, 160),
+        impact: String(s.impact || '').trim().slice(0, 160),
+        initiative: String(s.initiative || '').trim().slice(0, 80),
+        nextCombat: String(s.nextCombat || '').trim().slice(0, 80),
         characters: Array.isArray(s.characters) ? s.characters.map(String).slice(0, 6) : [],
         scene: String(s.scene || ''),
         props: Array.isArray(s.props) ? s.props.map(String).slice(0, 6) : [],
@@ -10713,6 +10733,10 @@ function queueThumb(assetId) {
         if (cam) parts.push((zh ? '机位/焦段/运镜' : 'Camera/lens/move') + '：' + cam);
         const vfx = String(s.vfx || '').trim();
         if (vfx) parts.push((zh ? '特效（必须可见）' : 'VFX (must be visible)') + '：' + vfx);
+        // 打斗因果块（V3.1 嫁接）：打斗镜把「攻击指向/对手回应/受力破坏/攻守归属」编进视频
+        // 提示词——分段生成时模型看不到别的段，因果只能靠写在提示词里。空字段不注入。
+        const cct = combatCausalityText(s, zh);
+        if (cct) parts.push(cct);
         const dls = (s.dialogue || []).map((d) => String(d && d.role || '').trim() + '：' + String(d && d.line || '').trim()).filter((x) => x.replace('：', '').trim());
         if (dls.length) {
           parts.push(zh
@@ -10927,7 +10951,7 @@ function queueThumb(assetId) {
       try {
         const prev = prevSceneTail(n); // 场 N-1 的尾镜 → 作为本场第 1 镜的硬性承接约束
         const targetDur = Math.max(0, Math.round(Number(n.data.targetDuration) * 10) / 10) || 0;
-        const shots = await aiStoryboardShots(st, n.data.requirement, Number(n.data.count) || 0, n.data.model, (kind, d) => aiStreamAppend(n.id, kind, d), prev, { cont: n.data.cont !== false, targetDuration: targetDur });
+        const shots = await aiStoryboardShots(st, n.data.requirement, Number(n.data.count) || 0, n.data.model, (kind, d) => aiStreamAppend(n.id, kind, d), prev, { cont: n.data.cont !== false, targetDuration: targetDur, combatMode: String(n.data.combatMode || 'auto') });
         // 总时长机械归位（issue：下拉硬约束的执行侧保底）：模型 Σ≠X 时按比例缩放各镜 duration，
         // 末镜吸收舍入残差 → Σ 恰等于 X。只缩放时长，绝不动内容字段；自动档（targetDur=0）零操作。
         if (targetDur && shots.length) {
@@ -10959,6 +10983,13 @@ function queueThumb(assetId) {
         // 判容量，特效分镜镜头写得更详细后每场都超，是纯误报，已废弃。时长本身不设上限，不做压缩。
         if (shots.length > MAX_STORYBOARD_SHOTS) {
           warnings.push(T('warnShotsOverCapacity').replace('{n}', String(shots.length)));
+        }
+        // 打斗镜几何最小校验（用户定稿：只告警不拦截——防误杀）：朝向矛盾/无回应攻击/缺战斗态 tail。
+        // combatMode!=='off' 时生效；与一致性告警同一 warnings 表面，用户在节点上直接可见。
+        if (String(n.data.combatMode || 'auto') !== 'off') {
+          for (const sh of shots) {
+            for (const w of validateCombatGeometry(sh, zh)) warnings.push(w);
+          }
         }
         update((s) => {
           const nd = s.graph.nodes[n.id];
@@ -13396,6 +13427,17 @@ function queueThumb(assetId) {
                 customLabel: (v) => String(v) + 's', customPlaceholder: T('customSegMaxPh'),
               })
             : null,
+          isStoryboard
+            ? h(PopupSelect, {
+                value: String(n.data.combatMode || 'auto'), width: 88, title: T('combatModeLabel'),
+                options: [
+                  { value: 'auto', label: T('combatAuto') },
+                  { value: 'on', label: T('combatOn') },
+                  { value: 'off', label: T('combatOff') },
+                ],
+                onChange: (v) => setData('combatMode', v),
+              })
+            : null,
           (isImage || isVideo || isFinalCut)
             ? h(PopupSelect, { value: n.data.ratio || '16:9', options: ratioOpts, onChange: onRatio, width: 74, title: T('ratioLabel') })
             : null,
@@ -15607,12 +15649,151 @@ function queueThumb(assetId) {
       notify();
     }
 
-    /** 动作/冲突强度高的题材 → 分镜链路额外带「打斗节奏」卡（与 Host 侧 skill-pack.js 同一份清单）。 */
-    const FIGHT_RHYTHM_GENRES = new Set([
-      'action-mission', 'wuxia', 'gunstandoff', 'adventure', 'crime-police', 'hk-retro',
-      'wasteland-chase', 'mo-lei-tau', 'revenge-face-slap', 'multi-thread-caper',
-      'neon-dystopia', 'rebirth-transmigration',
-    ]);
+    // ============================================================
+    // 战斗语义（打斗分镜因果链）：嫁接自 _refs/LucianAIGC-打斗skill-V3.1。
+    //
+    // 为什么：画布的连续性管道（tail → prevTail → 衔接块 → 首帧锚定）只传「画面尾态」，
+    // 打斗的攻势归属/受击结果/攻守转换不随镜传递 → 各打各的、站桩接招、打完就散。
+    // V3.1 的流畅来自显式战斗因果状态链（出招→接招→反击→攻守转换→位移）+ 逐镜结束状态。
+    // 本模块把「战斗态」补进同一管道：tail 追加｜战斗态段，衔接链自动跨镜、跨生成段传递。
+    //
+    // 注入口径（用户定稿）：只在**真实有打斗的场**注入——按场自动检测 + 三态覆盖
+    // （auto/on/off），绝不按题材整表灌；非打斗项目零变化。
+    // 与宿主侧 combat-semantics.js 必须逐字同构（漂移守卫：scripts/test-combat-semantics.mjs）。
+    // ============================================================
+    /** 打斗动作语义词表：把 3D 导演台 BONE_POSES 打斗段（assets/director/engine.js，12 式）
+     *  的关节力学翻译成「可见身体发力词」。模型演不出招式名、只能演姿势——给它可见的
+     *  身体状态词，motion/timeBeats 才有真动作可写（打斗机械/平移的直接解药）。
+     *  id 与 3D 姿势 id 对齐（回归测试断言两表一致）。 */
+    const COMBAT_ACTION_LEXICON = [
+      { id: 'spear_ready', zh: '侧身沉肩、重心压到后腿、双手前后持械', en: 'side-on stance, shoulders sunk, weight on the back leg, weapon held fore-aft' },
+      { id: 'spear_thrust', zh: '腰胯先拧、后腿蹬地发力把双手推出、前腿落成弓步', en: 'hips twist first, back leg drives the arms forward, front leg lands in a bow stance' },
+      { id: 'palm_block', zh: '单臂斜上架、掌面外翻、上身侧倾把力卸向体侧', en: 'one arm angles up, palm turned out, torso tilts to shed the force sideways' },
+      { id: 'dodge_lean', zh: '髋部后坐、上身后仰避开来势、双手收回护身', en: 'hips sit back, upper body leans away from the strike, hands pull in to guard' },
+      { id: 'dash_forward', zh: '前腿蹬直、上身前压、双臂前后摆开冲刺', en: 'front leg extends, torso presses forward, arms swing in opposition while dashing' },
+      { id: 'grit_advance', zh: '上身前探、双臂收紧、下颌压低逼近', en: 'torso leans in, arms tighten, jaw drops while closing in' },
+      { id: 'low_sweep', zh: '深蹲转体、持械手贴地横扫、另一手撑地', en: 'deep-squat pivot, weapon hand sweeps low along the ground, other hand plants on the floor' },
+      { id: 'spear_ground', zh: '单膝下沉、持械手直下压、上身俯冲', en: 'one knee sinks, weapon hand drives straight down, torso dives' },
+      { id: 'crouch_low', zh: '单膝跪地、上身压到近地、持械手垂落收势', en: 'kneeling, torso pressed near the ground, weapon hand settling low' },
+      { id: 'ult_charge', zh: '抬头挺胸、双臂外展上举、重心拔起蓄力', en: 'chest open, both arms spread and raised, weight rising as power gathers' },
+      { id: 'hit_recoil', zh: '上身后折、双臂散开、后脚撤半步卸力', en: 'upper body folds back, arms fly open, rear foot steps back to absorb the hit' },
+      { id: 'knockdown', zh: '全身放倒、四肢摊开、重心彻底失守', en: 'body laid flat, limbs sprawled, balance fully broken' },
+    ];
+    /** 按场打斗检测（纯函数）：命中词 = 明确动作谓语（不是氛围词）；排除 = 对白行 /
+     *  回忆·讲述语境（命中词前 6 字含过去式/叙事标记）；mode: auto=按文本，on=强制开，
+     *  off=强制关（用户显式覆盖优先于检测）。只看本场剧本文本，绝不看题材标签。 */
+    function detectCombatScene(text, opts) {
+      const o = opts || {};
+      const mode = String(o.mode || o.combatMode || 'auto').toLowerCase();
+      if (mode === 'on') return { hit: true, matched: [], mode: 'on' };
+      if (mode === 'off') return { hit: false, matched: [], mode: 'off' };
+      const t = String(text || '');
+      if (!t.trim()) return { hit: false, matched: [], mode: 'auto' };
+      const HIT = new RegExp([
+        '出招', '过招', '交手', '开打', '对打', '搏杀', '厮杀', '互殴', '挥拳', '出拳', '出腿',
+        '肘击', '膝撞', '挥刀', '拔刀', '挥剑', '出剑', '劈', '砍', '斩', '刺出', '突刺', '横扫',
+        '扫堂腿', '鞭腿', '摆拳', '勾拳', '直拳', '抡', '格挡', '招架', '挡开', '架开', '闪避',
+        '躲开', '闪身', '翻滚', '侧身避开', '击中', '命中', '打中', '一拳', '一掌', '一剑', '一刀',
+        '一枪', '受击', '挨打', '被打', '击退', '击飞', '打飞', '撂倒', '打倒', '击倒', '摔倒',
+        '摔出', '撞飞', '撞碎', '掀翻', '锁喉', '擒拿', '反关节', '压制', '按倒', '反击', '还击',
+        '回击', '追击', '对轰', '火并', '枪战', '交火', '开枪', '射击', '扫射', '暗器', '箭矢',
+        '刀光', '剑气', '掌风', '拳风', '破甲', '贯穿', '震飞', '踹', '砸向',
+      ].join('|'), 'g');
+      const DIALOGUE = /说道|说：|说道：|喊道|念道|心里想|暗想|旁白|字幕|歌词/;
+      const PAST = /(曾|当年|想起|回忆|听说|讲述|史料|新闻|棋局|牌局|谈判|演习|训练|梦里|梦中|传说|故事里|电影里)/;
+      const lines = t.split(/\n|。|；|;|！|？|!|\?/);
+      const matched = [];
+      for (const ln of lines) {
+        if (!ln || DIALOGUE.test(ln)) continue;
+        const ms = ln.match(HIT) || [];
+        for (const w of ms) {
+          const i = ln.indexOf(w);
+          if (PAST.test(ln.slice(Math.max(0, i - 6), i))) continue;
+          matched.push(w);
+          break;
+        }
+        if (matched.length >= 6) break;
+      }
+      return { hit: matched.length > 0, matched, mode: 'auto' };
+    }
+    /** 打斗镜判定（纯函数）：任一战斗字段非空即为打斗镜。字段全部可选、逐镜存分镜数据，
+     *  与 timeBeats/camera/vfx 同一「没写就是空、绝不臆造」口径。 */
+    function shotIsCombat(s) {
+      const sh = s || {};
+      return ['attack', 'reaction', 'impact', 'initiative', 'nextCombat'].some((k) => String(sh[k] || '').trim());
+    }
+    /** 分镜契约战斗扩展块（纯函数）：命中打斗的场才注入。核心三件事：
+     *  ① 战斗字段语义（attack/reaction/impact/initiative/nextCombat + tail 追加战斗态）；
+     *  ② 攻防硬规则（攻击必指向对手、对手必可见回应、受力与破坏有因果、禁招式名/概括词）；
+     *  ③ 动作词表（3D 姿势反哺的可见发力词，让 motion/timeBeats 有真动作可写）。 */
+    function combatContractAddendum(zh) {
+      if (!zh) {
+        return [
+          '',
+          '**[COMBAT STORYBOARD - HARD] this script contains real combat. Shots may carry combat fields (all optional; leave them empty on non-combat shots, never invent):**',
+          '- **attack**: "attacker -> target, locked body part, trajectory", e.g. "@Li@->@Shen@, locked on chest/shoulder, spear thrust from lower-left to upper-right" - an attack MUST point at a concrete opponent on screen;',
+          '- **reaction (required when attack exists)**: the opponent\'s visible block/dodge/hit action - never a statue receiving a blow, never just "blocked it";',
+          '- **impact**: contact part, force direction, knockback/imbalance and environmental damage;',
+          '- **initiative**: who holds the attack and who turns to counter at the end of this shot;',
+          '- **nextCombat**: the next shot\'s combat intent, echoing the tail\'s combat state;',
+          '- **tail gains a combat state**: write "picture tail state | combat state: who holds the attack, where the weapon/effect is, the hit party\'s state, damage residue" - cross-shot momentum rides entirely on this;',
+          '- **timeBeats on combat shots use attack-defense beats**: strike -> opponent receives/counters -> counter or displacement (each beat a visible body state);',
+          '- **action lexicon (visible body force, take directly):** ' + COMBAT_ACTION_LEXICON.map((x) => x.en).join('; ') + ';',
+          '- **never**: move names ("Crouching Tiger style"), summary verbs ("releases a skill / launches an attack / energy explodes"), unexplained teleports, glide drifting, statue trading; write visible body-force chains + opponent response + physical results;',
+          '- for materialized-technique shots write vfx as a picture that could be a keyframe still; when expanding prefer keyframe-then-video (hard first frame).',
+        ];
+      }
+      return [
+        '',
+        '**【打斗分镜·战斗因果（本剧本命中打斗，以下为硬规则）】分镜镜头可携带战斗字段（全部可选；非打斗镜一律留空，绝不臆造）：**',
+        '- **attack（攻击）**：「攻击者→目标，锁定部位，轨迹方向」，如「@李寒@→@沈铁@，锁定胸肩，自左下向右上横枪突刺」——**攻击必须指向画面里的具体对手**，写明轨迹与锁定部位；',
+        '- **reaction（对手回应；有 attack 必写）**：对手的可见防御/闪避/受击动作（如「@沈铁@ 单臂斜上架、掌面外翻、上身侧倾卸力」）——**禁止站桩接招、禁止只写「挡下了」**；',
+        '- **impact（接触与受力）**：接触部位、受力方向、击退/失衡与环境破坏（如「枪尖擦肩、沈铁后撤半步、身后木栏断裂」）；',
+        '- **initiative（攻守归属）**：本镜结束时谁持攻、谁转入反击；',
+        '- **nextCombat（下一镜战斗意图）**：如「@沈铁@ 借卸力之势低身横扫」——与 tail 的战斗态呼应；',
+        '- **tail 追加战斗态**：接点尾态写成「画面尾态｜战斗态：攻势在谁、武器/技能位于何处、受击者状态、破坏残留」——**跨镜攻势全靠它传递**；',
+        '- **timeBeats 打斗镜用攻防三拍**：出招 → 对手接招/受击 → 反击或位移（每拍写可见身体状态）；',
+        '- **动作词表（可见身体发力，直接取用）**：' + COMBAT_ACTION_LEXICON.map((x) => x.zh).join('；') + '；',
+        '- **禁止**：招式名（「回风落雁式」）、概括词（「释放技能/发动攻击/能量爆炸/华丽连招」）、无因瞬移、滑步漂移、站桩对轰；写**可见的身体发力链 + 对手回应 + 物理结果**；',
+        '- 具象化招式镜（能量成形/武器光效）的 vfx 写成可直接出设定图的画面，铺开时优先「先出关键帧设定图 → 图生视频（hard 首帧）」。',
+      ];
+    }
+    /** 逐镜因果句（纯函数）：视频提示词编译时追加到打斗镜。只拼存在的字段；空镜返回 ''。 */
+    function combatCausalityText(s, zh) {
+      const sh = s || {};
+      if (!shotIsCombat(sh)) return '';
+      const g = (k) => String(sh[k] || '').trim();
+      const bits = [];
+      if (zh) {
+        if (g('attack')) bits.push('攻击（必须朝向该对手）：' + g('attack'));
+        if (g('reaction')) bits.push('对手回应（必须演出）：' + g('reaction'));
+        if (g('impact')) bits.push('接触与受力：' + g('impact'));
+        if (g('initiative')) bits.push('攻守归属：' + g('initiative'));
+        if (g('nextCombat')) bits.push('下一镜从该攻势继续：' + g('nextCombat'));
+        return bits.length ? '【打斗因果】' + bits.join('；') : '';
+      }
+      if (g('attack')) bits.push('attack (must point at that opponent): ' + g('attack'));
+      if (g('reaction')) bits.push('opponent response (must be performed): ' + g('reaction'));
+      if (g('impact')) bits.push('contact & force: ' + g('impact'));
+      if (g('initiative')) bits.push('initiative: ' + g('initiative'));
+      if (g('nextCombat')) bits.push('next shot continues from this momentum: ' + g('nextCombat'));
+      return bits.length ? '[COMBAT CAUSALITY] ' + bits.join('; ') : '';
+    }
+    /** 打斗镜几何最小校验（纯函数）：只做四条机械可判的检查，失败产生**可见告警**，
+     *  绝不拦截生成（防误杀）。返回告警字符串数组。 */
+    function validateCombatGeometry(s, zh) {
+      const sh = s || {};
+      const out = [];
+      const g = (k) => String(sh[k] || '').trim();
+      const pre = String(sh.title || '').trim() ? String(sh.title).trim() + ' · ' : '';
+      if (!shotIsCombat(sh)) return out;
+      if (g('attack') && !g('reaction')) out.push(zh ? pre + '有攻击但无对手回应：每次攻击必须写对手的可见防御/闪避/受击（禁站桩）' : pre + 'attack without reaction: every attack needs a visible response (no statues)');
+      if (g('attack') && !/→|@/.test(g('attack'))) out.push(zh ? pre + '攻击未指向具体对手（缺少 @对手名@ 或 →）' : pre + 'attack lacks an explicit target (@name@ or ->)');
+      const vis = String(sh.visual || '');
+      if (/背对|背面|背影/.test(vis) && /表情|眼神|眼眸|面容|脸上的|嘴角/.test(vis)) out.push(zh ? pre + '可见性矛盾：背对镜头却写了表情/眼神' : pre + 'visibility conflict: back to camera yet describing facial expression');
+      if (g('attack') && g('tail') && !/战斗态|combat state/i.test(g('tail'))) out.push(zh ? pre + 'tail 建议补「｜战斗态：…」（跨镜攻势靠它传递）' : pre + 'tail should append "| combat state: ..." (cross-shot momentum rides on it)');
+      return out;
+    }
 
     /**
      * 组装某生成能力下的注入切片文本。返回 { text, bytes }；任一层缺失则跳过。
@@ -15648,10 +15829,12 @@ function queueThumb(assetId) {
       }
       if (profile.form) await push('form', (manifest.forms || []).find((x) => x.id === profile.form));
       if (profile.look) await push('look', (manifest.looks || []).find((x) => x.id === profile.look));
-      // 运镜词典跟着分镜与提示词走；打斗节奏只在分镜且选了动作/冲突类题材时注入（它讲的是打斗场面的镜头组织）
+      // 运镜词典跟着分镜与提示词走；打斗节奏只在分镜且**按场检测命中打斗**时注入
+      // （2026-11 定稿：题材不再参与判定；combatMode 三态与 Host skill-pack.js 同口径）。
+      // 画布自生成走 aiStoryboardShots 的 combat.hit 判定，不在本函数重复检测——
+      // 这里只服务「预览面板」（buildSkillPackText，无 sceneText 上下文）→ 保持不判定。
       if (kind === 'storyboard' || kind === 'prompt') {
         const mids = ['camera-moves'];
-        if (kind === 'storyboard' && (profile.genres || []).some((g) => FIGHT_RHYTHM_GENRES.has(g))) mids.push('fight-rhythm');
         for (const mid of mids) {
           const mv = (manifest.moves || []).find((x) => x.id === mid);
           if (mv) await push('moves', { ...mv, oneliner: mv.oneliner || '' });
@@ -22491,7 +22674,7 @@ const DIRECTOR_KEY_HELP = [
           window.__DSH_IC_VENDOR__ = { detectVideoVendor, gatewayPrefixFor, wanEndpoints, vendorBase, VIDEO_REF_CAPS, needsSimpleMediaRetry, buildSimpleMediaRetryBody, wanTaskIdOf, wanStatusOf, wanPollState, buildSanbaoVideoBody, sanbaoTaskIdOf, sanbaoPollState, needsSanbaoMediaRetry, retryableDownloadError, downloadVideoWithRetry, SANBAO_DOWNLOAD_RETRY_MS, SANBAO_DOWNLOAD_RETRY_STEP_MS, buildSanbaoImageBody, sanbaoImageResultOf, sanbaoImagePollState, bibleStyleAnchor, build6789VideoBody, api6789SizeOf, api6789ImageCap, api6789TaskIdOf, api6789StatusOf, api6789VideoUrlOf, api6789ErrorOf, api6789PollState, needs6789MediaHint };
           // 按镜头切段（分段生成本身就是最容易出错的地方）：规划器 + 强弱模型分流 + 节点段区间解析
           // 供 scripts/test-segment-plan.mjs 直接断言
-          window.__DSH_IC_SEGMENT__ = { planShotSegments, isCutPoint, segmentNeedsHardFrame, videoSegmentOf, shotContinuityPlan };
+          window.__DSH_IC_SEGMENT__ = { planShotSegments, isCutPoint, segmentNeedsHardFrame, videoSegmentOf, shotContinuityPlan, detectCombatScene, shotIsCombat, combatContractAddendum, combatCausalityText, validateCombatGeometry, COMBAT_ACTION_LEXICON };
           window.__DSH_IC_STORYBOARD_PROMPT__ = { buildStoryboardVideoPrompt };
           // 视频请求组装（0.20.2）：run 与「请求预览」的单一事实源——
           // assembleVideoRequest（组装+校验门）/ previewVideoInputs（预览轻量 inputs）/ videoRequestContext（决策基座）
