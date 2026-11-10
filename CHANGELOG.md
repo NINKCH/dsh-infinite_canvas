@@ -6,6 +6,8 @@ GitHub Releases carry the same notes in English; maintainer-facing runbooks live
 
 ## [Unreleased]
 
+## [0.20.4] — 2026-11-10
+
 ### Added
 - **New video vendor: 6789API (task-based `/v1/videos`).** One adapter covers
   both protocol families this gateway style serves on the same paths, routed
