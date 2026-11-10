@@ -7,6 +7,29 @@ GitHub Releases carry the same notes in English; maintainer-facing runbooks live
 ## [Unreleased]
 
 ### Added
+- **New video vendor: 6789API (task-based `/v1/videos`).** One adapter covers
+  both protocol families this gateway style serves on the same paths, routed
+  by model id: `seedance*` sends `{model, prompt, duration, ratio, resolution,
+  image_urls?}` (resolution lowercased; duration/ratio/resolution passed
+  through untouched — the gateway validates and its errors stay visible;
+  reference cap 9, or 30 for seedance2.5), while `minimax*` sends
+  `{model, prompt, seconds, size, workflow_id, images?}` with the canvas
+  ratio×resolution mapped to the exact pixel size the API demands (2K/4K sent
+  uppercase; 480p has no slot and degrades to the 768P tier with a visible
+  warning) and the workflow chosen automatically (text-to-video /
+  multi-reference / cf-multi-reference; 2K/4K hard-fails up front with a
+  readable error when no reference image is attached, per the API's own
+  constraint). Submit carries an `Idempotency-Key` UUID; polling every 5s up
+  to 30 minutes (task id persists on the node for recovery); results are
+  extracted through four tiers (`download_url` → `video_url` → `data`-wrapped
+  compat fields → relative `file` path resolved against the API origin) and
+  downloads reuse the 10-minute retry window with a status re-query before
+  each attempt (signed URLs expire). Local reference images are sent as
+  data URLs; if the gateway demands public https links the submit error says
+  so and points at the extended-params escape hatch
+  (`{"image_urls":["https://…"]}`, field name `images` for minimax). Any
+  site speaking this format works — pick the vendor in the dropdown, fill in
+  your own Base URL.
 - **Storyboard total duration is now a hard constraint.** The storyboard node's
   duration dropdown gains a first option 「按镜头节奏自动」 (auto pacing, the new
   default — behaves exactly as before: the skill distributes per-shot durations
