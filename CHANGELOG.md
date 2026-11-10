@@ -9,6 +9,20 @@ GitHub Releases carry the same notes in English; maintainer-facing runbooks live
 ## [0.20.3] — 2026-11-10
 
 ### Fixed
+- **The 0.20.2 npm package was missing `shot-segments.js`, so every npm-installed host
+  died on load with `ERR_MODULE_NOT_FOUND`.** `index.js` and `production.js` import
+  `./shot-segments.js` at module load, but the packaging whitelist (`files` in
+  package.json) was never updated when the module was added — the tarball shipped
+  without it and the import blew up before any code ran (local `link:` installs were
+  unaffected, which is why it slipped through). This release adds `shot-segments.js`
+  to the whitelist, and check-pack gains a mechanical import-resolution audit: it scans
+  every `.js` file in the pack manifest (including `assets/`) for static relative
+  imports (`from './x'` / `import('./x')` / `require('./x')`), resolves each against the
+  file's directory and asserts the target is packed too — so a newly added module
+  missing from the whitelist now turns regress red instead of killing every user's
+  install (keywords: packaging whitelist / shot-segments / ERR_MODULE_NOT_FOUND /
+  import-resolution).
+
 - **Settings cards no longer silently roll back each other's edits (cross-card lost
   updates).** Every settings card used to hold a snapshot taken at mount time and write
   the whole settings object back on each save, so editing card B after card A silently
@@ -31,6 +45,14 @@ GitHub Releases carry the same notes in English; maintainer-facing runbooks live
   migration burden.
 
 ### Internal
+- **check-pack gained an import-resolution audit over the packed file list.** After
+  `npm pack --dry-run --json` produces the manifest, every packed `.js` file (including
+  `assets/`) is scanned for static relative imports — `from './x'`, `import('./x')`,
+  `require('./x')` — with comments and string literals stripped first, each target
+  resolved against the file's own directory, and any target outside the manifest fails
+  the check with the offending pair named. This is the mechanical guard born from the
+  0.20.2 shot-segments incident: hand-maintained required-file lists drift exactly like
+  the changelog COVERAGE list did, and now that drift fails regress instead of shipping.
 - **Settings-card regression is behavior-level across every card: mount first, then
   alternate writes.** The cross-card tests no longer reuse a single render — each card
   is mounted before writing, edits are interleaved across cards, and a three-card

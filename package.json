@@ -40,6 +40,7 @@
     "index.js",
     "client.js",
     "production.js",
+    "shot-segments.js",
     "icon.svg",
     "cordis.patch.yml",
     "locale/*.json",
