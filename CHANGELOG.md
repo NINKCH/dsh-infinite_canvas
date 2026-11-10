@@ -23,6 +23,19 @@ GitHub Releases carry the same notes in English; maintainer-facing runbooks live
   duration gate all read the same total-duration value now.
 
 ### Fixed
+- **Model dropdowns no longer detach from their trigger or crash the canvas.** Two
+  broken fixes taught the real root cause: the generate-composer is a live
+  `position:fixed` overlay that repositions itself when the node moves or the
+  canvas zooms, but a dropdown menu only computed its coordinates once at open
+  time — it stayed behind at a stale spot ("flew away"), and the two attempted
+  fixes (world-space coordinate conversion, then manually re-parenting the menu
+  to `<body>`) made it worse: the re-parent fought React's reconciler and
+  crashed rendering with `removeChild` NotFoundError. The menu now renders
+  in place (React-owned, no manual DOM moves) and registers into the
+  composer's existing `composerReposition` chain — every composer move
+  (node drag, canvas zoom/pan, window resize) re-computes the menu position
+  from the button's fresh rect, plus a next-frame correction right after
+  opening so a just-positioned composer can't leave the menu behind.
 - **Image/video model dropdowns no longer show 「跟随设置」 (follow settings).**
   Language models legitimately have that option (the session model is the
   fallback), but image/video models have a real default — the ★ starred model
