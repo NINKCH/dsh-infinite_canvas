@@ -12625,7 +12625,11 @@ function queueThumb(assetId) {
           const left = Math.max(8, Math.min(r.left, vw - mw - 8));
           const below = r.bottom + 6;
           const top = (below + 280 > vh - 8) ? Math.max(8, r.top - 286) : below;
-          setPos({ left, top, width: mw });
+          // 菜单 DOM 挂在本组件（可能位于 dshic-world transform 层内）：祖先有 transform 时
+          // position:fixed 相对该祖先而非视口——必须把视口坐标换算到世界系（screenToWorld 同式，
+          // L9985），否则画布缩放/平移后弹层飞到错误位置。
+          const sc = V.scale || 1;
+          setPos({ left: (left - V.x) / sc, top: (top - V.y) / sc, width: mw / sc });
         }
         setQ('');
         setCustom('');
@@ -12812,12 +12816,15 @@ function queueThumb(assetId) {
 
       // —— 模型选项：只列已配置的模型（文本取 Harness 会话可用模型；图片/视频取插件设置里的供应商+模型）——
       const modelOptions = (() => {
-        const opts = [{ value: '', label: T('followSettings'), sub: '' }];
+        const opts = [];
         if (isTextLike) {
+          // 文本模型才有「跟随设置」：语言模型由 Harness 会话提供，节点不选 = 用当前会话模型。
+          opts.push({ value: '', label: T('followSettings'), sub: '' });
           for (const p of ((llm && llm.providers) || [])) {
             for (const m of (p.models || [])) opts.push({ value: p.id + '|' + m.id, label: m.name, sub: p.name, title: p.name + ' · ' + m.name });
           }
         } else if (isImage) {
+          // 图片/视频无「跟随设置」：设置页有真实默认（★ 星标），节点不选 = 直接用 ★（resolveImageModelCfg 同语义）。
           for (const m of flattenImageModels(settings)) opts.push({ value: m.ref, label: m.model, sub: m.providerName, title: m.providerName + ' · ' + m.model + (m.ref === settings.imageStar ? ' ★' : '') });
         } else if (isVideo) {
           for (const m of flattenVideoModels(settings)) opts.push({ value: m.ref, label: m.model, sub: m.providerName, title: m.providerName + ' · ' + m.model + (m.ref === settings.videoStar ? ' ★' : '') });
@@ -12825,6 +12832,11 @@ function queueThumb(assetId) {
         return opts;
       })();
       const modelRef = isImage ? nodeImageModelRef(n) : isVideo ? nodeVideoModelRef(n) : (n.data.model || '');
+      // 图片/视频：节点未选模型时显示 ★ 默认模型（而非「跟随设置」）——下拉里它就是普通一项，
+      // 点它 = 显式把节点钉到该模型（写 ref），与「未选时请求侧走 ★」同一结论。
+      const modelValue = modelRef || (!isTextLike
+        ? (isImage ? settings.imageStar : settings.videoStar) || ''
+        : '');
       const setModel = (v) => update((s) => {
         const nd = s.graph.nodes[n.id];
         if (!nd) return;
@@ -12926,7 +12938,11 @@ function queueThumb(assetId) {
           const r = btn.getBoundingClientRect();
           const vw = window.innerWidth || 1200;
           const vh = window.innerHeight || 800;
-          setAtPos({ left: Math.max(8, Math.min(r.left, vw - 228)), top: (r.bottom + 6 + 240 > vh) ? Math.max(8, r.top - 246) : r.bottom + 6 });
+          const left = Math.max(8, Math.min(r.left, vw - 228));
+          const top = (r.bottom + 6 + 240 > vh) ? Math.max(8, r.top - 246) : r.bottom + 6;
+          // 同 PopupSelect：菜单在 dshic-world transform 层内，fixed 坐标须换算到世界系
+          const sc = V.scale || 1;
+          setAtPos({ left: (left - V.x) / sc, top: (top - V.y) / sc });
         }
         setAtOpen((x) => !x);
       };
@@ -13080,7 +13096,7 @@ function queueThumb(assetId) {
           // finalcut 无模型（只有比例/分辨率）；其余类型模型永远排在最前
           !isFinalCut
             ? h(PopupSelect, {
-                value: modelRef, options: modelOptions, onChange: setModel, width: 172,
+                value: modelValue, options: modelOptions, onChange: setModel, width: 172,
                 title: T('modelLabel'), searchable: true, className: 'is-model', shrink: true,
               })
             : null,
