@@ -39,10 +39,17 @@ function mkEl(type, props, ...kids) { return { __el: true, type, props: Object.a
 // stateOverrides 为空时行为与旧 noop 版完全一致；非空时供 AutoModeCard 等局部组件直渲染注入状态。
 let hookIndex = 0;
 let stateOverrides = [];
+// 有状态模式（跨卡丢失更新回归用）：stateStore 非 null 时 useState 跨渲染持久、setter 真正生效，
+// 模拟 React 重渲染（否则 setter 是 noop，验证不了「写回后 setS 同步刷新本地快照」这一半修复）。
+let stateStore = null;
 const fakeReact = {
   createElement: mkEl,
   useState(init) {
     const i = hookIndex++;
+    if (stateStore) {
+      if (!Object.prototype.hasOwnProperty.call(stateStore, i)) stateStore[i] = typeof init === 'function' ? init() : init;
+      return [stateStore[i], (v) => { stateStore[i] = typeof v === 'function' ? v(stateStore[i]) : v; }];
+    }
     const val = Object.prototype.hasOwnProperty.call(stateOverrides, i) ? stateOverrides[i] : (typeof init === 'function' ? init() : init);
     return [val, () => {}];
   },
@@ -1461,6 +1468,102 @@ function cssRulesMatchingClass(name) {
     const qLine = elsQuote.find((e) => e.props && e.props['data-role'] === 'auto-quote-line');
     ok(!!qLine && stringsOf(qLine).join('').includes('待调用 4 次'), '预算小字未展示场/镜/秒/待调用摘要');
   }
+}
+
+// ============================================================
+// 0.20.3：跨卡丢失更新回归（issue #6「设置的模型退出后不能保存」）
+//   旧模式：每张设置卡持有挂载时快照、把整对象写回 → 碰第二张卡就把第一张的修改静默回滚。
+//   修复：updateSettings（现取磁盘最新做基底）+ 写回后 setS 同步刷新本地快照。
+//   有状态 useState（stateStore）让 setState 真正生效，才能同时验证修复的两半。
+// ============================================================
+{
+  const SET = sandbox.window.__DSH_IC_SETTINGS__;
+  ok(typeof SET.updateSettings === 'function', '__DSH_IC_SETTINGS__ 缺 updateSettings（设置卡写回助手）');
+  ok(typeof SET.LlmModelSelect === 'function' && typeof SET.ModelProviderEditor === 'function' && typeof SET.ApiListEditor === 'function',
+    '__DSH_IC_SETTINGS__ 缺设置卡组件缝合口（跨卡丢失更新回归需要）');
+  const settingsOf = () => JSON.parse(lsStub.getItem('dsh-ic:settings') || '{}');
+  // mount：重置有状态仓库（= 重新挂载，useState 取 loadSettings() 快照）；render：保留状态（= 同卡重渲染）
+  const mount = (Comp, props) => { stateStore = []; hookIndex = 0; return all(Comp(props || {})); };
+  const render = (Comp, props) => { hookIndex = 0; return all(Comp(props || {})); };
+  const addBtn = (els) => els.find((e) => e.type === 'button' && String(e.props.className || '').split(/\s+/).includes('dshic-mini')
+    && !String(e.props.className || '').includes('is-ghost') && typeof e.props.onClick === 'function');
+  const nameInput = (els) => els.find((e) => e.type === 'input' && e.props.autoFocus === true);
+  const starBtns = (els) => els.filter((e) => e.type === 'button' && String(e.props.className || '').includes('is-ghost') && typeof e.props.onClick === 'function');
+
+  // —— 场景① 跨卡互不回滚（正向）：TTS 卡加配置 → 文本模型卡选模型 → 两边都在盘 ——
+  lsStub.setItem('dsh-ic:settings', '{}');
+  let elsTts = mount(SET.ApiListEditor, { kind: 'tts' });
+  let btn = addBtn(elsTts);
+  ok(!!btn, 'TTS 卡缺「新增配置」按钮（回归驱动不了）');
+  btn.props.onClick();
+  elsTts = render(SET.ApiListEditor, { kind: 'tts' });
+  let ni = nameInput(elsTts);
+  ok(!!ni, 'TTS 卡新增后未展开名称输入');
+  ni.props.onChange({ target: { value: 'tts-a' } });
+  eq((settingsOf().ttsApis || []).length, 1, 'TTS 新增未落盘');
+  eq(((settingsOf().ttsApis || [])[0] || {}).name, 'tts-a', 'TTS 配置名未落盘');
+  let elsLlm = mount(SET.LlmModelSelect);
+  const sel = elsLlm.find((e) => e.type === 'select' && typeof e.props.onChange === 'function');
+  ok(!!sel, '文本模型卡缺下拉（回归驱动不了）');
+  sel.props.onChange({ target: { value: 'prov-a|model-a' } });
+  let after = settingsOf();
+  eq((after.textLlm || {}).provider, 'prov-a', '文本模型卡写回缺 provider');
+  eq((after.textLlm || {}).model, 'model-a', '文本模型卡写回缺 model');
+  eq((after.ttsApis || []).length, 1, '跨卡丢失更新：文本模型卡写回把 TTS 配置回滚了（issue #6）');
+  eq(((after.ttsApis || [])[0] || {}).name, 'tts-a', '跨卡丢失更新：TTS 配置名被回滚（issue #6）');
+  // setS 同步渲染牙：同卡重渲染应显示新值（漏 setS 则显示挂载时陈旧快照）
+  elsLlm = render(SET.LlmModelSelect);
+  const manual = elsLlm.find((e) => e.type === 'input');
+  eq(manual && manual.props.value, 'prov-a|model-a', '文本模型卡写回后未 setS 同步本地快照（渲染值陈旧）');
+
+  // —— 场景① 反向：图片卡加供应商改名 → TTS 卡加配置+星标 → 两边都在盘 ——
+  lsStub.setItem('dsh-ic:settings', '{}');
+  let elsImg = mount(SET.ModelProviderEditor, { kind: 'image' });
+  btn = addBtn(elsImg);
+  ok(!!btn, '图片卡缺「新增供应商」按钮（回归驱动不了）');
+  btn.props.onClick();
+  elsImg = render(SET.ModelProviderEditor, { kind: 'image' });
+  ni = nameInput(elsImg);
+  ok(!!ni, '图片卡新增后未展开名称输入');
+  ni.props.onChange({ target: { value: 'img-b' } });
+  after = settingsOf();
+  eq((after.imageProviders || []).length, 1, '图片卡新增供应商未落盘');
+  eq(((after.imageProviders || [])[0] || {}).name, 'img-b', '图片供应商名未落盘');
+  elsTts = mount(SET.ApiListEditor, { kind: 'tts' });
+  addBtn(elsTts).props.onClick();
+  elsTts = render(SET.ApiListEditor, { kind: 'tts' });
+  const stars = starBtns(elsTts);
+  ok(stars.length === 1, 'TTS 卡星标按钮数不对（应为 1）');
+  stars[0].props.onClick();
+  after = settingsOf();
+  eq((after.imageProviders || []).length, 1, '跨卡丢失更新：TTS 卡写回把图片供应商回滚了（issue #6）');
+  eq(((after.imageProviders || [])[0] || {}).name, 'img-b', '跨卡丢失更新：图片供应商名被回滚（issue #6）');
+  eq((after.ttsApis || []).length, 1, 'TTS 新增未落盘');
+  eq(after.ttsApiId, ((after.ttsApis || [])[0] || {}).id, 'TTS 星标（默认项）未落盘');
+
+  // —— 场景② 同卡连续两次编辑（setS 同步刷新的牙）：第一次编辑 → 直接 saveSettings 模拟别卡写入 → 第二次编辑 → 三次变更全在盘 ——
+  lsStub.setItem('dsh-ic:settings', '{}');
+  elsTts = mount(SET.ApiListEditor, { kind: 'tts' });
+  addBtn(elsTts).props.onClick();
+  elsTts = render(SET.ApiListEditor, { kind: 'tts' });
+  nameInput(elsTts).props.onChange({ target: { value: 'first' } });
+  // 模拟另一卡（图片卡）直接写盘
+  SET.saveSettings({ ...SET.loadSettings(), imageProviders: [{ id: 'p-ext', name: 'ext-img', models: [] }] });
+  // 同一张卡不重新挂载，第二次编辑
+  elsTts = render(SET.ApiListEditor, { kind: 'tts' });
+  addBtn(elsTts).props.onClick();
+  elsTts = render(SET.ApiListEditor, { kind: 'tts' });
+  nameInput(elsTts).props.onChange({ target: { value: 'second' } });
+  after = settingsOf();
+  eq((after.ttsApis || []).length, 2, '同卡二次编辑丢了第一次的配置');
+  ok((after.ttsApis || []).some((x) => x.name === 'first') && (after.ttsApis || []).some((x) => x.name === 'second'),
+    '同卡二次编辑后两次改名未同时落盘：' + JSON.stringify((after.ttsApis || []).map((x) => x.name)));
+  eq((after.imageProviders || []).length, 1, '同卡二次编辑把别卡写回的配置回滚了（快照基底突变体，issue #6）');
+  // setS 同步渲染牙：重渲染应显示 2 行（每行一个星标按钮）；漏 setS 则本地快照仍陈旧
+  elsTts = render(SET.ApiListEditor, { kind: 'tts' });
+  eq(starBtns(elsTts).length, 2, '写回后未 setS 同步本地快照（同卡重渲染列表陈旧）');
+
+  stateStore = null; // 还原 useState 无状态模式
 }
 
 if (errs.length) {

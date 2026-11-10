@@ -3713,6 +3713,16 @@ body[data-ds-dark-theme] .dshic-pick-item.is-on{background:color-mix(in srgb,var
       lsSet(LS_SETTINGS, s);
       notify(); // 设置即改即存（无保存按钮），但必须通知画布重渲染——否则节点上的模型下拉/星标一直是旧快照
     }
+    /** 设置卡写回：以磁盘最新值为基底叠加本卡变更，杜绝跨卡丢失更新（issue #6）。
+     *  旧模式（每张卡持有挂载时快照、把整对象写回）会让卡 B 的任何保存把卡 A 刚写的字段静默回滚。
+     *  base = loadSettings() 现取；apply(base) 返回改了本卡字段的副本；写回 + notify。
+     *  返回写回后的新设置——调用方必须 setS(返回值) 同步本地快照，否则同卡二次编辑的渲染基底仍陈旧。 */
+    function updateSettings(apply) {
+      const base = loadSettings();
+      const next = apply(base);
+      saveSettings(next);
+      return next;
+    }
 
     // ---------- 供应商 + 模型（图片/视频）：扁平视图与解析 ----------
     let legacyImageApiRefMap = {}; // 旧扁平配置 id → 'providerId|modelId'（节点字段懒迁移用）
@@ -19426,12 +19436,9 @@ const DIRECTOR_KEY_HELP = [
         for (const m of (p.models || [])) options.push({ value: p.id + '|' + m.id, label: `${p.name} · ${m.name}` });
       }
       const applyTextLlm = (provider, model) => {
-        setS((prev) => {
-          const next = JSON.parse(JSON.stringify(prev));
-          next.textLlm = { provider: provider || '', model: model || '' };
-          saveSettings(next);
-          return next;
-        });
+        // issue #6：基底现取磁盘最新（不再用挂载时快照整对象写回），写回后 setS 同步刷新本地快照
+        const next = updateSettings((b) => ({ ...b, textLlm: { provider: provider || '', model: model || '' } }));
+        setS(next);
       };
       return h('div', { className: 'dshic-field' },
         h('span', { className: 'dshic-field-label' }, T('llmLabel')),
@@ -19514,8 +19521,9 @@ const DIRECTOR_KEY_HELP = [
       const urlPh = kind === 'image'
         ? 'https://api.example.com/v1（或完整 /images/generations 端点）'
         : 'https://api.example.com/v1/video/generations（或裸域 / /v1）';
-      const persist = (next) => { setS(next); saveSettings(next); };
-      const mutate = (fn) => { const next = JSON.parse(JSON.stringify(s)); fn(next); persist(next); };
+      // issue #6：写回基底 = updateSettings 现取磁盘最新（不再是挂载时快照）；persist 只负责把返回的新值同步进本地快照
+      const persist = (next) => setS(next);
+      const mutate = (fn) => { persist(updateSettings((b) => { const d = JSON.parse(JSON.stringify(b)); fn(d); return d; })); };
       const addProvider = () => {
         const id = uid('prov');
         mutate((d) => { d[listKey] = (d[listKey] || []).concat([{ id, name: T(nameKey) + ' ' + ((d[listKey] || []).length + 1), [urlKey]: '', apiKey: '', extra: '', models: [], ...(kind === 'image' ? { mode: 'generations' } : {}) }]); });
@@ -19617,11 +19625,14 @@ const DIRECTOR_KEY_HELP = [
       const labelKey = kind === 'image' ? 'imageApisLabel' : kind === 'video' ? 'videoApisLabel' : 'ttsApisLabel';
       const icon = kind === 'image' ? 'image' : kind === 'video' ? 'video' : 'audio';
       const nameKey = kind === 'image' ? 'defaultImageCfg' : kind === 'video' ? 'defaultVideoCfg' : 'defaultTtsCfg';
-      const persist = (next) => { setS(next); saveSettings(next); };
+      // issue #6：写回基底 = updateSettings 现取磁盘最新（不再是挂载时快照）；persist 只负责把返回的新值同步进本地快照
+      const persist = (next) => setS(next);
       const mutate = (fn) => {
-        const next = JSON.parse(JSON.stringify(s));
-        next[listKey] = fn(next[listKey] || []);
-        persist(next);
+        persist(updateSettings((b) => {
+          const d = JSON.parse(JSON.stringify(b));
+          d[listKey] = fn(d[listKey] || []);
+          return d;
+        }));
       };
       const add = () => {
         const id = uid('cfg');
@@ -19681,7 +19692,7 @@ const DIRECTOR_KEY_HELP = [
                 : h('button', {
                     type: 'button', className: 'dshic-mini is-ghost', title: T('setDefault'),
                     onPointerDown: (e) => e.stopPropagation(),
-                    onClick: () => { const next = { ...s, [defKey]: cfg.id }; persist(next); },
+                    onClick: () => persist(updateSettings((b) => ({ ...b, [defKey]: cfg.id }))),
                   }, '★'),
               cfg.model ? h('span', { className: 'dshic-tag st' }, String(cfg.model).slice(0, 18)) : null,
               h('button', {
@@ -20316,7 +20327,8 @@ const DIRECTOR_KEY_HELP = [
           list.unshift({ id: 'image-gen-bridge', name: '桥接dsh-image-gen', baseUrl: '', apiKey: '', viaImageGen: true, models });
         }
         const noChange = JSON.stringify(s0.imageProviders || []) === JSON.stringify(list);
-        if (!noChange) { s0.imageProviders = list; saveSettings(s0); }
+        // issue #6：写回统一走 updateSettings（现取磁盘最新做基底，杜绝把别的卡刚写的字段回滚）
+        if (!noChange) updateSettings((b) => ({ ...b, imageProviders: list }));
         return { models: models.length, changed: !noChange };
       };
       useEffect(() => {
@@ -20341,9 +20353,8 @@ const DIRECTOR_KEY_HELP = [
       const toggle = () => {
         const v = !enabled;
         setEnabled(v);
-        const s0 = loadSettings();
-        s0.imageGen = { ...(s0.imageGen || {}), enabled: v };
-        saveSettings(s0);
+        // issue #6：写回统一走 updateSettings（现取磁盘最新做基底）
+        updateSettings((b) => ({ ...b, imageGen: { ...(b.imageGen || {}), enabled: v } }));
         // 开/关即时生效：重跑一次探测同步（加回或移除桥接模型条目）
         (async () => {
           try {
@@ -20374,12 +20385,8 @@ const DIRECTOR_KEY_HELP = [
     function SettingsTab() {
       const [s, setS] = useState(loadSettings);
       const apply = (fn) => {
-        setS((prev) => {
-          const next = JSON.parse(JSON.stringify(prev));
-          fn(next);
-          saveSettings(next);
-          return next;
-        });
+        // issue #6：与四张卡同根——基底现取磁盘最新，不再用挂载快照整对象写回
+        setS(updateSettings((b) => { const d = JSON.parse(JSON.stringify(b)); fn(d); return d; }));
       };
       const field = (label, value, onChange, placeholder, password) => h(Field, { label, value, onChange, placeholder, password });
       return [
@@ -22372,9 +22379,11 @@ const DIRECTOR_KEY_HELP = [
           window.__DSH_IC_CRAFT__ = { craftBaseDir, craftBaseDirRequired, joinLocal, craftFolderOf, craft };
           // 设置迁移的测试缝隙
           window.__DSH_IC_SETTINGS__ = {
-            DEFAULT_SETTINGS, loadSettings, saveSettings,
+            DEFAULT_SETTINGS, loadSettings, saveSettings, updateSettings,
             flattenImageModels, resolveImageModelCfg,
             buildExpertContext,
+            // 设置卡组件缝合口（跨卡丢失更新回归用，scripts/test-panel-layout.mjs；不进 __DSH_IC_TABS__，smoke 会遍历渲染）
+            LlmModelSelect, ModelProviderEditor, ApiListEditor,
           };
           // 创作上下文注入的测试缝隙（供 scripts/test-skill-inject.mjs 断言）
           window.__DSH_IC_SKILL__ = {
