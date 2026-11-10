@@ -114,23 +114,11 @@ if (unrelHasEntries) {
 // OBS-1 硬要求（QA 判据）：清单**手工维护**，绝不从 `git log` 动态生成——动态清单会自证
 // （脚本生成的清单当然自己全中，"缺一必红"退化成摆设）。数量相等 + 逐 sha 关键词命中，两条都拦。
 const COVERAGE = [
-  // 0.20.2 已发布（2026-11-09）：production 工具 P0 修复、自动创作强化、请求预览与提交留痕。
-  { sha: '2017a44', keys: [/production tools crashed|ReferenceError|methods\. prefix/i] },
-  { sha: '17e8ca4', keys: [/multiAgent capability flag|always-true|caps\.multiAgent/i] },
-  { sha: '4586872', keys: [/prose no longer breaks|monitor's decision round|depth counter|retries the monitor round/i] },
-  { sha: '672f5bb', keys: [/G2 regeneration injects|complete failure list|failure list/i] },
-  { sha: '2f5586e', keys: [/videoCalls.*shot-segmentation|same shot-segmentation algorithm|shot-segments\.js/i] },
-  { sha: '3a7738d', keys: [/capped at 15 seconds|15 seconds.*enforced twice|15s cap/i] },
-  { sha: 'da551c3', keys: [/split per shot-segment|one request per storyboard|段k\/N|per shot-segment/i] },
-  { sha: 'eb8646b', keys: [/dialogue fragments|unregistered entities|bible edits refresh|bibleTick/i] },
-  { sha: 'ccdd78c', keys: [/entity reference images|reference images before the paid run|reference-image row/i] },
-  { sha: 'e43bfc4', keys: [/partial paid runs|selected scenes only|scenes array|unit-price/i] },
-  { sha: '96603c9', keys: [/checkpoint resume|free-phase checkpoint|resumes from the checkpoint/i] },
-  { sha: '9d5999d', keys: [/request preview|pre-submission checks|submission log|submissions\.jsonl/i] },
-  { sha: 'e319de5', keys: [/settings card gains|action entries|启动创作|action row/i] },
-  { sha: 'e7bab0f', keys: [/behavior-tested|click assertions|busy-state|dead branch/i] },
-  { sha: 'cb5e611', keys: [/\.superpowers|SDD process/i] },
-  { sha: '45c6d06', keys: [/\.worktrees|work trees|housekeeping/i] },
+  // 0.20.3 已发布（2026-11-10）：设置卡跨卡丢失更新修复、TTS 供应商+模型编辑器。
+  // 0.20.2 已发布：历史行随发版清零（记录已在 [0.20.2] 段，0.20.0/0.20.2 先例同款）。
+  { sha: '6811af3', keys: [/cross-card lost updates|updateSettings|freshest settings from disk|silently roll back/i] },
+  { sha: 'fe8ad21', keys: [/mount first, then alternate writes|three-card snapshot-revert|behavior-level across every card/i] },
+  { sha: 'f8d8ce0', keys: [/TTS editor.*provider \+ model|provider \+ model form|voice.*editable|ttsApis.*migrated|ttsApis/i] },
 ];
 for (const c of COVERAGE) {
   ok(c.keys.some((re) => re.test(coverageText)), '未发版提交 ' + c.sha + ' 在 CHANGELOG（Unreleased 或最新已发布段）里找不到对应记录（补记不全）');

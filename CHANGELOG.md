@@ -6,6 +6,37 @@ GitHub Releases carry the same notes in English; maintainer-facing runbooks live
 
 ## [Unreleased]
 
+## [0.20.3] — 2026-11-10
+
+### Fixed
+- **Settings cards no longer silently roll back each other's edits (cross-card lost
+  updates).** Every settings card used to hold a snapshot taken at mount time and write
+  the whole settings object back on each save, so editing card B after card A silently
+  reverted card A's changes — and anything lost this way was gone for good after
+  exiting (the cross-card editing scenario reported in issue #6). All write-backs now go
+  through `updateSettings`, which reads the freshest settings from disk as its base and
+  applies only the card's own field changes on top; the card's local snapshot is
+  re-synced from the written-back value, so a second edit on the same card renders from
+  current state instead of a stale mount-time copy.
+
+### Added
+- **The TTS editor is unified to the provider + model form, and voices are editable.**
+  The old flat TTS config (one entry = one model = one fixed voice) is replaced by the
+  same provider + model list shape the image and video sections already use. Each model
+  carries its own editable voice, the ★ default route is picked per model
+  (`providerId|modelId`), the timeout is per provider, and dropdowns only list entries
+  whose model name is filled (same rule as image/video). Legacy `ttsApis` settings are
+  migrated automatically on load (deterministic derived ids, the old default route
+  carried over), and node data never stored a TTS config id, so there is zero node-data
+  migration burden.
+
+### Internal
+- **Settings-card regression is behavior-level across every card: mount first, then
+  alternate writes.** The cross-card tests no longer reuse a single render — each card
+  is mounted before writing, edits are interleaved across cards, and a three-card
+  snapshot-revert mutation check verifies the suite's teeth actually cover all settings
+  cards (the mutated old write-back mode is caught, the fixed one passes).
+
 ## [0.20.2] — 2026-11-09
 
 ### Added
