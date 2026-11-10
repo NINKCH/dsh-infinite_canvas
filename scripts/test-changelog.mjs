@@ -114,16 +114,9 @@ if (unrelHasEntries) {
 // OBS-1 硬要求（QA 判据）：清单**手工维护**，绝不从 `git log` 动态生成——动态清单会自证
 // （脚本生成的清单当然自己全中，"缺一必红"退化成摆设）。数量相等 + 逐 sha 关键词命中，两条都拦。
 const COVERAGE = [
-  // 0.20.3 已发布（2026-11-10）：历史行随发版清零（记录已在 [0.20.3] 段，0.20.0/0.20.2 先例同款）。
-  // 当前未发版（0.20.4）：分镜总时长硬约束 + 模型下拉/弹层定位修复。
-  { sha: '83f3e02', keys: [/total duration.*hard constraint|TOTAL duration|按镜头节奏自动|auto pacing|segMaxSeconds.*retired|per-segment cap/i] },
-  { sha: '4b297f0', keys: [/follow settings|跟随设置|starred model|PopupSelect.*world|fly to a wrong position|world coordinates/i] },
-  { sha: 'ac7cd63', keys: [/detach from their trigger|composerReposition|re-parenting the menu|removeChild|menu position/i] },
-  { sha: 'a514cd6', keys: [/detach from their trigger|composerReposition|menu position|静态快照|reposition chain/i] },
-  { sha: '7bc66ec', keys: [/attached to their trigger|menu max height|real height|layout effect|flies away|向上翻/i] },
-  { sha: '1ca82a2', keys: [/mirror|镜像贴附|flipped|search box|搜索框|attached to their trigger/i] },
-  { sha: 'b973531', keys: [/placeMenu|snapping back|pre-mirror|flipped.*flag|composer-follow/i] },
-  { sha: '237a240', keys: [/6789API|task-based|\/v1\/videos|video vendor|two request body|size mapping/i] },
+  // 0.20.4 已发布（2026-11-10）：历史行随发版清零（记录已在 [0.20.4] 段，0.20.3 先例同款）。
+  // 当前未发版：打斗分镜战斗因果链（按场检测 + 战斗字段 + 3D 词表反哺）。
+  { sha: '51883e6', keys: [/combat|fight|per-scene|attack.*reaction|combatMode|body-force|bone poses/i] },
 ];
 for (const c of COVERAGE) {
   ok(c.keys.some((re) => re.test(coverageText)), '未发版提交 ' + c.sha + ' 在 CHANGELOG（Unreleased 或最新已发布段）里找不到对应记录（补记不全）');

@@ -6,6 +6,60 @@ GitHub Releases carry the same notes in English; maintainer-facing runbooks live
 
 ## [Unreleased]
 
+### Added
+- **Combat storyboard: a real cause-and-effect chain for fight scenes.** Fight
+  choreography used to fall apart on the canvas — each shot fought "on its own",
+  opponents received blows like statues, and momentum reset at every cut. The
+  fix grafts the combat-state discipline of a battle-prompt skill reference
+  onto the canvas's existing continuity pipeline (tail → prevTail → continuity
+  block → first-frame anchoring), and it is gated per scene, not per genre:
+  - **Per-scene combat detection**: a lexical detector (explicit action verbs
+    only; dialogue lines and recalled/narrated fights are excluded) decides
+    whether a scene gets the combat contract. A per-storyboard three-state
+    override (`combatMode: auto / on / off`) lets the user force either way;
+    genre tags no longer inject anything.
+  - **Combat fields per shot** (all optional, never invented): `attack`
+    (attacker → target, locked body part, trajectory), `reaction` (the
+    opponent's visible block/dodge/hit — statues banned), `impact` (contact,
+    force direction, knockback, environmental damage), `initiative` (who holds
+    the attack at shot end), `nextCombat` (next shot's combat intent). `tail`
+    gains a combat-state segment ("picture tail | combat state: …") so
+    momentum rides the existing continuity chain across shots AND across
+    separately generated segments; `timeBeats` on combat shots use
+    attack-defense beats (strike → receive → counter/displace).
+  - **Prompt compilation**: every combat shot carries a compact causality
+    block into the video prompt (attack must point at that opponent; the
+    response must be performed; contact produces force and damage; the next
+    segment continues this momentum). A mechanical geometry validator warns
+    (never blocks) on attacks without reactions, attacks without an explicit
+    target, faces described while back to camera, and tails missing the
+    combat state.
+  - **3D pose semantics flow back into text**: the 12 combat bone poses of the
+    3D director stage become a visible body-force lexicon (hip-twist thrusts,
+    palm-out blocks, sitting-back dodges…) injected into the combat contract,
+    so motion beats have real actions to write instead of "swung once".
+  - **fight-rhythm card upgraded**: keeps its measured shot-rhythm baselines
+    and five techniques, adds the attack-defense causality rules, and its
+    honesty note is rewritten — no move names, but visible force chains plus
+    opponent response plus physical results are now required (and stated to
+    work), with keyframe-then-video as the quality upgrade path.
+
+### Fixed
+- (nothing in this cycle yet)
+
+### Changed
+- The fight-rhythm card is no longer injected by genre tags. It rides on
+  per-scene combat detection (with an explicit `auto / on / off` override on
+  each storyboard node), so wuxia projects no longer carry combat rules in
+  their dialogue scenes and untagged action scenes still get them.
+
+### Internal
+- New zero-dependency module `combat-semantics.js` (host-side authority for
+  the combat detector, contract block, causality text and geometry validator)
+  shipped in the npm package, with a drift-guard regression asserting the
+  client.js copies stay byte-identical; the lexicon is regression-checked
+  against the 3D director's bone-pose ids.
+
 ## [0.20.4] — 2026-11-10
 
 ### Added
