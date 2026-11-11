@@ -162,8 +162,10 @@
             config:
               - id: tool-subagent-control
                 name: '@deepseek-ai/dsh-tool-subagent-control'
-              - id: tool-subagent-list-agents
-                name: '@deepseek-ai/dsh-tool-subagent-control/list-agents'
+                # 【2026-11-11 修复】主入口已统一注册 send_message / interrupt_agent / list_agents
+                # 三个工具（0.2.2-rc.1 exports 只有 ./ ），旧的 ./list-agents 子路径行
+                # （tool-subagent-list-agents）解析不到模块 → auditRows 报 never started →
+                # 整个预设 broken。本注释替代已删除的那一行，勿再添加子路径行。
               - id: tool-subagent
                 name: '@deepseek-ai/dsh-tool-subagent'
                 config:
