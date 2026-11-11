@@ -6,6 +6,8 @@ GitHub Releases carry the same notes in English; maintainer-facing runbooks live
 
 ## [Unreleased]
 
+## [0.20.5] — 2026-11-11
+
 ### Added
 - **Storyboard parameters are now visible to the chat side.** `canvas_node_status`
   reports the storyboard's total-duration cap and the combat gating mode
