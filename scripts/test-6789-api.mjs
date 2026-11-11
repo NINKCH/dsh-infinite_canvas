@@ -174,7 +174,16 @@ ok(V.api6789PollState({ status: 'unknown_future_state' }).state === 'wait', '轮
   const done = V.api6789PollState({ code: 0, data: { status: 'completed', video_url: 'https://x/v.mp4' } });
   ok(done.state === 'done' && done.url === 'https://x/v.mp4', '轮询：data 包装 completed → done');
 }
-ok(V.api6789PollState({ status: 'succeeded', file: '', download_url: '' }).state === 'fail', '轮询：成功但无地址 → fail（绝不无限轮询）');
+ok(V.api6789PollState({ status: 'succeeded', file: '', download_url: '' }).state === 'wait', '轮询：成功但无地址 → wait（转存延迟，绝不立即判死丢任务）');
+ok(V.api6789PollState({ status: 'succeeded', metadata: { url: 'https://cdn.example.com/v.mp4' } }).state === 'done', '轮询：new-api 官方 metadata.url → done');
+ok(V.api6789VideoUrlOf({ status: 'completed', metadata: { url: 'https://cdn.example.com/v.mp4' } }) === 'https://cdn.example.com/v.mp4', '结果地址：metadata.url（站方官方主字段）');
+ok(V.api6789VideoUrlOf({ status: 'completed', metadata: { video_url: 'https://x/v.mp4' } }) === 'https://x/v.mp4', '结果地址：metadata.video_url 兼容');
+ok(V.api6789VideoUrlOf({ status: 'succeeded', url: 'https://x/v.mp4' }) === 'https://x/v.mp4', '结果地址：顶层 url 兼容');
+ok(V.api6789VideoUrlOf({ status: 'succeeded', output: [{ type: 'video', url: 'https://x/v.mp4' }] }) === 'https://x/v.mp4', '结果地址：output[] 数组首项');
+ok(V.api6789VideoUrlOf({ status: 'succeeded', output: { url: 'https://x/v.mp4' } }) === 'https://x/v.mp4', '结果地址：output 对象');
+ok(V.api6789VideoUrlOf({ status: 'succeeded', content: { url: 'https://x/v.mp4' } }) === 'https://x/v.mp4', '结果地址：content.url 兼容');
+ok(V.api6789VideoUrlOf({ status: 'succeeded', file: 'https://x/v.mp4' }) === 'https://x/v.mp4', '结果地址：file 绝对地址也接受');
+ok(V.api6789VideoUrlOf({ status: 'succeeded', file: '/v1/videos/t/content' }) === '/v1/videos/t/content', '结果地址：file 相对路径原样返回');
 for (const st of ['failed', 'error', 'cancelled', 'canceled', 'expired']) {
   ok(V.api6789PollState({ status: st, error: 'boom' }).state === 'fail', '轮询：' + st + ' → fail');
 }
@@ -204,6 +213,8 @@ ok(/6789 提交/.test(src), '源码契约：6789 提交标签存在');
 ok(/'Idempotency-Key': idem/.test(src), '源码契约：提交带 Idempotency-Key（幂等）');
 ok(/windowMs: SANBAO_DOWNLOAD_RETRY_MS/.test(RUN6789), '源码契约：6789 下载走 10 分钟重试窗口');
 ok(/refreshUrl: async/.test(RUN6789), '源码契约：每次重试前刷新结果地址（签名 URL 会过期）');
+ok(/\/content'/.test(RUN6789), '源码契约：/content 代理下载兜底存在（查询无地址时的站方保证路径）');
+ok(/falling back to \/content/.test(RUN6789), '源码契约：成功无地址时切 /content 兜底（带转存宽限与日志）');
 ok(!/adaptive/.test(RUN6789), '源码契约：6789 不得携带通用链的 adaptive ratio 逻辑');
 
 // ---------------- 汇总 ----------------

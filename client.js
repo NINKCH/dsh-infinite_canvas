@@ -6971,17 +6971,29 @@ function queueThumb(assetId) {
       if (!j || typeof j !== 'object') return '';
       return String(j.status ?? (j.data && j.data.status) ?? '').trim().toLowerCase();
     }
-    /** 6789 结果地址（纯函数）：优先绝对地址（download_url → video_url → content/output.video_url →
-     *  data.video_url），file 为相对路径（/v1/videos/{id}/content）时原样返回（调用方拼 origin）。
-     *  空串视为「未提供」（站方成功响应里 file/download_url 可为 ''）。 */
+    /** 6789 结果地址（纯函数）：new-api 系中转站的字段谱系很宽，按站方官方 VideoTaskResponse
+     *  与常见兼容形状全量覆盖——metadata.url（官方主字段）→ download_url → video_url/url →
+     *  content/output/result 包装 → data 包装 → 数组形状（output[]/data[]）→ file（相对路径
+     *  或绝对地址）。空串/缺失一律视为「未提供」（由轮询层与 /content 兜底处理，绝不在此判死）。 */
     function api6789VideoUrlOf(j) {
       if (!j || typeof j !== 'object') return '';
       const d = (j.data && typeof j.data === 'object') ? j.data : {};
-      const cands = [j.download_url, j.video_url, d.download_url, d.video_url,
-        j.content && j.content.video_url, j.output && j.output.video_url];
+      const md = (j.metadata && typeof j.metadata === 'object') ? j.metadata : (d.metadata && typeof d.metadata === 'object' ? d.metadata : {});
+      const firstOf = (v) => (Array.isArray(v) && v.length && typeof v[0] === 'object' ? v[0] : null);
+      const out0 = firstOf(j.output) || (typeof j.output === 'object' && !Array.isArray(j.output) ? j.output : null);
+      const data0 = firstOf(j.data);
+      const cands = [
+        md.url, md.video_url, md.download_url,                 // new-api 官方：metadata.url
+        j.download_url, j.video_url, j.url, j.videoUrl, j.result_url,
+        d.download_url, d.video_url, d.url,
+        j.content && (j.content.video_url || j.content.url),
+        out0 && (out0.url || out0.video_url),                   // output 对象或 output[0]
+        j.result && (j.result.url || j.result.video_url),
+        data0 && (data0.url || data0.video_url),                // data 数组首项
+      ];
       const abs = cands.find((u) => typeof u === 'string' && /^https?:/i.test(u));
       if (abs) return abs;
-      const file = [j.file, d.file].find((u) => typeof u === 'string' && u.startsWith('/'));
+      const file = [j.file, d.file].find((u) => typeof u === 'string' && (u.startsWith('/') || /^https?:/i.test(u)));
       return file || '';
     }
     /** 6789 失败原因（纯函数）：error → fail_reason → message → data.error。 */
@@ -6992,13 +7004,14 @@ function queueThumb(assetId) {
       if (!v) return '';
       return (typeof v === 'string' ? v : JSON.stringify(v)).slice(0, 300);
     }
-    /** 6789 轮询判定（纯函数）：queued/running 及未知状态 = 继续；成功集合取地址；
-     *  失败集合报错。与站方文档枚举一致（含 cancelled/canceled/expired）。 */
+    /** 6789 轮询判定（纯函数）：queued/running/in_progress 及未知状态 = 继续等待（new-api 官方
+     *  用 in_progress）；成功集合取地址——**有地址才 done，无地址继续等**（部分中转站 completed
+     *  后才异步转存出 metadata.url，立即判死会丢掉刚成功的任务）；失败集合报错。 */
     function api6789PollState(j) {
       const st = api6789StatusOf(j);
       if (['succeeded', 'completed', 'success'].includes(st)) {
         const url = api6789VideoUrlOf(j);
-        return url ? { state: 'done', url } : { state: 'fail', error: '任务成功但响应中没有视频地址' };
+        return url ? { state: 'done', url } : { state: 'wait' };
       }
       if (['failed', 'error', 'cancelled', 'canceled', 'expired'].includes(st)) {
         return { state: 'fail', error: api6789ErrorOf(j) || st };
@@ -7320,10 +7333,23 @@ function queueThumb(assetId) {
           if (!r || !r.ok) return null;
           try { return JSON.parse(r.text); } catch { return null; }
         };
-        // 站方建议每 5s 查询一次；画布最长轮询 30 分钟（任务 id 已挂节点，超时可凭 id 回查）
+        // 站方建议每 5s 查询一次；画布最长轮询 30 分钟（任务 id 已挂节点，超时可凭 id 回查）。
+        // 查询层兼容 new-api 官方枚举（in_progress）与各站变体；成功但无地址继续等（转存延迟）。
+        const pollStartAt = Date.now();
+        const contentUrl = base + '/v1/videos/' + encodeURIComponent(tid) + '/content';
         const url = await vendorPoll('6789', 5000, async () => {
           const j = await queryTask('6789 查询');
-          return j ? api6789PollState(j) : { state: 'wait' };
+          if (!j) return { state: 'wait' };
+          const st = api6789PollState(j);
+          if (st.state === 'done') return st;
+          // 任务已终态成功但响应始终没给地址 → 放弃轮询，走 /content 代理下载兜底
+          // （站方文档：/content 在查询无 video_url 时代理返回视频流；409 video_not_ready 可重试）。
+          const statusNow = api6789StatusOf(j);
+          if (['succeeded', 'completed', 'success'].includes(statusNow) && Date.now() - (pollStartAt + 20000) > 0) {
+            try { console.info('[IC] 6789 task ' + tid + ' succeeded without a URL in the response — falling back to /content download'); } catch { /* 忽略 */ }
+            return { state: 'done', url: contentUrl };
+          }
+          return st;
         });
         // 任务成功 ≠ 文件可下载：CDN 就绪窗口内重试（10 分钟、每 30s 一次，与三宝同款口径）。
         // file 相对路径 → 拼 origin 且带 Bearer 下载；绝对地址裸 GET、401/403 自动带鉴权重试；

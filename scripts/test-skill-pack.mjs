@@ -93,7 +93,7 @@ let skillList = [];
   const p = hostProviders.find((x) => x && x.name === 'dsh-infinite-canvas') || hostProviders[0] || {};
   skillList = (await p.list()) || [];
   const names = skillList.map((c) => c.name).sort();
-  eq(names.join(','), 'canvas-craft,canvas-director,canvas-layout,canvas-studio', '内置技能清单不对');
+  eq(names.join(','), 'canvas-craft,canvas-director,canvas-layout,canvas-studio,director-workshop', '内置技能清单不对');
   const dir = skillList.find((c) => c.name === 'canvas-director');
   ok(!!dir, '缺少 canvas-director 技能');
   if (dir) {

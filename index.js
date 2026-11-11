@@ -2082,6 +2082,11 @@ function nextNodePos(doc, type, connectFromId, size) {
 // canvas-studio＝操作硬约束；canvas-craft＝剧本/分镜/提示词创作方法论；canvas-layout＝节点布局纪律；
 // canvas-director＝导演透镜/题材/规格/影调/运镜（创作控制层，按生成能力切片注入）
 const SKILL_NAMES = ['canvas-studio', 'canvas-craft', 'canvas-layout', 'canvas-director'];
+/** 随包分发的引导技能（skills/<name>/SKILL.md）：原由 preset 里 @ninkch/dsh-infinite-canvas/skills
+ *  行挂载——2026-11-11 诊断：主包已在 profile bundle 层挂载，preset 再挂同包子路径 = 同一物理包
+ *  重复激活（老版 dsh-studio-mode 头注释警告的「重复挂载 → 预设加载失败」）→ media-studio
+ *  预设 broken。改为 bundle 层与四件套一起注册，preset 不再需要独立技能行。 */
+const WORKSHOP_SKILL_NAMES = ['director-workshop'];
 // = @deepseek-ai/dsh-skill 的 BUNDLED_SKILL_RANK（避免 import DSH 包；registry 要求 rank 必须是有限数字）
 const SKILL_RANK = 600;
 /** 解析 SKILL.md 的 YAML frontmatter（仅需 description 与正文）。 */
@@ -2098,8 +2103,26 @@ function registerCanvasSkill(ctx, disposers) {
   const skills = ctx.get('skills');
   if (!skills || typeof skills.registerProvider !== 'function') return false;
   const candidates = [];
+  // 四件套：assets/<name>/SKILL.md
   for (const name of SKILL_NAMES) {
     const assetPath = path.join(HERE, 'assets', name, 'SKILL.md');
+    if (!existsSync(assetPath)) continue;
+    const { description } = parseSkillMd(readFileSync(assetPath, 'utf8'));
+    if (!description) continue;
+    candidates.push({
+      name,
+      description,
+      invocation: { modelInvocable: true, userInvocable: true },
+      provider: 'dsh-infinite-canvas',
+      source: 'bundled',
+      rank: SKILL_RANK,
+      resourceBase: { kind: 'directory', path: path.dirname(assetPath) },
+      locator: assetPath,
+    });
+  }
+  // 导演工作坊：skills/<name>/SKILL.md（原 preset 层挂载，现并入同一 provider；见 WORKSHOP_SKILL_NAMES 注释）
+  for (const name of WORKSHOP_SKILL_NAMES) {
+    const assetPath = path.join(HERE, 'skills', name, 'SKILL.md');
     if (!existsSync(assetPath)) continue;
     const { description } = parseSkillMd(readFileSync(assetPath, 'utf8'));
     if (!description) continue;

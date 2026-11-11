@@ -106,6 +106,11 @@
             name: '@deepseek-ai/dsh-tool-skill'
           - id: media-studio-skills
             name: '@ninkch/dsh-infinite-canvas/skills'
+            # 【2026-11-11 修复】本行已永久禁用：主包在 profile bundle 层挂载后，preset 再挂
+            # 同包子路径 = 同一物理包重复激活 → media-studio 预设「加载失败」（broken）。
+            # director-workshop 技能已改由 bundle 层 registerCanvasSkill 注册（index.js），
+            # 本行保留仅为避免旧 profile 补丁残留时的兼容占位，不得重新启用。
+            disabled: true
             config: {}
           - id: command-goal
             name: '@deepseek-ai/dsh-command-goal'

@@ -162,13 +162,14 @@ try {
   const p = providers[0];
   if (!p || p.name !== 'dsh-infinite-canvas') errs.push('技能提供方 name 不正确');
   const list = await p.list();
-  if (!Array.isArray(list) || list.length !== 4) errs.push(`技能列表应包含 4 个内置技能，实际 ${Array.isArray(list) ? list.length : '非数组'}`);
+  if (!Array.isArray(list) || list.length !== 5) errs.push(`技能列表应包含 5 个内置技能（四件套 + 导演工作坊），实际 ${Array.isArray(list) ? list.length : '非数组'}`);
   const names = (list || []).map((c) => c && c.name).sort();
-  if (names.join(',') !== 'canvas-craft,canvas-director,canvas-layout,canvas-studio') errs.push('内置技能名应为 canvas-craft/canvas-director/canvas-layout/canvas-studio，实际 ' + names.join(','));
+  if (names.join(',') !== 'canvas-craft,canvas-director,canvas-layout,canvas-studio,director-workshop') errs.push('内置技能名应为 canvas-craft/canvas-director/canvas-layout/canvas-studio/director-workshop，实际 ' + names.join(','));
   const needBySkill = {
     'canvas-studio': ['canvas_list_projects', 'canvas_write_node', 'canvas_create_project', 'canvas_get_bible', 'canvas_update_bible', 'canvas_create_node', '设定集先行', 'output'],
     'canvas-craft': ['景别', '运镜', '分镜', '提示词', '设定集'],
     'canvas-layout': ['一类型一列', 'canvas_relayout', '绝不重叠'],
+    'director-workshop': ['导演', '启动仪式'],
   };
   for (const cand of list || []) {
     if (!Number.isFinite(cand.rank)) errs.push(`${cand.name}: 技能 rank 必须是有限数字（registry 强制要求）`);
