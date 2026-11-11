@@ -3128,6 +3128,11 @@ async function canvasNodeStatus(args) {
     resolution: d.resolution || null,
     frameMode: d.frameMode || null,
     count: d.count == null ? null : Number(d.count),
+    // 分镜节点参数（0.20.5 对话侧读面补注册）：总时长硬约束与打斗判定三态——
+    // update_node 白名单里有写面、这里必须有读面，否则对话侧读不回、shots 整表替换场景丢语义
+    targetDuration: d.targetDuration == null ? null : Number(d.targetDuration),
+    combatMode: d.combatMode || null,
+    cont: d.cont === false ? false : true,
     imageModel: d.imageModel || null,
     videoModel: d.videoModel || null,
     model: d.model || null,
@@ -5266,7 +5271,7 @@ export function apply(ctx) {
             additionalProperties: false,
           },
           output: {
-            schema: { type: 'object', properties: { ok: { type: 'boolean' }, text: { type: 'string' }, type: { type: 'string' }, status: { type: 'string' }, x: { type: 'number' }, y: { type: 'number' }, w: { type: 'number' }, h: { type: 'number' }, assetId: { type: 'string' }, prompt: { type: 'string' }, ratio: { type: 'string' }, size: { type: 'string' }, duration: { type: 'number' }, resolution: { type: 'string' }, frameMode: { type: 'string' }, imageModel: { type: 'string' }, videoModel: { type: 'string' }, genWarn: { type: 'string' }, chainFrom: { type: 'string' }, seam: { type: 'object', properties: { ok: { type: 'boolean' }, sim: { type: 'number' }, thr: { type: 'number' }, note: { type: 'string' } } }, tailPickAssetId: { type: 'string' }, historyAssetIds: { type: 'array', items: { type: 'string' } }, warnings: { type: 'array', items: { type: 'string' } }, shots: { type: 'array', items: { type: 'object', properties: { index: { type: 'number' }, title: { type: 'string' }, duration: { type: 'number' }, visual: { type: 'string' }, motion: { type: 'string' }, tail: { type: 'string' }, cam: { type: 'string' }, start: { type: 'string' }, seg: { type: 'string' }, characters: { type: 'array', items: { type: 'string' } }, scene: { type: 'string' }, props: { type: 'array', items: { type: 'string' } }, timeBeats: { type: 'array', items: { type: 'string' } }, camera: { type: 'string' }, vfx: { type: 'string' }, negative: { type: 'string' } } } } }, required: ['ok', 'text'] },
+            schema: { type: 'object', properties: { ok: { type: 'boolean' }, text: { type: 'string' }, type: { type: 'string' }, status: { type: 'string' }, x: { type: 'number' }, y: { type: 'number' }, w: { type: 'number' }, h: { type: 'number' }, assetId: { type: 'string' }, prompt: { type: 'string' }, ratio: { type: 'string' }, size: { type: 'string' }, duration: { type: 'number' }, resolution: { type: 'string' }, frameMode: { type: 'string' }, imageModel: { type: 'string' }, videoModel: { type: 'string' }, count: { type: 'number' }, targetDuration: { type: 'number', description: '分镜总时长硬约束（秒；缺省 = 自动档）' }, combatMode: { type: 'string', enum: ['auto', 'on', 'off'], description: '打斗判定：auto=按场检测 / on=强制打斗 / off=强制非打斗' }, cont: { type: 'boolean', description: '分镜衔接开关（默认 true）' }, genWarn: { type: 'string' }, chainFrom: { type: 'string' }, seam: { type: 'object', properties: { ok: { type: 'boolean' }, sim: { type: 'number' }, thr: { type: 'number' }, note: { type: 'string' } } }, tailPickAssetId: { type: 'string' }, historyAssetIds: { type: 'array', items: { type: 'string' } }, warnings: { type: 'array', items: { type: 'string' } }, shots: { type: 'array', items: { type: 'object', properties: { index: { type: 'number' }, title: { type: 'string' }, duration: { type: 'number' }, visual: { type: 'string' }, motion: { type: 'string' }, tail: { type: 'string' }, cam: { type: 'string' }, start: { type: 'string' }, seg: { type: 'string' }, characters: { type: 'array', items: { type: 'string' } }, scene: { type: 'string' }, props: { type: 'array', items: { type: 'string' } }, timeBeats: { type: 'array', items: { type: 'string' } }, camera: { type: 'string' }, vfx: { type: 'string' }, negative: { type: 'string' }, attack: { type: 'string' }, reaction: { type: 'string' }, impact: { type: 'string' }, initiative: { type: 'string' }, nextCombat: { type: 'string' } } } } }, required: ['ok', 'text'] },
             render: (args, value) => [{ type: 'text', text: String(value.text || '') }],
           },
           timeoutMs: 30000,
@@ -5310,6 +5315,10 @@ export function apply(ctx) {
             if (s.resolution) params.push('分辨率 ' + s.resolution);
             if (s.frameMode) params.push('衔接 ' + s.frameMode);
             if (s.count != null && s.count > 0) params.push('镜头数 ' + s.count);
+            // 分镜节点参数（对话侧读面）：总时长硬约束 / 打斗判定 / 衔接开关
+            if (s.targetDuration != null && s.targetDuration > 0) params.push('总时长硬约束 ' + s.targetDuration + 's');
+            if (s.targetDuration == null) params.push('总时长自动');
+            if (s.combatMode) params.push('打斗判定 ' + s.combatMode);
             if (s.imageModel) params.push('图片模型 ' + s.imageModel);
             if (s.videoModel) params.push('视频模型 ' + s.videoModel);
             if (params.length) lines.push('生成参数: ' + params.join(' · '));
@@ -5325,6 +5334,10 @@ export function apply(ctx) {
               prompt: s.prompt || undefined, ratio: s.ratio || undefined, size: s.size || undefined,
               duration: s.duration == null ? undefined : s.duration, resolution: s.resolution || undefined,
               frameMode: s.frameMode || undefined, imageModel: s.imageModel || undefined, videoModel: s.videoModel || undefined,
+              count: s.count == null ? undefined : s.count,
+              targetDuration: s.targetDuration == null ? undefined : s.targetDuration,
+              combatMode: s.combatMode || undefined,
+              cont: s.cont,
               genWarn: s.genWarn || undefined,
               chainFrom: s.chainFrom || undefined, seam: s.seam || undefined,
               tailPickAssetId: s.tailPickAssetId || undefined,
@@ -5336,7 +5349,7 @@ export function apply(ctx) {
         });
         reg({
           name: 'canvas_update_node',
-          description: '修改无限画布上**已有节点**的字段（改提示词、改比例/清晰度/时长/分辨率等参数）——"改节点"的唯一入口，改完不必删节点重建。可改字段：prompt（图片/视频节点的对话框提示词）、idea/output（剧本节点）、text（文本节点的正文）、script/requirement（分镜表的剧本来源与额外要求）、shots（分镜镜头清单，JSON 数组）、label（节点名）、ratio、size、duration、resolution、frameMode、count、imageModel、videoModel、model、cont（分镜表「分镜衔接」开关，默认 true；关掉后拆镜不写衔接字段、视频不自动续帧）。结构字段（id/type/坐标/宽高）不可改。改完用 canvas_generate_node 触发生成。**这是迭代生成的主路径**：用户对某张图/某段视频不满意（"重来/换一版/不像"）时，改 prompt 后重生成即可，**绝不删掉节点再新建一个**——同一角色/场景/镜的节点永远只有一个，删了重建会丢连线、位置与历史。**前提**：先用 canvas_node_status 读到当前内容，再只传要改的字段。**注意 shots 是整表替换**：只改一镜也要先把 canvas_node_status 返回的全部 shots 取回、改完再整体传回；否则其它镜的 tail/cam/seg 会被冲掉（服务端会按镜序兜底保留，但不要依赖它）。',
+          description: '修改无限画布上**已有节点**的字段（改提示词、改比例/清晰度/时长/分辨率等参数）——"改节点"的唯一入口，改完不必删节点重建。可改字段：prompt（图片/视频节点的对话框提示词）、idea/output（剧本节点）、text（文本节点的正文）、script/requirement（分镜表的剧本来源与额外要求）、shots（分镜镜头清单，JSON 数组）、label（节点名）、ratio、size、duration、resolution、frameMode、count、imageModel、videoModel、model、cont（分镜表「分镜衔接」开关，默认 true；关掉后拆镜不写衔接字段、视频不自动续帧）、targetDuration（分镜**总时长硬约束**秒数，0/不传 = 自动档按镜头节奏；设置后所有镜头 duration 之和严格等于该值）、combatMode（打斗判定三态：auto=按本场剧本自动检测（缺省）/ on=本场强制按打斗注入战斗契约 / off=强制不注入——只影响分镜生成的注入口径）。结构字段（id/type/坐标/宽高）不可改。改完用 canvas_generate_node 触发生成。**这是迭代生成的主路径**：用户对某张图/某段视频不满意（"重来/换一版/不像"）时，改 prompt 后重生成即可，**绝不删掉节点再新建一个**——同一角色/场景/镜的节点永远只有一个，删了重建会丢连线、位置与历史。**前提**：先用 canvas_node_status 读到当前内容，再只传要改的字段。**注意 shots 是整表替换**：只改一镜也要先把 canvas_node_status 返回的全部 shots 取回、改完再整体传回（含每镜的 tail/cam/start/seg/timeBeats/camera/vfx/negative 与打斗字段 attack/reaction/impact/initiative/nextCombat）；否则其它镜的衔接与战斗字段会被冲掉（服务端会按镜序兜底保留，但不要依赖它）。',
           parameters: {
             type: 'object',
             properties: {

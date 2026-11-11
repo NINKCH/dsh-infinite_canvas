@@ -7,6 +7,12 @@ GitHub Releases carry the same notes in English; maintainer-facing runbooks live
 ## [Unreleased]
 
 ### Added
+- **Storyboard parameters are now visible to the chat side.** `canvas_node_status`
+  reports the storyboard's total-duration cap and the combat gating mode
+  (`targetDuration` / `combatMode` / `cont`) alongside the other generation
+  parameters, and `canvas_update_node`'s field list documents all three — the
+  chat agent can now read back and set what the canvas UI already offered
+  (`shots` round-trips no longer silently lose these settings).
 - **Combat storyboard: a real cause-and-effect chain for fight scenes.** Fight
   choreography used to fall apart on the canvas — each shot fought "on its own",
   opponents received blows like statues, and momentum reset at every cut. The
@@ -45,7 +51,30 @@ GitHub Releases carry the same notes in English; maintainer-facing runbooks live
     work), with keyframe-then-video as the quality upgrade path.
 
 ### Fixed
-- (nothing in this cycle yet)
+- **6789API: "task succeeded but no video address in the response" is fixed.**
+  6789-style gateways are new-api relays whose completed response carries the
+  video URL in `metadata.url` — the 0.20.4 extractor only knew
+  `download_url`/`video_url`/`data` wrappers, so a finished task was declared
+  dead. Three layers now: the extractor covers the full field lineage
+  (`metadata.*`, top-level `url`/`videoUrl`/`result_url`, `output` object or
+  `output[]`/`data[]` first item, `content.url`, absolute `file`); a succeeded
+  task with no address waits (transcode delay) instead of failing; and if the
+  response never yields a URL the runner falls back to the guaranteed
+  `/v1/videos/{id}/content` proxy download with the existing 10-minute retry
+  window (409 `video_not_ready` retries automatically).
+- **The media-studio agent preset no longer shows "Failed to load".** Two
+  blockers: the preset declared the subpath plugin
+  `@deepseek-ai/dsh-tool-subagent-control/list-agents`, which no longer exists
+  in the current Harness (the main entry registers `send_message`,
+  `interrupt_agent` and `list_agents` together) — an unresolvable row reads as
+  "never started" and breaks the whole preset; the row is removed with a
+  note. The preset's `@ninkch/dsh-infinite-canvas/skills` row is now disabled
+  (the package is already mounted at the profile bundle layer; a second mount
+  of the same physical package is the documented repeat-mount failure mode),
+  and the `director-workshop` skill is registered by the bundle-level skill
+  provider instead (five skills, one provider). All remaining preset rows
+  were audited against the current Harness exports — no further stale
+  subpaths.
 
 ### Changed
 - The fight-rhythm card is no longer injected by genre tags. It rides on

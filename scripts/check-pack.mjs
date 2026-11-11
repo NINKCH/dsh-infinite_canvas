@@ -21,6 +21,14 @@ const REQUIRED = [
   'package.json',
   'index.js',
   'client.js',
+  // 根级 JS 模块全覆盖（0.20.2 事故的显式防线第二层：相对 import 审计之外，任何
+  // 一个根模块被误删/漏提交时直接报「缺少必打包文件」，而不是等 import 解析失败）。
+  'production.js',
+  'shot-segments.js',
+  'combat-semantics.js',
+  'skill-pack.js',
+  'skill-pack-loader.js',
+  'index-core-skill-profile.js',
   'icon.svg',
   'cordis.patch.yml',
   'README.md',
@@ -39,8 +47,6 @@ const REQUIRED = [
   'assets/support/wechat.png',
   'docs/artcraft-handoff.md',
   'docs/release.md',
-  'production.js',
-  'shot-segments.js',
 ];
 // 包内允许出现的路径形态（package.json 与 LICENSE 由 npm 恒定收入，无需列 files 白名单）
 // assets/support/*：帮助与反馈用的微信二维码等界面静态资源（必须随包分发，否则用户看不到）
@@ -85,10 +91,21 @@ let patchYml = '';
 try { patchYml = readFileSync(path.join(ROOT, 'cordis.patch.yml'), 'utf8'); } catch (e) { fail('cordis.patch.yml 不可读: ' + (e.message || e)); }
 if (patchYml) {
   patchYml.includes('preset-media-studio') ? ok('patch 含 preset-media-studio（媒体创作模式）') : fail('patch 缺 preset-media-studio');
-  patchYml.includes("name: '@ninkch/dsh-infinite-canvas/skills'") ? ok('patch 含 media-studio-skills（画布包 skills 提供者）') : fail('patch 缺 media-studio-skills 或包名未随合并更新');
+  // media-studio-skills 行【语义修正 2026-11-11】：该行与 profile bundle 层挂载同一物理包 =
+  // 重复激活（老版 dsh-studio-mode 警告的加载失败模式）。允许两种状态：行不存在（彻底移除），
+  // 或行存在但必须 disabled: true（留档）。断言方向与产品决策一致，不再逼人恢复废弃行。
+  {
+    const rowRe = /- id: media-studio-skills[\s\S]{0,300}?name: '@ninkch\/dsh-infinite-canvas\/skills'([\s\S]{0,200}?)(?=\n          - id: |\n              - id: |$)/;
+    const m = patchYml.match(rowRe);
+    if (!m) ok('media-studio-skills 行已移除（director-workshop 由 bundle 层注册）');
+    else if (/disabled:\s*true/.test(m[1])) ok('media-studio-skills 行存在且已禁用（防重复挂载）');
+    else fail('media-studio-skills 行未禁用：与 bundle 层重复挂载同一物理包会导致预设加载失败（应 disabled: true 或删行）');
+  }
   (patchYml.match(/name: '@ninkch\/dsh-infinite-canvas'\s*$/gm) || []).length === 1 ? ok('patch 挂载画布插件行恰好 1 条（本包自身）') : fail('patch 画布插件行数量异常（0 = 忘挂自身，≥2 = 重复挂载导致路由冲突）');
   /name: '@ninkch\/dsh-artcraft'\s*$/m.test(patchYml) ? fail('patch 挂载了 ArtCraft（重复挂载）') : ok('patch 未挂载 ArtCraft');
   patchYml.includes('order: 5') ? ok('模式 order = 5') : fail('patch 缺 order: 5');
+  // 废弃子路径守卫（list-agents 事故）：preset 里不得再出现已知被 Harness 移除的子路径行
+  /dsh-tool-subagent-control\/list-agents/.test(patchYml) ? fail('patch 含废弃子路径 dsh-tool-subagent-control/list-agents（主入口已统一注册三工具，解析不到模块 → 预设 broken）') : ok('无废弃子路径插件行');
 }
 
 console.log('— npm pack --dry-run 清单核对');

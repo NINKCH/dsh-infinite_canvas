@@ -337,6 +337,21 @@ try {
   await byName.get('canvas_write_node').execute({ projectId, nodeId: sb.nodeId, target: 'output', text: shotsJson, overwrite: true }, {});
   const docSb3 = await mod._internals.projectsGet({ id: projectId });
   if (!docSb3.nodes[sb.nodeId] || !Array.isArray(docSb3.nodes[sb.nodeId].data.shots) || docSb3.nodes[sb.nodeId].data.shots.length !== 2) errs.push('shots JSON 未写入分镜节点的 data.shots');
+  // 分镜参数读面（0.20.5 补注册）：canvas_update_node 写 targetDuration/combatMode/cont 后
+  // canvas_node_status 必须能读回——写面有读面无 = 对话侧不可发现（2026-11-11 审计缺口）。
+  {
+    await byName.get('canvas_update_node').execute({ projectId, nodeId: sb.nodeId, patch: { targetDuration: 15, combatMode: 'on', cont: true } }, {});
+    const st = await byName.get('canvas_node_status').execute({ projectId, nodeId: sb.nodeId }, {});
+    if (!st || st.targetDuration !== 15) errs.push('canvas_node_status 未读回 targetDuration（写面有读面无）');
+    if (!st || st.combatMode !== 'on') errs.push('canvas_node_status 未读回 combatMode（写面有读面无）');
+    if (!st || st.cont !== true) errs.push('canvas_node_status 未读回 cont（写面有读面无）');
+    if (st && !/总时长硬约束 15s/.test(String(st.text))) errs.push('canvas_node_status 文本未渲染总时长硬约束');
+    if (st && !/打斗判定 on/.test(String(st.text))) errs.push('canvas_node_status 文本未渲染打斗判定');
+    // 非法值宽松归一：combatMode 非三态值 → 归一为 auto（与 cont 宽松归一同口径；抛错会中断整个 patch）
+    await byName.get('canvas_update_node').execute({ projectId, nodeId: sb.nodeId, patch: { combatMode: 'xyz' } }, {});
+    const stBad = await byName.get('canvas_node_status').execute({ projectId, nodeId: sb.nodeId }, {});
+    if (!stBad || stBad.combatMode !== 'auto') errs.push('canvas_update_node 收到非法 combatMode 未归一为 auto（得到 ' + (stBad && stBad.combatMode) + '）');
+  }
   // 连线工具：剧本 → 分镜表（工作流的核心，必须有边且类型校验生效）
   const scriptNode = Object.values(docSb3.nodes).find((n) => n.type === 'script' && n.data.label === '第一节剧本');
   const conn = await byName.get('canvas_connect').execute({ projectId, fromNode: scriptNode.id, toNode: sb.nodeId }, {});

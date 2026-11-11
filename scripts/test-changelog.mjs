@@ -115,8 +115,12 @@ if (unrelHasEntries) {
 // （脚本生成的清单当然自己全中，"缺一必红"退化成摆设）。数量相等 + 逐 sha 关键词命中，两条都拦。
 const COVERAGE = [
   // 0.20.4 已发布（2026-11-10）：历史行随发版清零（记录已在 [0.20.4] 段，0.20.3 先例同款）。
-  // 当前未发版：打斗分镜战斗因果链（按场检测 + 战斗字段 + 3D 词表反哺）。
+  // 当前未发版：打斗因果链（51883e6）+ 6789 结果地址修复（57489f5）+ 预设修复（2b5a921）。
+  // 【纪律】每次功能/修复提交后必须同步本清单与 CHANGELOG Unreleased——门禁只在跑的那一刻绿，
+  // 新提交不补账 = 下一次 --strict 直接红（2026-11-11 实测）。
   { sha: '51883e6', keys: [/combat|fight|per-scene|attack.*reaction|combatMode|body-force|bone poses/i] },
+  { sha: '57489f5', keys: [/6789|metadata\.url|\/content|video address|vendor fix|download fallback/i] },
+  { sha: '2b5a921', keys: [/list-agents|subagent-control|never started|preset.*(fix|load|broken)|media-studio/i] },
 ];
 for (const c of COVERAGE) {
   ok(c.keys.some((re) => re.test(coverageText)), '未发版提交 ' + c.sha + ' 在 CHANGELOG（Unreleased 或最新已发布段）里找不到对应记录（补记不全）');
