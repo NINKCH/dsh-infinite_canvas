@@ -487,6 +487,9 @@ function revealCanvasInRight() {
       'boxEdit': '改景',
       'boxEditing': '改景中…',
       'boxEdited': '已按你的描述改景',
+      'boxAiCam': 'AI运镜',
+      'boxAiCamBusy': '运镜中…',
+      'boxAiCamDone': '已生成 AI 运镜',
       'boxBuilt': '已生成 3D-BOX 预演',
       'boxFailed': '搭景失败：',
       'boxShot4': '四方位截图',
@@ -1522,6 +1525,9 @@ function revealCanvasInRight() {
       'boxEdit': 'Edit scene',
       'boxEditing': 'Editing…',
       'boxEdited': 'Scene updated',
+      'boxAiCam': 'AI camera',
+      'boxAiCamBusy': 'Planning…',
+      'boxAiCamDone': 'AI camera generated',
       'boxBuilt': '3D-BOX previz generated',
       'boxFailed': 'Build failed: ',
       'boxShot4': '4-view screenshots',
@@ -16550,6 +16556,29 @@ const DIRECTOR_KEY_HELP = [
           setMsg({ kind: 'err', text: T('boxFailed') + String((e && e.message) || e) });
         }).finally(() => setBoxBusy(false));
       };
+      /** AI 运镜：把当前输入框当运镜提示词，Host 生成可编辑机位关键帧。 */
+      const aiCamera = () => {
+        const E2 = directorEngine();
+        if (!E2 || typeof E2.buildStageFromSpec !== 'function') { setMsg({ kind: 'err', text: T('boxFailed') + 'engine' }); return; }
+        const prompt = String(boxBrief || '').trim();
+        if (!prompt) { setMsg({ kind: 'err', text: T('boxFailed') + T('boxBriefPh') }); return; }
+        if (!scene) { setMsg({ kind: 'err', text: T('boxFailed') + T('boxBriefPh') }); return; }
+        setBoxBusy(true);
+        hostRpc('directorStageCamera', { projectId: S.activeId, prompt }).then((r) => {
+          if (!r || !r.ok) throw new Error((r && r.error) || 'camera failed');
+          const built = E2.buildStageFromSpec(r.spec);
+          if (!built) throw new Error('buildStageFromSpec returned null');
+          built.updatedAt = Date.now();
+          pushUndo();
+          E2.saveStageDoc(S.activeId, built);
+          setScene(built);
+          markDirty();
+          bumpView();
+          setMsg({ kind: 'ok', text: T('boxAiCamDone') + (r.keys ? ' · ' + r.keys + ' keyframes' : '') });
+        }).catch((e) => {
+          setMsg({ kind: 'err', text: T('boxFailed') + String((e && e.message) || e) });
+        }).finally(() => setBoxBusy(false));
+      };
 
       // 引擎 + 模型清单
       useEffect(() => {
@@ -18038,6 +18067,10 @@ const DIRECTOR_KEY_HELP = [
               type: 'button', className: 'dshic-dir-mini', 'data-action': 'box-edit',
               disabled: boxBusy, title: T('boxEdit'), onClick: editBox,
             }, boxBusy ? T('boxEditing') : T('boxEdit')),
+            h('button', {
+              type: 'button', className: 'dshic-dir-mini', 'data-action': 'box-ai-cam',
+              disabled: boxBusy, title: T('boxAiCam'), onClick: aiCamera,
+            }, boxBusy ? T('boxAiCamBusy') : T('boxAiCam')),
             h('button', {
               type: 'button', className: 'dshic-dir-mini', 'data-action': 'box-shot-4',
               disabled: boxBusy, title: T('boxShot4'), onClick: () => exportViews(4),

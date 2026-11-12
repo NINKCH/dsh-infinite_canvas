@@ -105,6 +105,7 @@ for (const p of (E.SCENE_PRESETS || [])) {
   ok(cli.includes('dshic-dir-boxbar'), '客户端缺少 3D-BOX 提示条');
   ok(cli.includes("'box-build'"), '客户端缺少「生成预演」按钮');
   ok(cli.includes("'box-edit'") && cli.includes('directorStageEdit'), '客户端缺少「改景」入口或未接 RPC');
+  ok(cli.includes("'box-ai-cam'") && cli.includes('directorStageCamera'), '客户端缺少「AI运镜」入口或未接 RPC');
   ok(cli.includes("'box-shot-4'") && cli.includes("'box-shot-12'"), '客户端缺少四/十二方位截图入口');
   ok(cli.includes('viewCamerasAround'), '客户端未接线四/十二方位截图');
   ok(cli.includes('specFromBrief'), '客户端未接线一句话搭景');

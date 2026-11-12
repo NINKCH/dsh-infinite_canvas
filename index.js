@@ -3958,6 +3958,75 @@ export function apply(ctx) {
       }
       throw lastErr || new Error('改景失败');
     }
+    /** AI 运镜：自然语言 → 机位关键帧 JSON，校验后写回 spec。纯函数只做校验/归一，模型调用可注入。 */
+    const DIRECTOR_CAMERA_SYSTEM = [
+      'You are a 3D previs camera planner. Given the CURRENT SPEC and a CAMERA INSTRUCTION, return camera keyframes.',
+      'Return ONLY one JSON object: {"keys":[{"t":0,"pos":[x,y,z],"target":[x,y,z],"fov":42,"ease":"auto"}]}',
+      'Rules: at least 2 keys; t in seconds within the scene duration; pos/target in meters; keep the subject in frame; y between 0.3 and 6; fov between 20 and 90; use ease "auto" or "linear".',
+      'Use the current camera as the starting point. Do not change characters, props or shots; only return camera keys.',
+      'Examples: "环绕香水瓶，低机位，最后推近 logo" -> keys around the subject with y low, ending closer and narrower; "手持跟拍" -> small jitter keys; "升镜" -> pos.y increases.',
+    ].join('\n');
+    async function planCameraMotion(currentSpec, prompt, opts) {
+      const text = String(prompt || '').trim();
+      if (!text) throw new Error('需要 prompt');
+      if (!currentSpec || typeof currentSpec !== 'object') throw new Error('缺少当前场景规格');
+      const eng = await loadDirectorEngine();
+      if (!eng || typeof eng.buildStageFromSpec !== 'function') throw new Error('引擎未就绪');
+      const call = (opts && typeof opts.llm === 'function') ? opts.llm : roomLlm;
+      const duration = Math.max(0.5, Number(currentSpec.duration) || 5);
+      const baseUser = 'CURRENT SPEC JSON:\n' + JSON.stringify(currentSpec) + '\n\nCAMERA INSTRUCTION:\n' + text;
+      const asArr = (v) => {
+        if (Array.isArray(v) && v.length >= 3) return [Number(v[0]) || 0, Number(v[1]) || 0, Number(v[2]) || 0];
+        if (v && typeof v === 'object') return [Number(v.x) || 0, Number(v.y) || 0, Number(v.z) || 0];
+        return null;
+      };
+      let lastErr = null;
+      for (let attempt = 0; attempt < 2; attempt++) {
+        const user = attempt === 0
+          ? baseUser
+          : baseUser + '\n\n【修正】上一轮返回不可用：' + String((lastErr && lastErr.message) || lastErr) + '\n只输出修正后的 {"keys":[...]} JSON。';
+        const raw = await call({ system: DIRECTOR_CAMERA_SYSTEM, user });
+        const parsed = roomJson(raw);
+        const keysRaw = parsed && Array.isArray(parsed.keys) ? parsed.keys
+          : (parsed && parsed.camera && Array.isArray(parsed.camera.keys) ? parsed.camera.keys : null);
+        if (!Array.isArray(keysRaw) || keysRaw.length < 2) { lastErr = new Error('机位关键帧不足 2 个'); continue; }
+        const norm = [];
+        let bad = false;
+        for (const k of keysRaw) {
+          const t = Number(k && k.t);
+          const pos = asArr(k && k.pos);
+          const target = asArr(k && k.target);
+          if (!Number.isFinite(t) || !pos || !target) { bad = true; break; }
+          norm.push({
+            t: Math.max(0, Math.min(duration * 1.5, t)),
+            pos: [pos[0], Math.max(0.3, Math.min(6, pos[1])), pos[2]],
+            target,
+            fov: Math.max(8, Math.min(140, Number(k.fov) || 42)),
+            ease: String(k.ease || 'auto'),
+          });
+        }
+        if (bad) { lastErr = new Error('关键帧字段不完整'); continue; }
+        norm.sort((a, b) => a.t - b.t);
+        if (norm.some((k) => Math.hypot(k.pos[0] - k.target[0], k.pos[2] - k.target[2]) > 60)) {
+          lastErr = new Error('机位离主体过远');
+          continue;
+        }
+        const out = JSON.parse(JSON.stringify(currentSpec));
+        const cams = Array.isArray(out.cameras) ? out.cameras : [];
+        if (!cams.length) throw new Error('当前规格没有机位');
+        let cam = cams[0];
+        if (opts && opts.camera) cam = cams.find((c) => c.id === opts.camera || c.name === opts.camera) || cam;
+        cam.keys = norm;
+        out.cameraPrompt = text;
+        out.cameraMove = 'ai';
+        out.shot = out.shot || {};
+        out.shot.cameraMove = 'ai';
+        const built = eng.buildStageFromSpec(out);
+        if (!built || !Array.isArray(built.cameras) || !built.cameras.length) { lastErr = new Error('机位关键帧无法构建'); continue; }
+        return { ok: true, spec: out, keys: norm };
+      }
+      throw lastErr || new Error('AI 运镜失败');
+    }
     async function autoRoomStep(run, role, system, user, needJson) {
       if (run.status !== 'running') throw new Error('aborted');
       const raw = await roomLlm({ system, user });
@@ -4467,6 +4536,7 @@ export function apply(ctx) {
     __autoApi.setRoomLlm = (fn) => { roomLlm = fn; };
     __autoApi.setCanvasRunner = (fn) => { canvasExec = fn; };
     __autoApi.editDirectorSpec = editDirectorSpec;
+    __autoApi.planCameraMotion = planCameraMotion;
 
     const methods = {
       async ping() { return { ok: true, version: VERSION }; },
@@ -4563,6 +4633,31 @@ export function apply(ctx) {
           const saved = await methods.directorStageSave({ projectId, spec: edited.spec });
           if (!saved || !saved.ok) return { ok: false, error: (saved && saved.error) || '保存失败' };
           return { ok: true, projectId, spec: edited.spec, savedAt: saved.savedAt || Date.now() };
+        } catch (e) {
+          return { ok: false, error: String((e && e.message) || e) };
+        }
+      },
+      async directorStageCamera(args) {
+        const projectId = String((args && args.projectId) || '');
+        const prompt = String((args && args.prompt) || '').trim();
+        const moveId = String((args && args.cameraMove) || '').trim();
+        if (!prompt && !moveId) return { ok: false, error: '需要 prompt 或 cameraMove' };
+        const cur = await methods.directorStageLoad({ projectId });
+        if (!cur || !cur.ok) return { ok: false, error: (cur && cur.error) || '读取场景失败' };
+        if (!cur.found || !cur.spec) return { ok: false, error: '当前项目还没有 3D-BOX 规格：先生成或导入一版' };
+        try {
+          if (prompt) {
+            const planned = await planCameraMotion(cur.spec, prompt, { duration: args && args.duration });
+            const saved = await methods.directorStageSave({ projectId, spec: planned.spec });
+            if (!saved || !saved.ok) return { ok: false, error: (saved && saved.error) || '保存失败' };
+            return { ok: true, projectId, spec: planned.spec, keys: planned.keys.length, savedAt: saved.savedAt || Date.now() };
+          }
+          const eng = await loadDirectorEngine();
+          if (!eng || typeof eng.applyCameraMove !== 'function') return { ok: false, error: '引擎未就绪' };
+          const next = eng.applyCameraMove(cur.spec, moveId, { duration: args && args.duration });
+          const saved = await methods.directorStageSave({ projectId, spec: next });
+          if (!saved || !saved.ok) return { ok: false, error: (saved && saved.error) || '保存失败' };
+          return { ok: true, projectId, spec: next, keys: (next.cameras && next.cameras[0] && next.cameras[0].keys || []).length, savedAt: saved.savedAt || Date.now() };
         } catch (e) {
           return { ok: false, error: String((e && e.message) || e) };
         }
@@ -5585,6 +5680,7 @@ export function apply(ctx) {
               scene: { type: 'string', description: '场景预设 id（action=brief 时用；见 action=presets 的 scenePresets，如 dialogue3 / interview / meeting / chase）' },
               style: { type: 'string', description: '导演风格 id（action=brief 时用；见 action=presets 的 directorStyles，如 animation / tvc / mv / documentary / commerce / suspense）' },
               cameraMove: { type: 'string', description: '运镜预设 id（action=brief 或 action=camera 时用；见 action=presets 的 cameraMoves，如 push_in / arc_left / crane_up / dolly_zoom）' },
+              prompt: { type: 'string', description: '自然语言运镜（action=camera 时用）：如「环绕香水瓶，低机位，最后推近 logo」；由用户已配置模型生成可编辑机位关键帧' },
               instruction: { type: 'string', description: '自然语言改景指令（action=edit 时用）：如「机位再低一点」「让角色 A 从左入画」「加一张桌子」；由用户已配置的模型改当前 spec，失败自动重试一次' },
               duration: { type: 'number', description: '时长秒数（不传则从 brief 里抓「N秒」，否则用模板默认值）' },
               projectId: { type: 'string', description: '项目 id' },
@@ -5650,17 +5746,13 @@ export function apply(ctx) {
             }
             if (action === 'camera') {
               const moveId = String((args && args.cameraMove) || '').trim();
-              if (!moveId) throw new Error('action=camera 需要 cameraMove');
-              const eng3 = await loadDirectorEngine();
-              const cur = await methods.directorStageLoad({ projectId: args.projectId });
-              if (!cur || !cur.found || !cur.spec) throw new Error('当前项目还没有 3D-BOX 规格：先用 action=brief 或 action=apply');
-              if (!eng3 || typeof eng3.applyCameraMove !== 'function') throw new Error('引擎未就绪');
-              const next = eng3.applyCameraMove(cur.spec, moveId, { duration: args.duration });
-              const r5 = await methods.directorStageSave({ projectId: args.projectId, spec: next });
-              if (!r5.ok) throw new Error(r5.error || '保存失败');
+              const prompt = String((args && args.prompt) || '').trim();
+              if (!moveId && !prompt) throw new Error('action=camera 需要 cameraMove 或 prompt');
+              const r5 = await methods.directorStageCamera({ projectId: args.projectId, cameraMove: moveId || undefined, prompt: prompt || undefined, duration: args.duration });
+              if (!r5 || !r5.ok) throw new Error((r5 && r5.error) || '运镜失败');
               return {
-                ok: true, projectId: String(args.projectId || ''), spec: next,
-                text: '✅ 已施加运镜「' + moveId + '」并写入项目（' + ((next.cameras && next.cameras[0] && next.cameras[0].keys) || []).length + ' 个机位关键帧）。刷新 3D-BOX 即可预览。',
+                ok: true, projectId: String(args.projectId || ''), spec: r5.spec,
+                text: '✅ 已施加' + (prompt ? ' AI 运镜「' + prompt.slice(0, 60) + '」' : '运镜「' + moveId + '」') + '并写入项目（' + (r5.keys || 0) + ' 个机位关键帧）。刷新 3D-BOX 即可预览。',
               };
             }
             if (action === 'edit') {

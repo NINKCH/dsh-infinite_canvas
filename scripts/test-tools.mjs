@@ -420,6 +420,19 @@ try {
   let bad = false;
   try { await byName.get('canvas_director_stage').execute({ action: 'edit', projectId, instruction: '乱改' }, {}); } catch { bad = true; }
   if (!bad) throw new Error('invalid LLM output was accepted');
+  // AI 运镜：自然语言 → {keys:[...]}，校验后写回
+  mod._internals.__auto.setRoomLlm(async () => JSON.stringify({ keys: [
+    { t: 0, pos: [0, 1.1, 6], target: [0, 1, 0], fov: 42 },
+    { t: 3, pos: [2, 1.4, 5], target: [0, 1, 0], fov: 40 },
+  ] }));
+  const cam = await byName.get('canvas_director_stage').execute({ action: 'camera', projectId, prompt: '环绕香水瓶，最后推近' }, {});
+  if (!cam || !cam.ok) throw new Error('AI camera failed');
+  if (!cam.spec || !cam.spec.cameras[0].keys || cam.spec.cameras[0].keys.length !== 2) throw new Error('AI camera keys not applied');
+  if (!cam.spec.cameraPrompt) throw new Error('AI camera prompt not recorded');
+  mod._internals.__auto.setRoomLlm(async () => JSON.stringify({ keys: [{ t: 0, pos: [0, 1, 0] }] }));
+  let badCam = false;
+  try { await byName.get('canvas_director_stage').execute({ action: 'camera', projectId, prompt: '乱运镜' }, {}); } catch { badCam = true; }
+  if (!badCam) throw new Error('invalid AI camera keys was accepted');
 } catch (e) {
   errs.push('3D-BOX 自然语言改景失败 → ' + ((e && e.message) || e));
 } finally {

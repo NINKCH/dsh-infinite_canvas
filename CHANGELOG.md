@@ -28,6 +28,11 @@ GitHub Releases carry the same notes in English; maintainer-facing runbooks live
   spec and retries once; the stage also gains 4-view/12-view screenshot
   buttons that render around the current subject and drop image nodes with
   references, closing the previz → generation loop.
+- **3D-BOX: AI camera moves.** `canvas_director_stage action=camera` now
+  accepts a natural-language `prompt` in addition to preset IDs. The
+  configured model returns camera keyframes, which are validated/clamped to
+  the scene bounds and retried once; the 3D-BOX bar exposes this as an
+  “AI camera” button.
 
 ### Fixed
 - (nothing in this cycle yet)
