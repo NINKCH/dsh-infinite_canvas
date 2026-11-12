@@ -117,6 +117,13 @@ GitHub Releases carry the same notes in English; maintainer-facing runbooks live
   workflows; duplicates are hidden, and the merge can be undone in the same
   session. Source and date-range filters complete the DAM filter row; the
   canvas.db schema round-trips tags, folder and mergedInto (with migration).
+- **Detailed 3D assets (Meshy) + 3D-to-video shots.** Settings gains a
+  detailed-3D card (Meshy key/base URL). For a selected character or prop,
+  the stage can run text-to-3D → textured refine → auto-rig → text-to-motion
+  → animation bake, then import the resulting GLB as a project model asset
+  and render it through the existing glTF path (props may be static GLB).
+  The same stage can export the current camera as a reference frame and
+  create a video node with a hard first frame for a detailed final shot.
 - **Host-agnostic core contract.** A new regression proves `apply(ctx)` only
   needs `effect` + `tools.register` + `webServer.register`: 34 tools and nine
   API routes register synchronously on a minimal ctx, while llm / attachments

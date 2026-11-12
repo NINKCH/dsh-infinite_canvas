@@ -532,6 +532,9 @@ function revealCanvasInRight() {
       'boxShotBusy': '截图中…',
       'boxShotDone': '已生成 {n} 张方位截图',
       'boxShotName': '3D-BOX 方位',
+      'boxToVideo': '生成视频镜头',
+      'boxToVideoHint': '把当前机位导出为参考帧并建视频节点（首帧 hard），用视频模型生成成片级细节',
+      'boxToVideoDone': '已建视频节点：参考帧 + 首帧已接好，点击视频节点生成',
       'boxHomeTitle': '3D-BOX 库',
       'boxHomeSub': '一句话搭景 · 我的 3D-BOX',
       'boxHomeNew': '生成预演',
@@ -1143,6 +1146,28 @@ function revealCanvasInRight() {
       'llmLabel': '文本模型（DeepSeek）',
       'llmHint': '剧本与分镜提示词使用 Harness 当前配置的模型生成，无需另配 Key。',
       'visionLlmLabel': '视觉模型（拉片）',
+      'model3dTitle': '精细 3D 模型（Meshy）',
+      'model3dHint': '3D-BOX 的精细资产：文生 3D → 精修贴图 → 自动绑定 → 文字动作。需要 Meshy 付费 API Key；单模型通常几分钟，按 Meshy 套餐计费。',
+      'model3dEnable': '启用精细 3D 资产',
+      'model3dProvider': '提供商',
+      'model3dKey': 'Meshy API Key',
+      'model3dBase': 'API Base URL',
+      'model3dDialogTitle': 'AI 精细模型 — {name}',
+      'model3dPrompt': '模型描述（外观/服装/材质）',
+      'model3dRig': '自动绑定骨骼并生成动作',
+      'model3dAction': '动作描述（如：拔枪、转身、奔跑）',
+      'model3dDuration': '动作时长（秒）',
+      'model3dStart': '开始生成',
+      'model3dRunning': '生成中…',
+      'model3dStagePreview': '生成网格',
+      'model3dStageRefine': '精修贴图',
+      'model3dStageRig': '自动绑定',
+      'model3dStageMotion': '生成动作',
+      'model3dStageAnimate': '合成动画',
+      'model3dDone': '精细模型已应用',
+      'model3dNoKey': '请先在画布设置 →「精细 3D 模型」填入 Meshy API Key',
+      'model3dApply': '应用到当前对象',
+      'model3dNeedObject': '先选中一个角色或道具',
       'visionLlmHint': '选择支持图片输入的模型（如 GPT-4o / Gemini / Claude）；留空则跟随文本模型。',
       'subjTab': '角色库',
       'subjTitle': '跨项目角色库',
@@ -1788,6 +1813,9 @@ function revealCanvasInRight() {
       'boxShotBusy': 'Capturing…',
       'boxShotDone': 'Generated {n} view screenshots',
       'boxShotName': '3D-BOX view',
+      'boxToVideo': 'Video shot',
+      'boxToVideoHint': 'Export the current camera as a reference frame and create a video node (hard first frame) for a detailed final shot',
+      'boxToVideoDone': 'Video node created: reference frame + first frame wired; click the video node to generate',
       'boxHomeTitle': '3D-BOX library',
       'boxHomeSub': 'One-line previz · My 3D-BOX',
       'boxHomeNew': 'Build previz',
@@ -2398,6 +2426,28 @@ function revealCanvasInRight() {
       'sizeLabel': 'Quality',
       'llmLabel': 'Text model (DeepSeek)',
       'visionLlmLabel': 'Vision model (shot breakdown)',
+      'model3dTitle': 'Detailed 3D models (Meshy)',
+      'model3dHint': 'Detailed 3D-BOX assets: text-to-3D → textured refine → auto-rig → text-to-motion. Requires a paid Meshy API key; a model usually takes minutes and is billed by your Meshy plan.',
+      'model3dEnable': 'Enable detailed 3D assets',
+      'model3dProvider': 'Provider',
+      'model3dKey': 'Meshy API key',
+      'model3dBase': 'API base URL',
+      'model3dDialogTitle': 'AI detailed model — {name}',
+      'model3dPrompt': 'Model description (look / costume / material)',
+      'model3dRig': 'Auto-rig and generate motion',
+      'model3dAction': 'Motion description (e.g. draw a gun, turn, run)',
+      'model3dDuration': 'Motion duration (s)',
+      'model3dStart': 'Generate',
+      'model3dRunning': 'Generating…',
+      'model3dStagePreview': 'Mesh preview',
+      'model3dStageRefine': 'Texture refine',
+      'model3dStageRig': 'Auto-rig',
+      'model3dStageMotion': 'Text-to-motion',
+      'model3dStageAnimate': 'Animation bake',
+      'model3dDone': 'Detailed model applied',
+      'model3dNoKey': 'Add a Meshy API key in Settings → Detailed 3D models first',
+      'model3dApply': 'Apply to selected object',
+      'model3dNeedObject': 'Select a character or prop first',
       'visionLlmHint': 'Pick a model that accepts image input (e.g. GPT-4o / Gemini / Claude); empty follows the text model.',
       'subjTab': 'Characters',
       'subjTitle': 'Cross-project character library',
@@ -3210,6 +3260,7 @@ body[data-ds-dark-theme] .dshic-studio-modal{border-color:var(--dsw-alias-border
 .dshic-dir-win{flex:1;display:flex;flex-direction:column;min-height:0;background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-primary);border-radius:12px;overflow:hidden;box-shadow:0 18px 60px rgba(0,0,0,.45);border:1px solid var(--dsw-alias-border-l1);}
 .dshic-dir-win.is-full{border-radius:0;border:none;box-shadow:none;}
 .dshic-dir-overlay:has(.dshic-dir-win.is-full){padding:0;background:var(--dsw-alias-bg-base);}
+.dshic-dir-overlay .dshic-modal-overlay{z-index:9100;}
 .dshic-dir-top{flex:none;height:44px;display:flex;align-items:center;gap:10px;padding:0 12px;border-bottom:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-base);position:relative;z-index:2;}
 /* 3D-BOX 一句话搭景：默认只露这一条，复杂 3D 控件留在下方三栏 */
 .dshic-dir-boxbar{flex:none;display:flex;align-items:center;gap:6px;padding:6px 12px;border-bottom:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-1);position:relative;z-index:2;}
@@ -4235,6 +4286,7 @@ body[data-ds-dark-theme] .dshic-pick-item.is-on{background:color-mix(in srgb,var
       // 文本模型全部用 Harness 的当前模型与默认参数：画布只选择模型，不单独配置生成参数
       textLlm: { provider: '', model: '' },
       visionLlm: { provider: '', model: '' }, // 拉片视觉模型；空 = 跟随文本模型
+      model3d: { enabled: false, provider: 'meshy', apiKey: '', baseUrl: 'https://api.meshy.ai' }, // 精细 3D 资产（Meshy）
       // 供应商 + 模型两级：一个供应商（URL/Key）配一次，下面挂多个模型；★星标模型 = 节点未指定时的默认路由
       imageProviders: [],  // [{id, name, baseUrl, apiKey, extra, size?, responseFormat?, mode?, models: [{id, model}]}]
       videoProviders: [],  // [{id, name, url, apiKey, extra, outputFormat?, generateAudio?, protocol?, watermark?, models: [{id, model}]}]
@@ -4250,6 +4302,12 @@ body[data-ds-dark-theme] .dshic-pick-item.is-on{background:color-mix(in srgb,var
         textLlm: { provider: (s.textLlm && s.textLlm.provider) || '', model: (s.textLlm && s.textLlm.model) || '' },
         // 视觉模型（拉片用）：留空 = 跟随文本模型；用户只选模型，密钥/参数仍由 Harness 管
         visionLlm: { provider: (s.visionLlm && s.visionLlm.provider) || '', model: (s.visionLlm && s.visionLlm.model) || '' },
+        model3d: {
+          enabled: !!(s.model3d && s.model3d.enabled),
+          provider: (s.model3d && s.model3d.provider) || 'meshy',
+          apiKey: (s.model3d && s.model3d.apiKey) || '',
+          baseUrl: (s.model3d && s.model3d.baseUrl) || 'https://api.meshy.ai',
+        },
         imageProviders: Array.isArray(s.imageProviders) ? s.imageProviders : [],
         videoProviders: Array.isArray(s.videoProviders) ? s.videoProviders : [],
         imageStar: s.imageStar || '',
@@ -18114,6 +18172,31 @@ function queueThumb(assetId) {
       return E2.registerGltfAsset(id, asset);
     }
 
+    /** 外部 3D 资产（Meshy 生成并入库的 GLB）：按 assetId 读取 → parseGlb → 注册给引擎。
+     *  与内置模型包共用 gltfAssetOf 缓存；失败明确抛出，交给调用方显示。 */
+    async function loadAssetModel(assetId) {
+      const E2 = directorEngine();
+      if (!E2 || typeof E2.parseGlb !== 'function') return null;
+      const key = String(assetId || '');
+      if (!key) return null;
+      const cached = E2.gltfAssetOf(key);
+      if (cached) return cached;
+      const url = await assetUrl(key);
+      if (!url) throw new Error('模型资产不存在：' + key);
+      const r = await fetch(url);
+      if (!r.ok) throw new Error('模型文件读取失败 HTTP ' + r.status);
+      const asset = E2.parseGlb(await r.arrayBuffer());
+      if (!asset || !asset.positions || !asset.positions.length) throw new Error('GLB 解析失败（没有网格）');
+      // 外部 GLB 常以自身单位导出：按包围盒高度归一，保证放进场景时是米级角色/道具。
+      if (!(Number(asset.rawHeight) > 0)) {
+        let minY = Infinity, maxY = -Infinity;
+        const P = asset.positions;
+        for (let i = 1; i < P.length; i += 3) { const y = Number(P[i]) || 0; if (y < minY) minY = y; if (y > maxY) maxY = y; }
+        asset.rawHeight = Number.isFinite(minY) && maxY > minY ? (maxY - minY) : 1;
+      }
+      return E2.registerGltfAsset(key, asset);
+    }
+
     /** 引擎未就绪时的同步兜底：面板显示加载态，不崩。 */
     function directorEngine() { return ENG; }
     /** 3D-BOX 预设下拉（库首页与舞台共用；引擎未就绪时返回空数组，UI 仍可渲染）。 */
@@ -18226,6 +18309,91 @@ const DIRECTOR_KEY_HELP = [
   { k: 'Ctrl/Shift+左键拖', zh: '框选多个对象', en: 'Box select' },
 ];
 
+    /** 精细 3D 模型对话框：Meshy 文生 3D → 精修 → 自动绑定 → 文字动作；完成后应用到当前对象。 */
+    function Model3dDialog({ projectId, object, onApply, onClose }) {
+      const cfg = loadSettings().model3d || {};
+      const [prompt, setPrompt] = useState(String((object && (object.name || object.id)) || '角色') + '，高质量细节，真实材质');
+      const [rig, setRig] = useState(object && object.kind === 'model');
+      const [action, setAction] = useState('');
+      const [duration, setDuration] = useState('4');
+      const [jobId, setJobId] = useState('');
+      const [st, setSt] = useState(null);
+      const [busy, setBusy] = useState(false);
+      const [err, setErr] = useState('');
+      useEffect(() => {
+        if (!jobId) return undefined;
+        let alive = true;
+        let timer = 0;
+        const poll = async () => {
+          try {
+            const r = await hostRpc('model3dStatus', { jobId });
+            if (!alive) return;
+            setSt(r);
+            if (r && r.ok && r.status === 'SUCCEEDED') { setBusy(false); return; }
+            if (r && (!r.ok || r.status === 'FAILED')) { setBusy(false); setErr(String((r && r.error) || '3D 生成失败')); return; }
+            timer = setTimeout(poll, 3500);
+          } catch (e) {
+            if (!alive) return;
+            setBusy(false); setErr(String((e && e.message) || e));
+          }
+        };
+        poll();
+        return () => { alive = false; if (timer) clearTimeout(timer); };
+      }, [jobId]);
+      const start = async () => {
+        if (!cfg.enabled) { setErr(T('model3dNoKey')); return; }
+        if (!cfg.apiKey) { setErr(T('model3dNoKey')); return; }
+        setBusy(true); setErr(''); setSt(null);
+        try {
+          const r = await hostRpc('model3dStart', {
+            projectId, provider: cfg.provider || 'meshy', apiKey: cfg.apiKey, baseUrl: cfg.baseUrl || 'https://api.meshy.ai',
+            prompt: String(prompt || '').trim(), name: (object && object.name) || '3D asset',
+            rig: !!rig, animationPrompt: rig ? String(action || '').trim() : '', duration: Number(duration) || 4,
+          });
+          if (!r || !r.ok) throw new Error((r && r.error) || '3D 生成启动失败');
+          setJobId(r.jobId);
+        } catch (e) { setBusy(false); setErr(hostRpcErrText(e, '')); }
+      };
+      const stageText = (() => {
+        const s = String((st && st.stage) || (st && st.status) || '');
+        return s === 'preview' ? T('model3dStagePreview')
+          : s === 'refine' ? T('model3dStageRefine')
+            : s === 'rigging' ? T('model3dStageRig')
+              : s === 'motion' ? T('model3dStageMotion')
+                : s === 'animating' ? T('model3dStageAnimate')
+                  : s === 'SUCCEEDED' ? T('model3dDone') : '';
+      })();
+      const done = !!(st && st.ok && st.status === 'SUCCEEDED' && st.assetId);
+      return h('div', { className: 'dshic-modal-overlay', onPointerDown: (e) => { if (e.target === e.currentTarget && !busy) onClose(); } },
+        h('div', { className: 'dshic-modal', style: { width: 480 } },
+          h('div', { className: 'dshic-modal-title' }, T('model3dDialogTitle').replace('{name}', String((object && object.name) || ''))),
+          h('div', { className: 'dshic-modal-warn' }, T('model3dHint')),
+          h('label', { className: 'dshic-field' },
+            h('span', { className: 'dshic-field-label' }, T('model3dPrompt')),
+            h('textarea', { className: 'dshic-textarea', style: { minHeight: 64 }, value: prompt, disabled: busy, onChange: (e) => setPrompt(e.target.value), onPointerDown: (e) => e.stopPropagation() })),
+          h('label', { className: 'dshic-row', style: { gap: 6, fontSize: 11 } },
+            h('input', { type: 'checkbox', checked: rig, disabled: busy, onChange: (e) => setRig(e.target.checked), onPointerDown: (e) => e.stopPropagation() }),
+            h('span', {}, T('model3dRig'))),
+          rig ? h('div', { className: 'dshic-node-row' },
+            h('label', { className: 'dshic-field', style: { flex: 1 } },
+              h('span', { className: 'dshic-field-label' }, T('model3dAction')),
+              h('input', { className: 'dshic-input', value: action, disabled: busy, placeholder: '拔枪、转身、奔跑', onChange: (e) => setAction(e.target.value), onPointerDown: (e) => e.stopPropagation() })),
+            h('label', { className: 'dshic-field', style: { width: 90, flex: 'none' } },
+              h('span', { className: 'dshic-field-label' }, T('model3dDuration')),
+              h('input', { className: 'dshic-input', type: 'number', min: 2, max: 10, step: 0.5, value: duration, disabled: busy, onChange: (e) => setDuration(e.target.value), onPointerDown: (e) => e.stopPropagation() }))) : null,
+          busy || st ? h('div', { className: 'dshic-modal-warn', style: { display: 'flex', alignItems: 'center', gap: 8 } },
+            busy ? h('span', { className: 'dshic-spin' }) : null,
+            h('span', {}, stageText || T('model3dRunning')),
+            st && Number.isFinite(Number(st.progress)) ? h('span', { style: { marginLeft: 'auto' } }, Math.round(Number(st.progress)) + '%') : null) : null,
+          err ? h('div', { className: 'dshic-err' }, err) : null,
+          h('div', { className: 'dshic-modal-actions' },
+            h('button', { type: 'button', className: 'dshic-btn dshic-btn-outline', disabled: busy, onClick: onClose, onPointerDown: (e) => e.stopPropagation() }, T('cancel')),
+            done
+              ? h('button', { type: 'button', className: 'dshic-btn dshic-primary', onClick: () => onApply(st.assetId), onPointerDown: (e) => e.stopPropagation() }, T('model3dApply'))
+              : h('button', { type: 'button', className: 'dshic-btn dshic-primary', disabled: busy || !cfg.apiKey, onClick: start, onPointerDown: (e) => e.stopPropagation() }, busy ? T('model3dRunning') : T('model3dStart'))),
+        ));
+    }
+
     function DirectorStage() {
       const open = S.directorOpen;
       const [engReady, setEngReady] = useState(!!ENG);
@@ -18279,6 +18447,7 @@ const DIRECTOR_KEY_HELP = [
     // ── 3D-BOX：舞台内只做改景/运镜；搭景入口统一在 3D-BOX 库 ──
     const [boxBrief, setBoxBrief] = useState('');
     const [boxBusy, setBoxBusy] = useState(false);
+    const [model3dFor, setModel3dFor] = useState(null);
     const [charPick, setCharPick] = useState('');
       const [boxSel, setBoxSel] = useState(null);   // 框选矩形 {x0,y0,x1,y1}
       const [dirtyState, setDirtyState] = useState(false);  // 有未保存改动
@@ -18369,6 +18538,29 @@ const DIRECTOR_KEY_HELP = [
         return (E2 && E2.buildStudioScene) ? E2.buildStudioScene(src) : src;
       };
       const patch = (fn) => { pushUndo(); const n = JSON.parse(JSON.stringify(scene)); fn(n); n.updatedAt = Date.now(); commit(n); };
+      /** 精细模型生成完成：加载 GLB → 应用到当前对象（角色/道具都走 gltf 渲染）。 */
+      const applyModel3d = async (assetId) => {
+        const target = model3dFor;
+        if (!target) return;
+        try {
+          const asset = await loadAssetModel(assetId);
+          const clip = asset && Array.isArray(asset.animations) && asset.animations[0] ? String(asset.animations[0].name || '') : '';
+          patch((n) => {
+            const o2 = (n.objects || []).find((x) => x.id === target.id);
+            if (!o2) return;
+            o2.kind = 'gltf'; o2.assetId = assetId;
+            if (clip) o2.clip = clip; else delete o2.clip;
+            o2.animTime = 0;
+            if (!(Number(o2.h) > 0)) o2.h = Number(asset && asset.rawHeight) > 0 ? Number(asset.rawHeight) : 1.7;
+            o2.s = 1;
+          });
+          setModel3dFor(null);
+          setMsg({ kind: 'ok', text: T('model3dDone') });
+          bumpView();
+        } catch (e) {
+          setMsg({ kind: 'err', text: String((e && e.message) || e) });
+        }
+      };
       /** 手绘运镜：在地面连续点路径点，结束后转成当前机位的关键帧。 */
       const toggleCamPath = () => {
         if (!S.directorCamPathPick) {
@@ -18514,7 +18706,9 @@ const DIRECTOR_KEY_HELP = [
               const ids = [...new Set((sc.objects || [])
                 .filter((o) => o && (o.kind === 'model' || o.kind === 'gltf') && o.assetId)
                 .map((o) => String(o.assetId)))];
-              await Promise.all(ids.map((id) => loadModel(id).catch(() => null)));
+              await Promise.all(ids.map(async (id) => {
+                try { await loadAssetModel(id); } catch { await loadModel(id).catch(() => null); }
+              }));
             } catch { /* 预加载失败不阻塞打开 */ }
             bumpView();
           };
@@ -19200,6 +19394,38 @@ const DIRECTOR_KEY_HELP = [
             st.assetsTick++;
           });
           setMsg({ kind: 'ok', text: T('directorExported') + ' · ' + (used === 'webgl' ? T('dirRendererGL') : T('dirRendererFallback')) });
+        } catch (e2) { setMsg({ kind: 'err', text: String((e2 && e2.message) || e2) }); } finally { setBusy(false); }
+      };
+      /** B 路线：把当前机位导成参考帧 + 视频节点（首帧 hard），由视频模型生成成片级细节。 */
+      const toVideoShot = async () => {
+        if (busy) return;
+        setBusy(true); setMsg(null);
+        try {
+          const w = 1280, h = 720;
+          const cv = document.createElement('canvas');
+          cv.width = w; cv.height = h;
+          const glOut = E.createDirectorGlRenderer(cv);
+          if (glOut) {
+            glOut.resize(w, h, 1);
+            glOut.draw(E.applyPlayhead(directorFilmScene(scene), playT), { selectedId: null, renderGround: true, renderOnly: true });
+            try { glOut.dispose(); } catch { /* 忽略 */ }
+          } else E.directorRenderScene(cv.getContext('2d'), w, h, E.applyPlayhead(directorFilmScene(scene), playT), { selectedId: null });
+          const blob = await new Promise((res2, rej) => { try { cv.toBlob((b) => (b ? res2(b) : rej(new Error('blob'))), 'image/png'); } catch (e2) { rej(e2); } });
+          const prompt = E.compileDirectorPrompt(scene, { zh: effLang() !== 'en' });
+          const saved = await saveAssetRecord(S.activeId, 'image', blob, { name: T('boxShotName') + ' ' + nowStamp(), prompt, source: 'director', category: 'shot', nodeLabel: T('boxTitle') });
+          const c = worldCenter();
+          const img = addNodeAt('image', { x: c.x - 220, y: c.y - 160 });
+          update((st) => { const g = st.graph.nodes[img.id]; if (g) g.data = Object.assign({}, g.data, { assetId: saved.id, prompt, label: saved.name || T('boxShotName'), status: 'done' }); st.assetsTick++; });
+          const v = addNodeAt('video', { x: c.x + 240, y: c.y - 140 });
+          update((st) => {
+            const g = st.graph.nodes[v.id];
+            if (g) g.data = Object.assign({}, g.data, {
+              prompt, label: T('boxToVideo'), duration: Math.max(2, Math.min(15, Number(scene.shot && scene.shot.duration) || 5)),
+              ratio: '16:9', frameMode: 'hard', status: 'idle',
+            });
+          });
+          connect(S.graph.nodes[img.id], 'out', S.graph.nodes[v.id], 'frame');
+          setMsg({ kind: 'ok', text: T('boxToVideoDone') });
         } catch (e2) { setMsg({ kind: 'err', text: String((e2 && e2.message) || e2) }); } finally { setBusy(false); }
       };
       /** 3D-BOX 四/十二方位截图：围绕当前主体渲染多机位，直接落 image 节点。 */
@@ -19977,6 +20203,10 @@ const DIRECTOR_KEY_HELP = [
               type: 'button', className: 'dshic-dir-mini', 'data-action': 'box-shot-12',
               disabled: boxBusy, title: T('boxShot12'), onClick: () => exportViews(12),
             }, '12向'),
+            h('button', {
+              type: 'button', className: 'dshic-dir-mini', 'data-action': 'box-to-video',
+              disabled: boxBusy, title: T('boxToVideoHint'), onClick: toVideoShot,
+            }, T('boxToVideo')),
           ),
           h('div', { className: 'dshic-dir-body' },
             h('aside', { className: 'dshic-dir-side dshic-dir-side-l' },
@@ -20432,6 +20662,15 @@ const DIRECTOR_KEY_HELP = [
                 ] : []),
                 sel ? h('div', null,
                   h('div', { className: 'dshic-dir-subhead' }, T('dirSelObject')),
+                  (sel.kind === 'model' || sel.kind === 'geom' || sel.kind === 'gltf')
+                    ? h('div', { className: 'dshic-dir-lightbox' },
+                        h('div', { className: 'dshic-dir-time' }, T('model3dTitle')),
+                        h('button', {
+                          type: 'button', className: 'dshic-dir-mini', 'data-action': 'dir-model3d',
+                          onClick: () => setModel3dFor(sel),
+                        }, sel.kind === 'gltf' ? T('model3dApply') : T('model3dStart')),
+                        sel.kind === 'gltf' ? h('div', { className: 'dshic-dir-time', title: String(sel.assetId || '') }, 'GLB · ' + String(sel.assetId || '').slice(-10)) : null)
+                    : null,
                   h('div', { className: 'dshic-dir-row' }, h('span', null, T('dirPos')), num3([sel.pos.x, sel.pos.y, sel.pos.z], (v, i) => patch((n) => { const t2 = n.objects.find((x) => x.id === sel.id); if (t2) t2.pos[i === 0 ? 'x' : i === 1 ? 'y' : 'z'] = i === 1 ? Math.max(0, v) : v; }))),
                   // 身高：直接改对象自己的 h（米）。体型表的 h 只在新建时写入，已有对象靠这里改。
                   (sel.kind === 'model')
@@ -20825,7 +21064,14 @@ const DIRECTOR_KEY_HELP = [
                   }, '✓ ' + T('dirSpecApply'))) : null,
                 h('button', { type: 'button', className: 'dshic-dir-cta', style: { width: '100%' }, 'data-action': 'director-export', disabled: busy, onClick: exportShot }, T('directorExport'))))),
           // ── 时间轴（只有「动态预演」才出现；相当于一条简易剪辑时间线）──
-          timelineDock));
+          timelineDock,
+          model3dFor ? h(Model3dDialog, {
+            key: 'model3d',
+            projectId: S.activeId,
+            object: model3dFor,
+            onClose: () => setModel3dFor(null),
+            onApply: applyModel3d,
+          }) : null));
     }
     // ============================================================
     // 左侧图标列（单列）：加节点 / 资产 / 设定集 / 运行工作流
@@ -22506,8 +22752,11 @@ const DIRECTOR_KEY_HELP = [
             ? h('img', { className: 'dshic-asset-thumb', src: url || '', draggable: false })
             : a.kind === 'video'
               ? h('video', { className: 'dshic-asset-thumb', src: url ? url + '#t=0.1' : '', muted: true, preload: 'metadata' })
-              : h('div', { className: 'dshic-asset-thumb', style: { display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--dsw-alias-brand-primary)' } },
-                  Ic('audio', 26)),
+              : a.kind === 'model'
+                ? h('div', { className: 'dshic-asset-thumb', style: { display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--dsw-alias-brand-primary)' } },
+                    Ic('camera', 26))
+                : h('div', { className: 'dshic-asset-thumb', style: { display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--dsw-alias-brand-primary)' } },
+                    Ic('audio', 26)),
         a.kind !== 'text'
           ? h('div', { className: 'dshic-asset-name' },
               renaming ? nameInput : h('span', { className: 'dshic-asset-name-text', title: a.name || '' }, a.name || '—'),
@@ -23474,6 +23723,44 @@ const DIRECTOR_KEY_HELP = [
     /** 绑定对话框的资产行：组件化以便用 useAssetUrl 显示缩略图。 */
     /** 桥接卡（0.20.0）：开关 + 配置状态；开启时把 dsh-image-gen 的模型同步进图片模型下拉（节点直接可选）。
      *  状态行只反映 image-gen 侧配置状态（与开关解耦）；开关只管模型同步。同步无变化不写盘。 */
+    /** 精细 3D 模型（Meshy）：文生 3D → 精修 → 自动绑定/动作；Key 只存本地设置，随单次 RPC 传给 Host。 */
+    function Model3dCard() {
+      const [s, setS] = useState(loadSettings);
+      const cfg = s.model3d || { enabled: false, provider: 'meshy', apiKey: '', baseUrl: 'https://api.meshy.ai' };
+      const save = (patch) => {
+        const next = updateSettings((b) => ({ ...b, model3d: { ...(b.model3d || {}), ...patch } }));
+        setS(next);
+      };
+      return h('div', { className: 'dshic-card', 'data-role': 'model3d-card' },
+        h('div', { className: 'dshic-row' },
+          Ic('camera', 12),
+          h('strong', { style: { fontSize: 12, flex: 1, minWidth: 0 } }, T('model3dTitle')),
+          InfoTip(T('model3dHint'))),
+        h('label', { className: 'dshic-row', style: { gap: 6, fontSize: 11 } },
+          h('input', {
+            type: 'checkbox', checked: !!cfg.enabled,
+            onPointerDown: (e) => e.stopPropagation(),
+            onChange: (e) => save({ enabled: e.target.checked }),
+          }),
+          h('span', {}, T('model3dEnable'))),
+        h('label', { className: 'dshic-field' },
+          h('span', { className: 'dshic-field-label' }, T('model3dProvider')),
+          h('select', {
+            className: 'dshic-select', value: cfg.provider || 'meshy',
+            onPointerDown: (e) => e.stopPropagation(),
+            onChange: (e) => save({ provider: e.target.value }),
+          }, h('option', { value: 'meshy' }, 'Meshy'))),
+        h(Field, {
+          label: T('model3dKey'), value: cfg.apiKey || '', password: true,
+          placeholder: 'msy_…', onChange: (v) => save({ apiKey: v }),
+        }),
+        h(Field, {
+          label: T('model3dBase'), value: cfg.baseUrl || '', placeholder: 'https://api.meshy.ai',
+          onChange: (v) => save({ baseUrl: v }),
+        }),
+        h('div', { className: 'dshic-hint' }, T('model3dHint')));
+    }
+
     function ImageGenBridgeCard() {
       const [st, setSt] = useState({ missing: false, configured: false });
       const [enabled, setEnabled] = useState(!!(loadSettings().imageGen || {}).enabled);
@@ -23575,6 +23862,7 @@ const DIRECTOR_KEY_HELP = [
         h(DataRootCard, { key: 'dataroot' }),
         h(CraftCard, { key: 'craft' }),
         h(AutoModeCard, { key: 'automode' }),
+        h(Model3dCard, { key: 'model3d' }),
         h(ImageGenBridgeCard, { key: 'imagegenbridge' }),
         // 「技能增强」已升级为右侧独立「技能」页（SkillsTab）：四层图标瓦片 + 预览/写设定集
         // 文本模型卡：只选模型，参数全用 Harness 默认；紧挨图片/视频/TTS 模型卡片

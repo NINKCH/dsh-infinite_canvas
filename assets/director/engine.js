@@ -3048,10 +3048,11 @@ export function buildStageFromSpec(spec) {
     const preset = SPEC_PRESET_IDS.includes(p.preset) ? p.preset : 'box';
     const pob = {
       id: String(p.id || 'prop' + seq), name: String(p.name || p.label || ('布景' + seq)),
-      kind: 'geom', preset, pos: v3of(p.pos, 0), rotY: num(p.rotY, 0), rx: num(p.rx, 0), rz: num(p.rz, 0),
+      kind: p.assetId ? 'gltf' : 'geom', preset, pos: v3of(p.pos, 0), rotY: num(p.rotY, 0), rx: num(p.rx, 0), rz: num(p.rz, 0),
       scale: p.scale ? v3of(p.scale, 1) : v3(1, 1, 1), visible: p.visible !== false,
       color: String(p.color || '#b3b8bf'),
     };
+    if (p.assetId) { pob.assetId = String(p.assetId); pob.clip = String(p.clip || ''); pob.animTime = 0; }
     if (p.material && typeof p.material === 'object') pob.material = { ...p.material };
     // 道具关键帧：与角色同构（t/pos/rotY/rx/rz/ease），供长枪等跟手（applyPlayhead 对所有对象统一应用）
     if (Array.isArray(p.keys)) {
@@ -3191,6 +3192,7 @@ export function compileStageSpec(scene) {
     } else {
       props.push({
         id: ob.id, name: ob.name || ob.id, preset: ob.preset || 'box',
+        ...(ob.kind === 'gltf' && ob.assetId ? { assetId: ob.assetId, clip: ob.clip || undefined } : {}),
         pos: arr(ob.pos || v3(0, 0, 0)), rotY: round3(ob.rotY || 0), rx: round3(ob.rx || 0), rz: round3(ob.rz || 0),
         scale: arr(ob.scale || v3(1, 1, 1)), color: ob.color,
         visible: ob.visible === false ? false : undefined,
@@ -6183,6 +6185,8 @@ export function createDirectorGlRenderer(canvas) {
           if (asset) {
             const rec = uploadSkin(ob.assetId, asset);
             const t = Number(ob.animTime) || 0;
+            // 外部生成的 GLB 可能带多个动画：优先按对象 clip 选，其次第一条。
+            if (ob.clip && typeof asset.clipByName === 'function') asset._anim = asset.clipByName(ob.clip) || asset._anim;
             const bones = asset.bones ? boneMatrices(asset, t) : null;
             const cc2 = directorHexToRgb(ob.color || mannequinColorOf(ob.typeId) || CLAY);
             const model = directorMat4Model(ob.pos, Number(ob.rotY) || 0, v3(Number(ob.s) || 1, Number(ob.s) || 1, Number(ob.s) || 1));

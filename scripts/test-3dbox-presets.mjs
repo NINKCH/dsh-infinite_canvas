@@ -167,6 +167,8 @@ for (const p of (E.SCENE_PRESETS || [])) {
   ok(cli.includes("'box-edit'") && cli.includes('directorStageEdit'), '客户端缺少「改景」入口或未接 RPC');
   ok(cli.includes("'box-ai-cam'") && cli.includes('directorStageCamera'), '客户端缺少「AI运镜」入口或未接 RPC');
   ok(cli.includes("'box-shot-4'") && cli.includes("'box-shot-12'"), '客户端缺少四/十二方位截图入口');
+  ok(cli.includes("'box-to-video'") && cli.includes('toVideoShot'), '客户端缺少 3D→视频节点入口');
+  ok(cli.includes('model3dStart') && cli.includes('Model3dDialog'), '客户端缺少精细 3D 资产生成入口');
   ok(cli.includes('viewCamerasAround'), '客户端未接线四/十二方位截图');
   ok(cli.includes('cameraPathKeys') && cli.includes("'dir-cam-path-draw'"), '客户端未接线手绘运镜');
   ok(cli.includes("'dir-char-add'") && cli.includes('loadBible'), '客户端缺少角色库入口/设定集接线');
