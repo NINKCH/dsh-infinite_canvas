@@ -4887,7 +4887,7 @@ export function apply(ctx) {
           } catch { /* 单个项目读失败不影响列表 */ }
         }
         items.sort((a, b) => b.savedAt - a.savedAt);
-        return { ok: true, items };
+        return { ok: true, multiStage: true, items };
       },
       async directorStageBrief(args) {
         const projectId = String((args && args.projectId) || '');
@@ -4923,7 +4923,7 @@ export function apply(ctx) {
         try {
           const saved = await methods.directorStageSave({ projectId, stageId, spec });
           if (!saved || !saved.ok) return { ok: false, error: (saved && saved.error) || '保存失败' };
-          return { ok: true, projectId, stageId, spec, source, warning, savedAt: saved.savedAt || Date.now() };
+          return { ok: true, projectId, stageId, briefVersion: 2, spec, source, warning, savedAt: saved.savedAt || Date.now() };
         } catch (e) {
           return { ok: false, error: String((e && e.message) || e) };
         }

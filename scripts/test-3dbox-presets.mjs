@@ -153,8 +153,10 @@ for (const p of (E.SCENE_PRESETS || [])) {
   ok(host.includes('cameraMove'), 'Host 工具未接收 cameraMove');
   ok(host.includes("action === 'edit'") && host.includes('editDirectorSpec'), 'Host 缺少自然语言改景 action=edit');
   ok(host.includes('directorStageList') && host.includes('directorStageBrief'), 'Host 缺少 3D-BOX 库 RPC（list/brief）');
+  ok(host.includes('multiStage: true') && host.includes('briefVersion: 2'), 'Host 缺少多 stage / AI brief 能力标记');
   ok(host.includes("name: 'canvas_list_presets'") && host.includes("name: 'canvas_apply_preset'"), 'Host 缺少预设库工具');
   const cli = fs.readFileSync(path.join(ROOT, 'client.js'), 'utf8');
+  ok(cli.includes('r.briefVersion !== 2') && cli.includes('!r.multiStage'), '客户端未拦截旧 Host（会静默退回本地模板）');
   ok(cli.includes('BoxHome') && cli.includes("'open-3dbox-home'"), '客户端缺少 3D-BOX 库首页入口');
   ok(cli.includes("'boxhome-create'") && cli.includes("'boxhome-open'"), '客户端缺少 3D-BOX 库新建/打开动作');
   ok(cli.includes('dshic-dir-boxbar'), '客户端缺少 3D-BOX 提示条');

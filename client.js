@@ -20938,6 +20938,7 @@ const DIRECTOR_KEY_HELP = [
         setLoading(true); setErr('');
         hostRpc('directorStageList', {}).then((r) => {
           if (!r || !r.ok) throw new Error((r && r.error) || 'list failed');
+          if (!r.multiStage) throw new Error(T('hostStaleHint'));
           setItems(Array.isArray(r.items) ? r.items : []);
         }).catch((e) => setErr(T('boxHomeFailed') + hostRpcErrText(e, ''))).finally(() => setLoading(false));
       }, [open]);
@@ -20965,6 +20966,7 @@ const DIRECTOR_KEY_HELP = [
         }
         hostRpc('directorStageBrief', args).then((r) => {
           if (!r || !r.ok) throw new Error((r && r.error) || 'brief failed');
+          if (r.briefVersion !== 2) throw new Error(T('hostStaleHint'));
           setBrief('');
           if (r.warning) toast(String(r.warning));
           openStage(S.activeId, r.stageId, (r.spec && r.spec.title) || text);
