@@ -452,6 +452,24 @@ try {
 } finally {
   mod._internals.__auto.setRoomLlm(async () => '');
 }
+// Agent 素材导入/挂载：本地文件 → 资产库 → image 节点 assetId（create + update）
+try {
+  const importPath = path.join(SANDBOX, 'import-test.png');
+  fs.writeFileSync(importPath, Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
+  const imp = await byName.get('canvas_import_asset').execute({ projectId, path: importPath, kind: 'image', name: '导入测试图' }, {});
+  if (!imp || !imp.ok || !imp.assetId) throw new Error('canvas_import_asset failed');
+  const listA = await byName.get('canvas_list_assets').execute({ projectId }, {});
+  if (!listA || !listA.ok || !Array.isArray(listA.assets) || !listA.assets.some((a) => a.id === imp.assetId)) throw new Error('canvas_list_assets missing imported asset');
+  const nodeA = await byName.get('canvas_create_node').execute({ projectId, type: 'image', name: '导入素材节点', assetId: imp.assetId }, {});
+  const stA = await byName.get('canvas_node_status').execute({ projectId, nodeId: nodeA.nodeId }, {});
+  if (!stA || stA.assetId !== imp.assetId) throw new Error('canvas_create_node assetId not applied');
+  const nodeB = await byName.get('canvas_create_node').execute({ projectId, type: 'image', name: '挂载素材节点' }, {});
+  await byName.get('canvas_update_node').execute({ projectId, nodeId: nodeB.nodeId, patch: { assetId: imp.assetId } }, {});
+  const stB = await byName.get('canvas_node_status').execute({ projectId, nodeId: nodeB.nodeId }, {});
+  if (!stB || stB.assetId !== imp.assetId) throw new Error('canvas_update_node assetId not applied');
+} catch (e) {
+  errs.push('Agent 素材导入/挂载失败 → ' + ((e && e.message) || e));
+}
 await run('canvas_delete_project', { projectId, confirm: '删除整个测试项目' });
 
 // 运行/打开请求与删除通知必须一次性消费（projectsSync 读走即清空）

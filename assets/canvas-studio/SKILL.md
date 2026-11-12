@@ -178,3 +178,4 @@ brief → bible → assets → script → storyboard → shots_ready → generat
 `canvas_director_stage`：`action=help` 列姿态/道具/片段；`action=apply` + JSON 规格写入并落盘；
 `action=get` 读回。规格：`title/duration/env/characters[]/props[]/cameras[]/shots[]`（详见工具描述）。
 `canvas_list_presets` / `canvas_apply_preset`：运镜/转场预设清单与施加（3D-BOX；转场会映射到基础机位运动）。
+`canvas_import_asset` / `canvas_list_assets`：Agent 导入本地/URL 素材并挂到节点（assetId）；列表用于 find-and-mount。

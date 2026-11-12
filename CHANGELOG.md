@@ -67,6 +67,11 @@ GitHub Releases carry the same notes in English; maintainer-facing runbooks live
   a frame edge exists) and a “Long video” hint; durations over 15s now warn
   to use storyboard segments + final cut. First/last-frame stays gated on
   vendor last-frame support instead of pretending to support it.
+- **Agent asset import/mount.** `canvas_import_asset` copies a local path or
+  http(s) URL into the project's asset folder and registers it;
+  `canvas_list_assets` lists find-and-mount candidates;
+  `canvas_create_node` / `canvas_update_node` accept `assetId`, and asset
+  nodes open as done instead of empty.
 
 ### Fixed
 - (nothing in this cycle yet)

@@ -2547,6 +2547,7 @@ function canvasCreateNode(args) {
   const legacyType = rawType !== type ? rawType : '';
   const label = args && args.name ? String(args.name).slice(0, 40) : '';
   const prompt = String((args && args.prompt) || '');
+  const assetId = String((args && args.assetId) || '').trim() || null;
   const connectFrom = String((args && args.connectFrom) || '');
   // G4 禁止逐镜节点：一致性靠参考图资产，不靠逐镜建点（高频走错路，这里直接封死）
   const g4 = PROD.gateShotNodeName(label, type);
@@ -2567,7 +2568,7 @@ function canvasCreateNode(args) {
     node = agentNode('text', '', pos.x, pos.y, label || '图片节点');
     node.type = 'image';
     node.w = mediaSize.w; node.h = mediaSize.h;
-    node.data = { ...node.data, status: 'idle', error: null, prompt, assetId: null, demo: false, size: (args && args.size) || '2K', ratio: (args && args.ratio) || '16:9', imageCount: 1 };
+    node.data = { ...node.data, status: assetId ? 'done' : 'idle', error: null, prompt, assetId: assetId || null, demo: false, size: (args && args.size) || '2K', ratio: (args && args.ratio) || '16:9', imageCount: 1 };
   } else if (type === 'video') {
     node = agentNode('text', '', pos.x, pos.y, label || '视频节点');
     node.type = 'video';
@@ -2578,12 +2579,13 @@ function canvasCreateNode(args) {
     const sbWithShots = sbs.filter((n) => Array.isArray(n.data && n.data.shots) && n.data.shots.length).pop() || null;
     const sbEmpty = sbs[sbs.length - 1] || null; // 存在但尚未拆解镜头
     const hasPrompt = Boolean(String(prompt || '').trim());
+    const hasAsset = Boolean(assetId);
     let autoConnectId = '';
     let forced = false;
-    if (sbWithShots) {
+    if (!hasAsset && sbWithShots) {
       autoConnectId = sbWithShots.id; // 无论是否传 prompt：镜头清单只认分镜表
       forced = hasPrompt;
-    } else if (!hasPrompt && sbEmpty) {
+    } else if (!hasAsset && !hasPrompt && sbEmpty) {
       autoConnectId = sbEmpty.id; // 分镜表存在但 shots 为空：先连线占位（生成前需先拆解镜头）
     }
     // G2/G3：建视频节点前，目标分镜表的 shots 必须过质量闸门；且一个分镜表只允许一个视频节点。
@@ -2610,7 +2612,7 @@ function canvasCreateNode(args) {
       }
       if (!g3.ok && ovOk) PROD.recordOverride(id, canvasId, 'G3', ov.quote, { node: label, storyboardId: sbTargetId });
     }
-    node.data = { ...node.data, status: 'idle', error: null, prompt: autoConnectId ? '' : prompt, assetId: null, demo: false, duration: Number(args && args.duration) || 5, resolution: (args && args.resolution) || '720P', ratio: (args && args.ratio) || '16:9' };
+    node.data = { ...node.data, status: assetId ? 'done' : 'idle', error: null, prompt: hasAsset ? '' : (autoConnectId ? '' : prompt), assetId: assetId || null, demo: false, duration: Number(args && args.duration) || 5, resolution: (args && args.resolution) || '720P', ratio: (args && args.ratio) || '16:9' };
     autoConnected = autoConnectId ? { from: autoConnectId, ignoredPrompt: forced && hasPrompt, emptyShots: !sbWithShots && !!sbEmpty } : null;
   } else if (type === 'storyboard') {
     node = agentNode('text', '', pos.x, pos.y, label || '分镜表');
@@ -2628,7 +2630,7 @@ function canvasCreateNode(args) {
     node = agentNode('text', '', pos.x, pos.y, label || '成片');
     node.type = 'finalcut';
     node.w = 360; node.h = 360;
-    node.data = { ...node.data, status: 'idle', error: null, resolution: (args && args.resolution) || '720P', ratio: (args && args.ratio) || '16:9', transition: 'none', progress: null, assetId: null, subs: {}, keepAudio: true };
+    node.data = { ...node.data, status: assetId ? 'done' : 'idle', error: null, resolution: (args && args.resolution) || '720P', ratio: (args && args.ratio) || '16:9', transition: 'none', progress: null, assetId: assetId || null, subs: {}, keepAudio: true };
   } else if (type === 'script') {
     node = agentNode('script', prompt, pos.x, pos.y, label || defaultLabel(prompt));
   } else {
@@ -3157,7 +3159,7 @@ async function canvasNodeStatus(args) {
   };
 }
 /** 可被 canvas_update_node 修改的节点字段白名单（结构字段 id/type/x/y/w/h/data 一律不可写）。 */
-const NODE_PATCH_FIELDS = ['prompt', 'idea', 'output', 'text', 'script', 'requirement', 'label', 'ratio', 'size', 'duration', 'resolution', 'frameMode', 'count', 'imageModel', 'videoModel', 'model', 'cont', 'targetDuration', 'combatMode'];
+const NODE_PATCH_FIELDS = ['prompt', 'idea', 'output', 'text', 'script', 'requirement', 'label', 'ratio', 'size', 'duration', 'resolution', 'frameMode', 'count', 'imageModel', 'videoModel', 'model', 'cont', 'targetDuration', 'combatMode', 'assetId'];
 /** 更新已有节点的字段：对话侧"改提示词 / 改参数"的唯一入口（此前只能删节点重建）。 */
 function canvasUpdateNode(args) {
   const pid = String((args && args.projectId) || '');
@@ -3194,10 +3196,13 @@ function canvasUpdateNode(args) {
     } else if (k === 'combatMode') {
       // 打斗判定三态覆盖：auto=按场检测（缺省）/ on=本场强制按打斗注入 / off=强制不注入
       v = ['auto', 'on', 'off'].includes(String(v).toLowerCase()) ? String(v).toLowerCase() : 'auto';
+    } else if (k === 'assetId') {
+      v = String(v == null ? '' : v).trim() || null;
     } else {
       v = String(v == null ? '' : v);
     }
     n.data[k] = v;
+    if (k === 'assetId' && v) { n.data.status = 'done'; n.data.error = null; n.data.demo = false; }
     applied.push(k);
   }
   if (patch.shots !== undefined) {
@@ -4027,6 +4032,56 @@ export function apply(ctx) {
       }
       throw lastErr || new Error('AI 运镜失败');
     }
+    /** Agent 素材导入：本地绝对路径或 http(s) URL → 项目资产目录 + 资产库。 */
+    const importAsset = async (args) => {
+      const pid = String((args && args.projectId) || '');
+      if (!pid) throw new Error('需要 projectId');
+      const localPath = String((args && args.path) || '').trim();
+      const url = String((args && args.url) || '').trim();
+      if (!localPath && !url) throw new Error('需要 path 或 url');
+      const root = dataRoot();
+      if (!root) throw new Error('未设置数据根目录：请先在画布设置里配置数据根目录');
+      const doc = readDocOrNull(pid);
+      const projectName = (doc && doc.name) || pid;
+      const folder = ensureProjectFolder(pid, projectName);
+      if (!folder) throw new Error('项目目录不可用');
+      let buf = null, srcName = '', respMime = '';
+      if (localPath) {
+        const abs = path.resolve(localPath);
+        if (!existsSync(abs)) throw new Error('文件不存在: ' + abs);
+        const st = statSync(abs);
+        if (!st.isFile()) throw new Error('不是文件: ' + abs);
+        if (st.size > 200 * 1024 * 1024) throw new Error('文件超过 200MB 上限');
+        buf = readFileSync(abs);
+        srcName = path.basename(abs);
+      } else {
+        const r = await fetchProxyForward({ url, method: 'GET', timeoutMs: 120000 });
+        if (!r || r.status >= 400) throw new Error('下载失败 HTTP ' + (r && r.status));
+        buf = r.buf;
+        respMime = String(r.contentType || '').split(';')[0].trim();
+        try { srcName = decodeURIComponent(path.basename(new URL(url).pathname)) || 'asset'; } catch { srcName = 'asset'; }
+      }
+      if (!buf || !buf.length) throw new Error('文件为空');
+      const mime = (respMime && respMime.includes('/')) ? respMime : mimeOf(srcName);
+      const kindArg = String((args && args.kind) || '').toLowerCase();
+      const kind = ['image', 'video', 'audio'].includes(kindArg) ? kindArg
+        : mime.startsWith('image/') ? 'image' : mime.startsWith('video/') ? 'video' : mime.startsWith('audio/') ? 'audio' : 'general';
+      const extMatch = /\.([a-z0-9]{1,8})$/i.exec(srcName);
+      const ext = (extMatch && extMatch[1]) || (mime.split('/')[1] || 'bin').replace(/[^a-z0-9]/gi, '').slice(0, 8) || 'bin';
+      const id = 'a_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 8);
+      const file = id + '.' + ext.toLowerCase();
+      const rel = 'projects/' + pid + '/' + kind + '/' + file;
+      const phys = physicalRel(rel);
+      if (!phys) throw new Error('资产路径解析失败');
+      const absOut = path.join(root, phys);
+      mkdirSync(path.dirname(absOut), { recursive: true });
+      writeFileSync(absOut, buf);
+      const name = String((args && args.name) || srcName || ('import-' + id)).slice(0, 80);
+      const asset = { id, projectId: pid, kind, mime, name, rel, size: buf.length, createdAt: Date.now(), source: 'import', category: 'general' };
+      const saved = await methods.assetCreate({ asset, projectName });
+      if (!saved || !saved.ok) throw new Error((saved && saved.error) || '资产入库失败');
+      return { ok: true, assetId: id, kind, name, mime, size: buf.length, rel };
+    };
     async function autoRoomStep(run, role, system, user, needJson) {
       if (run.status !== 'running') throw new Error('aborted');
       const raw = await roomLlm({ system, user });
@@ -5547,7 +5602,7 @@ export function apply(ctx) {
         });
         reg({
           name: 'canvas_update_node',
-          description: '修改无限画布上**已有节点**的字段（改提示词、改比例/清晰度/时长/分辨率等参数）——"改节点"的唯一入口，改完不必删节点重建。可改字段：prompt（图片/视频节点的对话框提示词）、idea/output（剧本节点）、text（文本节点的正文）、script/requirement（分镜表的剧本来源与额外要求）、shots（分镜镜头清单，JSON 数组）、label（节点名）、ratio、size、duration、resolution、frameMode、count、imageModel、videoModel、model、cont（分镜表「分镜衔接」开关，默认 true；关掉后拆镜不写衔接字段、视频不自动续帧）、targetDuration（分镜**总时长硬约束**秒数，0/不传 = 自动档按镜头节奏；设置后所有镜头 duration 之和严格等于该值）、combatMode（打斗判定三态：auto=按本场剧本自动检测（缺省）/ on=本场强制按打斗注入战斗契约 / off=强制不注入——只影响分镜生成的注入口径）。结构字段（id/type/坐标/宽高）不可改。改完用 canvas_generate_node 触发生成。**这是迭代生成的主路径**：用户对某张图/某段视频不满意（"重来/换一版/不像"）时，改 prompt 后重生成即可，**绝不删掉节点再新建一个**——同一角色/场景/镜的节点永远只有一个，删了重建会丢连线、位置与历史。**前提**：先用 canvas_node_status 读到当前内容，再只传要改的字段。**注意 shots 是整表替换**：只改一镜也要先把 canvas_node_status 返回的全部 shots 取回、改完再整体传回（含每镜的 tail/cam/start/seg/timeBeats/camera/vfx/negative 与打斗字段 attack/reaction/impact/initiative/nextCombat）；否则其它镜的衔接与战斗字段会被冲掉（服务端会按镜序兜底保留，但不要依赖它）。',
+          description: '修改无限画布上**已有节点**的字段（改提示词、改比例/清晰度/时长/分辨率等参数）——"改节点"的唯一入口，改完不必删节点重建。可改字段：prompt（图片/视频节点的对话框提示词）、assetId（挂载已有资产 id，图片/视频节点直接呈现该素材；来自 canvas_import_asset / canvas_list_assets）、idea/output（剧本节点）、text（文本节点的正文）、script/requirement（分镜表的剧本来源与额外要求）、shots（分镜镜头清单，JSON 数组）、label（节点名）、ratio、size、duration、resolution、frameMode、count、imageModel、videoModel、model、cont（分镜表「分镜衔接」开关，默认 true；关掉后拆镜不写衔接字段、视频不自动续帧）、targetDuration（分镜**总时长硬约束**秒数，0/不传 = 自动档按镜头节奏；设置后所有镜头 duration 之和严格等于该值）、combatMode（打斗判定三态：auto=按本场剧本自动检测（缺省）/ on=本场强制按打斗注入战斗契约 / off=强制不注入——只影响分镜生成的注入口径）。结构字段（id/type/坐标/宽高）不可改。改完用 canvas_generate_node 触发生成。**这是迭代生成的主路径**：用户对某张图/某段视频不满意（"重来/换一版/不像"）时，改 prompt 后重生成即可，**绝不删掉节点再新建一个**——同一角色/场景/镜的节点永远只有一个，删了重建会丢连线、位置与历史。**前提**：先用 canvas_node_status 读到当前内容，再只传要改的字段。**注意 shots 是整表替换**：只改一镜也要先把 canvas_node_status 返回的全部 shots 取回、改完再整体传回（含每镜的 tail/cam/start/seg/timeBeats/camera/vfx/negative 与打斗字段 attack/reaction/impact/initiative/nextCombat）；否则其它镜的衔接与战斗字段会被冲掉（服务端会按镜序兜底保留，但不要依赖它）。',
           parameters: {
             type: 'object',
             properties: {
@@ -6215,6 +6270,7 @@ export function apply(ctx) {
               canvasId: { type: 'string', description: '可选：画布 id（项目下的子画布；缺省 = 项目默认画布）' },
               type: { type: 'string', enum: ['script', 'text', 'image', 'video', 'storyboard', 'finalcut', 'image-gen', 'image-asset', 'video-gen', 'video-asset'], description: '节点类型（image/video 为合并类型；旧名 image-gen 等仍接受并自动映射）' },
               name: { type: 'string', description: '节点名字（建议填写，如"角色-陈拾 参考图"）' },
+              assetId: { type: 'string', description: '可选：已有资产 id（canvas_import_asset / canvas_list_assets 返回）。有 assetId 时图片/视频节点直接呈现该素材，不再需要生成 prompt' },
               prompt: { type: 'string', description: '提示词（图片/视频用画面提示词；剧本用创作意图；文本用正文）' },
               size: { type: 'string', description: '可选：图片清晰度 1K/2K/4K' },
               ratio: { type: 'string', description: '可选：比例，如 16:9 / 9:16 / 1:1' },
@@ -6247,6 +6303,61 @@ export function apply(ctx) {
               text: '✅ 已新建[' + r.type + ']节点「' + (r.label || r.nodeId) + '」（id=' + r.nodeId + '）。' + kindHint
                 + (r.mergedType ? '\n注：旧类型 ' + r.mergedType : '') + (r.note ? '\n' + r.note : ''),
             };
+          },
+        });
+        reg({
+          name: 'canvas_import_asset',
+          description: '把本地文件或 http(s) URL 导入当前项目资产库，返回 assetId；随后可用 canvas_create_node / canvas_update_node 的 assetId 字段挂到图片/视频/成片节点。支持 image/video/audio，单文件上限 200MB。',
+          parameters: {
+            type: 'object',
+            properties: {
+              projectId: { type: 'string', description: '项目 id' },
+              path: { type: 'string', description: '可选：本地绝对路径（与 url 二选一）' },
+              url: { type: 'string', description: '可选：http(s) 直链（与 path 二选一）' },
+              kind: { type: 'string', enum: ['image', 'video', 'audio'], description: '可选：资产类型（缺省按 MIME 推断）' },
+              name: { type: 'string', description: '可选：资产显示名（缺省用文件名）' },
+            },
+            required: ['projectId'],
+            additionalProperties: false,
+          },
+          output: textOutput,
+          timeoutMs: 120000,
+          async execute(args) {
+            const r = await importAsset(args);
+            return {
+              ok: true, projectId: String((args && args.projectId) || ''), assetId: r.assetId, kind: r.kind, name: r.name, rel: r.rel,
+              text: '✅ 已导入素材「' + r.name + '」（' + r.kind + ' · ' + Math.round(r.size / 1024) + 'KB · assetId=' + r.assetId + '）。用 canvas_create_node/update_node 的 assetId 挂到节点。',
+            };
+          },
+        });
+        reg({
+          name: 'canvas_list_assets',
+          description: '列出当前项目资产库（可按 kind 过滤）。返回 assetId/name/kind/mime/大小/相对路径；用于 find-and-mount，避免编造 assetId。',
+          parameters: {
+            type: 'object',
+            properties: {
+              projectId: { type: 'string', description: '项目 id' },
+              kind: { type: 'string', enum: ['image', 'video', 'audio', 'text', 'general'], description: '可选：按类型过滤' },
+              limit: { type: 'number', description: '可选：返回条数（默认 50，上限 200）' },
+            },
+            required: ['projectId'],
+            additionalProperties: false,
+          },
+          output: textOutput,
+          timeoutMs: 15000,
+          async execute(args) {
+            const projectId = String((args && args.projectId) || '');
+            const limit = Math.min(200, Math.max(1, Number(args && args.limit) || 50));
+            const r = await methods.assetsList({ projectId, kind: args && args.kind, limit });
+            if (!r || !r.ok) return { ok: false, projectId, text: '❌ 资产列表读取失败：' + ((r && r.error) || '未知错误') };
+            const assets = (r.items || []).map((a) => {
+              const o = { id: a.id, name: a.name, kind: a.kind, mime: a.mime, createdAt: a.createdAt };
+              if (a.rel) o.rel = a.rel;
+              if (a.size != null) o.size = a.size;
+              return o;
+            });
+            const lines = assets.map((a) => '- ' + a.id + ' [' + a.kind + '] ' + a.name + (a.size ? ' · ' + Math.round(a.size / 1024) + 'KB' : ''));
+            return { ok: true, projectId, assets, text: '✅ 资产（' + assets.length + '）：\n' + (lines.join('\n') || '（空）') };
           },
         });
         reg({
