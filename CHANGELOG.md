@@ -115,7 +115,8 @@ GitHub Releases carry the same notes in English; maintainer-facing runbooks live
   dependency. Byte-identical duplicates can be merged: references move from
   the duplicate to the keeper across node data, the character library and
   workflows; duplicates are hidden, and the merge can be undone in the same
-  session. Source and date-range filters complete the DAM filter row.
+  session. Source and date-range filters complete the DAM filter row; the
+  canvas.db schema round-trips tags, folder and mergedInto (with migration).
 - **Host-agnostic core contract.** A new regression proves `apply(ctx)` only
   needs `effect` + `tools.register` + `webServer.register`: 34 tools and nine
   API routes register synchronously on a minimal ctx, while llm / attachments
