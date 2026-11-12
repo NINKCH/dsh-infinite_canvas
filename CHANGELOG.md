@@ -108,6 +108,11 @@ GitHub Releases carry the same notes in English; maintainer-facing runbooks live
   The Workflows tab inserts one into any project at the viewport centre,
   recreating edges and remapping assets by id then name; missing assets
   become visible empty placeholders instead of broken nodes.
+- **Asset library DAM.** Assets now carry tags and a folder (SQL columns with
+  an in-place migration); the asset browser filters by tag/folder and edits
+  both from each card. Multi-select can download up to 100 assets as a
+  standard store-mode ZIP (UTF-8 names, 500 MB guard) without any third-party
+  dependency.
 
 ### Fixed
 - (nothing in this cycle yet)

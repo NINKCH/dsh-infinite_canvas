@@ -117,6 +117,7 @@ const SUITE = [
   { name: 'test-subjects.mjs', desc: '跨项目角色库：全局存储 / 通用资产复制 / 应用接线 / 生成器入口 / 官方模板' },
   { name: 'test-image-tools.mjs', desc: '图像工具：能力注册表 / 超分 / 抠图 / 扩图 / 多角度 / 打光 / 透明底' },
   { name: 'test-workflows.mjs', desc: '工作流工具箱：快照插入 / 连线重映射 / 缺失资产占位 / 再保存' },
+  { name: 'test-dam.mjs', desc: '资产库 DAM：ZIP 字节结构 / UTF-8 文件名 / CRC32 / tags+folder 落库与筛选' },
   { name: 'test-motion-brief-timeline.mjs', desc: '运动驱动（步频防滑步）/ 雾+景深进规格 / 一句话模板库（打斗·追逐·对话）/ 时间轴能力' },
   { name: 'test-cycle-path.mjs', desc: '循环动作（走/跑双相位闭环）+ 路径点拾取/反投影/UI 入口' },
   { name: 'test-theme-locale.mjs', desc: '深色主题跟随宿主 body[data-ds-dark-theme] / 深色变量与对比度 / 面板名中英双语 / locale 快照 active 字段' },

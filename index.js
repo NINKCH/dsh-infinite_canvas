@@ -331,6 +331,7 @@ function ensureSchema(db, root) {
       rel TEXT, sha TEXT, bytes INTEGER,
       width INTEGER, height INTEGER, duration REAL,
       prompt TEXT, category TEXT, entity TEXT, entities TEXT, node_label TEXT,
+      tags TEXT, folder TEXT,
       text TEXT, source TEXT, created_at INTEGER, updated_at INTEGER);
     CREATE INDEX IF NOT EXISTS idx_assets_proj ON assets(project_id, created_at DESC, id DESC);
     CREATE INDEX IF NOT EXISTS idx_assets_sha ON assets(sha);
@@ -338,6 +339,12 @@ function ensureSchema(db, root) {
     CREATE TABLE IF NOT EXISTS entities (id TEXT PRIMARY KEY, project_id TEXT, kind TEXT, name TEXT);
     CREATE TABLE IF NOT EXISTS episodes (id TEXT PRIMARY KEY, project_id TEXT, season INTEGER, number INTEGER, title TEXT);
   `);
+  // DAM 增量列（旧库迁移）：tags = JSON 数组；folder = 用户文件夹名。
+  try {
+    const cols = db.prepare('PRAGMA table_info(assets)').all().map((c) => c.name);
+    if (!cols.includes('tags')) db.exec('ALTER TABLE assets ADD COLUMN tags TEXT');
+    if (!cols.includes('folder')) db.exec('ALTER TABLE assets ADD COLUMN folder TEXT');
+  } catch { /* 迁移失败不阻塞启动：旧库仍可用 */ }
   if (!metaGet(db, 'fts_tokenizer')) {
     try {
       db.exec(`CREATE VIRTUAL TABLE IF NOT EXISTS assets_fts USING fts5(id UNINDEXED, name, prompt, tokenize = 'trigram')`);
@@ -439,6 +446,8 @@ function assetRowFromRecord(a) {
     entity: a.entity ? String(a.entity) : null,
     entities: Array.isArray(a.entities) ? JSON.stringify(a.entities) : null,
     node_label: a.nodeLabel ? String(a.nodeLabel) : null,
+    tags: Array.isArray(a.tags) && a.tags.length ? JSON.stringify(a.tags.map(String).map((t) => t.trim()).filter(Boolean).slice(0, 20)) : null,
+    folder: a.folder ? String(a.folder).slice(0, 80) : null,
     text: (a.kind === 'text' && typeof a.text === 'string') ? a.text : null,
     source: String(a.source || ''),
     created_at: Number(a.createdAt) || Date.now(),
@@ -461,6 +470,8 @@ function rowToAsset(r) {
   if (r.entity) out.entity = r.entity;
   if (r.entities) { try { out.entities = JSON.parse(r.entities); } catch { /* 忽略 */ } }
   if (r.node_label) out.nodeLabel = r.node_label;
+  if (r.tags) { try { const tags = JSON.parse(r.tags); if (Array.isArray(tags) && tags.length) out.tags = tags; } catch { /* 忽略 */ } }
+  if (r.folder) out.folder = r.folder;
   if (r.text != null && r.text !== '') out.text = r.text;
   return out;
 }
@@ -471,11 +482,11 @@ function syncFts(db, id, name, prompt) {
 }
 
 function upsertAssetRow(db, row) {
-  db.prepare(`INSERT INTO assets (id, project_id, episode_id, kind, mime, name, rel, sha, bytes, width, height, duration, prompt, category, entity, entities, node_label, text, source, created_at, updated_at)
-    VALUES (@id, @project_id, @episode_id, @kind, @mime, @name, @rel, @sha, @bytes, @width, @height, @duration, @prompt, @category, @entity, @entities, @node_label, @text, @source, @created_at, @updated_at)
+  db.prepare(`INSERT INTO assets (id, project_id, episode_id, kind, mime, name, rel, sha, bytes, width, height, duration, prompt, category, entity, entities, node_label, tags, folder, text, source, created_at, updated_at)
+    VALUES (@id, @project_id, @episode_id, @kind, @mime, @name, @rel, @sha, @bytes, @width, @height, @duration, @prompt, @category, @entity, @entities, @node_label, @tags, @folder, @text, @source, @created_at, @updated_at)
     ON CONFLICT(id) DO UPDATE SET project_id=@project_id, episode_id=@episode_id, kind=@kind, mime=@mime, name=@name, rel=@rel, sha=@sha, bytes=@bytes,
       width=@width, height=@height, duration=@duration, prompt=@prompt, category=@category, entity=@entity, entities=@entities,
-      node_label=@node_label, text=@text, source=@source, updated_at=@updated_at`).run(row);
+      node_label=@node_label, tags=@tags, folder=@folder, text=@text, source=@source, updated_at=@updated_at`).run(row);
   syncFts(db, row.id, row.name, row.prompt);
 }
 
@@ -597,6 +608,8 @@ function dbAssetUpdate(id, patch) {
   if (patch && patch.entity !== undefined) merged.entity = patch.entity ? String(patch.entity) : undefined;
   if (patch && patch.entities !== undefined) merged.entities = Array.isArray(patch.entities) ? patch.entities : undefined;
   if (patch && patch.nodeLabel !== undefined) merged.nodeLabel = patch.nodeLabel ? String(patch.nodeLabel) : undefined;
+  if (patch && patch.tags !== undefined) merged.tags = Array.isArray(patch.tags) ? patch.tags.map(String).map((t) => t.trim()).filter(Boolean).slice(0, 20) : [];
+  if (patch && patch.folder !== undefined) merged.folder = patch.folder ? String(patch.folder).slice(0, 80) : undefined;
   if (patch && patch.text !== undefined && cur.kind === 'text') merged.text = String(patch.text || '');
   upsertAssetRow(db, assetRowFromRecord({ ...merged, createdAt: cur.createdAt }));
   return { ok: true, asset: rowToAsset(db.prepare('SELECT * FROM assets WHERE id = ?').get(row.id)) };
@@ -4933,7 +4946,13 @@ export function apply(ctx) {
         const cur = r.items.find((a) => String(a.id) === id);
         if (!cur) throw new Error('资产不存在：' + id);
         const patch = (args && args.patch) || {};
-        const next = { ...cur, ...(patch.name !== undefined ? { name: String(patch.name).slice(0, 80) } : {}), ...(patch.category !== undefined ? { category: String(patch.category || 'general') } : {}) };
+        const next = {
+          ...cur,
+          ...(patch.name !== undefined ? { name: String(patch.name).slice(0, 80) } : {}),
+          ...(patch.category !== undefined ? { category: String(patch.category || 'general') } : {}),
+          ...(patch.tags !== undefined ? { tags: Array.isArray(patch.tags) ? patch.tags.map(String).filter(Boolean).slice(0, 20) : [] } : {}),
+          ...(patch.folder !== undefined ? { folder: String(patch.folder || '').slice(0, 80) } : {}),
+        };
         return writeAssetIndex(String(next.projectId), '', [next]);
       },
       // CAS 对象库 GC 已随写路径退役（IC-08）：见 dbObjectsGc 位置的说明。

@@ -1224,6 +1224,16 @@ function revealCanvasInRight() {
       'wfAssetMissing': '工作流资产未找到：已留空占位，可重新挂载/生成',
       'wfNeedSelection': '至少选中两个节点或一个组',
       'wfBadge': '工作流',
+      'damTags': '标签',
+      'damFolder': '文件夹',
+      'damTagsPrompt': '标签（逗号分隔）',
+      'damFolderPrompt': '文件夹名（留空清除）',
+      'damTagFilter': '标签',
+      'damFolderFilter': '文件夹',
+      'damAll': '全部',
+      'damZip': '下载 ZIP（{n}）',
+      'damZipDone': '已打包 {n} 个文件（跳过 {s}）',
+      'damZipEmpty': '没有可打包的资产',
       'pullShots': '拉片',
       'pullTitle': '参考视频拉片',
       'pullHint': '均匀抽帧后用视觉模型反推分镜、动态与音乐线索；只上传抽出的画面帧，不传视频文件。',
@@ -2446,6 +2456,16 @@ function revealCanvasInRight() {
       'wfAssetMissing': 'Workflow asset not found: left as an empty placeholder; remount or regenerate it',
       'wfNeedSelection': 'Select at least two nodes or one group',
       'wfBadge': 'Workflow',
+      'damTags': 'Tags',
+      'damFolder': 'Folder',
+      'damTagsPrompt': 'Tags (comma separated)',
+      'damFolderPrompt': 'Folder name (leave empty to clear)',
+      'damTagFilter': 'Tag',
+      'damFolderFilter': 'Folder',
+      'damAll': 'All',
+      'damZip': 'Download ZIP ({n})',
+      'damZipDone': 'Packed {n} files ({s} skipped)',
+      'damZipEmpty': 'Nothing to pack',
       'pullShots': 'Break down',
       'pullTitle': 'Reference video shot breakdown',
       'pullHint': 'Samples frames evenly and asks the vision model for shots, motion and music cues; only frames are uploaded, never the video file.',
@@ -3630,6 +3650,8 @@ body[data-ds-dark-theme] .dshic-batch{border-color:var(--dsw-alias-border-l2);}
 .dshic-asset-project{width:100%;box-sizing:border-box;height:22px;margin:0 0 6px;border:1px solid var(--dsw-alias-border-l2);
   border-radius:6px;background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-secondary);font:inherit;font-size:10px;
   padding:0 5px;outline:none;cursor:pointer;text-align:left;}
+.dshic-asset-dam{display:flex;flex-wrap:wrap;gap:3px;padding:0 7px 6px;max-height:34px;overflow:hidden;}
+.dshic-asset-dam .dshic-tag{font-size:9px;line-height:14px;padding:0 4px;}
 .dshic-asset-actions .dshic-iconbtn{width:20px;height:20px;background:var(--dsw-alias-bg-layer-1);border:1px solid var(--dsw-alias-border-l2);
   color:var(--dsw-alias-label-primary);}
 .dshic-field{display:flex;flex-direction:column;gap:3px;}
@@ -6337,6 +6359,8 @@ body[data-ds-dark-theme] .dshic-pick-item.is-on{background:color-mix(in srgb,var
       if (meta && meta.entity) rec.entity = meta.entity;
       if (meta && Array.isArray(meta.entities) && meta.entities.length) rec.entities = meta.entities;
       if (meta && meta.nodeLabel) rec.nodeLabel = meta.nodeLabel;
+      if (meta && Array.isArray(meta.tags) && meta.tags.length) rec.tags = meta.tags;
+      if (meta && meta.folder) rec.folder = meta.folder;
       if (meta && meta.effectivePrompt) rec.effectivePrompt = meta.effectivePrompt;
       // 【硬规则】资产文件一律落数据目录的项目文件夹（projects/<项目>/<类型>/<文件>），元数据进
       // canvas.db；IndexedDB 已废弃——未配置数据目录时明确报错，绝不静默塞进浏览器。
@@ -6379,6 +6403,8 @@ body[data-ds-dark-theme] .dshic-pick-item.is-on{background:color-mix(in srgb,var
       if (rec.entity) out.entity = rec.entity;
       if (Array.isArray(rec.entities) && rec.entities.length) out.entities = rec.entities;
       if (rec.nodeLabel) out.nodeLabel = rec.nodeLabel;
+      if (Array.isArray(rec.tags) && rec.tags.length) out.tags = rec.tags;
+      if (rec.folder) out.folder = rec.folder;
       if (rec.kind === 'text' && typeof rec.text === 'string') out.text = rec.text;
       return out;
     }
@@ -13361,6 +13387,7 @@ function queueThumb(assetId) {
       memory: 'M5 5h14M5 10h14M5 15h9M5 20h6M18 15v5M15.5 17.5h5',
       chat: 'M4 5h16v11H9l-5 4V5z',
       users: 'M16 19v-1a4 4 0 00-4-4H6a4 4 0 00-4 4v1M9 11a4 4 0 100-8 4 4 0 000 8zM22 19v-1a4 4 0 00-3-3.9M16 3.1a4 4 0 010 7.8',
+      tag: 'M4 4h7l9 9-7 7-9-9V4zM8 8h.01',
     };
     function Ic(name, size) { return h(Icon, { d: ICONS[name], size: size || 14 }); }
 
@@ -21866,6 +21893,8 @@ const DIRECTOR_KEY_HELP = [
       }, [S.activeId]);
       const [search, setSearch] = useState('');
       const [qDeb, setQDeb] = useState('');
+      const [tagFilter, setTagFilter] = useState('');
+      const [folderFilter, setFolderFilter] = useState('');
       const [craftFor, setCraftFor] = useState(null);
       const [delTarget, setDelTarget] = useState(null); // 待确认删除的资产（确认框见 DeleteAssetModal）
       const [assetName, setAssetName] = useState(''); // 删除确认框的输入内容
@@ -21878,7 +21907,7 @@ const DIRECTOR_KEY_HELP = [
         const t = setTimeout(() => setQDeb(search), 300);
         return () => clearTimeout(t);
       }, [search]);
-      useEffect(() => { setPage(0); setPageDraft(null); }, [filter, qDeb, scope]);
+      useEffect(() => { setPage(0); setPageDraft(null); }, [filter, qDeb, scope, tagFilter, folderFilter]);
       useEffect(() => {
         probeCraft();
         let ok = true;
@@ -21942,6 +21971,16 @@ const DIRECTOR_KEY_HELP = [
         else idbPut(a).catch(() => {});
         update((s) => { s.assetsTick++; });
       };
+      /** DAM 元数据（标签/文件夹）：本地立即生效 + 服务端写回；失败不影响继续打标签。 */
+      const updateAssetMeta = (a, patch) => {
+        Object.assign(a, patch);
+        setAssets((prev) => prev.map((x) => (x.id === a.id ? { ...x, ...patch } : x)));
+        if (S.store) hostRpc('assetUpdate', { id: a.id, patch }).catch(() => {});
+        else idbPut(a).catch(() => {});
+        update((s) => { s.assetsTick++; });
+      };
+      const allTags = [...new Set(assets.flatMap((a) => (Array.isArray(a.tags) ? a.tags : [])))].sort();
+      const allFolders = [...new Set(assets.map((a) => String(a.folder || '').trim()).filter(Boolean))].sort();
       const onImport = async (e) => {
         const files = [...((e.target.files) || [])];
         e.target.value = '';
@@ -22030,6 +22069,34 @@ const DIRECTOR_KEY_HELP = [
         setSelIds(new Set());
         toast(T('assetsDeletedN').replace('{n}', String(list.length)));
       };
+      const downloadSelectedZip = async () => {
+        const items = selList.slice(0, 100);
+        if (!items.length) { toast(T('damZipEmpty')); return; }
+        const files = [];
+        let total = 0;
+        let skipped = 0;
+        for (const a of items) {
+          try {
+            let data;
+            if (a.kind === 'text') data = new TextEncoder().encode(String(a.text || ''));
+            else {
+              const blob = await assetBlob(a.id);
+              if (!blob) { skipped++; continue; }
+              data = new Uint8Array(await blob.arrayBuffer());
+            }
+            if (total + data.length > 500 * 1024 * 1024) { skipped++; continue; }
+            total += data.length;
+            const base = String(a.name || a.id).replace(/[\\/:*?"<>|\u0000-\u001f]/g, '_').slice(0, 80) || a.id;
+            files.push({ name: base + extForDownload(a.mime, a.name, a.kind), data });
+          } catch { skipped++; }
+        }
+        if (!files.length) { toast(T('damZipEmpty')); return; }
+        const blob = buildZipStore(files);
+        const url = URL.createObjectURL(blob);
+        downloadBlobFromUrl(url, 'assets-' + files.length + '.zip');
+        setTimeout(() => { try { URL.revokeObjectURL(url); } catch { /* 忽略 */ } }, 8000);
+        toast(T('damZipDone').replace('{n}', String(files.length)).replace('{s}', String(skipped)));
+      };
       // 资产重命名：服务端写回（SQL/JSON 各自落库）+ 刷新名称缓存（@引用与连线名称都吃这份缓存）
       const rename = async (a, name) => {
         if (S.store) {
@@ -22065,10 +22132,13 @@ const DIRECTOR_KEY_HELP = [
         // 「通用项目」或「全部」；跨项目取素材的功能面（@引用/设定集绑定）不受影响）。
         if (scope !== 'all' && a.projectId !== scope) return false;
         if (filter !== 'all' && normCat(a.category) !== filter) return false;
+        if (tagFilter && !(Array.isArray(a.tags) && a.tags.includes(tagFilter))) return false;
+        if (folderFilter && String(a.folder || '') !== folderFilter) return false;
         if (!q) return true;
         const hay = [
           a.name, a.prompt || '', a.text || '', catLabel(normCat(a.category)),
-          projectName(a.projectId), a.kind === 'image' ? T('kindImage') : a.kind === 'video' ? T('kindVideo') : 'text',
+          projectName(a.projectId), a.folder || '', (a.tags || []).join(' '),
+          a.kind === 'image' ? T('kindImage') : a.kind === 'video' ? T('kindVideo') : a.kind === 'audio' ? T('kindAudio') : 'text',
         ].join(' ').toLowerCase();
         return hay.includes(q);
       });
@@ -22115,6 +22185,25 @@ const DIRECTOR_KEY_HELP = [
               onChange: (v) => setScope(v),
             })),
         ),
+        // DAM 筛选（标签 / 文件夹）：有值才显示，避免空资产时多一排空控件
+        allTags.length || allFolders.length
+          ? h('div', { key: 'damrow', className: 'dshic-asset-searchrow', 'data-role': 'assets-dam-filters' },
+              allTags.length
+                ? h('div', { className: 'dshic-asset-scope' }, h(MiniSelect, {
+                    value: tagFilter, title: T('damTagFilter'),
+                    options: [{ value: '', label: T('damTagFilter') + '：' + T('damAll') }].concat(allTags.map((t) => ({ value: t, label: '#' + t }))),
+                    onChange: (v) => setTagFilter(v),
+                  }))
+                : null,
+              allFolders.length
+                ? h('div', { className: 'dshic-asset-scope' }, h(MiniSelect, {
+                    value: folderFilter, title: T('damFolderFilter'),
+                    options: [{ value: '', label: T('damFolderFilter') + '：' + T('damAll') }].concat(allFolders.map((v) => ({ value: v, label: v }))),
+                    onChange: (v) => setFolderFilter(v),
+                  }))
+                : null,
+              h('div', { className: 'dshic-flex' }))
+          : null,
         // 工具栏（项目下一行）：所有操作按钮 + 分页集中在一行，窄窗口自动换行、分页始终靠右。
         // 按钮统一「透明底 + 1px 线框 + 文字」（UI-RULES：禁止灰底色块）。
         h('div', { key: 'toolbar', className: 'dshic-asset-toolbar', 'data-role': 'assets-toolbar' },
@@ -22135,6 +22224,7 @@ const DIRECTOR_KEY_HELP = [
             selIds.size
               ? h('div', { key: 'batchbar', className: 'dshic-asset-batch', 'data-role': 'assets-batch-bar' },
                   h('button', { type: 'button', className: 'dshic-toolbtn', 'data-action': 'assets-add-selected', disabled: !addableList.length, onClick: addSelectedToCanvas, onPointerDown: (e) => e.stopPropagation() }, Ic('expandAll', 11), T('assetsAddToCanvas') + '（' + addableList.length + '）'),
+                  h('button', { type: 'button', className: 'dshic-toolbtn', 'data-action': 'assets-download-zip', disabled: !selList.length, onClick: downloadSelectedZip, onPointerDown: (e) => e.stopPropagation() }, Ic('download', 11), T('damZip').replace('{n}', String(selList.length))),
                   h('button', { type: 'button', className: 'dshic-toolbtn is-danger', 'data-action': 'assets-batch-delete', onClick: () => setBatchDel(true), onPointerDown: (e) => e.stopPropagation() }, T('doDelete') + '（' + selIds.size + '）'),
                   h('button', { type: 'button', className: 'dshic-toolbtn', 'data-action': 'assets-clear-sel', onClick: clearSel, onPointerDown: (e) => e.stopPropagation() }, T('assetsClearSel')),
                 )
@@ -22177,7 +22267,7 @@ const DIRECTOR_KEY_HELP = [
             : h('div', { key: 'grid', className: 'dshic-asset-grid' },
                 shown.map((a) => h(AssetCard, {
                   key: a.id, a, onAdd: addNodeFor, onDel: (x) => setDelTarget(x), onCat: changeCategory,
-                  onRename: rename, onMove: moveAsset,
+                  onRename: rename, onMove: moveAsset, onMeta: updateAssetMeta,
                   projectName: projectName(a.projectId),
                   checked: selIds.has(a.id), onToggleSel: toggleSel,
                 })),
@@ -22233,7 +22323,7 @@ const DIRECTOR_KEY_HELP = [
         ));
     }
 
-    function AssetCard({ a, checked = false, onToggleSel = () => {}, onAdd, onDel, onCat, onRename, onMove, projectName }) {
+    function AssetCard({ a, checked = false, onToggleSel = () => {}, onAdd, onDel, onCat, onRename, onMove, onMeta = () => {}, projectName }) {
       const url = useAssetUrl(a.kind === 'text' ? null : a.id);
       const [craftFor, setCraftFor] = useState(false);
       const [renaming, setRenaming] = useState(false);
@@ -22257,6 +22347,20 @@ const DIRECTOR_KEY_HELP = [
         onPointerDown: (e) => e.stopPropagation(),
         onClick: startRename,
       }, Ic('pencil', 11));
+      const editTags = (e) => {
+        e.stopPropagation();
+        let v = null;
+        try { v = window.prompt(T('damTagsPrompt'), (Array.isArray(a.tags) ? a.tags : []).join(', ')); } catch { v = null; }
+        if (v === null) return;
+        onMeta(a, { tags: String(v || '').split(',').map((x) => x.trim()).filter(Boolean).slice(0, 20) });
+      };
+      const editFolder = (e) => {
+        e.stopPropagation();
+        let v = null;
+        try { v = window.prompt(T('damFolderPrompt'), a.folder || ''); } catch { v = null; }
+        if (v === null) return;
+        onMeta(a, { folder: String(v || '').trim().slice(0, 80) });
+      };
       const downloadName = (a.name || 'asset') + extForDownload(a.mime, a.name, a.kind);
       // 项目归属下拉（全部资产同款，含文本资产）：看归属 + 就地改归属（onMove 服务端写回）
       const projSel = h('select', {
@@ -22304,7 +22408,15 @@ const DIRECTOR_KEY_HELP = [
         a.kind !== 'text'
           ? projSel
           : null,
+        (a.folder || (Array.isArray(a.tags) && a.tags.length))
+          ? h('div', { className: 'dshic-asset-dam' },
+              a.folder ? h('span', { className: 'dshic-tag', title: a.folder }, '▸ ' + a.folder) : null,
+              (a.tags || []).slice(0, 3).map((t) => h('span', { key: t, className: 'dshic-tag' }, '#' + t)),
+              (a.tags || []).length > 3 ? h('span', { className: 'dshic-hint' }, '+' + ((a.tags || []).length - 3)) : null)
+          : null,
         h('div', { className: 'dshic-asset-actions' },
+          h('button', { type: 'button', className: 'dshic-iconbtn', title: T('damTags'), onClick: editTags, onPointerDown: (e) => e.stopPropagation() }, Ic('tag', 11)),
+          h('button', { type: 'button', className: 'dshic-iconbtn', title: T('damFolder'), onClick: editFolder, onPointerDown: (e) => e.stopPropagation() }, Ic('folder', 11)),
           (a.kind === 'image' || a.kind === 'video')
             ? h('button', {
                 type: 'button', className: 'dshic-iconbtn', title: T('zoomView'),
@@ -22362,6 +22474,53 @@ const DIRECTOR_KEY_HELP = [
       document.body.appendChild(a);
       a.click();
       a.remove();
+    }
+    // ---- 资产库 ZIP（store 模式，无第三方依赖）----
+    const CRC32_TABLE = (() => {
+      const t = new Uint32Array(256);
+      for (let n = 0; n < 256; n++) {
+        let c = n;
+        for (let k = 0; k < 8; k++) c = (c & 1) ? (0xedb88320 ^ (c >>> 1)) : (c >>> 1);
+        t[n] = c >>> 0;
+      }
+      return t;
+    })();
+    function crc32Bytes(u8) {
+      let c = 0xffffffff;
+      for (let i = 0; i < u8.length; i++) c = CRC32_TABLE[(c ^ u8[i]) & 0xff] ^ (c >>> 8);
+      return (c ^ 0xffffffff) >>> 0;
+    }
+    /** 极简 ZIP（method=0，UTF-8 文件名）。单包上限由调用方控制，避免一次吃爆内存。 */
+    function buildZipStore(files) {
+      const chunks = [];
+      const central = [];
+      let offset = 0;
+      const enc = new TextEncoder();
+      const w2 = (arr, v) => { arr.push(v & 0xff, (v >>> 8) & 0xff); };
+      const w4 = (arr, v) => { arr.push(v & 0xff, (v >>> 8) & 0xff, (v >>> 16) & 0xff, (v >>> 24) & 0xff); };
+      for (const f of (files || [])) {
+        const name = enc.encode(String(f.name || 'file'));
+        const data = f.data instanceof Uint8Array ? f.data : new Uint8Array(f.data || []);
+        const crc = crc32Bytes(data);
+        const local = [];
+        w4(local, 0x04034b50); w2(local, 20); w2(local, 0x0800); w2(local, 0); w2(local, 0); w2(local, 0);
+        w4(local, crc); w4(local, data.length); w4(local, data.length); w2(local, name.length); w2(local, 0);
+        for (const b of name) local.push(b);
+        const localHdr = new Uint8Array(local);
+        chunks.push(localHdr, data);
+        const cen = [];
+        w4(cen, 0x02014b50); w2(cen, 20); w2(cen, 20); w2(cen, 0x0800); w2(cen, 0); w2(cen, 0); w2(cen, 0);
+        w4(cen, crc); w4(cen, data.length); w4(cen, data.length); w2(cen, name.length); w2(cen, 0); w2(cen, 0);
+        w2(cen, 0); w2(cen, 0); w4(cen, 0); w4(cen, offset);
+        for (const b of name) cen.push(b);
+        central.push(new Uint8Array(cen));
+        offset += localHdr.length + data.length;
+      }
+      const centralSize = central.reduce((a, c) => a + c.length, 0);
+      const end = [];
+      w4(end, 0x06054b50); w2(end, 0); w2(end, 0); w2(end, central.length); w2(end, central.length);
+      w4(end, centralSize); w4(end, offset); w2(end, 0);
+      return new Blob([...chunks, ...central, new Uint8Array(end)], { type: 'application/zip' });
     }
 
     function useSkills() {
@@ -25185,6 +25344,8 @@ const DIRECTOR_KEY_HELP = [
           window.__DSH_IC_IMGTOOLS__ = { IMAGE_TOOL_CAPS, imageToolCaps, upscaleImageBlob };
           // 工作流工具箱：保存/插入/资产重映射（供 scripts/test-workflows.mjs 真实执行）
           window.__DSH_IC_WORKFLOWS__ = { WorkflowsTab, saveWorkflowFromIds, insertWorkflow, loadWorkflows, upsertWorkflow, removeWorkflow };
+          // 资产库 DAM：ZIP 打包纯函数（供 scripts/test-dam.mjs 直接断言字节结构）
+          window.__DSH_IC_DAM__ = { buildZipStore, crc32Bytes };
           // IC-04：参考图上传三件套的纯函数出口（供 scripts/test-image-upload.mjs 直接断言）
           window.__DSH_IC_IMGREF__ = { rawImageDims, sniffImageEncoding, registerReferenceAsset };
           // IC-03：视频厂商识别/前缀归一化的纯函数出口（供 scripts/test-vendor-detect.mjs 直接断言）
