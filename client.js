@@ -11907,12 +11907,9 @@ function queueThumb(assetId) {
       setView(r.width / 2 - (n.x + (n.w || 240) / 2) * V.scale, r.height / 2 - (n.y + (n.h || 96) / 2) * V.scale, V.scale, true);
     }
     function markBatchItem(item, status, error) {
-      update((s) => {
-        const cur = s.batch && s.batch.items.find((x) => x.id === item.id);
-        if (!cur) return;
-        cur.status = status;
-        cur.error = error || null;
-      });
+      item.status = status;
+      item.error = error || null;
+      notify();
     }
     async function startBatchQueue() {
       const b = S.batch;
@@ -11930,12 +11927,15 @@ function queueThumb(assetId) {
       genAbort.batchAbort = false;
       genAbort.batchControllers = new Set();
       const conc = clamp(Number(b.concurrency) || 1, 1, 3);
+      // 运行令牌：关闭/重开面板后旧 worker 不能再去消费新批次的条目（避免重复执行/重复计费）
+      b.runToken = {};
+      const runToken = b.runToken;
+      const isCurrent = () => S.batch === b && b.runToken === runToken;
       let idx = 0;
       const takeNext = () => {
-        const cur = S.batch;
-        if (!cur || cur.stopped) return null;
-        while (idx < cur.items.length) {
-          const it = cur.items[idx++];
+        if (!isCurrent() || b.stopped) return null;
+        while (idx < b.items.length) {
+          const it = b.items[idx++];
           if (it.status === 'queued') return it;
         }
         return null;
@@ -11950,8 +11950,7 @@ function queueThumb(assetId) {
           if (n.data && n.data.status === 'running') { markBatchItem(it, 'skipped'); continue; }
           markBatchItem(it, 'running');
           const ok = await runGenNode(n);
-          const cur = S.batch;
-          const stopped = !!(cur && cur.stopped);
+          const stopped = b.stopped || !isCurrent();
           const nd = S.graph.nodes[it.id];
           if (ok) markBatchItem(it, 'done');
           else markBatchItem(it, stopped ? 'stopped' : 'error', stopped ? null : String((nd && nd.data && nd.data.error) || '生成失败'));
@@ -11960,21 +11959,22 @@ function queueThumb(assetId) {
       try {
         await Promise.all(Array.from({ length: conc }, worker));
       } finally {
-        genAbort.batchControllers = null;
-        update((s) => {
-          if (!s.batch) return;
-          s.batch.running = false;
-          s.batch.finishedAt = Date.now();
-          if (s.batch.stopped) {
-            for (const it of s.batch.items) if (it.status === 'queued') it.status = 'stopped';
-          }
-        });
+        if (S.batch === b) genAbort.batchControllers = null;
+        if (isCurrent()) {
+          update((s) => {
+            if (s.batch !== b) return;
+            s.batch.running = false;
+            s.batch.finishedAt = Date.now();
+            if (s.batch.stopped) {
+              for (const it of s.batch.items) if (it.status === 'queued') it.status = 'stopped';
+            }
+          });
+        }
         flushSave();
       }
-      const fin = S.batch;
-      if (fin) {
-        const okN = fin.items.filter((x) => x.status === 'done').length;
-        const failN = fin.items.filter((x) => x.status === 'error').length;
+      if (isCurrent()) {
+        const okN = b.items.filter((x) => x.status === 'done').length;
+        const failN = b.items.filter((x) => x.status === 'error').length;
         toast(T('batchDoneToast').replace('{ok}', String(okN)).replace('{fail}', String(failN)));
       }
     }
