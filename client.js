@@ -442,6 +442,31 @@ function revealCanvasInRight() {
       'audioGain': '音量',
       'audioTracksLabel': '音频轨（BGM/音效）',
       'audioTracksEmpty': '连接音频节点到成片的 audio 输入口',
+      'batchTitle': '批量执行',
+      'batchStart': '开始执行',
+      'batchStop': '停止',
+      'batchClose': '关闭',
+      'batchQueued': '等待',
+      'batchRunning': '生成中…',
+      'batchDone': '完成',
+      'batchFailed': '失败',
+      'batchStopped': '已停止',
+      'batchSkipped': '已跳过',
+      'batchSummary': '共 {n} 项 · 视频 {v} 条 / {s} 秒',
+      'batchCost': '预估 ¥{cost}（单价 {price}/秒）',
+      'batchNoPrice': '未配置视频单价，无法估算金额（画布设置 → 制作）',
+      'batchNoTargets': '选中内容里没有可生成的节点',
+      'batchMenu': '批量生成（{n}）',
+      'batchGroupRun': '整组执行（{n}）',
+      'batchGroupVideo': '批量生成视频（{n}）',
+      'batchGroupDownload': '批量下载（{n}）',
+      'batchDownloaded': '已开始下载 {n} 个文件',
+      'batchNoAsset': '没有可下载的产物',
+      'batchConcurrency': '并发',
+      'batchQuoteHint': '按队列执行，可随时停止；单个失败不阻塞其余',
+      'batchJumpHint': '点击条目定位节点',
+      'batchMissingPrompt': '{n} 项缺少提示词，可能失败',
+      'batchDoneToast': '批量执行完成：成功 {ok} · 失败 {fail}',
       'tagText': '文本节点',
       'tagScript': '剧本节点',
       'tagStoryboard': '分镜表',
@@ -1537,6 +1562,31 @@ function revealCanvasInRight() {
       'audioGain': 'Gain',
       'audioTracksLabel': 'Audio tracks (BGM/SFX)',
       'audioTracksEmpty': 'Connect audio nodes to the final cut audio input',
+      'batchTitle': 'Batch run',
+      'batchStart': 'Start',
+      'batchStop': 'Stop',
+      'batchClose': 'Close',
+      'batchQueued': 'Queued',
+      'batchRunning': 'Generating…',
+      'batchDone': 'Done',
+      'batchFailed': 'Failed',
+      'batchStopped': 'Stopped',
+      'batchSkipped': 'Skipped',
+      'batchSummary': '{n} items · {v} videos / {s}s',
+      'batchCost': 'Est. ¥{cost} (unit {price}/s)',
+      'batchNoPrice': 'No video unit price configured (Settings → Production)',
+      'batchNoTargets': 'Nothing runnable in the selection',
+      'batchMenu': 'Batch generate ({n})',
+      'batchGroupRun': 'Run group ({n})',
+      'batchGroupVideo': 'Generate videos ({n})',
+      'batchGroupDownload': 'Download all ({n})',
+      'batchDownloaded': 'Started downloading {n} files',
+      'batchNoAsset': 'No generated assets to download',
+      'batchConcurrency': 'Concurrency',
+      'batchQuoteHint': 'Runs as a queue and can be stopped; one failure does not block the rest',
+      'batchJumpHint': 'Click an item to locate its node',
+      'batchMissingPrompt': '{n} items have no prompt and may fail',
+      'batchDoneToast': 'Batch finished: {ok} done · {fail} failed',
       'tagText': 'Text node',
       'tagScript': 'Script node',
       'tagStoryboard': 'Storyboard',
@@ -3222,6 +3272,31 @@ body[data-ds-dark-theme] .dshic-inline-input{border-color:var(--dsw-alias-border
 .dshic-audio-title{display:flex;align-items:center;gap:6px;font-size:12px;font-weight:600;color:var(--dsw-alias-label-primary);}
 .dshic-audio-ctl{display:flex;align-items:center;gap:8px;font-size:11px;color:var(--dsw-alias-label-secondary);}
 .dshic-audio-ctl input[type="range"]{flex:1;min-width:40px;}
+/* 批量执行台：右下角固定浮层，预检 → 队列 → 进度/停止 */
+.dshic-batch{position:fixed;right:16px;bottom:16px;z-index:210;width:348px;max-height:min(64vh,560px);display:flex;flex-direction:column;
+  background:var(--dsw-alias-bg-layer-1);border:1px solid var(--dsw-alias-border-l1);border-radius:14px;box-shadow:var(--dshic-shadow-lg);overflow:hidden;}
+.dshic-batch-head{display:flex;align-items:center;gap:6px;padding:10px 12px;border-bottom:1px solid var(--dsw-alias-border-l1);font-size:13px;font-weight:600;}
+.dshic-batch-head .dshic-flex{flex:1;}
+.dshic-batch-summary{padding:10px 12px 6px;display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--dsw-alias-label-secondary);}
+.dshic-batch-summary b{color:var(--dsw-alias-label-primary);font-weight:600;}
+.dshic-batch-list{flex:1;overflow:auto;padding:4px 6px 8px;display:flex;flex-direction:column;gap:2px;min-height:80px;}
+.dshic-batch-item{display:flex;align-items:flex-start;gap:8px;padding:6px 7px;border:none;border-radius:8px;background:transparent;
+  color:var(--dsw-alias-label-primary);font:inherit;font-size:12px;text-align:left;cursor:pointer;width:100%;box-sizing:border-box;}
+.dshic-batch-item:hover{background:var(--dsw-alias-interactive-bg-hover,color-mix(in srgb,var(--dsw-alias-label-primary) 7%,transparent));}
+.dshic-batch-dot{flex:none;width:7px;height:7px;border-radius:50%;margin-top:6px;background:var(--dsw-alias-label-tertiary);}
+.dshic-batch-item[data-st="running"] .dshic-batch-dot{background:var(--dsw-alias-brand-primary);animation:dshic-pulse 1.2s infinite;}
+.dshic-batch-item[data-st="done"] .dshic-batch-dot{background:var(--dsw-alias-state-success-primary);}
+.dshic-batch-item[data-st="error"] .dshic-batch-dot{background:var(--dsw-alias-state-error-primary);}
+.dshic-batch-item[data-st="stopped"] .dshic-batch-dot,
+.dshic-batch-item[data-st="skipped"] .dshic-batch-dot{background:var(--dsw-alias-label-tertiary);}
+.dshic-batch-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.dshic-batch-st{flex:none;font-size:11px;color:var(--dsw-alias-label-secondary);}
+.dshic-batch-err{display:block;color:var(--dsw-alias-state-error-primary);font-size:11px;line-height:15px;margin-top:2px;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.dshic-batch-foot{display:flex;align-items:center;gap:8px;padding:9px 12px;border-top:1px solid var(--dsw-alias-border-l1);}
+.dshic-batch-foot .dshic-flex{flex:1;}
+.dshic-batch-hint{padding:0 12px 9px;font-size:11px;color:var(--dsw-alias-label-tertiary);}
+body[data-ds-dark-theme] .dshic-batch{border-color:var(--dsw-alias-border-l2);}
 .dshic-node-row{display:flex;align-items:center;gap:6px;min-width:0;flex-wrap:wrap;}
 .dshic-node-row .dshic-flex{flex:1;min-width:0;}
 .dshic-mini{display:inline-flex;align-items:center;gap:4px;height:24px;padding:0 8px;border-radius:7px;border:none;cursor:pointer;
@@ -10223,6 +10298,7 @@ function queueThumb(assetId) {
       canvasSearch: '',
       canvasCollapsed: false,
       menu: null,          // {x, y, kind:'add'}
+      batch: null,         // 批量执行台：{ items, running, stopped, concurrency, price, videoSecs, source } | null（纯 UI）
       composerId: null,    // 生成面板当前挂靠的节点 id（单例；纯 UI 状态，不持久化）
       assetsTick: 0,
       // 设定集更新信号：编辑器 persist 后自增，分镜详情据此自动重算一致性告警（旧告警自动消失，免手动 revalidate）。
@@ -11147,12 +11223,17 @@ function queueThumb(assetId) {
     // 工作流执行
     // ============================================================
     const cancelRef = { cancelled: false };
-    const genAbort = { ctl: null }; // 当前生成的 AbortController（停止按钮真正中断底层流/轮询）
+    const genAbort = { ctl: null, batchAbort: false, batchControllers: null }; // 当前生成的 AbortController（停止按钮真正中断底层流/轮询）
     let genActive = 0; // 活跃生成计数（工作流与单节点触发统一计数）
-    function genAborted() { return !!(genAbort.ctl && genAbort.ctl.signal && genAbort.ctl.signal.aborted); }
+    function genAborted() { return !!(genAbort.batchAbort || (genAbort.ctl && genAbort.ctl.signal && genAbort.ctl.signal.aborted)); }
     function stopActiveGen() {
       cancelRef.cancelled = true;
+      genAbort.batchAbort = true;
       if (genAbort.ctl) { try { genAbort.ctl.abort(); } catch { /* 忽略 */ } }
+      if (genAbort.batchControllers) {
+        for (const ctl of genAbort.batchControllers) { try { ctl.abort(); } catch { /* 忽略 */ } }
+      }
+      if (S.batch && S.batch.running) update((s) => { if (s.batch) s.batch.stopped = true; });
     }
 
     /** 分镜节点的剧本来源：**连线上游与手动粘贴二选一**——
@@ -11418,7 +11499,9 @@ function queueThumb(assetId) {
       const type = n.type;
       const settings = loadSettings(); // 模型解析（供应商+模型）用
       const ctl = new AbortController();
+      genAbort.batchAbort = false;
       genAbort.ctl = ctl;
+      if (genAbort.batchControllers) genAbort.batchControllers.add(ctl);
       genActive++;
       // 生成告警收集器：参考素材截断、厂商参数落空等"需要用户知道"的事实，一律挂到节点上（绝不静默）
       const addWarn = (msg) => {
@@ -11687,6 +11770,7 @@ function queueThumb(assetId) {
         genActive = Math.max(0, genActive - 1);
         if (genActive === 0) update((s) => { s.running = false; });
         if (genAbort.ctl === ctl) genAbort.ctl = null;
+        if (genAbort.batchControllers) genAbort.batchControllers.delete(ctl);
       }
     }
     function commitGenResult(nodeId, assetId, demo, kind) {
@@ -11750,6 +11834,199 @@ function queueThumb(assetId) {
     function stopRun() {
       stopActiveGen();
       toast(T('stoppedToast'));
+    }
+
+    // ============================================================
+    // 批量执行台（选区 / 整组）：预检 → 队列 → 进度 / 停止
+    // ============================================================
+    const BATCH_TYPES = new Set(['image', 'video', 'script', 'storyboard', 'finalcut']);
+    const batchNodeName = (n) => String((n.data && n.data.label) || (TYPE_LABEL()[n.type]) || n.type || '节点');
+    /** 选区/组展开成真实节点：组递归展开，去重；不改变画布选择。 */
+    function batchExpand(ids) {
+      const out = [];
+      const seen = new Set();
+      const walk = (id) => {
+        if (!id || seen.has(id)) return;
+        seen.add(id);
+        const n = S.graph.nodes[id];
+        if (!n) return;
+        if (n.type === 'group') {
+          for (const m of (n.data.members || [])) walk(m);
+          return;
+        }
+        out.push(n);
+      };
+      for (const id of (ids || [])) walk(id);
+      return out;
+    }
+    function collectBatchTargets(ids) {
+      const out = batchExpand(ids).filter((n) => BATCH_TYPES.has(n.type));
+      // 按上游→下游排序：选区里有剧本/分镜/视频时，先跑上游，避免下游拿到空输入。
+      const order = topoOrder(S.graph);
+      if (order) {
+        const rank = new Map(order.map((id, i) => [id, i]));
+        out.sort((a, b) => (rank.get(a.id) ?? 1e9) - (rank.get(b.id) ?? 1e9));
+      }
+      return out;
+    }
+    function batchVideoSecsOf(n) {
+      return n.type === 'video' ? Math.max(0, Number(n.data && n.data.duration) || 5) : 0;
+    }
+    /** 打开预检面板。items 只包含真正可执行的节点；非可执行节点静默跳过（选择里常有文本/设定节点）。 */
+    function openBatchConsole(ids, source) {
+      const targets = collectBatchTargets(ids);
+      if (!targets.length) { toast(T('batchNoTargets')); return; }
+      const items = targets.map((n) => ({
+        id: n.id, name: batchNodeName(n), type: n.type,
+        secs: batchVideoSecsOf(n), status: 'queued', error: null,
+      }));
+      const videoSecs = items.reduce((a, it) => a + it.secs, 0);
+      update((s) => {
+        s.batch = {
+          items, source: source || 'selection', running: false, stopped: false,
+          concurrency: 1, price: 0, videoSecs, startedAt: 0, finishedAt: 0,
+        };
+        s.sel = new Set(targets.map((n) => n.id));
+      });
+      hostRpc('productionPrice', {}).then((r) => {
+        update((s) => { if (s.batch) s.batch.price = Number(r && r.price) || 0; });
+      }).catch(() => { /* 单价读不到就只能不显示金额 */ });
+    }
+    function closeBatchConsole() {
+      if (S.batch && S.batch.running) {
+        // 关闭不等于停止：先停再关，避免后台继续计费却没有进度入口
+        stopBatchQueue();
+      }
+      update((s) => { s.batch = null; });
+    }
+    function focusBatchItem(id) {
+      const n = S.graph.nodes[id];
+      if (!n) return;
+      update((s) => { s.sel = new Set([n.id]); s.composerId = null; });
+      const r = containerRect();
+      setView(r.width / 2 - (n.x + (n.w || 240) / 2) * V.scale, r.height / 2 - (n.y + (n.h || 96) / 2) * V.scale, V.scale, true);
+    }
+    function markBatchItem(item, status, error) {
+      update((s) => {
+        const cur = s.batch && s.batch.items.find((x) => x.id === item.id);
+        if (!cur) return;
+        cur.status = status;
+        cur.error = error || null;
+      });
+    }
+    async function startBatchQueue() {
+      const b = S.batch;
+      if (!b || b.running) return;
+      const todo = b.items.filter((it) => it.status === 'queued' || it.status === 'error' || it.status === 'stopped');
+      if (!todo.length) return;
+      update((s) => {
+        if (!s.batch) return;
+        s.batch.running = true; s.batch.stopped = false;
+        s.batch.startedAt = Date.now(); s.batch.finishedAt = 0;
+        for (const it of s.batch.items) {
+          if (it.status === 'error' || it.status === 'stopped') { it.status = 'queued'; it.error = null; }
+        }
+      });
+      genAbort.batchAbort = false;
+      genAbort.batchControllers = new Set();
+      const conc = clamp(Number(b.concurrency) || 1, 1, 3);
+      let idx = 0;
+      const takeNext = () => {
+        const cur = S.batch;
+        if (!cur || cur.stopped) return null;
+        while (idx < cur.items.length) {
+          const it = cur.items[idx++];
+          if (it.status === 'queued') return it;
+        }
+        return null;
+      };
+      const worker = async () => {
+        for (;;) {
+          const it = takeNext();
+          if (!it) return;
+          const n = S.graph.nodes[it.id];
+          if (!n) { markBatchItem(it, 'skipped'); continue; }
+          // 与单节点/工作流并发保护同一口径：已在生成中不重复触发（防重复计费/重复资产）
+          if (n.data && n.data.status === 'running') { markBatchItem(it, 'skipped'); continue; }
+          markBatchItem(it, 'running');
+          const ok = await runGenNode(n);
+          const cur = S.batch;
+          const stopped = !!(cur && cur.stopped);
+          const nd = S.graph.nodes[it.id];
+          if (ok) markBatchItem(it, 'done');
+          else markBatchItem(it, stopped ? 'stopped' : 'error', stopped ? null : String((nd && nd.data && nd.data.error) || '生成失败'));
+        }
+      };
+      try {
+        await Promise.all(Array.from({ length: conc }, worker));
+      } finally {
+        genAbort.batchControllers = null;
+        update((s) => {
+          if (!s.batch) return;
+          s.batch.running = false;
+          s.batch.finishedAt = Date.now();
+          if (s.batch.stopped) {
+            for (const it of s.batch.items) if (it.status === 'queued') it.status = 'stopped';
+          }
+        });
+        flushSave();
+      }
+      const fin = S.batch;
+      if (fin) {
+        const okN = fin.items.filter((x) => x.status === 'done').length;
+        const failN = fin.items.filter((x) => x.status === 'error').length;
+        toast(T('batchDoneToast').replace('{ok}', String(okN)).replace('{fail}', String(failN)));
+      }
+    }
+    function stopBatchQueue() {
+      if (!S.batch || !S.batch.running) return;
+      update((s) => { if (s.batch) s.batch.stopped = true; });
+      genAbort.batchAbort = true;
+      if (genAbort.batchControllers) {
+        for (const ctl of genAbort.batchControllers) { try { ctl.abort(); } catch { /* 忽略 */ } }
+      }
+      if (genAbort.ctl) { try { genAbort.ctl.abort(); } catch { /* 忽略 */ } }
+      toast(T('batchStopped'));
+    }
+    /** 批量下载：按节点顺序逐个触发浏览器下载（间隔 350ms，避免一次性弹窗被拦截）。 */
+    async function batchDownloadNodes(ids) {
+      const list = batchExpand(ids).map((n) => ({
+        n,
+        aid: n.type === 'finalcut' ? ((n.data && (n.data.assetId || n.data.fcAssetId)) || null) : ((n.data && n.data.assetId) || null),
+      })).filter((x) => x.aid);
+      if (!list.length) { toast(T('batchNoAsset')); return; }
+      for (const { n, aid } of list) {
+        try {
+          const url = await assetUrl(aid);
+          if (!url) continue;
+          const kind = n.type === 'image' ? 'image' : n.type === 'audio' ? 'audio' : 'video';
+          const name = await downloadNameForAsset(aid, (batchNodeName(n) || n.type) + '-' + n.id.slice(-4), kind);
+          downloadBlobFromUrl(url, name);
+          await new Promise((res) => setTimeout(res, 350));
+        } catch { /* 单个下载失败不阻塞其余 */ }
+      }
+      toast(T('batchDownloaded').replace('{n}', String(list.length)));
+    }
+    /** 组内图片 → 批量建视频节点（首帧接线）并直接进预检。 */
+    function batchVideosFromImages(ids) {
+      const imgs = batchExpand(ids).filter((n) => n.type === 'image' && n.data && n.data.assetId);
+      if (!imgs.length) { toast(T('batchNoTargets')); return; }
+      const added = [];
+      update((s) => {
+        imgs.forEach((img, i) => {
+          const v = newNode('video', { x: img.x + (img.w || 360) + 80, y: img.y + i * 12 });
+          v.data.prompt = String((img.data && img.data.prompt) || '').trim();
+          v.data.ratio = (img.data && img.data.ratio) || '16:9';
+          v.data.duration = 5;
+          s.graph.nodes[v.id] = v;
+          s.graph.edges.push({ id: uid('e'), fromNode: img.id, fromPort: 'out', toNode: v.id, toPort: 'frame' });
+          added.push(v.id);
+        });
+        s.sel = new Set(added);
+      });
+      pushHistory();
+      flushSave();
+      openBatchConsole(added, 'images');
     }
 
     // ============================================================
@@ -15535,9 +15812,28 @@ function queueThumb(assetId) {
         const n = S.graph.nodes[menu.nodeId];
         if (!n) return null;
         const canRun = n.type === 'image' || n.type === 'video';
+        // 选区/整组批量入口：右键点在已选节点上 → 对整批选区开放；组节点 → 组内成员。
+        const scopeIds = n.type === 'group' ? [n.id] : (S.sel.has(n.id) && S.sel.size >= 2 ? [...S.sel] : [n.id]);
+        const batchTargets = collectBatchTargets(scopeIds);
+        const groupImages = n.type === 'group' ? batchExpand([n.id]).filter((x) => x.type === 'image' && x.data && x.data.assetId) : [];
+        const downloadable = n.type === 'group'
+          ? batchExpand([n.id]).filter((x) => (x.type === 'finalcut' ? !!(x.data && (x.data.assetId || x.data.fcAssetId)) : !!(x.data && x.data.assetId))).length
+          : 0;
         const items = [
           { label: T('copyNode'), icon: 'plus', fn: () => { update((s) => { s.sel = new Set([n.id]); }); duplicateSelection(); } },
           ...(canRun ? [{ label: T('runNode'), icon: 'play', fn: () => { runGenNode(n); } }] : []),
+          ...(batchTargets.length && (n.type === 'group' || (S.sel.has(n.id) && S.sel.size >= 2))
+            ? [{
+                label: T(n.type === 'group' ? 'batchGroupRun' : 'batchMenu').replace('{n}', String(batchTargets.length)),
+                icon: 'play', fn: () => openBatchConsole(scopeIds, n.type === 'group' ? 'group' : 'selection'),
+              }]
+            : []),
+          ...(groupImages.length
+            ? [{ label: T('batchGroupVideo').replace('{n}', String(groupImages.length)), icon: 'video', fn: () => batchVideosFromImages([n.id]) }]
+            : []),
+          ...(downloadable
+            ? [{ label: T('batchGroupDownload').replace('{n}', String(downloadable)), icon: 'download', fn: () => batchDownloadNodes([n.id]) }]
+            : []),
           ...(S.sel.size >= 2 ? [{ label: T('createGroup'), icon: 'folder', fn: () => createGroupFromSelection() }] : []),
           ...(n.type === 'group' ? [{ label: T('ungroup'), icon: 'folder', fn: () => ungroupNode(n.id) }] : []),
           { label: T('delete'), icon: 'trash', danger: true, fn: () => (n.type === 'group' ? ungroupNode(n.id) : removeNodes([n.id])) },
@@ -22398,6 +22694,65 @@ const DIRECTOR_KEY_HELP = [
       }
     }
 
+    /** 批量执行台：数量/秒数/金额预检 → 队列进度 → 停止/重试。 */
+    function BatchRunPanel() {
+      const b = S.batch;
+      if (!b) return null;
+      const price = Number(b.price) || 0;
+      const videoN = b.items.filter((it) => it.secs > 0).length;
+      const cost = price > 0 && b.videoSecs > 0 ? Math.round(price * b.videoSecs * 100) / 100 : null;
+      const missing = b.items.filter((it) => {
+        const n = S.graph.nodes[it.id];
+        return n && (n.type === 'image' || n.type === 'video') && !String((n.data && n.data.prompt) || '').trim();
+      }).length;
+      const remaining = b.items.filter((it) => it.status === 'queued' || it.status === 'error' || it.status === 'stopped').length;
+      const stLabel = {
+        queued: T('batchQueued'), running: T('batchRunning'), done: T('batchDone'),
+        error: T('batchFailed'), stopped: T('batchStopped'), skipped: T('batchSkipped'),
+      };
+      const summary = T('batchSummary')
+        .replace('{n}', String(b.items.length)).replace('{v}', String(videoN)).replace('{s}', String(Math.round(b.videoSecs)));
+      return h('div', { className: 'dshic-batch', 'data-role': 'batch-console' },
+        h('div', { className: 'dshic-batch-head' },
+          Ic('play', 14),
+          h('span', {}, T('batchTitle')),
+          h('div', { className: 'dshic-flex' }),
+          h('button', { type: 'button', className: 'dshic-node-x', title: T('batchClose'), onClick: closeBatchConsole }, '✕')),
+        h('div', { className: 'dshic-batch-summary' },
+          h('div', {}, summary),
+          b.videoSecs > 0
+            ? h('div', {}, cost != null
+                ? T('batchCost').replace('{cost}', String(cost)).replace('{price}', String(price))
+                : T('batchNoPrice'))
+            : null,
+          missing > 0 ? h('div', { style: { color: 'var(--dsw-alias-state-warning-primary)' } }, T('batchMissingPrompt').replace('{n}', String(missing))) : null),
+        h('div', { className: 'dshic-batch-list', 'data-role': 'batch-list' },
+          b.items.map((it) => h('button', {
+            key: it.id, type: 'button', className: 'dshic-batch-item', 'data-st': it.status,
+            title: T('batchJumpHint'), onClick: () => focusBatchItem(it.id),
+          },
+            h('span', { className: 'dshic-batch-dot' }),
+            h('span', { className: 'dshic-batch-name' },
+              h('span', { style: { display: 'block', overflow: 'hidden', textOverflow: 'ellipsis' } }, it.name),
+              it.error ? h('span', { className: 'dshic-batch-err', title: it.error }, it.error) : null),
+            h('span', { className: 'dshic-batch-st' }, stLabel[it.status] || it.status)))),
+        h('div', { className: 'dshic-batch-hint' }, T('batchQuoteHint')),
+        h('div', { className: 'dshic-batch-foot' },
+          h('span', { style: { fontSize: 11, color: 'var(--dsw-alias-label-secondary)' } }, T('batchConcurrency')),
+          h('select', {
+            className: 'dshic-msel', value: String(b.concurrency), disabled: b.running, style: { width: 56 },
+            onChange: (e) => update((s) => { if (s.batch) s.batch.concurrency = clamp(Number(e.target.value) || 1, 1, 3); }),
+            onPointerDown: (e) => e.stopPropagation(),
+          }, [1, 2, 3].map((v) => h('option', { key: v, value: String(v) }, String(v)))),
+          h('div', { className: 'dshic-flex' }),
+          b.running
+            ? h('button', { type: 'button', className: 'dshic-btn is-danger', 'data-action': 'batch-stop', onClick: stopBatchQueue }, T('batchStop'))
+            : h('button', {
+                type: 'button', className: 'dshic-btn dshic-primary', 'data-action': 'batch-start',
+                disabled: !remaining, onClick: startBatchQueue,
+              }, T('batchStart') + (remaining ? '（' + remaining + '）' : ''))));
+    }
+
     function CanvasPage() {
       useApp();
       const rootRef = useRef(null);
@@ -22560,6 +22915,7 @@ const DIRECTOR_KEY_HELP = [
         h(DirectorStage),        // 3D 导演台（全屏浮层；左侧图标列入口，S.directorOpen 控制）
         h(ProjectNameDialog),    // 新建 / 重命名项目（空名校验）
         S.menu ? h(ContextMenu, { menu: S.menu }) : null,
+        S.batch ? h(BatchRunPanel) : null,
         S.lightbox ? h(Lightbox) : null,
         S.supportOpen ? h(SupportDialog) : null,
         S.skillPalette ? h(SkillPalette) : null,

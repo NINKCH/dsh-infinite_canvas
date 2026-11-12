@@ -76,6 +76,11 @@ GitHub Releases carry the same notes in English; maintainer-facing runbooks live
   (asset-backed, with mute / loop / gain controls) can be wired into the
   final cut's `audio` input; `composeFinalCut` decodes BGM/SFX tracks and
   mixes them into the recorded output alongside segment audio and TTS.
+- **Batch run console for selections and groups.** Right-click a multi-node
+  selection or a group to preview item count, video seconds and estimated
+  cost, then run a queue with a concurrency cap, per-item status/errors and
+  stop. Group actions also generate video nodes from member images (wired to
+  the first-frame input) and download all generated assets in one go.
 
 ### Fixed
 - (nothing in this cycle yet)
