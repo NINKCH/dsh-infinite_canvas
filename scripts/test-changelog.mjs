@@ -118,6 +118,7 @@ const COVERAGE = [
   // 当前未发版：3D-BOX 第一批 + 第二排（四/十二方位截图 + 自然语言改景）。
   { sha: '84b4e23', keys: [/3D-BOX|one-line previz|scene preset|camera move|scene presets|director style/i] },
   { sha: 'f0e5f4a', keys: [/4-view|12-view|four\/twelve|view screenshots|action=edit|natural-language|edit a scene/i] },
+  { sha: 'f73d07e', keys: [/AI camera|camera keyframes|planCameraMotion|action=camera|natural-language `prompt`/i] },
 ];
 for (const c of COVERAGE) {
   ok(c.keys.some((re) => re.test(coverageText)), '未发版提交 ' + c.sha + ' 在 CHANGELOG（Unreleased 或最新已发布段）里找不到对应记录（补记不全）');
