@@ -53,6 +53,11 @@ GitHub Releases carry the same notes in English; maintainer-facing runbooks live
   “Camera / transition” picker that writes the preset prompt, and
   `canvas_list_presets` / `canvas_apply_preset` expose the same list to the
   agent and 3D-BOX.
+- **Video preflight: cost, reference caps and bible character refs.** The
+  video composer now shows a preflight line (reference count vs the current
+  vendor's cap, and an estimate from the configured per-second price) and a
+  bible character picker that creates/attaches reference image nodes and
+  `ref` edges automatically.
 
 ### Fixed
 - (nothing in this cycle yet)

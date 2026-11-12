@@ -445,6 +445,8 @@ try {
   const applied = await byName.get('canvas_apply_preset').execute({ projectId, presetId: 'travel_zoom_in' }, {});
   if (!applied || !applied.ok || !applied.spec || applied.spec.motionPreset !== 'travel_zoom_in') throw new Error('canvas_apply_preset failed');
   if (!applied.spec.cameras || !applied.spec.cameras[0].keys || applied.spec.cameras[0].keys.length < 2) throw new Error('canvas_apply_preset did not create camera keys');
+  const priceR = await rpc.productionPrice();
+  if (!priceR || !priceR.ok || typeof priceR.price !== 'number') throw new Error('productionPrice RPC failed');
 } catch (e) {
   errs.push('3D-BOX 自然语言改景失败 → ' + ((e && e.message) || e));
 } finally {

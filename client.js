@@ -518,6 +518,15 @@ function revealCanvasInRight() {
       'motionPresetLabel': '运镜/转场',
       'motionPresetPick': '选择运镜/转场',
       'motionPresetTag': '运镜/转场',
+      'videoPreflight': '生成前预检',
+      'videoPreflightOK': '素材预检通过',
+      'videoCost': '预计 ¥{cost}（{price}/秒）',
+      'videoNoPrice': '未配置视频单价',
+      'videoRefCapWarn': '参考图 {n} 张超过 {vendor} 上限 {cap} 张，本次只会用前 {cap} 张',
+      'videoNoRefVendor': '{vendor} 不支持实体参考图，本次将忽略 {n} 张参考图',
+      'videoCharPick': '从设定集加角色参考',
+      'videoCharNoAssets': '该角色还没有参考图资产',
+      'videoCharAdded': '已加 {n} 张角色参考',
       'boxExamples': '试试：',
       'boxEx1': '城市街头警匪追车',
       'boxEx2': '环绕香水瓶运镜',
@@ -1583,6 +1592,15 @@ function revealCanvasInRight() {
       'motionPresetLabel': 'Camera / transition',
       'motionPresetPick': 'Pick camera / transition',
       'motionPresetTag': 'Camera/transition',
+      'videoPreflight': 'Preflight',
+      'videoPreflightOK': 'Preflight passed',
+      'videoCost': 'Est. ¥{cost} ({price}/s)',
+      'videoNoPrice': 'No video unit price configured',
+      'videoRefCapWarn': '{n} reference images exceed {vendor} cap of {cap}; only the first {cap} will be used',
+      'videoNoRefVendor': '{vendor} does not accept entity references; {n} reference images will be ignored',
+      'videoCharPick': 'Add character refs from bible',
+      'videoCharNoAssets': 'This character has no reference assets yet',
+      'videoCharAdded': 'Added {n} character refs',
       'boxExamples': 'Try:',
       'boxEx1': 'City street chase',
       'boxEx2': 'Orbit a perfume bottle',
@@ -3703,6 +3721,9 @@ body[data-ds-dark-theme] .dshic-storage-details{border-color:var(--dsw-alias-bor
 .dshic-composer-prompt{flex:none;padding:9px 0 0;}
 .dshic-composer-motion{display:flex;align-items:center;gap:6px;padding:7px 10px 0;}
 .dshic-composer-motion-lb{font-size:11px;color:var(--dsw-alias-label-secondary);white-space:nowrap;}
+.dshic-composer-preflight{flex-wrap:wrap;}
+.dshic-preflight-warn{font-size:11px;color:#c2410c;}
+.dshic-preflight-ok{font-size:11px;color:var(--dsw-alias-label-secondary);}
 /* 分镜面板第二个提示词（额外要求）与上一个之间保留间距 */
 .dshic-composer-prompt + .dshic-prompt{margin-top:7px;}
 /* 提示词：13px / 行高 1.62 / 内距 9px 14px（原型 .pw）；面板里是白底无边框的直接书写区 */
@@ -13224,6 +13245,8 @@ function queueThumb(assetId) {
       // 「更多」默认收起：高级项（衔接模式/重绘/接续/声音参考/扩展参数/历史…）不渲染、不占版面
       const [isMoreOpen, setIsMoreOpen] = useState(false);
       const [motionPresets, setMotionPresets] = useState([]);
+      const [bibleChars, setBibleChars] = useState([]);
+      const [videoPrice, setVideoPrice] = useState(0);
       // 参考图拖拽排序的 UI 状态：拖动源下标 / 当前插入位置下标（只影响高亮，不动数据）
       const [dragRefIdx, setDragRefIdx] = useState(-1);
       const [overRefIdx, setOverRefIdx] = useState(-1);
@@ -13287,6 +13310,16 @@ function queueThumb(assetId) {
         loadDirectorEngine().then((E2) => { if (alive) setMotionPresets((E2 && E2.MOTION_PRESETS) || []); }).catch(() => {});
         return () => { alive = false; };
       }, [n && n.type]);
+      // 角色库：视频节点打开时读当前项目设定集角色（含参考图资产）
+      useEffect(() => {
+        if (!n || n.type !== 'video') return;
+        try { setBibleChars((loadBible(S.activeId).characters || []).filter((c) => c && String(c.name || '').trim())); } catch { setBibleChars([]); }
+      }, [n && n.id]);
+      // 视频单价：生成前费用估算（Host 配置里的 production.videoUnitPricePerSecond）
+      useEffect(() => {
+        if (!n || n.type !== 'video') return;
+        hostRpc('productionPrice', {}).then((r) => setVideoPrice(Number(r && r.price) || 0)).catch(() => setVideoPrice(0));
+      }, [n && n.id]);
       // Ctrl/⌘+滚动写在画布上会缩放：面板内保持原生滚动（全局 wheel 处理器已排除 .dshic-composer）
       if (!n) return null;
       const kind = n.type;
@@ -13471,6 +13504,49 @@ function queueThumb(assetId) {
         n.data.genWarn || n.data.stopNote || n.data.error || n.data.chainFrom || n.data.seam
         || n.data.tailPickMeta || (n.data.history || []).length > 1
       );
+      /** 从设定集角色加参考图：已有 assetId 的 image 节点直接连线；缺的自动建节点后连线。 */
+      const addCharacterRefs = (name) => {
+        const c = bibleChars.find((x) => String(x.name).trim() === String(name || '').trim());
+        if (!c) return;
+        const ids = Array.isArray(c.assetIds) ? c.assetIds.map(String).filter(Boolean).slice(0, 8) : [];
+        if (!ids.length) { toast(T('videoCharNoAssets')); return; }
+        const existing = Object.values(S.graph.nodes).filter((nd) => nd && nd.type === 'image' && ids.includes(String(nd.data && nd.data.assetId)));
+        const have = new Set(existing.map((nd) => String(nd.data.assetId)));
+        const created = [];
+        ids.filter((id) => !have.has(id)).forEach((assetId, i) => {
+          const nd = addNodeAt('image', { x: (Number(n.x) || 0) - 420 + i * 140, y: (Number(n.y) || 0) + 300 });
+          if (!nd) return;
+          update((s) => {
+            const g = s.graph.nodes[nd.id];
+            if (g) g.data = Object.assign({}, g.data, { assetId, status: 'done', label: String(c.name) + ' 参考' });
+          });
+          created.push({ id: nd.id, type: 'image' });
+        });
+        const wired = new Set(S.graph.edges.filter((e) => e.toNode === n.id && e.toPort === 'ref').map((e) => e.fromNode));
+        let added = 0;
+        for (const nd of existing.concat(created)) {
+          if (wired.has(nd.id)) continue;
+          if (connect(nd, 'out', n, 'ref')) added++;
+        }
+        toast(T('videoCharAdded').replace('{n}', String(added)));
+      };
+      /** 生成前素材预检：参考图上限按当前视频厂商。 */
+      const videoPreflight = (() => {
+        if (!isVideo) return null;
+        const [pid] = String(modelValue || '').split('|');
+        const p = (settings.videoProviders || []).find((x) => x.id === pid);
+        const vendor = p ? detectVideoVendor({ vendor: p.vendor, url: p.url, protocol: p.protocol }) : 'openai';
+        const caps = VIDEO_REF_CAPS[vendor] || { img: 8 };
+        const nRefs = (refItems || []).length;
+        const warns = [];
+        const label = (VIDEO_VENDORS[vendor] && VIDEO_VENDORS[vendor].label) || vendor;
+        if (nRefs > (caps.img || 0)) {
+          warns.push(caps.img
+            ? T('videoRefCapWarn').replace('{n}', String(nRefs)).replace('{vendor}', label).replace('{cap}', String(caps.img))
+            : T('videoNoRefVendor').replace('{vendor}', label).replace('{n}', String(nRefs)));
+        }
+        return { vendor, caps, nRefs, warns };
+      })();
       return h('div', {
         ref: boxRef, className: 'dshic-composer',
         onPointerDown: (e) => { e.stopPropagation(); if (atOpen) setAtOpen(false); },
@@ -13554,6 +13630,23 @@ function queueThumb(assetId) {
                     setPrompt((cleaned ? cleaned + '\n' : '') + line);
                   },
                 }))
+            : null,
+          isVideo && videoPreflight
+            ? h('div', { className: 'dshic-composer-motion dshic-composer-preflight', 'data-role': 'video-preflight' },
+                h('span', { className: 'dshic-composer-motion-lb' }, T('videoPreflight')),
+                h('span', { className: videoPreflight.warns.length ? 'dshic-preflight-warn' : 'dshic-preflight-ok' },
+                  videoPreflight.warns.length ? videoPreflight.warns.join('；') : T('videoPreflightOK')),
+                h('span', { className: 'dshic-preflight-ok' },
+                  videoPrice > 0
+                    ? T('videoCost').replace('{cost}', String(Math.round(videoPrice * (Number(n.data.duration) || 5) * 100) / 100)).replace('{price}', String(videoPrice))
+                    : T('videoNoPrice')),
+                bibleChars.length
+                  ? h(PopupSelect, {
+                      value: '', width: 170, title: T('videoCharPick'), className: 'is-charref', searchable: true,
+                      options: [{ value: '', label: T('videoCharPick') }].concat(bibleChars.map((c) => ({ value: c.name, label: String(c.name) + (Array.isArray(c.assetIds) && c.assetIds.length ? ' · ' + c.assetIds.length : '') }))),
+                      onChange: addCharacterRefs,
+                    })
+                  : null)
             : null,
           h('div', { className: 'dshic-composer-prompt' },
             h(PromptArea, {

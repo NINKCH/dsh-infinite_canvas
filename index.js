@@ -4944,6 +4944,11 @@ export function apply(ctx) {
         return { ok: true, rev: 1, stageMachine: true, qualityGate: true, multiAgent, autoMode: multiAgent, version: VERSION, stages: PRODUCTION_STAGES };
       },
       /** 制作状态汇报：模型宣称"完成/可交付"前必须以 ready:true 为据；next 给当前阶段的下一步。 */
+      async productionPrice() {
+        const cfg = readIcConfig();
+        const price = Number(cfg.production && cfg.production.videoUnitPricePerSecond);
+        return { ok: true, price: Number.isFinite(price) && price > 0 ? price : 0, currency: 'CNY' };
+      },
       async productionStatus(args) {
         const pid = String((args && args.projectId) || '');
         if (!pid) return { ok: false, error: '缺少 projectId' };
