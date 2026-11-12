@@ -127,6 +127,20 @@ async function main() {
   const list = api.loadWorkflows();
   ok(list.some((w) => w.id === saved.id && w.name === '测试工作流'), '工作流未写入全局存储');
 
+  // 组来源工作流：插入时自动再包成组
+  const wf2 = {
+    id: 'wf_grouped', name: '组工作流',
+    nodes: [
+      { key: 'n0', type: 'text', x: 0, y: 0, w: 360, h: 360, data: { text: '甲' } },
+      { key: 'n1', type: 'text', x: 420, y: 0, w: 360, h: 360, data: { text: '乙' } },
+    ],
+    edges: [], assets: [], meta: { version: 1, source: 'canvas', grouped: true },
+  };
+  await api.insertWorkflow(wf2);
+  const g2 = sync.graph();
+  const grp = Object.values(g2.nodes).find((n) => n.type === 'group' && (n.data.members || []).length === 2);
+  ok(!!grp, '来自组的工作流插入后没有自动成组');
+
   // 删除
   api.removeWorkflow(saved.id);
   ok(!api.loadWorkflows().some((w) => w.id === saved.id), '删除工作流失败');

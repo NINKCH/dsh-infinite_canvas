@@ -33,6 +33,8 @@ has("tabBtn('subjects', T('subjTab'))", '统一弹窗缺少角色库页签');
 has("'data-action': 'open-subjects'", '图标列缺少角色库入口');
 has("'data-action': 'composer-subjects'", '生成器缺少角色库入口');
 has('function SubjectsTab({ targetNodeId })', '缺少 SubjectsTab');
+has('const saveToLib = async (item) =>', '设定集缺少「存入角色库」动作');
+has("bibleSaveToLib", '设定集条目缺少入库按钮文案');
 has("data-subtab", '缺少我的/本系列/官方模板分栏');
 has('function SubjectThumb', '缺少角色缩略图');
 has('subjFromBibleHint', '缺少本系列导入说明');

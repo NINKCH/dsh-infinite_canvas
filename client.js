@@ -538,6 +538,9 @@ function revealCanvasInRight() {
       'boxHomeList': '我的 3D-BOX',
       'boxHomeEmpty': '还没有 3D-BOX；说一句话开始',
       'boxHomeOpen': '打开',
+      'boxHomeContinue': '继续当前 3D-BOX',
+      'boxEditPh': '一句话改景 / 运镜：把镜头推近到桌面…',
+      'hostStaleHint': '宿主进程还是旧版：请完全退出 DeepSeek Harness（含托盘/后台）后重新启动。刷新页面只会更新前端，RPC 方法要重启宿主才会注册。',
       'boxHomeLoading': '加载中…',
       'boxHomeCurrent': '当前项目',
       'boxHomeFailed': '加载 3D-BOX 库失败：',
@@ -1534,6 +1537,9 @@ function revealCanvasInRight() {
       'bibleDraftEmpty': '没能起草出设定集：请先在剧本/文本节点写点创作意图，或检查文本模型配置',
       'bibleOrderHint': '设定集先行：世界观/风格/角色/场景/道具先定好 → 生成剧本 → 为角色/场景/道具生成参考图 → 再拆解分镜',
       'bibleLinkAssets': '链接资产',
+      'bibleSaveToLib': '存入角色库',
+      'bibleInLib': '已入库',
+      'bibleLibSaved': '已存入角色库：{name}',
       'bibleLinkTitle': '链接资产到设定条目',
       'bibleLinkHint': '勾选要绑定的图片/音频/视频（可多选）；@引用该条目时注入设定文字、音频作声音参考；图片参考图只认连线，不会自动上送',
       'bibleLinkApply': '完成',
@@ -1787,6 +1793,9 @@ function revealCanvasInRight() {
       'boxHomeList': 'My 3D-BOX',
       'boxHomeEmpty': 'No 3D-BOX yet; describe a scene to start',
       'boxHomeOpen': 'Open',
+      'boxHomeContinue': 'Continue current 3D-BOX',
+      'boxEditPh': 'One-line change / camera: push in toward the desk…',
+      'hostStaleHint': 'The host process is still an older build: fully quit DeepSeek Harness (including tray/background) and start it again. Refreshing only updates the frontend; RPC methods register at host startup.',
       'boxHomeLoading': 'Loading…',
       'boxHomeCurrent': 'Current project',
       'boxHomeFailed': 'Failed to load 3D-BOX library:',
@@ -2784,6 +2793,9 @@ function revealCanvasInRight() {
       'bibleDraftEmpty': 'Nothing drafted: write some intent in a script/text node first, or check the text model',
       'bibleOrderHint': 'Bible first: set worldview/style/characters/scenes/props → generate the script → generate reference images → then break down the storyboard',
       'bibleLinkAssets': 'Link assets',
+      'bibleSaveToLib': 'Save to characters',
+      'bibleInLib': 'In library',
+      'bibleLibSaved': 'Saved to character library: {name}',
       'bibleLinkTitle': 'Link assets to this bible entry',
       'bibleLinkHint': 'Pick images/audio/video to bind (multi-select); @mentions inject bible text and audio as a voice reference; image references come from wires only and are never auto-sent',
       'bibleLinkApply': 'Done',
@@ -3111,6 +3123,8 @@ body[data-ds-dark-theme] .dshic-studio-modal{border-color:var(--dsw-alias-border
   color:var(--dsw-alias-label-primary);font-size:13px;cursor:pointer;white-space:nowrap;}
 .dshic-boxhome-btn.is-primary{background:var(--dsw-alias-label-primary);color:var(--dsw-alias-bg-base);border-color:transparent;font-weight:600;}
 .dshic-boxhome-examples{display:flex;gap:8px;flex-wrap:wrap;}
+.dshic-boxhome-presets{display:flex;gap:8px;flex-wrap:wrap;}
+.dshic-boxhome-select{height:30px;padding:0 8px;border-radius:8px;border:1px solid var(--dshic-line2);background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-secondary);font:inherit;font-size:12px;outline:none;cursor:pointer;max-width:180px;}
 .dshic-boxhome-chip{font-size:12px;padding:5px 9px;border-radius:999px;border:1px solid var(--dshic-line2);
   background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-secondary);cursor:pointer;}
 .dshic-boxhome-list{flex:1;min-height:0;overflow:auto;padding:14px 18px 18px;display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:10px;align-content:start;}
@@ -4900,7 +4914,8 @@ body[data-ds-dark-theme] .dshic-pick-item.is-on{background:color-mix(in srgb,var
           assets.push({ nodeKey: n.key, field, assetId: String(aid), name: (rec && rec.name) || '', kind: (rec && rec.kind) || '' });
         }
       }
-      const wf = upsertWorkflow({ id: '', name, nodes, edges, assets, meta: { version: 1, source: 'canvas' } });
+      const grouped = ids.length === 1 && S.graph.nodes[ids[0]] && S.graph.nodes[ids[0]].type === 'group';
+      const wf = upsertWorkflow({ id: '', name, nodes, edges, assets, meta: { version: 1, source: 'canvas', grouped } });
       toast(T('wfSaved').replace('{name}', wf.name));
       return wf;
     }
@@ -4952,10 +4967,23 @@ body[data-ds-dark-theme] .dshic-pick-item.is-on{background:color-mix(in srgb,var
       const madeEdges = w.edges
         .filter((e) => idByKey.has(e.from) && idByKey.has(e.to))
         .map((e) => ({ id: uid('e'), fromNode: idByKey.get(e.from), fromPort: e.fromPort || 'out', toNode: idByKey.get(e.to), toPort: e.toPort || '' }));
+      let group = null;
+      if (w.meta && w.meta.grouped && made.length) {
+        const pad = 24;
+        const x0 = Math.min(...made.map((n) => n.x));
+        const y0 = Math.min(...made.map((n) => n.y));
+        const x1 = Math.max(...made.map((n) => n.x + (n.w || 360)));
+        const y1 = Math.max(...made.map((n) => n.y + (n.h || 360)));
+        group = newNode('group', { x: x0 - pad, y: y0 - pad });
+        group.w = Math.round(x1 - x0 + pad * 2);
+        group.h = Math.round(y1 - y0 + pad * 2);
+        group.data.members = made.map((n) => n.id);
+      }
       update((s) => {
         for (const nd of made) s.graph.nodes[nd.id] = nd;
+        if (group) s.graph.nodes[group.id] = group;
         s.graph.edges.push(...madeEdges);
-        s.sel = new Set(made.map((n) => n.id));
+        s.sel = new Set(group ? [group.id] : made.map((n) => n.id));
         s.selEdge = null;
       });
       pushHistory();
@@ -10370,6 +10398,12 @@ function queueThumb(assetId) {
       if (!body) throw new Error(T('restartHint'));
       if (!res.ok || body.error) throw new Error(body.error || (T('rpcFail') + ' HTTP ' + res.status));
       return body;
+    }
+    /** 宿主 RPC 错误人话化：旧 Host 未注册新方法时，提示“完全重启 Harness”而不是甩未知操作。 */
+    function hostRpcErrText(e, prefix) {
+      const msg = String((e && e.message) || e);
+      const stale = /未知操作|unknown operation|unknown method|method not found/i.test(msg);
+      return (prefix || '') + (stale ? T('hostStaleHint') : msg);
     }
     /** 从模型输出中提取第一个平衡的 JSON 对象（兼容 ```json 围栏与 think 块）。 */
     function parseJsonBalanced(rawText) {
@@ -18078,6 +18112,11 @@ function queueThumb(assetId) {
 
     /** 引擎未就绪时的同步兜底：面板显示加载态，不崩。 */
     function directorEngine() { return ENG; }
+    /** 3D-BOX 预设下拉（库首页与舞台共用；引擎未就绪时返回空数组，UI 仍可渲染）。 */
+    function boxPresetOptions(key) {
+      const E2 = directorEngine();
+      return (E2 && Array.isArray(E2[key])) ? E2[key] : [];
+    }
 
     // 景别 / 运镜下拉（UI 文案走 T()，值与引擎约定一致）
     // 景别取自引擎 SHOT_FILLS（每个景别都有明确的"占画面高度比例"）
@@ -18233,11 +18272,8 @@ const DIRECTOR_KEY_HELP = [
     const [actionName, setActionName] = useState('');
     const [specText, setSpecText] = useState('');
     const [specOpen, setSpecOpen] = useState(false);
-    // ── 3D-BOX：一句话搭景（场景/风格/运镜）──
+    // ── 3D-BOX：舞台内只做改景/运镜；搭景入口统一在 3D-BOX 库 ──
     const [boxBrief, setBoxBrief] = useState('');
-    const [boxScene, setBoxScene] = useState('auto');
-    const [boxStyle, setBoxStyle] = useState('auto');
-    const [boxMove, setBoxMove] = useState('auto');
     const [boxBusy, setBoxBusy] = useState(false);
     const [charPick, setCharPick] = useState('');
       const [boxSel, setBoxSel] = useState(null);   // 框选矩形 {x0,y0,x1,y1}
@@ -18391,40 +18427,6 @@ const DIRECTOR_KEY_HELP = [
         bumpView();
       };
       const pickSave = (next) => { markDirty(); const E2 = directorEngine(); if (E2) E2.saveStageDoc(S.activeId, next); };
-      /** 3D-BOX 预设清单（引擎未就绪时退回空数组，UI 仍可渲染）。 */
-      const boxPresetList = (key) => {
-        const E2 = directorEngine();
-        return (E2 && Array.isArray(E2[key])) ? E2[key] : [];
-      };
-      /** 一句话搭景：本地引擎先出规格 → 构场景 → 存本地 + Host，Agent 之后可继续改。 */
-      const buildBox = () => {
-        const E2 = directorEngine();
-        if (!E2 || typeof E2.specFromBrief !== 'function') { setMsg({ kind: 'err', text: T('boxFailed') + 'engine' }); return; }
-        const brief = String(boxBrief || '').trim();
-        if (!brief) { setMsg({ kind: 'err', text: T('boxFailed') + T('boxBriefPh') }); return; }
-        setBoxBusy(true);
-        try {
-          const opts = {};
-          if (boxScene !== 'auto') opts.scene = boxScene;
-          if (boxStyle !== 'auto') opts.style = boxStyle;
-          if (boxMove !== 'auto') opts.cameraMove = boxMove;
-          const spec = E2.specFromBrief(brief, opts);
-          const built = E2.buildStageFromSpec(spec);
-          if (!built) throw new Error('buildStageFromSpec returned null');
-          built.updatedAt = Date.now();
-          pushUndo();
-          E2.saveStageDoc(S.activeId, built);
-          setScene(built);
-          markDirty();
-          bumpView();
-          try { hostRpc('directorStageSave', { projectId: S.activeId, spec }).catch(() => {}); } catch { /* Host 保存失败不阻塞本地 */ }
-          setMsg({ kind: 'ok', text: T('boxBuilt') });
-        } catch (e) {
-          setMsg({ kind: 'err', text: T('boxFailed') + String((e && e.message) || e) });
-        } finally {
-          setBoxBusy(false);
-        }
-      };
       /** 自然语言改景：Host 用用户已配置的模型改 spec → 本地构场景 → 可撤销。 */
       const editBox = () => {
         const E2 = directorEngine();
@@ -18445,7 +18447,7 @@ const DIRECTOR_KEY_HELP = [
           bumpView();
           setMsg({ kind: 'ok', text: T('boxEdited') });
         }).catch((e) => {
-          setMsg({ kind: 'err', text: T('boxFailed') + String((e && e.message) || e) });
+          setMsg({ kind: 'err', text: T('boxFailed') + hostRpcErrText(e, '') });
         }).finally(() => setBoxBusy(false));
       };
       /** AI 运镜：把当前输入框当运镜提示词，Host 生成可编辑机位关键帧。 */
@@ -18468,7 +18470,7 @@ const DIRECTOR_KEY_HELP = [
           bumpView();
           setMsg({ kind: 'ok', text: T('boxAiCamDone') + (r.keys ? ' · ' + r.keys + ' keyframes' : '') });
         }).catch((e) => {
-          setMsg({ kind: 'err', text: T('boxFailed') + String((e && e.message) || e) });
+          setMsg({ kind: 'err', text: T('boxFailed') + hostRpcErrText(e, '') });
         }).finally(() => setBoxBusy(false));
       };
 
@@ -19869,6 +19871,11 @@ const DIRECTOR_KEY_HELP = [
         h('div', { className: cls('dshic-dir-win', S.directorFull && 'is-full') },
           h('div', { className: 'dshic-dir-top' },
             h('div', { className: 'dshic-dir-top-l' },
+              h('button', {
+                type: 'button', className: 'dshic-dir-mini', 'data-action': 'dir-home',
+                title: T('boxHomeTitle'),
+                onClick: () => update((st) => { st.directorOpen = false; st.boxHomeOpen = true; st.directorSel = null; }),
+              }, '← ' + T('boxHomeTitle')),
               h('span', { className: 'dshic-dir-title', title: T('boxSubtitle') }, T('boxTitle')),
               h('span', { className: 'dshic-dir-saved' }, dirtyState ? T('dirUnsaved') : T('dirSaved'))),
             h('div', { className: 'dshic-dir-top-c' },
@@ -19941,33 +19948,17 @@ const DIRECTOR_KEY_HELP = [
               h('button', { type: 'button', className: 'dshic-dir-icobtn', title: T('redo'), disabled: redoDepth === 0, onClick: redo, 'aria-label': T('redo') }, miniIcon(ICON_REDO)),
               h('button', { type: 'button', className: 'dshic-dir-icobtn', title: T('dirFullscreen'), onClick: () => update((st) => { st.directorFull = !st.directorFull; }) }, miniIcon(ICON_FULL)),
               h('button', { type: 'button', className: 'dshic-dir-icobtn', title: T('cancel'), onClick: () => update((st) => { st.directorOpen = false; st.directorSel = null; }) }, miniIcon(ICON_EXIT)))),
-          // 3D-BOX：一句话搭景。默认只露这一条，3D 编辑器细节留在三栏里。
+          // 3D-BOX 舞台：只做改景/运镜/截图；一句话搭景统一在「3D-BOX 库」。
           h('div', { className: 'dshic-dir-boxbar', 'data-role': '3dbox-bar' },
             h('span', { className: 'dshic-dir-boxtitle', title: T('boxSubtitle') }, T('boxTitle')),
             h('input', {
-              className: 'dshic-dir-input dshic-dir-boxbrief', 'data-action': 'box-brief',
-              value: boxBrief, placeholder: T('boxBriefPh'),
+              className: 'dshic-dir-input dshic-dir-boxbrief', 'data-action': 'box-edit-input',
+              value: boxBrief, placeholder: T('boxEditPh'),
               onChange: (e2) => setBoxBrief(e2.target.value),
-              onKeyDown: (e2) => { if (e2.key === 'Enter' && !e2.nativeEvent?.isComposing) buildBox(); },
+              onKeyDown: (e2) => { if (e2.key === 'Enter' && !e2.nativeEvent?.isComposing) editBox(); },
             }),
-            h('select', {
-              className: 'dshic-dir-input', 'data-action': 'box-scene',
-              value: boxScene, onChange: (e2) => setBoxScene(e2.target.value), title: T('boxSceneAuto'),
-            }, [h('option', { key: 'auto', value: 'auto' }, T('boxSceneAuto')), ...boxPresetList('SCENE_PRESETS').map((p) => h('option', { key: p.id, value: p.id }, effLang() === 'en' ? p.en : p.zh))]),
-            h('select', {
-              className: 'dshic-dir-input', 'data-action': 'box-style',
-              value: boxStyle, onChange: (e2) => setBoxStyle(e2.target.value), title: T('boxStyleAuto'),
-            }, [h('option', { key: 'auto', value: 'auto' }, T('boxStyleAuto')), ...boxPresetList('DIRECTOR_STYLES').map((p) => h('option', { key: p.id, value: p.id }, effLang() === 'en' ? p.en : p.zh))]),
-            h('select', {
-              className: 'dshic-dir-input', 'data-action': 'box-move',
-              value: boxMove, onChange: (e2) => setBoxMove(e2.target.value), title: T('boxMoveAuto'),
-            }, [h('option', { key: 'auto', value: 'auto' }, T('boxMoveAuto')), ...boxPresetList('CAMERA_MOVES').map((p) => h('option', { key: p.id, value: p.id }, effLang() === 'en' ? p.en : p.zh))]),
             h('button', {
-              type: 'button', className: 'dshic-dir-cta', 'data-action': 'box-build',
-              disabled: boxBusy, onClick: buildBox,
-            }, boxBusy ? T('boxBuilding') : T('boxBuild')),
-            h('button', {
-              type: 'button', className: 'dshic-dir-mini', 'data-action': 'box-edit',
+              type: 'button', className: 'dshic-dir-cta', 'data-action': 'box-edit',
               disabled: boxBusy, title: T('boxEdit'), onClick: editBox,
             }, boxBusy ? T('boxEditing') : T('boxEdit')),
             h('button', {
@@ -20905,19 +20896,13 @@ const DIRECTOR_KEY_HELP = [
           onClick: () => openStudioModal('memory'),
         }, Ic('memory', 16)),
         h('div', { key: 'sep-actions', className: 'dshic-rail-sep' }),
-        // 3D 导演台：摆位 + 取景 + 导出镜头首帧（参考项目 BeefTV 的导演台能力，只借鉴设计、独立实现）
-        h('button', {
-          key: 'director', type: 'button',
-          className: cls('dshic-rail-btn', S.directorOpen && 'is-active'),
-          'data-action': 'open-director', title: T('boxTitle'),
-          onClick: () => update((s) => { s.directorOpen = true; }),
-        }, Ic('camera', 16)),
+        // 3D-BOX：单入口 → 库首页（新建/我的 3D-BOX）；舞台由库打开。
         h('button', {
           key: 'boxhome', type: 'button',
-          className: cls('dshic-rail-btn', S.boxHomeOpen && 'is-active'),
-          'data-action': 'open-3dbox-home', title: T('boxHomeTitle'),
-          onClick: () => update((s) => { s.boxHomeOpen = true; }),
-        }, Ic('folder', 16)),
+          className: cls('dshic-rail-btn', (S.boxHomeOpen || S.directorOpen) && 'is-active'),
+          'data-action': 'open-3dbox-home', title: T('boxTitle'),
+          onClick: () => update((s) => { s.boxHomeOpen = true; s.directorOpen = false; }),
+        }, Ic('camera', 16)),
         S.running
           ? h('button', {
               key: 'stop', type: 'button', className: 'dshic-rail-btn is-danger',
@@ -20939,32 +20924,44 @@ const DIRECTOR_KEY_HELP = [
       const [items, setItems] = useState([]);
       const [loading, setLoading] = useState(false);
       const [brief, setBrief] = useState('');
+      const [scene, setScene] = useState('auto');
+      const [style, setStyle] = useState('auto');
+      const [move, setMove] = useState('auto');
+      const [engineTick, setEngineTick] = useState(0);
       const [busy, setBusy] = useState(false);
       const [err, setErr] = useState('');
       useEffect(() => {
         if (!open) return;
+        loadDirectorEngine().then(() => setEngineTick((x) => x + 1)).catch(() => {});
         setLoading(true); setErr('');
         hostRpc('directorStageList', {}).then((r) => {
           if (!r || !r.ok) throw new Error((r && r.error) || 'list failed');
           setItems(Array.isArray(r.items) ? r.items : []);
-        }).catch((e) => setErr(T('boxHomeFailed') + String((e && e.message) || e))).finally(() => setLoading(false));
+        }).catch((e) => setErr(T('boxHomeFailed') + hostRpcErrText(e, ''))).finally(() => setLoading(false));
       }, [open]);
+      void engineTick;
       if (!open) return null;
       const openStage = (projectId) => {
         if (projectId && projectId !== S.activeId) switchProject(projectId);
         update((s) => { s.boxHomeOpen = false; s.directorOpen = true; });
       };
+      const current = items.find((it) => it && it.projectId === S.activeId) || null;
       const create = (blank) => {
         const text = blank ? '空白场景' : String(brief || '').trim();
         if (!text) { setErr(T('boxBriefPh')); return; }
         setBusy(true); setErr('');
         const args = { projectId: S.activeId, brief: text };
         if (blank) args.scene = 'blank';
+        else {
+          if (scene !== 'auto') args.scene = scene;
+          if (style !== 'auto') args.style = style;
+          if (move !== 'auto') args.cameraMove = move;
+        }
         hostRpc('directorStageBrief', args).then((r) => {
           if (!r || !r.ok) throw new Error((r && r.error) || 'brief failed');
           setBrief('');
           openStage(S.activeId);
-        }).catch((e) => setErr(T('boxFailed') + String((e && e.message) || e))).finally(() => setBusy(false));
+        }).catch((e) => setErr(T('boxFailed') + hostRpcErrText(e, ''))).finally(() => setBusy(false));
       };
       return h('div', {
         className: 'dshic-boxhome-overlay', 'data-role': '3dbox-home',
@@ -20984,9 +20981,17 @@ const DIRECTOR_KEY_HELP = [
                 onKeyDown: (e) => { if (e.key === 'Enter') create(false); },
               }),
               h('button', { type: 'button', className: 'dshic-boxhome-btn is-primary', 'data-action': 'boxhome-create', disabled: busy, onClick: () => create(false) }, busy ? T('boxBuilding') : T('boxHomeNew')),
+              current ? h('button', { type: 'button', className: 'dshic-boxhome-btn', 'data-action': 'boxhome-continue', disabled: busy, onClick: () => openStage(S.activeId) }, T('boxHomeContinue')) : null,
               h('button', { type: 'button', className: 'dshic-boxhome-btn', 'data-action': 'boxhome-blank', disabled: busy, onClick: () => create(true) }, T('boxHomeBlank'))),
             h('div', { className: 'dshic-boxhome-examples' },
               [T('boxEx1'), T('boxEx2'), T('boxEx3')].map((x) => h('button', { key: x, type: 'button', className: 'dshic-boxhome-chip', onClick: () => setBrief(x) }, x))),
+            h('div', { className: 'dshic-boxhome-presets' },
+              h('select', { className: 'dshic-boxhome-select', value: scene, title: T('boxSceneAuto'), onChange: (e) => setScene(e.target.value), onPointerDown: (e) => e.stopPropagation() },
+                [h('option', { key: 'auto', value: 'auto' }, T('boxSceneAuto')), ...boxPresetOptions('SCENE_PRESETS').map((p) => h('option', { key: p.id, value: p.id }, effLang() === 'en' ? p.en : p.zh))]),
+              h('select', { className: 'dshic-boxhome-select', value: style, title: T('boxStyleAuto'), onChange: (e) => setStyle(e.target.value), onPointerDown: (e) => e.stopPropagation() },
+                [h('option', { key: 'auto', value: 'auto' }, T('boxStyleAuto')), ...boxPresetOptions('DIRECTOR_STYLES').map((p) => h('option', { key: p.id, value: p.id }, effLang() === 'en' ? p.en : p.zh))]),
+              h('select', { className: 'dshic-boxhome-select', value: move, title: T('boxMoveAuto'), onChange: (e) => setMove(e.target.value), onPointerDown: (e) => e.stopPropagation() },
+                [h('option', { key: 'auto', value: 'auto' }, T('boxMoveAuto')), ...boxPresetOptions('CAMERA_MOVES').map((p) => h('option', { key: p.id, value: p.id }, effLang() === 'en' ? p.en : p.zh))])),
             err ? h('div', { className: 'dshic-boxhome-card-m', 'data-role': 'boxhome-error' }, err) : null),
           h('div', { className: 'dshic-boxhome-list' },
             loading ? h('div', { className: 'dshic-boxhome-loading' }, T('boxHomeLoading'))
@@ -23712,7 +23717,29 @@ const DIRECTOR_KEY_HELP = [
     function BibleTab() {
       const [bible, setBible] = useState(() => loadBible(S.activeId));
       const [busy, setBusy] = useState(false);
+      const [libTick, setLibTick] = useState(0);
       useEffect(() => { setBible(loadBible(S.activeId)); }, [S.activeId, S.assetsTick]);
+      const inLib = (name) => {
+        const q = String(name || '').trim();
+        return !!q && loadSubjects().some((s) => s.name === q);
+      };
+      /** 设定集角色 → 跨项目角色库：参考图复制到通用项目，库与设定集各自保留。 */
+      const saveToLib = async (item) => {
+        const name = String((item && item.name) || '').trim();
+        if (!name) return;
+        try {
+          const existing = loadSubjects().find((s) => s.name === name);
+          const copied = existing ? existing.assetIds : await copySubjectAssetsToGeneral(item.assetIds || []);
+          upsertSubject({
+            ...(existing || {}), id: existing ? existing.id : '', name,
+            desc: (existing && existing.desc) || item.desc || '',
+            assetIds: [...new Set([...(existing ? existing.assetIds : []), ...copied])].slice(0, 16),
+          });
+          setLibTick((x) => x + 1);
+          toast(T('bibleLibSaved').replace('{name}', name));
+        } catch (e) { toast(String((e && e.message) || e)); }
+      };
+      void libTick;
       // persist：本地保存 + 推送防抖 + bibleTick 自增（分镜详情监听它自动重算一致性告警——
       // 宿主侧重算只写 Host 文档，客户端本地节点的旧告警必须靠这条信号自己刷新）
       const persist = (next) => { setBible(next); saveBible(S.activeId, next); update((s) => { s.bibleTick++; }); };
@@ -23754,6 +23781,14 @@ const DIRECTOR_KEY_HELP = [
               onPointerDown: (e) => e.stopPropagation(),
               onClick: () => setLinkFor({ key, index: i, entry: item }),
             }, Ic('image', 11), (item.assetIds || []).length ? ' ' + item.assetIds.length : ''),
+            key === 'characters'
+              ? h('button', {
+                  type: 'button', className: cls('dshic-mini', inLib(item.name) && 'is-active'),
+                  title: inLib(item.name) ? T('bibleInLib') : T('bibleSaveToLib'),
+                  onPointerDown: (e) => e.stopPropagation(),
+                  onClick: () => saveToLib(item),
+                }, Ic('users', 11), inLib(item.name) ? T('bibleInLib') : T('bibleSaveToLib'))
+              : null,
             h('input', {
               className: 'dshic-input', style: { flex: 1, minWidth: 0 }, value: item.desc || '',
               placeholder: T('bibleDescPh'),

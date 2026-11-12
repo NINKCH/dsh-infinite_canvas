@@ -158,7 +158,10 @@ for (const p of (E.SCENE_PRESETS || [])) {
   ok(cli.includes('BoxHome') && cli.includes("'open-3dbox-home'"), '客户端缺少 3D-BOX 库首页入口');
   ok(cli.includes("'boxhome-create'") && cli.includes("'boxhome-open'"), '客户端缺少 3D-BOX 库新建/打开动作');
   ok(cli.includes('dshic-dir-boxbar'), '客户端缺少 3D-BOX 提示条');
-  ok(cli.includes("'box-build'"), '客户端缺少「生成预演」按钮');
+  ok(!cli.includes("'box-build'"), '舞台仍保留重复的「生成预演」按钮（应只在库首页）');
+  ok(cli.includes("'boxhome-create'") && cli.includes("'boxhome-continue'"), '库首页缺少生成/继续入口');
+  ok(cli.includes("'box-edit-input'") && cli.includes("'dir-home'"), '舞台缺少改景输入或返回库入口');
+  ok(cli.includes('hostRpcErrText') && cli.includes("'hostStaleHint'"), '缺少旧 Host RPC 的人话兜底');
   ok(cli.includes("'box-edit'") && cli.includes('directorStageEdit'), '客户端缺少「改景」入口或未接 RPC');
   ok(cli.includes("'box-ai-cam'") && cli.includes('directorStageCamera'), '客户端缺少「AI运镜」入口或未接 RPC');
   ok(cli.includes("'box-shot-4'") && cli.includes("'box-shot-12'"), '客户端缺少四/十二方位截图入口');
@@ -169,7 +172,7 @@ for (const p of (E.SCENE_PRESETS || [])) {
   ok(cli.includes('video-preflight') && cli.includes('addCharacterRefs'), '客户端缺少视频生成前预检/角色参考入口');
   ok(cli.includes("'video-canvas-ref'") && cli.includes("'video-autolink'"), '客户端缺少画布参考/AutoLink 入口');
   ok(cli.includes("'video-first-frame'") && cli.includes("'video-long-hint'"), '客户端缺少首帧/长视频快捷入口');
-  ok(cli.includes('specFromBrief'), '客户端未接线一句话搭景');
+  ok(host.includes('specFromBrief'), 'Host 未接线一句话搭景');
   ok(cli.includes('CAMERA_MOVES') || cli.includes('DIRECTOR_MOVES'), '客户端未接线运镜清单');
 }
 

@@ -128,7 +128,14 @@ GitHub Releases carry the same notes in English; maintainer-facing runbooks live
 - (nothing in this cycle yet)
 
 ### Changed
-- (nothing in this cycle yet)
+- **3D-BOX entry and workflow/character fusion.** The rail now has a single
+  3D-BOX entry that opens the library; the stage keeps only edit/camera/shot
+  controls (no duplicate one-line build bar) and has a back-to-library button.
+  Scene/style/camera presets moved to the library creation row. Old hosts that
+  have not registered the new RPCs now show a “fully restart Harness” hint
+  instead of a raw unknown-operation error. Bible characters gain a “Save to
+  character library” action, and workflows saved from a group re-group their
+  nodes when inserted.
 
 ### Internal
 - (nothing in this cycle yet)
