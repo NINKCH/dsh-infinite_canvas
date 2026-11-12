@@ -16,6 +16,7 @@ ok(Array.isArray(E.CAMERA_MOVES) && E.CAMERA_MOVES.length >= 16, '缺少 16+ 运
 ok(typeof E.specFromScenePreset === 'function', '缺少 specFromScenePreset');
 ok(typeof E.applyCameraMove === 'function', '缺少 applyCameraMove');
 ok(typeof E.viewCamerasAround === 'function', '缺少 viewCamerasAround（四/十二方位截图）');
+ok(typeof E.cameraPathKeys === 'function', '缺少 cameraPathKeys（手绘运镜）');
 
 // ── ② 每个场景预设都能构建出合法场景 ──
 for (const p of (E.SCENE_PRESETS || [])) {
@@ -93,6 +94,22 @@ for (const p of (E.SCENE_PRESETS || [])) {
   ok(JSON.stringify(sc) === before, 'viewCamerasAround 不应修改入参场景');
 }
 
+// ── ⑤c 手绘运镜：地面路径点 → 相机关键帧 ──
+{
+  const path = [{ x: 0, z: 0 }, { x: 2, z: 0 }, { x: 2, z: 2 }];
+  const r = E.cameraPathKeys(path, { duration: 4, posY: 1.6, targetY: 1.0, fov: 42 });
+  ok(r && Array.isArray(r.keys) && r.keys.length === 3, '手绘运镜应生成 3 个关键帧，实际 ' + (r && r.keys && r.keys.length));
+  if (r && r.keys && r.keys.length === 3) {
+    ok(Math.abs(r.keys[0].t) < 1e-6 && Math.abs(r.keys[2].t - 4) < 1e-6, '手绘运镜关键帧时间应覆盖 0..duration');
+    ok(Math.abs(r.keys[0].pos[1] - 1.6) < 1e-6, '手绘运镜应使用给定机位高度');
+    ok(Math.abs(r.keys[1].pos[0] - 2) < 1e-6 && Math.abs(r.keys[1].pos[2]) < 1e-6, '手绘运镜机位应沿路径');
+  }
+  const one = E.cameraPathKeys([{ x: 1, z: 1 }], { duration: 3 });
+  ok(one && one.keys.length >= 2, '单点手绘应退化为两点（至少 2 帧）');
+  const bad = E.cameraPathKeys([], { duration: 3 });
+  ok(bad && Array.isArray(bad.keys) && bad.keys.length === 0, '空路径应返回空关键帧，不崩溃');
+}
+
 // ── ⑥ Host 工具与客户端入口接线 ──
 {
   const host = fs.readFileSync(path.join(ROOT, 'index.js'), 'utf8');
@@ -108,6 +125,7 @@ for (const p of (E.SCENE_PRESETS || [])) {
   ok(cli.includes("'box-ai-cam'") && cli.includes('directorStageCamera'), '客户端缺少「AI运镜」入口或未接 RPC');
   ok(cli.includes("'box-shot-4'") && cli.includes("'box-shot-12'"), '客户端缺少四/十二方位截图入口');
   ok(cli.includes('viewCamerasAround'), '客户端未接线四/十二方位截图');
+  ok(cli.includes('cameraPathKeys') && cli.includes("'dir-cam-path-draw'"), '客户端未接线手绘运镜');
   ok(cli.includes('specFromBrief'), '客户端未接线一句话搭景');
   ok(cli.includes('CAMERA_MOVES') || cli.includes('DIRECTOR_MOVES'), '客户端未接线运镜清单');
 }

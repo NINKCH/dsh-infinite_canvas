@@ -815,6 +815,12 @@ function revealCanvasInRight() {
       'dirPathDraw': '画线',
       'dirPathDrawing': '正在画（点地面）',
       'dirPathDrawHint': '点地面添加路径点，再点按钮结束',
+      'dirCamPath': '手绘运镜',
+      'dirCamPathDrawing': '正在画机位（点地面）',
+      'dirCamPathHint': '在地面连续点击绘制机位轨迹；再点一次按钮完成',
+      'dirCamPathDone': '已生成 {n} 个机位关键帧',
+      'dirCamPathNeed': '至少需要 2 个路径点',
+      'dirCamPathClear': '已清除手绘机位轨迹',
       'dirPathClear': '清空',
       'dirPathPointDel': '删点',
       'dirSpecTitle': 'AI 预演规格',
@@ -1733,6 +1739,12 @@ function revealCanvasInRight() {
       'dirPathDraw': 'Draw',
       'dirPathDrawing': 'Drawing (click ground)',
       'dirPathDrawHint': 'Click ground to add points, click again to finish',
+      'dirCamPath': 'Draw camera path',
+      'dirCamPathDrawing': 'Drawing camera (click ground)',
+      'dirCamPathHint': 'Click the ground to draw camera keyframes; click the button again to finish',
+      'dirCamPathDone': 'Generated {n} camera keyframes',
+      'dirCamPathNeed': 'Need at least 2 path points',
+      'dirCamPathClear': 'Camera path cleared',
       'dirPathClear': 'Clear',
       'dirPathPointDel': 'Del pt',
       'dirSpecTitle': 'AI stage spec',
@@ -10069,6 +10081,8 @@ function queueThumb(assetId) {
       directorCamFollow: false,     // 视口是否跟随分镜机位（播放时开；点机位树/预设=手动查看，立即切视角）
       directorEase: 'auto',         // 默认插值模式
       directorTlZoom: 140,          // 时间轴缩放（px/秒）
+      directorCamPathPick: false,   // 手绘运镜：地面点击模式
+      directorCamPath: [],          // 手绘运镜：路径点 [{x,z}]
     };
     const listeners = new Set();
     let saveTimer = null;
@@ -16498,6 +16512,39 @@ const DIRECTOR_KEY_HELP = [
         return (E2 && E2.buildStudioScene) ? E2.buildStudioScene(src) : src;
       };
       const patch = (fn) => { pushUndo(); const n = JSON.parse(JSON.stringify(scene)); fn(n); n.updatedAt = Date.now(); commit(n); };
+      /** 手绘运镜：在地面连续点路径点，结束后转成当前机位的关键帧。 */
+      const toggleCamPath = () => {
+        if (!S.directorCamPathPick) {
+          S.directorCamPathPick = true;
+          S.directorCamPath = [];
+          setMsg({ kind: 'ok', text: T('dirCamPathHint') });
+          bumpView();
+          return;
+        }
+        S.directorCamPathPick = false;
+        const pts = Array.isArray(S.directorCamPath) ? S.directorCamPath.slice() : [];
+        S.directorCamPath = [];
+        if (pts.length < 2) { setMsg({ kind: 'err', text: T('dirCamPathNeed') }); bumpView(); return; }
+        const cam2 = (scene.cameras || []).find((x) => x.id === scene.activeCameraId) || (scene.cameras || [])[0];
+        if (!cam2) { setMsg({ kind: 'err', text: T('dirLastCamera') }); bumpView(); return; }
+        const E2 = directorEngine();
+        if (!E2 || typeof E2.cameraPathKeys !== 'function') { setMsg({ kind: 'err', text: T('dirEngineFail') }); bumpView(); return; }
+        const dur = Math.max(0.5, (E2.sequenceDuration ? E2.sequenceDuration(scene) : 0) || Number(scene.shot && scene.shot.duration) || 5);
+        const r = E2.cameraPathKeys(pts, {
+          duration: dur,
+          posY: Number(cam2.pos && cam2.pos.y) || 1.6,
+          targetY: Number(cam2.target && cam2.target.y) || 1.0,
+          fov: Number(cam2.fov) || 42,
+        });
+        patch((n) => {
+          const c2 = (n.cameras || []).find((x) => x.id === n.activeCameraId);
+          if (c2) c2.keys = r.keys;
+          n.shot = n.shot || {};
+          n.shot.cameraMove = 'path';
+        });
+        setMsg({ kind: 'ok', text: T('dirCamPathDone').replace('{n}', String(r.keys.length)) });
+        bumpView();
+      };
       const pickSave = (next) => { markDirty(); const E2 = directorEngine(); if (E2) E2.saveStageDoc(S.activeId, next); };
       /** 3D-BOX 预设清单（引擎未就绪时退回空数组，UI 仍可渲染）。 */
       const boxPresetList = (key) => {
@@ -17504,6 +17551,17 @@ const DIRECTOR_KEY_HELP = [
         if (!cam) return;
         const p = trackPointer(ev);
         const w = sizeRef.current.w, h = sizeRef.current.h;
+        // 手绘运镜：左键在地面连续点路径点；右键/中键/Alt 仍可环绕/平移
+        if (S.directorCamPathPick && ev.button === 0 && !ev.altKey) {
+          const gp0 = E.groundPointFromScreen(cam, w, h, p.x, p.y);
+          if (gp0) {
+            if (!Array.isArray(S.directorCamPath)) S.directorCamPath = [];
+            S.directorCamPath.push({ x: Math.round(gp0.x * 100) / 100, z: Math.round(gp0.z * 100) / 100 });
+            setMsg({ kind: 'ok', text: T('dirCamPathDrawing') + ' ' + S.directorCamPath.length });
+            bumpView();
+          }
+          return;
+        }
         // 路径绘制模式：只拦「左键」（右键/中键/Alt+左键 仍可环绕·平移，滚轮仍可缩放，
         // 这样才能把相机移到 100 米外继续点第二个路径点）
         if (S.directorPathPick && S.directorSel && ev.button === 0 && !ev.altKey) {
@@ -18815,6 +18873,10 @@ const DIRECTOR_KEY_HELP = [
                   },
                 }, DIRECTOR_SHOT_SIZES().map((x) => h('option', { key: x.id, value: x.id }, x.label)))),
                 envRow(T('dirMove'), h('select', { className: 'dshic-dir-input', value: String(scene.shot.cameraMove || 'static'), onChange: (e2) => patch((n) => { n.shot.cameraMove = e2.target.value; }) }, DIRECTOR_MOVES().map((x) => h('option', { key: x.id, value: x.id }, x.label)))),
+                envRow(T('dirCamPath'), h('button', {
+                  type: 'button', className: 'dshic-dir-mini', 'data-action': 'dir-cam-path-draw',
+                  onClick: toggleCamPath,
+                }, S.directorCamPathPick ? '● ' + T('dirCamPathDrawing') : '✎ ' + T('dirCamPath'))),
                 // ── 机位管理：新建自由机位（复制当前视角）/ 删除 ──
                 envRow(T('dirCameraMgr'), h('div', { style: { display: 'flex', gap: '4px' } },
                   h('button', { type: 'button', className: 'dshic-dir-mini', 'data-action': 'dir-cam-add', onClick: () => {

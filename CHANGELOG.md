@@ -33,6 +33,10 @@ GitHub Releases carry the same notes in English; maintainer-facing runbooks live
   configured model returns camera keyframes, which are validated/clamped to
   the scene bounds and retried once; the 3D-BOX bar exposes this as an
   “AI camera” button.
+- **3D-BOX: hand-drawn camera path.** The camera panel now has a “Draw
+  camera path” toggle: click the ground to place path points, click the
+  toggle again and `cameraPathKeys` turns the points into editable camera
+  keyframes (look-ahead target, evenly distributed duration).
 
 ### Fixed
 - (nothing in this cycle yet)

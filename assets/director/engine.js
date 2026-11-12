@@ -3504,6 +3504,38 @@ export function viewCamerasAround(scene, opts) {
   return out;
 }
 
+/**
+ * 手绘运镜：地面路径点 → 相机关键帧（纯函数）。
+ * path: [{x,z}] 或 [[x,z]]；opts = { duration, posY, targetY, fov }
+ * 相机沿路径移动，target 看向下一个路径点（末点用前一段方向延伸）。
+ */
+export function cameraPathKeys(path, opts) {
+  const o = opts || {};
+  const raw = Array.isArray(path) ? path : [];
+  const pts = raw.map((p) => {
+    if (Array.isArray(p)) return { x: Number(p[0]) || 0, z: Number(p[1]) || 0 };
+    return { x: Number(p && p.x) || 0, z: Number(p && p.z) || 0 };
+  });
+  if (!pts.length) return { keys: [] };
+  if (pts.length === 1) pts.push({ x: pts[0].x, z: pts[0].z });
+  const dur = Math.max(0.5, Number(o.duration) || 5);
+  const y = Number.isFinite(o.posY) ? o.posY : 1.6;
+  const ty = Number.isFinite(o.targetY) ? o.targetY : 1.0;
+  const fov = clampFov(o.fov);
+  const keys = pts.map((p, i) => {
+    const t = dur * i / (pts.length - 1);
+    const next = pts[Math.min(pts.length - 1, i + 1)];
+    const prev = pts[Math.max(0, i - 1)];
+    let tx = next.x, tz = next.z;
+    if (Math.abs(tx - p.x) < 1e-6 && Math.abs(tz - p.z) < 1e-6) {
+      tx = p.x + (p.x - prev.x);
+      tz = p.z + (p.z - prev.z);
+    }
+    return { t, pos: [p.x, y, p.z], target: [tx, ty, tz], fov, ease: 'auto' };
+  });
+  return { keys };
+}
+
 /** 9 个场景预设 → 规格。所有坐标用 [x,y,z]，与 buildStageFromSpec 的二维 [x,z] 兼容。 */
 export function specFromScenePreset(presetId, opts) {
   const o = opts || {};
