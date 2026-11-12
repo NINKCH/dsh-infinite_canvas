@@ -508,6 +508,13 @@ function revealCanvasInRight() {
       'boxHomeCurrent': '当前项目',
       'boxHomeFailed': '加载 3D-BOX 库失败：',
       'boxHomeMeta': '{c} 机位 · {s} 分镜 · {d}s',
+      'dirCharLib': '角色库',
+      'dirCharPick': '选择设定集角色',
+      'dirCharAdd': '添加角色',
+      'dirCharEmpty': '设定集里还没有角色',
+      'dirCharAdded': '已添加角色：{name}',
+      'dirCharExists': '角色已在场景里：{name}',
+      'dirCharRefs': '{n} 张参考图',
       'boxExamples': '试试：',
       'boxEx1': '城市街头警匪追车',
       'boxEx2': '环绕香水瓶运镜',
@@ -1563,6 +1570,13 @@ function revealCanvasInRight() {
       'boxHomeCurrent': 'Current project',
       'boxHomeFailed': 'Failed to load 3D-BOX library:',
       'boxHomeMeta': '{c} cameras · {s} shots · {d}s',
+      'dirCharLib': 'Character library',
+      'dirCharPick': 'Pick a bible character',
+      'dirCharAdd': 'Add character',
+      'dirCharEmpty': 'No characters in the bible yet',
+      'dirCharAdded': 'Added character: {name}',
+      'dirCharExists': 'Character already in scene: {name}',
+      'dirCharRefs': '{n} reference images',
       'boxExamples': 'Try:',
       'boxEx1': 'City street chase',
       'boxEx2': 'Orbit a perfume bottle',
@@ -2879,6 +2893,8 @@ body[data-ds-dark-theme] .dshic-studio-modal{border-color:var(--dsw-alias-border
 .dshic-dir-toast.is-err{background:rgba(215,58,73,.94);}
 .dshic-dir-tree{flex:none;padding:0 10px 6px;display:flex;flex-direction:column;gap:2px;}
 .dshic-dir-treegroup{display:flex;align-items:center;gap:6px;padding:4px 2px;font-size:11.5px;color:var(--dsw-alias-label-secondary);}
+.dshic-dir-charpick{display:flex;align-items:center;gap:4px;padding:4px 2px 6px;}
+.dshic-dir-charpick .dshic-dir-input{flex:1;min-width:0;}
 .dshic-dir-treekey{flex:1;}
 .dshic-dir-treecount{font-variant-numeric:tabular-nums;opacity:.75;}
 .dshic-dir-treerow{display:flex;align-items:center;gap:2px;}
@@ -16475,6 +16491,7 @@ const DIRECTOR_KEY_HELP = [
     const [boxStyle, setBoxStyle] = useState('auto');
     const [boxMove, setBoxMove] = useState('auto');
     const [boxBusy, setBoxBusy] = useState(false);
+    const [charPick, setCharPick] = useState('');
       const [boxSel, setBoxSel] = useState(null);   // 框选矩形 {x0,y0,x1,y1}
       const [dirtyState, setDirtyState] = useState(false);  // 有未保存改动
       const [previzMode, setPrevizMode] = useState('static'); // 'static' | 'dynamic' | 'render'（模式，不随暂停改变）
@@ -16595,6 +16612,34 @@ const DIRECTOR_KEY_HELP = [
           n.shot.cameraMove = 'path';
         });
         setMsg({ kind: 'ok', text: T('dirCamPathDone').replace('{n}', String(r.keys.length)) });
+        bumpView();
+      };
+      /** 角色库：当前项目设定集里的角色（名字/描述/参考图数量）。 */
+      const bibleChars = (() => {
+        try { return (loadBible(S.activeId).characters || []).filter((c) => c && String(c.name || '').trim()); } catch { return []; }
+      })();
+      /** 从设定集添加一个 3D 角色；同名已在场景则只选中，不重复添加。 */
+      const addBibleChar = () => {
+        const c = bibleChars.find((x) => String(x.name).trim() === String(charPick || '').trim());
+        if (!c) { setMsg({ kind: 'err', text: T('dirCharPick') }); return; }
+        const hit = (scene.objects || []).find((o) => String(o.name || '').trim() === String(c.name).trim() && (o.kind === 'model' || o.kind === 'actor' || o.kind === 'body'));
+        if (hit) {
+          S.directorSel = hit.id;
+          setMsg({ kind: 'ok', text: T('dirCharExists').replace('{name}', c.name) });
+          bumpView();
+          return;
+        }
+        const E2 = directorEngine();
+        if (!E2 || typeof E2.addBibleCharacter !== 'function') { setMsg({ kind: 'err', text: T('dirEngineFail') }); return; }
+        const idx = (scene.objects || []).length;
+        const x = (idx % 2 ? 1 : -1) * 0.9;
+        const z = Math.floor(idx / 2) * 0.8;
+        const r = E2.addBibleCharacter(scene, c, { x, z, pose: 'stand' });
+        if (!r || !r.added || !r.scene) { setMsg({ kind: 'err', text: T('dirCharExists').replace('{name}', c.name) }); return; }
+        pushUndo();
+        commit(r.scene);
+        S.directorSel = r.id;
+        setMsg({ kind: 'ok', text: T('dirCharAdded').replace('{name}', c.name) });
         bumpView();
       };
       const pickSave = (next) => { markDirty(); const E2 = directorEngine(); if (E2) E2.saveStageDoc(S.activeId, next); };
@@ -18324,6 +18369,18 @@ const DIRECTOR_KEY_HELP = [
                 h('div', { className: 'dshic-dir-treegroup' },
                   h('span', { className: 'dshic-dir-treekey' }, T('dirObjects')),
                   h('span', { className: 'dshic-dir-treecount' }, String((scene.objects || []).length))),
+                h('div', { className: 'dshic-dir-charpick' },
+                  h('select', {
+                    className: 'dshic-dir-input', 'data-action': 'dir-char-pick', value: charPick,
+                    title: T('dirCharLib'), onChange: (e2) => setCharPick(e2.target.value),
+                  }, [
+                    h('option', { key: '', value: '' }, bibleChars.length ? T('dirCharPick') : T('dirCharEmpty')),
+                    ...bibleChars.map((c) => h('option', { key: c.name, value: c.name }, String(c.name) + (Array.isArray(c.assetIds) && c.assetIds.length ? ' · ' + T('dirCharRefs').replace('{n}', String(c.assetIds.length)) : ''))),
+                  ]),
+                  h('button', {
+                    type: 'button', className: 'dshic-dir-mini', 'data-action': 'dir-char-add',
+                    disabled: !bibleChars.length || !charPick, onClick: addBibleChar,
+                  }, T('dirCharAdd'))),
                 (scene.objects || []).map((ob) => h('div', { key: ob.id, className: 'dshic-dir-treerow' },
                   h('button', {
                     type: 'button', className: 'dshic-dir-mini', 'data-action': 'dir-obj-vis', title: T('dirToggleVisible'),

@@ -3536,6 +3536,38 @@ export function cameraPathKeys(path, opts) {
   return { keys };
 }
 
+/**
+ * 从设定集角色添加一个 3D 场景对象（纯函数）。
+ * char = { name, assetIds? }；opts = { x,z,rotY,h,color,pose,assetId }
+ * 同名（model/actor/body）已存在时只返回 id，不重复添加。
+ */
+export function addBibleCharacter(scene, char, opts) {
+  const name = String((char && char.name) || '').trim();
+  const src = JSON.parse(JSON.stringify(scene || {}));
+  const objects = Array.isArray(src.objects) ? src.objects : [];
+  if (!name) {
+    src.objects = objects;
+    return { added: false, scene: src, id: null };
+  }
+  const hit = objects.find((o) => String(o.name || '').trim() === name && (o.kind === 'model' || o.kind === 'actor' || o.kind === 'body'));
+  if (hit) return { added: false, scene: src, id: hit.id || null };
+  const o = opts || {};
+  const id = 'char_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 5);
+  objects.push({
+    id, kind: 'model', assetId: String(o.assetId || 'xbot'),
+    name: name.slice(0, 40),
+    pos: { x: Number(o.x) || 0, y: 0, z: Number(o.z) || 0 },
+    rotY: Number(o.rotY) || 0,
+    h: Number(o.h) || 1.75,
+    color: String(o.color || '#c9ced6'),
+    visible: true,
+    poseId: String(o.pose || 'stand'),
+    refAssetIds: Array.isArray(char && char.assetIds) ? char.assetIds.map(String).filter(Boolean).slice(0, 8) : [],
+  });
+  src.objects = objects;
+  return { added: true, scene: src, id };
+}
+
 /** 9 个场景预设 → 规格。所有坐标用 [x,y,z]，与 buildStageFromSpec 的二维 [x,z] 兼容。 */
 export function specFromScenePreset(presetId, opts) {
   const o = opts || {};

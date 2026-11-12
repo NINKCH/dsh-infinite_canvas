@@ -42,6 +42,11 @@ GitHub Releases carry the same notes in English; maintainer-facing runbooks live
   a list of saved scenes across projects (`directorStageList` /
   `directorStageBrief`). Selecting a card switches project and opens the
   stage, so previz is no longer hidden behind one project.
+- **3D-BOX: add characters from the project bible.** The scene-object panel
+  now has a character-library picker: pick a bible character and
+  `addBibleCharacter` places a jointed mannequin with the character's name
+  and reference asset ids; a duplicate selects the existing one instead of
+  adding another.
 
 ### Fixed
 - (nothing in this cycle yet)
