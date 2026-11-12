@@ -89,6 +89,14 @@ GitHub Releases carry the same notes in English; maintainer-facing runbooks live
   camera notes and music cue create a normal storyboard node ready for
   generation; models without image input fail with a clear hint and a
   one-click empty storyboard as the manual fallback.
+- **Cross-project character library.** A new Characters tab keeps reusable
+  subjects in global storage with multi-view reference assets (copied into
+  the general project), description, gender/age/culture filters and tags.
+  Import from the current series, create a character and generate its sheet
+  (the result links back automatically), or use one of six official
+  templates. “Apply to canvas” reuses existing reference-image nodes, wires
+  them to the target image/video ref port and adds `@name@`; the generator
+  panel has a direct Characters button for the same flow.
 
 ### Fixed
 - (nothing in this cycle yet)

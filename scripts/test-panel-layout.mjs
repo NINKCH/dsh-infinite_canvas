@@ -92,6 +92,7 @@ lsStub.setItem('dsh-ic:projects', JSON.stringify([
 lsStub.setItem('dsh-ic:active', JSON.stringify(P1));
 lsStub.setItem('dsh-ic:graph:' + P1, JSON.stringify({ nodes: {}, edges: [], view: { x: 0, y: 0, scale: 1 } }));
 lsStub.setItem('dsh-ic:graph:' + P2, JSON.stringify({ nodes: {}, edges: [], view: { x: 0, y: 0, scale: 1 } }));
+lsStub.setItem('dsh-ic:subjects', JSON.stringify([{ id: 's_test', name: '测试角色', desc: '用于面板渲染', assetIds: [] }]));
 
 const sandbox = {
   window: { devicePixelRatio: 1, innerWidth: 1600, innerHeight: 900, addEventListener: noop, removeEventListener: noop, AudioContext: undefined, webkitAudioContext: undefined, __DSH_IC_SMOKE__: true, localStorage: lsStub },
@@ -142,7 +143,8 @@ const PANEL = sandbox.window.__DSH_IC_PANEL__;
 const CANVAS = sandbox.window.__DSH_IC_CANVAS__;
 const LAYOUT = sandbox.window.__DSH_IC_LAYOUT__;
 const sync = sandbox.window.__DSH_IC_SYNC__;
-if (!TABS || !PANEL || !CANVAS || !LAYOUT || !sync) {
+const SUBJ = sandbox.window.__DSH_IC_SUBJECTS__;
+if (!TABS || !PANEL || !CANVAS || !LAYOUT || !sync || !SUBJ) {
   console.error('✗ 冒烟缝隙缺失（__DSH_IC_TABS__/__DSH_IC_PANEL__/__DSH_IC_CANVAS__/__DSH_IC_LAYOUT__/__DSH_IC_SYNC__）');
   process.exit(1);
 }
@@ -251,7 +253,7 @@ function cssRulesMatchingClass(name) {
   const acts = els.filter((e) => e.props && e.props['data-action']).map((e) => e.props['data-action']);
   // 导演台（open-director）与 3D-BOX 库（open-3dbox-home）放在动作分区：它们是工具，不是节点类型
   // 记忆查看器（open-memory，0.20.x 会话绑定/项目记忆）：跟在设定集之后，属「项目资料」分组
-  eq(acts.join(','), 'add-text,add-script,add-storyboard,add-image,add-video,add-audio,add-finalcut,open-assets,open-bible,open-memory,open-director,open-3dbox-home,run-workflow',
+  eq(acts.join(','), 'add-text,add-script,add-storyboard,add-image,add-video,add-audio,add-finalcut,open-assets,open-bible,open-subjects,open-memory,open-director,open-3dbox-home,run-workflow',
     '左侧图标列顺序/动作不符合要求');
   ok(/\.dshic-rail\{[^}]*position:absolute/.test((LAYOUT.CSS || '')), '图标列不再是绝对定位悬浮层');
   // 第 2 条：图标列整列垂直居中（内层绝对定位居中，不是贴左上角/撑满整列）
@@ -353,11 +355,17 @@ function cssRulesMatchingClass(name) {
   const modalEls = all(TABS.StudioModal());
   ok(modalEls.some((e) => e.props && e.props['data-role'] === 'studio-modal'), '统一弹窗未渲染');
   const tabIds = modalEls.filter((e) => e.props && e.props['data-tab']).map((e) => e.props['data-tab']);
-  eq(tabIds.join(','), 'bible,assets,memory', '统一弹窗标签页顺序/数量不对（应为 设定集 / 资产 / 记忆）');
+  eq(tabIds.join(','), 'bible,assets,subjects,memory', '统一弹窗标签页顺序/数量不对（应为 设定集 / 资产 / 角色库 / 记忆）');
   ok((modalEls.find((e) => e.props['data-tab'] === 'assets').props.className || '').includes('is-active'), '资产页未处于激活态');
   ok(modalEls.some((e) => String(e.props && e.props.className || '').includes('dshic-modal-assets')), '资产页容器缺失');
   ok(modalEls.some((e) => e.type === TABS.AssetsTab), '资产页没有渲染 AssetsTab');
-  ok(!!act(modalEls, 'close-modal'), '统一弹窗缺少右上关闭按钮');
+  // 角色库页：分栏 + 全局角色卡（宫格）直渲染
+  const subEls = all(SUBJ.SubjectsTab({}));
+  ok(subEls.some((e) => e.props && e.props['data-subtab'] === 'mine'), '角色库页缺少「我的角色库」分栏');
+  ok(subEls.some((e) => e.props && e.props['data-subject'] === 's_test'), '角色库页没有渲染全局角色卡');
+  PANEL.openStudioModal('assets');
+  const modalEls2 = all(TABS.StudioModal());
+  ok(!!act(modalEls2, 'close-modal'), '统一弹窗缺少右上关闭按钮');
   // 遮罩点击关闭
   const overlay = modalEls.find((e) => e.props && e.props['data-role'] === 'studio-modal');
   overlay.props.onPointerDown({ target: overlay, currentTarget: overlay });

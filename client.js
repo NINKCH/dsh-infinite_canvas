@@ -1140,6 +1140,55 @@ function revealCanvasInRight() {
       'llmHint': '剧本与分镜提示词使用 Harness 当前配置的模型生成，无需另配 Key。',
       'visionLlmLabel': '视觉模型（拉片）',
       'visionLlmHint': '选择支持图片输入的模型（如 GPT-4o / Gemini / Claude）；留空则跟随文本模型。',
+      'subjTab': '角色库',
+      'subjTitle': '跨项目角色库',
+      'subjMine': '我的角色库',
+      'subjSeries': '本系列',
+      'subjOfficial': '官方角色库',
+      'subjEmpty': '角色库还是空的：从「本系列」导入角色，或新建后生成设定图。',
+      'subjNoMatch': '没有匹配的角色',
+      'subjNew': '新建角色',
+      'subjImport': '存入角色库',
+      'subjImportAll': '全部导入（{n}）',
+      'subjImportDone': '已导入 {n} 个角色',
+      'subjSaved': '已存入角色库',
+      'subjApply': '应用至画布',
+      'subjApplied': '已建 {n} 张参考图{linked}',
+      'subjLinked': '，并接到选中节点（{n} 张）',
+      'subjNoAssets': '这个角色还没有参考图：先绑定或生成设定图',
+      'subjName': '名称',
+      'subjDesc': '描述（外观/性格/服装）',
+      'subjGender': '性别',
+      'subjAge': '年龄段',
+      'subjCulture': '文化区域',
+      'subjTags': '标签（逗号分隔）',
+      'subjFilterAll': '全部',
+      'subjMale': '男',
+      'subjFemale': '女',
+      'subjOther': '其他',
+      'subjChild': '少年',
+      'subjYouth': '青年',
+      'subjMiddle': '中年',
+      'subjElder': '老年',
+      'subjAsia': '亚洲',
+      'subjWest': '欧美',
+      'subjOtherCulture': '其他',
+      'subjDelete': '删除',
+      'subjDeleteConfirm': '删除角色「{name}」？只删库里的条目，不删资产。',
+      'subjEdit': '编辑',
+      'subjAssetsN': '{n} 张参考图',
+      'subjVoice': '含音色',
+      'subjBindAssets': '绑定参考图',
+      'subjGenerateSheet': '生成设定图',
+      'subjSheetCreated': '已创建角色设定图节点，生成结果会自动回挂角色库',
+      'subjSave': '保存',
+      'subjCancel': '取消',
+      'subjFromBibleHint': '从当前项目的设定集导入；参考图会复制到通用项目，跨项目可用。',
+      'subjTargetHint': '已带上目标节点：应用后自动接 ref 并写入 @角色名@',
+      'subjNoTargetHint': '选中一个图片/视频节点后再应用，可自动接 ref 并写入 @角色名@',
+      'subjSearch': '搜索名称/描述/标签',
+      'subjOfficialHint': '官方角色模板（无参考图）：复制后可生成设定图',
+      'subjUseTemplate': '用模板新建',
       'pullShots': '拉片',
       'pullTitle': '参考视频拉片',
       'pullHint': '均匀抽帧后用视觉模型反推分镜、动态与音乐线索；只上传抽出的画面帧，不传视频文件。',
@@ -2278,6 +2327,55 @@ function revealCanvasInRight() {
       'llmLabel': 'Text model (DeepSeek)',
       'visionLlmLabel': 'Vision model (shot breakdown)',
       'visionLlmHint': 'Pick a model that accepts image input (e.g. GPT-4o / Gemini / Claude); empty follows the text model.',
+      'subjTab': 'Characters',
+      'subjTitle': 'Cross-project character library',
+      'subjMine': 'My library',
+      'subjSeries': 'This series',
+      'subjOfficial': 'Official library',
+      'subjEmpty': 'The library is empty: import from this series, or create a character and generate a sheet.',
+      'subjNoMatch': 'No matching characters',
+      'subjNew': 'New character',
+      'subjImport': 'Save to library',
+      'subjImportAll': 'Import all ({n})',
+      'subjImportDone': 'Imported {n} characters',
+      'subjSaved': 'Saved to library',
+      'subjApply': 'Apply to canvas',
+      'subjApplied': '{n} reference images created{linked}',
+      'subjLinked': ', linked to the target node ({n})',
+      'subjNoAssets': 'This character has no reference images yet: bind or generate a sheet first',
+      'subjName': 'Name',
+      'subjDesc': 'Description (look / personality / costume)',
+      'subjGender': 'Gender',
+      'subjAge': 'Age group',
+      'subjCulture': 'Culture',
+      'subjTags': 'Tags (comma separated)',
+      'subjFilterAll': 'All',
+      'subjMale': 'Male',
+      'subjFemale': 'Female',
+      'subjOther': 'Other',
+      'subjChild': 'Child',
+      'subjYouth': 'Young',
+      'subjMiddle': 'Middle-aged',
+      'subjElder': 'Elder',
+      'subjAsia': 'Asian',
+      'subjWest': 'Western',
+      'subjOtherCulture': 'Other',
+      'subjDelete': 'Delete',
+      'subjDeleteConfirm': 'Delete character "{name}"? Only the library entry is removed; assets stay.',
+      'subjEdit': 'Edit',
+      'subjAssetsN': '{n} reference images',
+      'subjVoice': 'voice bound',
+      'subjBindAssets': 'Bind references',
+      'subjGenerateSheet': 'Generate sheet',
+      'subjSheetCreated': 'Character sheet node created; the generated result will link back automatically',
+      'subjSave': 'Save',
+      'subjCancel': 'Cancel',
+      'subjFromBibleHint': 'Import from this project\'s bible; reference assets are copied to the general project so other projects can use them.',
+      'subjTargetHint': 'Target node attached: applying will wire refs and add @name@',
+      'subjNoTargetHint': 'Select one image/video node before applying to auto-wire refs and add @name@',
+      'subjSearch': 'Search name / description / tags',
+      'subjOfficialHint': 'Official character templates (no references): copy one and generate a sheet',
+      'subjUseTemplate': 'Use template',
       'pullShots': 'Break down',
       'pullTitle': 'Reference video shot breakdown',
       'pullHint': 'Samples frames evenly and asks the vision model for shots, motion and music cues; only frames are uploaded, never the video file.',
@@ -2914,6 +3012,25 @@ body[data-ds-dark-theme] .dshic-studio-modal{border-color:var(--dsw-alias-border
 .dshic-studio-overlay .dshic-modal-overlay{z-index:340;}
 .dshic-studio-bible{display:flex;flex-direction:column;gap:8px;width:100%;max-width:820px;margin:0 auto;}
 .dshic-studio-memory{display:flex;flex-direction:column;min-height:0;width:100%;max-width:820px;margin:0 auto;}
+.dshic-studio-subjects{width:100%;max-width:1080px;margin:0 auto;}
+.dshic-subjects{display:flex;flex-direction:column;gap:10px;}
+.dshic-studio-subtabs{display:flex;align-items:center;gap:4px;border-bottom:1px solid var(--dshic-line2);padding-bottom:6px;}
+.dshic-subj-filters{display:flex;align-items:center;gap:6px;flex-wrap:wrap;}
+.dshic-subj-filters .dshic-input{flex:1;min-width:160px;}
+.dshic-subj-filters .dshic-select{width:auto;min-width:86px;}
+.dshic-subj-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(196px,1fr));gap:10px;}
+.dshic-subj-card{display:flex;flex-direction:column;border:1px solid var(--dshic-line2);border-radius:12px;overflow:hidden;background:var(--dsw-alias-bg-layer-2);min-width:0;}
+.dshic-subj-thumb{height:118px;background:var(--dsw-alias-bg-layer-3);display:flex;align-items:center;justify-content:center;overflow:hidden;}
+.dshic-subj-thumb img{width:100%;height:100%;object-fit:cover;display:block;}
+.dshic-subj-initial{font-size:34px;font-weight:600;color:var(--dsw-alias-label-tertiary);}
+.dshic-subj-body{display:flex;flex-direction:column;gap:4px;padding:8px;min-width:0;}
+.dshic-subj-name{font-size:12px;font-weight:600;color:var(--dsw-alias-label-primary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.dshic-subj-meta{font-size:10px;color:var(--dsw-alias-label-secondary);min-height:13px;}
+.dshic-subj-desc{font-size:11px;line-height:15px;color:var(--dsw-alias-label-secondary);display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;min-height:30px;}
+.dshic-subj-tags{display:flex;gap:3px;flex-wrap:wrap;max-height:18px;overflow:hidden;}
+.dshic-subj-actions{display:flex;flex-wrap:wrap;gap:2px;margin-top:2px;}
+.dshic-subj-actions .dshic-mini{height:22px;padding:0 6px;font-size:10px;}
+.dshic-subj-empty{padding:28px 10px;text-align:center;font-size:12px;color:var(--dsw-alias-label-tertiary);}
 /* ── 3D 导演台：三栏（对象 / 视口 / 属性）；视口是纯 Canvas2D 软件渲染（见 directorRenderScene） ── */
 .dshic-dir-modal{width:min(1220px,calc(100vw - 40px));height:min(820px,calc(100vh - 40px));}
 .dshic-dir-body{flex:1;min-height:0;display:flex;gap:0;overflow:hidden;}
@@ -4344,6 +4461,161 @@ body[data-ds-dark-theme] .dshic-pick-item.is-on{background:color-mix(in srgb,var
     // ============================================================
     const LS_BIBLE = 'dsh-ic:bible:';
     const LS_BIBLE_SYNC = 'dsh-ic:biblesync:';
+    // 跨项目角色库（subject）：全局 localStorage，不绑定单个项目；参考图资产放 GENERAL_PID，
+    // 其它项目通过 assetId 直接引用（assetUrl/collectRefs 都能读），删源项目不影响角色库。
+    const LS_SUBJECTS = 'dsh-ic:subjects';
+    // 官方角色模板（无参考图）：给“角色造型室”一个可用起点，复制后生成设定图。
+    const OFFICIAL_SUBJECTS = [
+      { id: 'off_linmo', nameZh: '林默', nameEn: 'Lin Mo', gender: 'male', age: 'youth', culture: 'asia', tagsZh: ['记者', '冷静', '悬疑'], tagsEn: ['reporter', 'calm', 'mystery'], descZh: '28 岁调查记者，克制冷静；深灰风衣、利落短发，左眉有一道旧疤，习惯把录音笔握在手心。', descEn: '28-year-old investigative reporter, restrained and calm; charcoal trench coat, short hair, an old scar over the left brow, always palming a recorder.' },
+      { id: 'off_mira', nameZh: '米拉', nameEn: 'Mira', gender: 'female', age: 'youth', culture: 'west', tagsZh: ['赏金猎人', '冷面', '动作'], tagsEn: ['bounty hunter', 'cold', 'action'], descZh: '30 岁赏金猎人，银白短发、黑色战术夹克，颈侧有细线纹身；动作干净，很少眨眼。', descEn: '30-year-old bounty hunter with silver-white short hair, a black tactical jacket and a fine-line neck tattoo; economical movement, rarely blinks.' },
+      { id: 'off_zhou', nameZh: '老周', nameEn: 'Old Zhou', gender: 'male', age: 'middle', culture: 'asia', tagsZh: ['修表匠', '温和', '市井'], tagsEn: ['watchmaker', 'gentle', 'street'], descZh: '55 岁修表匠，灰白胡茬、圆框眼镜、深蓝围裙；手指有细密老茧，说话慢，记得每个客人的表。', descEn: '55-year-old watchmaker with grey stubble, round glasses and a navy apron; callused fingers, slow speech, remembers every customer\'s watch.' },
+      { id: 'off_xiaoman', nameZh: '小满', nameEn: 'Xiaoman', gender: 'female', age: 'child', culture: 'asia', tagsZh: ['学徒', '好奇', '冒险'], tagsEn: ['apprentice', 'curious', 'adventure'], descZh: '12 岁学徒，双马尾、黄色雨衣，抱着一本翻烂的旧地图；遇到新鲜事先蹲下看，再回头喊人。', descEn: '12-year-old apprentice with twin tails and a yellow raincoat, clutching a worn old map; squats to inspect anything new, then calls others over.' },
+      { id: 'off_ethan', nameZh: '伊森', nameEn: 'Ethan', gender: 'male', age: 'middle', culture: 'west', tagsZh: ['飞行员', '疲惫', '硬汉'], tagsEn: ['pilot', 'weary', 'tough'], descZh: '42 岁退役飞行员，胡茬、旧皮夹克、右腕机械表；站姿松但眼神一直在扫跑道。', descEn: '42-year-old retired pilot with stubble, a worn leather jacket and a mechanical watch on the right wrist; loose stance, eyes always scanning the runway.' },
+      { id: 'off_alan', nameZh: '阿澜', nameEn: 'Alan', gender: 'female', age: 'youth', culture: 'asia', tagsZh: ['摄影师', '热烈', '都市'], tagsEn: ['photographer', 'passionate', 'urban'], descZh: '24 岁街头摄影师，红色冲锋衣、挑染短发，肩上挂一台掉漆的旧相机；笑起来很大声。', descEn: '24-year-old street photographer in a red shell jacket with streaked short hair, a paint-chipped camera on the shoulder; laughs loudly.' },
+    ];
+    function emptySubject() {
+      return {
+        id: '', name: '', desc: '', gender: '', age: '', culture: '', tags: [],
+        assetIds: [], voiceAssetId: null, createdAt: 0, updatedAt: 0,
+      };
+    }
+    function normalizeSubject(x) {
+      const s = x && typeof x === 'object' ? x : {};
+      return {
+        id: String(s.id || ''),
+        name: String(s.name || '').trim().slice(0, 60),
+        desc: String(s.desc || '').slice(0, 2000),
+        gender: String(s.gender || '').slice(0, 20),
+        age: String(s.age || '').slice(0, 20),
+        culture: String(s.culture || '').slice(0, 30),
+        tags: Array.isArray(s.tags) ? s.tags.map((t) => String(t).trim()).filter(Boolean).slice(0, 12) : [],
+        assetIds: Array.isArray(s.assetIds) ? s.assetIds.map(String).filter(Boolean).slice(0, 16) : [],
+        voiceAssetId: s.voiceAssetId ? String(s.voiceAssetId) : null,
+        createdAt: Number(s.createdAt) || 0,
+        updatedAt: Number(s.updatedAt) || 0,
+      };
+    }
+    function loadSubjects() {
+      const a = lsGet(LS_SUBJECTS, []);
+      return (Array.isArray(a) ? a : []).map(normalizeSubject).filter((s) => s.id && s.name);
+    }
+    function saveSubjects(list) {
+      lsSet(LS_SUBJECTS, (list || []).map(normalizeSubject).filter((s) => s.id && s.name));
+      notify();
+    }
+    function upsertSubject(entry) {
+      const now = Date.now();
+      const e = normalizeSubject({ ...entry, updatedAt: now, createdAt: entry.createdAt || now });
+      if (!e.id) e.id = uid('sub');
+      const list = loadSubjects();
+      const i = list.findIndex((s) => s.id === e.id);
+      if (i >= 0) list[i] = e; else list.unshift(e);
+      saveSubjects(list);
+      return e;
+    }
+    function removeSubject(id) {
+      saveSubjects(loadSubjects().filter((s) => s.id !== id));
+    }
+    /** 把角色引用的资产复制到「通用项目」，保证跨项目/源项目删除后仍可用。 */
+    async function copySubjectAssetsToGeneral(ids) {
+      const out = [];
+      for (const id of (ids || [])) {
+        try {
+          const rec = await idbGet(id).catch(() => null);
+          if (rec && rec.projectId === GENERAL_PID) { out.push(id); continue; }
+          const blob = await assetBlob(id);
+          if (!blob) continue;
+          const kind = (rec && rec.kind) || ((blob.type || '').startsWith('audio') ? 'audio' : 'image');
+          const saved = await saveAssetRecord(GENERAL_PID, kind, blob, {
+            name: (rec && rec.name) || 'subject asset',
+            prompt: (rec && rec.prompt) || '',
+            source: 'subject',
+            category: (rec && rec.category) || 'character',
+          });
+          if (saved && saved.id) out.push(saved.id);
+        } catch { /* 单个资产失败不阻塞其余 */ }
+      }
+      return out;
+    }
+    /** 把角色参考图挂到画布：已有同资产图片节点直接复用；选中目标节点时自动接 ref 并写入 @角色名@。 */
+    async function applySubjectToCanvas(subject, targetNodeId) {
+      const sub = normalizeSubject(subject);
+      if (!sub.name) return 0;
+      const target = targetNodeId ? S.graph.nodes[targetNodeId] : null;
+      // 参考图只取图片资产：音频（音色）不建画布节点，避免把 mp3 当图片节点挂上去
+      const recs = await Promise.all(sub.assetIds.slice(0, 16).map((id) => idbGet(id).catch(() => null)));
+      const ids = sub.assetIds.slice(0, 16).filter((id, i) => recs[i] && recs[i].kind === 'image').slice(0, 8);
+      if (!ids.length) { toast(T('subjNoAssets')); return 0; }
+      const existing = Object.values(S.graph.nodes).filter((nd) => nd && nd.type === 'image' && ids.includes(String(nd.data && nd.data.assetId)));
+      const have = new Set(existing.map((nd) => String(nd.data.assetId)));
+      const created = [];
+      const baseX = (target ? Number(target.x) : (S.graph.nodes && Object.values(S.graph.nodes)[0] ? Object.values(S.graph.nodes)[0].x : 0)) || 0;
+      const baseY = (target ? Number(target.y) + 300 : 0) || 0;
+      ids.filter((id) => !have.has(id)).forEach((assetId, i) => {
+        const nd = addNodeAt('image', { x: baseX - 420 + i * 140, y: baseY });
+        if (!nd) return;
+        update((s) => {
+          const g = s.graph.nodes[nd.id];
+          if (g) g.data = Object.assign({}, g.data, { assetId, status: 'done', label: sub.name + ' 参考' });
+        });
+        created.push(nd);
+      });
+      const nodes = existing.concat(created);
+      let added = 0;
+      if (target && (target.type === 'image' || target.type === 'video')) {
+        const wired = new Set(S.graph.edges.filter((e) => e.toNode === target.id && e.toPort === 'ref').map((e) => e.fromNode));
+        for (const nd of nodes) {
+          if (wired.has(nd.id)) continue;
+          if (connect(nd, 'out', target, 'ref')) added++;
+        }
+        const mention = '@' + sub.name + '@';
+        const cur = String((target.data && target.data.prompt) || '');
+        if (!cur.includes(mention)) {
+          update((s) => {
+            const g = s.graph.nodes[target.id];
+            if (g) g.data.prompt = (cur ? cur + ' ' : '') + mention;
+          });
+        }
+      }
+      flushSave();
+      toast(T('subjApplied').replace('{n}', String(nodes.length)).replace('{linked}', added ? T('subjLinked').replace('{n}', String(added)) : ''));
+      return nodes.length;
+    }
+    /** 为角色创建「设定图」图片节点；生成结果会经 commitGenResult 自动回挂角色库。 */
+    function createSubjectSheetNode(subject) {
+      const sub = normalizeSubject(subject);
+      if (!sub.name) return null;
+      const bible = loadBible(S.activeId);
+      const zh = effLang() !== 'en';
+      const spec = assetSheetNodeSpec('character', sub.name, bible, zh);
+      const nd = addNodeAt('image', { x: worldCenter().x - 180, y: worldCenter().y - 120, ratio: '16:9' });
+      if (!nd) return null;
+      update((s) => {
+        const g = s.graph.nodes[nd.id];
+        if (!g) return;
+        g.data.label = '角色-' + sub.name + ' 设定图';
+        g.data.prompt = spec.prompt || (sub.desc ? ('角色设定图：' + sub.name + '，' + sub.desc) : ('角色设定图：' + sub.name));
+        g.data.ratio = '16:9';
+        g.data.subjectId = sub.id;
+      });
+      flushSave();
+      toast(T('subjSheetCreated'));
+      return nd.id;
+    }
+    /** 生成结果回挂角色库：图片节点的 subjectId 命中时，把新资产加进该角色的参考图。 */
+    function linkAssetToSubject(nodeId, assetId) {
+      const nd = S.graph.nodes[nodeId];
+      const sid = nd && nd.data && nd.data.subjectId;
+      if (!sid || !assetId) return;
+      const list = loadSubjects();
+      const i = list.findIndex((s) => s.id === sid);
+      if (i < 0) return;
+      if (!list[i].assetIds.includes(assetId)) {
+        list[i].assetIds = [assetId].concat(list[i].assetIds).slice(0, 16);
+        list[i].updatedAt = Date.now();
+        saveSubjects(list);
+      }
+    }
     function emptyBible() { return { worldview: '', style: '', styleAnchor: '', characters: [], scenes: [], props: [] }; }
     function loadBible(pid) {
       if (!pid) return emptyBible();
@@ -10516,8 +10788,9 @@ function queueThumb(assetId) {
       rightTab: 'projects',
       // 多画布预留：当前项目下只有默认画布（null）；将来 = 子目录/子画布 id
       activeCanvasId: null,
-      // 统一弹窗（资产 + 设定集 + 记忆）：'bible' | 'assets' | 'memory' | null；纯 UI 状态
+      // 统一弹窗（资产 + 设定集 + 记忆 + 角色库）：'bible' | 'assets' | 'memory' | 'subjects' | null；纯 UI 状态
       panelModal: null,
+      subjectTargetNodeId: null, // 角色库「应用至画布」的目标节点（生成器/选区带入）
       memoryViewer: null,    // 记忆查看器状态：{ loaded, index, open, body }（随项目切换重拉）
       // 工具栏项目下拉（位置由按钮真实矩形计算）：{left, top} | null；纯 UI 状态
       projectMenu: null,
@@ -12040,6 +12313,7 @@ function queueThumb(assetId) {
         }
         s.assetsTick++;
       });
+      linkAssetToSubject(nodeId, assetId);
       void kind;
     }
     async function runWorkflow() {
@@ -12776,6 +13050,7 @@ function queueThumb(assetId) {
       camera: 'M4 8h3l1.5-2h7L17 8h3v11H4zM12 16a3 3 0 100-6 3 3 0 000 6z',
       memory: 'M5 5h14M5 10h14M5 15h9M5 20h6M18 15v5M15.5 17.5h5',
       chat: 'M4 5h16v11H9l-5 4V5z',
+      users: 'M16 19v-1a4 4 0 00-4-4H6a4 4 0 00-4 4v1M9 11a4 4 0 100-8 4 4 0 000 8zM22 19v-1a4 4 0 00-3-3.9M16 3.1a4 4 0 010 7.8',
     };
     function Ic(name, size) { return h(Icon, { d: ICONS[name], size: size || 14 }); }
 
@@ -14238,6 +14513,14 @@ function queueThumb(assetId) {
                   onPointerDown: (e) => e.stopPropagation(),
                   onClick: () => { if (fileRef.current) fileRef.current.click(); },
                 }, '+'),
+                (isImage || isVideo)
+                  ? h('button', {
+                      type: 'button', className: 'dshic-ref-add', title: T('subjTab') + ' → ' + T('subjApply'),
+                      'data-action': 'composer-subjects',
+                      onPointerDown: (e) => e.stopPropagation(),
+                      onClick: () => update((s) => { s.subjectTargetNodeId = n.id; s.panelModal = 'subjects'; }),
+                    }, Ic('users', 12))
+                  : null,
                 refItems.map((r, i) => h('span', {
                   key: r.edgeId,
                   className: cls('dshic-ref-thumb',
@@ -16220,14 +16503,17 @@ function queueThumb(assetId) {
     // ============================================================
     // 统一弹窗 / 项目命名弹窗的状态与动作（供图标列、工具栏、测试缝共用）
     // ============================================================
+    function normalizeStudioTab(tab) {
+      return (tab === 'assets' || tab === 'memory' || tab === 'subjects') ? tab : 'bible';
+    }
     function openStudioModal(tab) {
-      update((s) => { s.panelModal = tab === 'assets' ? 'assets' : (tab === 'memory' ? 'memory' : 'bible'); });
+      update((s) => { s.panelModal = normalizeStudioTab(tab); });
     }
     function setStudioModalTab(tab) {
-      update((s) => { if (s.panelModal) s.panelModal = tab === 'assets' ? 'assets' : (tab === 'memory' ? 'memory' : 'bible'); });
+      update((s) => { if (s.panelModal) s.panelModal = normalizeStudioTab(tab); });
     }
     function closeStudioModal() {
-      update((s) => { s.panelModal = null; });
+      update((s) => { s.panelModal = null; s.subjectTargetNodeId = null; });
     }
     /** Esc 关闭统一弹窗（真实监听器与测试都走这里，保证行为一致）。 */
     function handleStudioModalKey(e) {
@@ -20094,6 +20380,20 @@ const DIRECTOR_KEY_HELP = [
           'data-action': 'open-bible', title: T('bibleTab'),
           onClick: () => openStudioModal('bible'),
         }, Ic('script', 16)),
+        // 跨项目角色库：打开时若恰好选中一个图片/视频节点，直接把它作为「应用」目标
+        h('button', {
+          key: 'subjects', type: 'button',
+          className: cls('dshic-rail-btn', S.panelModal === 'subjects' && 'is-active'),
+          'data-action': 'open-subjects', title: T('subjTab'),
+          onClick: () => update((s) => {
+            const ids = [...s.sel].filter((id) => {
+              const nd = s.graph.nodes[id];
+              return nd && (nd.type === 'image' || nd.type === 'video');
+            });
+            s.subjectTargetNodeId = ids.length === 1 ? ids[0] : null;
+            s.panelModal = 'subjects';
+          }),
+        }, Ic('users', 16)),
         // 记忆查看器：项目级每集记忆索引 + 全文（只读；agent 经 canvas_write_memory 维护）
         h('button', {
           key: 'memory', type: 'button',
@@ -20199,7 +20499,172 @@ const DIRECTOR_KEY_HELP = [
     }
 
     // ============================================================
-    // 统一弹窗（资产 + 设定集）：右侧面板不再有这两个页签
+    // 跨项目角色库（统一弹窗「角色库」页签）
+    // ============================================================
+    function SubjectThumb({ assetId, name }) {
+      const [coverId, setCoverId] = useState(assetId || null);
+      useEffect(() => {
+        let ok = true;
+        setCoverId(assetId || null);
+        if (!assetId) return () => { ok = false; };
+        idbGet(assetId).then((r) => { if (ok && (!r || r.kind !== 'image')) setCoverId(null); }).catch(() => { if (ok) setCoverId(null); });
+        return () => { ok = false; };
+      }, [assetId]);
+      const url = useAssetUrl(coverId);
+      return h('div', { className: 'dshic-subj-thumb' },
+        url
+          ? h('img', { src: url, alt: name || '', loading: 'lazy', draggable: false })
+          : h('span', { className: 'dshic-subj-initial' }, String(name || '?').slice(0, 1)));
+    }
+    function SubjectsTab({ targetNodeId }) {
+      const [tab, setTab] = useState('mine');
+      const [q, setQ] = useState('');
+      const [gender, setGender] = useState('');
+      const [age, setAge] = useState('');
+      const [culture, setCulture] = useState('');
+      const [editing, setEditing] = useState(null);
+      const [linkFor, setLinkFor] = useState(null);
+      const [busy, setBusy] = useState(false);
+      const zh = effLang() !== 'en';
+      const bible = loadBible(S.activeId);
+      const series = (bible.characters || []).filter((c) => c && String(c.name || '').trim()).map((c) => normalizeSubject({
+        id: 'bible:' + String(c.name).trim(), name: c.name, desc: c.desc || '',
+        assetIds: Array.isArray(c.assetIds) ? c.assetIds : [], createdAt: 0, updatedAt: 0,
+      }));
+      const official = OFFICIAL_SUBJECTS.map((t) => normalizeSubject({
+        id: t.id, name: zh ? t.nameZh : t.nameEn, desc: zh ? t.descZh : t.descEn,
+        gender: t.gender, age: t.age, culture: t.culture, tags: zh ? t.tagsZh : t.tagsEn,
+        assetIds: [], createdAt: 0, updatedAt: 0,
+      }));
+      const source = tab === 'mine' ? loadSubjects() : tab === 'series' ? series : official;
+      const ql = q.trim().toLowerCase();
+      const list = source.filter((s) => {
+        if (gender && s.gender !== gender) return false;
+        if (age && s.age !== age) return false;
+        if (culture && s.culture !== culture) return false;
+        if (!ql) return true;
+        return [s.name, s.desc, (s.tags || []).join(' ')].some((v) => String(v || '').toLowerCase().includes(ql));
+      });
+      const target = targetNodeId ? S.graph.nodes[targetNodeId] : null;
+      const opt = (value, label) => ({ value, label });
+      const filterRow = h('div', { className: 'dshic-subj-filters' },
+        h('input', { className: 'dshic-input', value: q, placeholder: T('subjSearch'), onChange: (e) => setQ(e.target.value), onPointerDown: (e) => e.stopPropagation() }),
+        h('select', { className: 'dshic-select', value: gender, onChange: (e) => setGender(e.target.value), onPointerDown: (e) => e.stopPropagation() },
+          h('option', { value: '' }, T('subjFilterAll')), h('option', { value: 'male' }, T('subjMale')), h('option', { value: 'female' }, T('subjFemale')), h('option', { value: 'other' }, T('subjOther'))),
+        h('select', { className: 'dshic-select', value: age, onChange: (e) => setAge(e.target.value), onPointerDown: (e) => e.stopPropagation() },
+          h('option', { value: '' }, T('subjFilterAll')), h('option', { value: 'child' }, T('subjChild')), h('option', { value: 'youth' }, T('subjYouth')), h('option', { value: 'middle' }, T('subjMiddle')), h('option', { value: 'elder' }, T('subjElder'))),
+        h('select', { className: 'dshic-select', value: culture, onChange: (e) => setCulture(e.target.value), onPointerDown: (e) => e.stopPropagation() },
+          h('option', { value: '' }, T('subjFilterAll')), h('option', { value: 'asia' }, T('subjAsia')), h('option', { value: 'west' }, T('subjWest')), h('option', { value: 'other' }, T('subjOtherCulture'))),
+        h('div', { className: 'dshic-flex' }),
+        tab === 'mine' ? h('button', { type: 'button', className: 'dshic-btn dshic-primary', onClick: () => setEditing(emptySubject()), onPointerDown: (e) => e.stopPropagation() }, T('subjNew')) : null,
+        tab === 'series' && series.length ? h('button', {
+          type: 'button', className: 'dshic-btn dshic-primary', disabled: busy,
+          onClick: () => importAllFromSeries(),
+          onPointerDown: (e) => e.stopPropagation(),
+        }, busy ? h('span', { className: 'dshic-spin' }) : T('subjImportAll').replace('{n}', String(series.length))) : null);
+      const importOne = (s) => {
+        const existing = loadSubjects().find((x) => x.name === s.name);
+        return (async () => {
+          const copied = existing ? existing.assetIds : await copySubjectAssetsToGeneral(s.assetIds);
+          const merged = [...new Set([...(existing ? existing.assetIds : []), ...copied])].slice(0, 16);
+          upsertSubject({
+            ...(existing || {}), id: existing ? existing.id : '', name: s.name,
+            desc: (existing && existing.desc) || s.desc, assetIds: merged,
+          });
+        })();
+      };
+      async function importAllFromSeries() {
+        if (busy) return;
+        setBusy(true);
+        try {
+          for (const s of series) await importOne(s);
+          toast(T('subjImportDone').replace('{n}', String(series.length)));
+          setTab('mine');
+        } finally { setBusy(false); }
+      }
+      const apply = async (s) => {
+        const n = await applySubjectToCanvas(s, targetNodeId || '');
+        if (n && targetNodeId) closeStudioModal();
+      };
+      const saveDraft = () => {
+        if (!editing || !String(editing.name || '').trim()) return;
+        upsertSubject(editing);
+        setEditing(null);
+        toast(T('subjSaved'));
+      };
+      return h('div', { className: 'dshic-subjects' },
+        h('div', { className: 'dshic-studio-subtabs' },
+          h('button', { type: 'button', className: cls('dshic-studio-tab', tab === 'mine' && 'is-active'), 'data-subtab': 'mine', onClick: () => setTab('mine') }, T('subjMine')),
+          h('button', { type: 'button', className: cls('dshic-studio-tab', tab === 'series' && 'is-active'), 'data-subtab': 'series', onClick: () => setTab('series') }, T('subjSeries')),
+          h('button', { type: 'button', className: cls('dshic-studio-tab', tab === 'official' && 'is-active'), 'data-subtab': 'official', onClick: () => setTab('official') }, T('subjOfficial'))),
+        h('div', { className: 'dshic-hint' }, tab === 'series' ? T('subjFromBibleHint') : tab === 'official' ? T('subjOfficialHint') : (target ? T('subjTargetHint') : T('subjNoTargetHint'))),
+        filterRow,
+        list.length === 0
+          ? h('div', { className: 'dshic-subj-empty' }, T(tab === 'mine' ? 'subjEmpty' : 'subjNoMatch'))
+          : h('div', { className: 'dshic-subj-grid' },
+              list.map((s) => h('div', { key: s.id, className: 'dshic-subj-card', 'data-subject': s.id },
+                h(SubjectThumb, { assetId: (s.assetIds || [])[0], name: s.name }),
+                h('div', { className: 'dshic-subj-body' },
+                  h('div', { className: 'dshic-subj-name', title: s.name }, s.name),
+                  h('div', { className: 'dshic-subj-meta' },
+                    [s.gender === 'male' ? T('subjMale') : s.gender === 'female' ? T('subjFemale') : s.gender === 'other' ? T('subjOther') : '',
+                      s.age === 'child' ? T('subjChild') : s.age === 'youth' ? T('subjYouth') : s.age === 'middle' ? T('subjMiddle') : s.age === 'elder' ? T('subjElder') : '',
+                      s.culture === 'asia' ? T('subjAsia') : s.culture === 'west' ? T('subjWest') : s.culture === 'other' ? T('subjOtherCulture') : '']
+                      .filter(Boolean).join(' · '),
+                    (s.assetIds || []).length ? ' · ' + T('subjAssetsN').replace('{n}', String((s.assetIds || []).length)) : '',
+                    s.voiceAssetId ? ' · ' + T('subjVoice') : ''),
+                  s.desc ? h('div', { className: 'dshic-subj-desc', title: s.desc }, s.desc) : null,
+                  (s.tags || []).length ? h('div', { className: 'dshic-subj-tags' }, s.tags.slice(0, 4).map((t) => h('span', { key: t, className: 'dshic-tag' }, t))) : null,
+                  h('div', { className: 'dshic-subj-actions' },
+                    tab === 'mine'
+                      ? [
+                          h('button', { key: 'apply', type: 'button', className: 'dshic-mini is-ghost', onClick: () => apply(s) }, Ic('image', 11), T('subjApply')),
+                          h('button', { key: 'edit', type: 'button', className: 'dshic-mini is-ghost', onClick: () => setEditing(s) }, T('subjEdit')),
+                          h('button', { key: 'bind', type: 'button', className: 'dshic-mini is-ghost', onClick: () => setLinkFor(s) }, T('subjBindAssets')),
+                          h('button', { key: 'sheet', type: 'button', className: 'dshic-mini is-ghost', onClick: () => { createSubjectSheetNode(s); closeStudioModal(); } }, T('subjGenerateSheet')),
+                          h('button', { key: 'del', type: 'button', className: 'dshic-mini is-ghost', style: { color: 'var(--dsw-alias-state-error-primary)' }, onClick: () => { if (window.confirm(T('subjDeleteConfirm').replace('{name}', s.name))) removeSubject(s.id); } }, Ic('trash', 11)),
+                        ]
+                      : tab === 'series'
+                        ? h('button', { type: 'button', className: 'dshic-mini is-ghost', disabled: busy, onClick: async () => { await importOne(s); toast(T('subjSaved')); } }, Ic('plus', 11), T('subjImport'))
+                        : h('button', { type: 'button', className: 'dshic-mini is-ghost', onClick: () => setEditing({ ...s, id: '' }) }, Ic('plus', 11), T('subjUseTemplate'))))))),
+        editing
+          ? h('div', { className: 'dshic-modal-overlay', onPointerDown: (e) => { if (e.target === e.currentTarget) setEditing(null); } },
+              h('div', { className: 'dshic-modal', style: { width: 460 } },
+                h('div', { className: 'dshic-modal-title' }, (editing.id ? T('subjEdit') : T('subjNew')) + ' — ' + (editing.name || '')),
+                h(Field, { label: T('subjName'), value: editing.name, onChange: (v) => setEditing({ ...editing, name: v }) }),
+                h(Field, { label: T('subjDesc'), value: editing.desc, onChange: (v) => setEditing({ ...editing, desc: v }) }),
+                h('div', { className: 'dshic-node-row' },
+                  h('label', { className: 'dshic-field', style: { flex: 1 } }, h('span', { className: 'dshic-field-label' }, T('subjGender')),
+                    h('select', { className: 'dshic-select', value: editing.gender, onChange: (e) => setEditing({ ...editing, gender: e.target.value }) },
+                      h('option', { value: '' }, T('subjFilterAll')), h('option', { value: 'male' }, T('subjMale')), h('option', { value: 'female' }, T('subjFemale')), h('option', { value: 'other' }, T('subjOther')))),
+                  h('label', { className: 'dshic-field', style: { flex: 1 } }, h('span', { className: 'dshic-field-label' }, T('subjAge')),
+                    h('select', { className: 'dshic-select', value: editing.age, onChange: (e) => setEditing({ ...editing, age: e.target.value }) },
+                      h('option', { value: '' }, T('subjFilterAll')), h('option', { value: 'child' }, T('subjChild')), h('option', { value: 'youth' }, T('subjYouth')), h('option', { value: 'middle' }, T('subjMiddle')), h('option', { value: 'elder' }, T('subjElder')))),
+                  h('label', { className: 'dshic-field', style: { flex: 1 } }, h('span', { className: 'dshic-field-label' }, T('subjCulture')),
+                    h('select', { className: 'dshic-select', value: editing.culture, onChange: (e) => setEditing({ ...editing, culture: e.target.value }) },
+                      h('option', { value: '' }, T('subjFilterAll')), h('option', { value: 'asia' }, T('subjAsia')), h('option', { value: 'west' }, T('subjWest')), h('option', { value: 'other' }, T('subjOtherCulture'))))),
+                h(Field, { label: T('subjTags'), value: (editing.tags || []).join(', '), onChange: (v) => setEditing({ ...editing, tags: v.split(',').map((x) => x.trim()).filter(Boolean) }) }),
+                h('div', { className: 'dshic-modal-actions' },
+                  h('button', { type: 'button', className: 'dshic-btn dshic-btn-outline', onClick: () => setEditing(null) }, T('subjCancel')),
+                  h('button', { type: 'button', className: 'dshic-btn dshic-primary', disabled: !String(editing.name || '').trim(), onClick: saveDraft }, T('subjSave')))))
+          : null,
+        linkFor ? h(BibleLinkDialog, {
+          entry: linkFor,
+          onApply: async (assetIds) => {
+            // 绑定时复制到通用项目：角色库跨项目可用，源项目删除后参考图仍在
+            const copied = await copySubjectAssetsToGeneral(assetIds || []);
+            const recs = await Promise.all(copied.map((id) => idbGet(id).catch(() => null)));
+            const voice = recs.find((r) => r && r.kind === 'audio');
+            upsertSubject({ ...linkFor, assetIds: copied, voiceAssetId: voice ? voice.id : linkFor.voiceAssetId || null });
+            setLinkFor(null);
+          },
+          onClose: () => setLinkFor(null),
+        }) : null,
+      );
+    }
+
+    // ============================================================
+    // 统一弹窗（资产 + 设定集 + 角色库）：右侧面板不再有这些页签
     // ============================================================
     function StudioModal() {
       const tab = S.panelModal;
@@ -20225,6 +20690,7 @@ const DIRECTOR_KEY_HELP = [
             h('div', { className: 'dshic-studio-tabs' },
               tabBtn('bible', T('bibleTab')),
               tabBtn('assets', T('assets')),
+              tabBtn('subjects', T('subjTab')),
               tabBtn('memory', T('memViewerTab'))),
             h('span', { className: 'dshic-studio-title' }, proj ? proj.name : ''),
             h('button', {
@@ -20236,7 +20702,9 @@ const DIRECTOR_KEY_HELP = [
               ? h('div', { className: 'dshic-studio-bible' }, h(BibleTab))
               : (tab === 'memory'
                 ? h('div', { className: 'dshic-studio-memory' }, h(MemoryTab))
-                : h('div', { className: 'dshic-modal-assets' }, h(AssetsTab, { variant: 'modal' })))),
+                : tab === 'subjects'
+                  ? h('div', { className: 'dshic-studio-subjects' }, h(SubjectsTab, { targetNodeId: S.subjectTargetNodeId }))
+                  : h('div', { className: 'dshic-modal-assets' }, h(AssetsTab, { variant: 'modal' })))),
         ));
     }
 
@@ -24216,6 +24684,8 @@ const DIRECTOR_KEY_HELP = [
           };
           // IC-01：下载侧扩展名判定的纯函数出口（供 scripts/test-download-ext.mjs 直接断言）
           window.__DSH_IC_MEDIA__ = { extForDownload };
+          // 跨项目角色库：组件 + 数据层出口（供 test-panel-layout / test-subjects 直渲染与断言）
+          window.__DSH_IC_SUBJECTS__ = { SubjectsTab, normalizeSubject, loadSubjects, upsertSubject, removeSubject, OFFICIAL_SUBJECTS };
           // IC-04：参考图上传三件套的纯函数出口（供 scripts/test-image-upload.mjs 直接断言）
           window.__DSH_IC_IMGREF__ = { rawImageDims, sniffImageEncoding, registerReferenceAsset };
           // IC-03：视频厂商识别/前缀归一化的纯函数出口（供 scripts/test-vendor-detect.mjs 直接断言）
