@@ -167,6 +167,7 @@ for (const p of (E.SCENE_PRESETS || [])) {
   ok(cli.includes("'dir-char-add'") && cli.includes('loadBible'), '客户端缺少角色库入口/设定集接线');
   ok(cli.includes('motion-presets') && cli.includes('MOTION_PRESETS'), '客户端缺少视频节点运镜/转场预设入口');
   ok(cli.includes('video-preflight') && cli.includes('addCharacterRefs'), '客户端缺少视频生成前预检/角色参考入口');
+  ok(cli.includes("'video-canvas-ref'") && cli.includes("'video-autolink'"), '客户端缺少画布参考/AutoLink 入口');
   ok(cli.includes('specFromBrief'), '客户端未接线一句话搭景');
   ok(cli.includes('CAMERA_MOVES') || cli.includes('DIRECTOR_MOVES'), '客户端未接线运镜清单');
 }

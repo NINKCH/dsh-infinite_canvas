@@ -527,6 +527,13 @@ function revealCanvasInRight() {
       'videoCharPick': '从设定集加角色参考',
       'videoCharNoAssets': '该角色还没有参考图资产',
       'videoCharAdded': '已加 {n} 张角色参考',
+      'videoCanvasRef': '画布参考',
+      'videoCanvasRefNone': '先在画布上选中图片节点',
+      'videoCanvasRefAdded': '已加 {n} 张画布参考',
+      'videoAutoLink': 'AutoLink',
+      'videoAutoLinkNone': '提示词里没有可匹配的 @名称@',
+      'videoAutoLinkAdded': '已自动连接 {n} 张参考',
+      'videoAutoLinkMiss': '有 @名称@ 但没有找到同名图片节点',
       'boxExamples': '试试：',
       'boxEx1': '城市街头警匪追车',
       'boxEx2': '环绕香水瓶运镜',
@@ -1601,6 +1608,13 @@ function revealCanvasInRight() {
       'videoCharPick': 'Add character refs from bible',
       'videoCharNoAssets': 'This character has no reference assets yet',
       'videoCharAdded': 'Added {n} character refs',
+      'videoCanvasRef': 'Canvas refs',
+      'videoCanvasRefNone': 'Select image nodes on the canvas first',
+      'videoCanvasRefAdded': 'Added {n} canvas refs',
+      'videoAutoLink': 'AutoLink',
+      'videoAutoLinkNone': 'No @name@ mentions to link',
+      'videoAutoLinkAdded': 'Auto-linked {n} refs',
+      'videoAutoLinkMiss': 'Mentions found, but no matching image nodes',
       'boxExamples': 'Try:',
       'boxEx1': 'City street chase',
       'boxEx2': 'Orbit a perfume bottle',
@@ -13530,6 +13544,33 @@ function queueThumb(assetId) {
         }
         toast(T('videoCharAdded').replace('{n}', String(added)));
       };
+      /** 画布参考：把当前选中的图片节点连到视频节点的 ref 端口。 */
+      const addCanvasRefs = () => {
+        const ids = [...(S.sel || [])].filter((id) => id !== n.id);
+        const imgs = ids.map((id) => S.graph.nodes[id]).filter((nd) => nd && nd.type === 'image');
+        if (!imgs.length) { toast(T('videoCanvasRefNone')); return; }
+        const wired = new Set(S.graph.edges.filter((e) => e.toNode === n.id && e.toPort === 'ref').map((e) => e.fromNode));
+        let added = 0;
+        for (const nd of imgs) {
+          if (wired.has(nd.id)) continue;
+          if (connect(nd, 'out', n, 'ref')) added++;
+        }
+        toast(T('videoCanvasRefAdded').replace('{n}', String(added)));
+      };
+      /** AutoLink：把提示词里的 @名称@ 匹配到同名/含名的图片节点并自动连 ref。 */
+      const autoLinkRefs = () => {
+        const names = parseMentions(String(promptVal || '')).map((x) => String(x.name || '').trim()).filter(Boolean);
+        if (!names.length) { toast(T('videoAutoLinkNone')); return; }
+        const imgs = Object.values(S.graph.nodes).filter((nd) => nd && nd.type === 'image' && names.some((nm) => String((nd.data && nd.data.label) || '').includes(nm)));
+        if (!imgs.length) { toast(T('videoAutoLinkMiss')); return; }
+        const wired = new Set(S.graph.edges.filter((e) => e.toNode === n.id && e.toPort === 'ref').map((e) => e.fromNode));
+        let added = 0;
+        for (const nd of imgs) {
+          if (wired.has(nd.id)) continue;
+          if (connect(nd, 'out', n, 'ref')) added++;
+        }
+        toast(T('videoAutoLinkAdded').replace('{n}', String(added)));
+      };
       /** 生成前素材预检：参考图上限按当前视频厂商。 */
       const videoPreflight = (() => {
         if (!isVideo) return null;
@@ -13646,7 +13687,9 @@ function queueThumb(assetId) {
                       options: [{ value: '', label: T('videoCharPick') }].concat(bibleChars.map((c) => ({ value: c.name, label: String(c.name) + (Array.isArray(c.assetIds) && c.assetIds.length ? ' · ' + c.assetIds.length : '') }))),
                       onChange: addCharacterRefs,
                     })
-                  : null)
+                  : null,
+                h('button', { type: 'button', className: 'dshic-dir-mini', 'data-action': 'video-canvas-ref', onClick: addCanvasRefs }, T('videoCanvasRef')),
+                h('button', { type: 'button', className: 'dshic-dir-mini', 'data-action': 'video-autolink', onClick: autoLinkRefs }, T('videoAutoLink')))
             : null,
           h('div', { className: 'dshic-composer-prompt' },
             h(PromptArea, {

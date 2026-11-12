@@ -58,6 +58,10 @@ GitHub Releases carry the same notes in English; maintainer-facing runbooks live
   vendor's cap, and an estimate from the configured per-second price) and a
   bible character picker that creates/attaches reference image nodes and
   `ref` edges automatically.
+- **Video “Canvas refs” + AutoLink.** The preflight row can attach the
+  currently selected image nodes as `ref` edges (“Canvas refs”), or match
+  `@name@` mentions in the prompt to same-named image nodes and wire them
+  automatically (“AutoLink”).
 
 ### Fixed
 - (nothing in this cycle yet)
