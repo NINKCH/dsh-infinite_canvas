@@ -80,7 +80,9 @@ GitHub Releases carry the same notes in English; maintainer-facing runbooks live
   selection or a group to preview item count, video seconds and estimated
   cost, then run a queue with a concurrency cap, per-item status/errors and
   stop. Group actions also generate video nodes from member images (wired to
-  the first-frame input) and download all generated assets in one go.
+  the first-frame input) and download all generated assets in one go. A run
+  token scopes each queue, so closing and reopening the console cannot
+  re-consume a new batch from an old worker.
 
 ### Fixed
 - (nothing in this cycle yet)
