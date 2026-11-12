@@ -143,6 +143,8 @@ GitHub Releases carry the same notes in English; maintainer-facing runbooks live
   only a visible fallback. Each preview gets its own stage id under
   `craft/3dbox/`, so generating a new one no longer hides the old library
   entries; legacy single-file previews are migrated before the first new save.
+  Hosts without the new `briefVersion` / `multiStage` capability markers are
+  blocked with a restart hint instead of silently serving template output.
 
 ### Internal
 - (nothing in this cycle yet)
