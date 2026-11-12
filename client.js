@@ -1208,6 +1208,22 @@ function revealCanvasInRight() {
       'imgToolNoModel': '未配置图片模型：只能使用本地超分',
       'imgToolTransparent': '透明底',
       'imgToolWhiteBg': '白底',
+      'wfTab': '工作流',
+      'wfTitle': '工作流工具箱',
+      'wfEmpty': '还没有工作流：选中多个节点或一个组，右键「保存为工作流」。',
+      'wfSave': '保存为工作流（{n}）',
+      'wfNamePrompt': '工作流名称',
+      'wfDefaultName': '工作流 {time}',
+      'wfSaved': '已保存工作流「{name}」',
+      'wfInsert': '插入画布',
+      'wfInserted': '已插入 {n} 个节点 / {e} 条连线',
+      'wfRename': '重命名',
+      'wfDelete': '删除',
+      'wfDeleteConfirm': '删除工作流「{name}」？不会删除画布节点。',
+      'wfMeta': '{n} 节点 · {e} 连线 · {a} 资产占位',
+      'wfAssetMissing': '工作流资产未找到：已留空占位，可重新挂载/生成',
+      'wfNeedSelection': '至少选中两个节点或一个组',
+      'wfBadge': '工作流',
       'pullShots': '拉片',
       'pullTitle': '参考视频拉片',
       'pullHint': '均匀抽帧后用视觉模型反推分镜、动态与音乐线索；只上传抽出的画面帧，不传视频文件。',
@@ -2414,6 +2430,22 @@ function revealCanvasInRight() {
       'imgToolNoModel': 'No image model configured: only local upscale is available',
       'imgToolTransparent': 'Transparent',
       'imgToolWhiteBg': 'White background',
+      'wfTab': 'Workflows',
+      'wfTitle': 'Workflow toolbox',
+      'wfEmpty': 'No workflows yet: select several nodes or a group, then right-click "Save as workflow".',
+      'wfSave': 'Save as workflow ({n})',
+      'wfNamePrompt': 'Workflow name',
+      'wfDefaultName': 'Workflow {time}',
+      'wfSaved': 'Saved workflow "{name}"',
+      'wfInsert': 'Insert into canvas',
+      'wfInserted': 'Inserted {n} nodes / {e} edges',
+      'wfRename': 'Rename',
+      'wfDelete': 'Delete',
+      'wfDeleteConfirm': 'Delete workflow "{name}"? Canvas nodes are not affected.',
+      'wfMeta': '{n} nodes · {e} edges · {a} asset slots',
+      'wfAssetMissing': 'Workflow asset not found: left as an empty placeholder; remount or regenerate it',
+      'wfNeedSelection': 'Select at least two nodes or one group',
+      'wfBadge': 'Workflow',
       'pullShots': 'Break down',
       'pullTitle': 'Reference video shot breakdown',
       'pullHint': 'Samples frames evenly and asks the vision model for shots, motion and music cues; only frames are uploaded, never the video file.',
@@ -3069,6 +3101,14 @@ body[data-ds-dark-theme] .dshic-studio-modal{border-color:var(--dsw-alias-border
 .dshic-subj-actions{display:flex;flex-wrap:wrap;gap:2px;margin-top:2px;}
 .dshic-subj-actions .dshic-mini{height:22px;padding:0 6px;font-size:10px;}
 .dshic-subj-empty{padding:28px 10px;text-align:center;font-size:12px;color:var(--dsw-alias-label-tertiary);}
+.dshic-studio-workflows{width:100%;max-width:900px;margin:0 auto;}
+.dshic-workflows{display:flex;flex-direction:column;gap:10px;}
+.dshic-wf-list{display:flex;flex-direction:column;gap:8px;}
+.dshic-wf-card{border:1px solid var(--dshic-line2);border-radius:12px;padding:10px;background:var(--dsw-alias-bg-layer-2);display:flex;flex-direction:column;gap:5px;}
+.dshic-wf-head{display:flex;align-items:center;gap:6px;min-width:0;}
+.dshic-wf-name{font-size:13px;font-weight:600;color:var(--dsw-alias-label-primary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0;}
+.dshic-wf-meta{font-size:11px;color:var(--dsw-alias-label-secondary);}
+.dshic-wf-actions{display:flex;gap:4px;flex-wrap:wrap;margin-top:2px;}
 /* ── 3D 导演台：三栏（对象 / 视口 / 属性）；视口是纯 Canvas2D 软件渲染（见 directorRenderScene） ── */
 .dshic-dir-modal{width:min(1220px,calc(100vw - 40px));height:min(820px,calc(100vh - 40px));}
 .dshic-dir-body{flex:1;min-height:0;display:flex;gap:0;overflow:hidden;}
@@ -4725,6 +4765,149 @@ body[data-ds-dark-theme] .dshic-pick-item.is-on{background:color-mix(in srgb,var
       flushSave();
       toast(T('imgToolDone').replace('{name}', String(label || 'image-tool')));
       return nd.id;
+    }
+
+    // ============================================================
+    // 工作流工具箱：组/选区 → 快照（节点/连线/参数/资产占位） → 跨项目插入重映射
+    // ============================================================
+    const LS_WORKFLOWS = 'dsh-ic:workflows';
+    function normalizeWorkflow(w) {
+      const x = w && typeof w === 'object' ? w : {};
+      return {
+        id: String(x.id || ''),
+        name: String(x.name || '').trim().slice(0, 80),
+        createdAt: Number(x.createdAt) || 0,
+        updatedAt: Number(x.updatedAt) || 0,
+        nodes: Array.isArray(x.nodes) ? x.nodes.slice(0, 200) : [],
+        edges: Array.isArray(x.edges) ? x.edges.slice(0, 400) : [],
+        assets: Array.isArray(x.assets) ? x.assets.slice(0, 400) : [],
+        meta: x.meta && typeof x.meta === 'object' ? x.meta : { version: 1, source: 'canvas' },
+      };
+    }
+    function loadWorkflows() {
+      const a = lsGet(LS_WORKFLOWS, []);
+      return (Array.isArray(a) ? a : []).map(normalizeWorkflow).filter((w) => w.id && w.name)
+        .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+    }
+    function saveWorkflows(list) {
+      lsSet(LS_WORKFLOWS, (list || []).map(normalizeWorkflow).filter((w) => w.id && w.name));
+      notify();
+    }
+    function upsertWorkflow(wf) {
+      const now = Date.now();
+      const w = normalizeWorkflow({ ...wf, updatedAt: now, createdAt: wf.createdAt || now });
+      if (!w.id) w.id = uid('wf');
+      const list = loadWorkflows();
+      const i = list.findIndex((x) => x.id === w.id);
+      if (i >= 0) list[i] = w; else list.unshift(w);
+      saveWorkflows(list);
+      return w;
+    }
+    function removeWorkflow(id) {
+      saveWorkflows(loadWorkflows().filter((w) => w.id !== id));
+    }
+    const WF_RUNTIME_FIELDS = ['status', 'error', 'progress', 'genWarn', 'stopNote', 'seam', 'tailPending', 'history', 'warnings'];
+    async function saveWorkflowFromIds(ids) {
+      const list = batchExpand(ids).filter((n) => n && n.type !== 'group');
+      if (list.length < 2) { toast(T('wfNeedSelection')); return null; }
+      const stamp = new Date();
+      const defName = T('wfDefaultName').replace('{time}', stamp.toLocaleTimeString(effLang() === 'en' ? 'en-US' : 'zh-CN', { hour: '2-digit', minute: '2-digit' }));
+      let name = defName;
+      try {
+        const v = window.prompt(T('wfNamePrompt'), defName);
+        if (v === null) return null;
+        name = String(v || '').trim() || defName;
+      } catch { /* prompt 不可用：用默认名 */ }
+      const minX = Math.min(...list.map((n) => Number(n.x) || 0));
+      const minY = Math.min(...list.map((n) => Number(n.y) || 0));
+      const keyById = new Map(list.map((n, i) => [n.id, 'n' + i]));
+      const nodes = list.map((n, i) => {
+        const data = JSON.parse(JSON.stringify(n.data || {}));
+        for (const k of WF_RUNTIME_FIELDS) delete data[k];
+        data.status = 'idle'; data.error = null; data.progress = null;
+        if (data.aiStatus === 'running') data.aiStatus = 'idle';
+        return {
+          key: 'n' + i, type: n.type,
+          x: Math.round((Number(n.x) || 0) - minX), y: Math.round((Number(n.y) || 0) - minY),
+          w: Number(n.w) || 360, h: Number(n.h) || 360, data,
+        };
+      });
+      const edges = S.graph.edges
+        .filter((e) => keyById.has(e.fromNode) && keyById.has(e.toNode))
+        .map((e) => ({ from: keyById.get(e.fromNode), fromPort: e.fromPort || '', to: keyById.get(e.toNode), toPort: e.toPort || '' }));
+      const assets = [];
+      for (const n of nodes) {
+        for (const field of ['assetId', 'fcAssetId', 'lastAssetId']) {
+          const aid = n.data[field];
+          if (!aid) continue;
+          if (assets.some((a) => a.nodeKey === n.key && a.field === field)) continue;
+          let rec = null;
+          try { rec = await idbGet(aid); } catch { rec = null; }
+          assets.push({ nodeKey: n.key, field, assetId: String(aid), name: (rec && rec.name) || '', kind: (rec && rec.kind) || '' });
+        }
+      }
+      const wf = upsertWorkflow({ id: '', name, nodes, edges, assets, meta: { version: 1, source: 'canvas' } });
+      toast(T('wfSaved').replace('{name}', wf.name));
+      return wf;
+    }
+    /** 跨项目插入：按 id 命中 → 按名称重映射 → 都没有则清空并留占位（绝不把 A 项目资产误当 B 项目资产）。 */
+    async function insertWorkflow(wf) {
+      const w = normalizeWorkflow(wf);
+      if (!w.nodes.length) return null;
+      let all = [];
+      try { all = (await idbByProject(S.activeId)).concat(await idbByProject(GENERAL_PID)); } catch { all = []; }
+      const byId = new Map(all.map((a) => [a.id, a]));
+      const byName = new Map();
+      for (const a of all) if (a && a.name) byName.set(String(a.kind) + '|' + String(a.name), a);
+      const slotByNodeField = new Map((w.assets || []).map((a) => [a.nodeKey + '|' + a.field, a]));
+      const center = worldCenter();
+      const maxX = Math.max(...w.nodes.map((n) => (Number(n.x) || 0) + (Number(n.w) || 360)));
+      const maxY = Math.max(...w.nodes.map((n) => (Number(n.y) || 0) + (Number(n.h) || 360)));
+      const baseX = center.x - maxX / 2;
+      const baseY = center.y - maxY / 2;
+      const idByKey = new Map();
+      const missingSlots = [];
+      const made = w.nodes.map((snap) => {
+        const data = JSON.parse(JSON.stringify(snap.data || {}));
+        for (const field of ['assetId', 'fcAssetId', 'lastAssetId']) {
+          const old = data[field];
+          if (!old) continue;
+          const slot = slotByNodeField.get(snap.key + '|' + field);
+          let next = byId.has(String(old)) ? String(old) : null;
+          if (!next && slot && slot.name) {
+            const hit = byName.get(String(slot.kind || '') + '|' + String(slot.name));
+            if (hit) next = hit.id;
+          }
+          if (next) data[field] = next;
+          else { delete data[field]; missingSlots.push(snap.key); }
+        }
+        const missing = !data.assetId && (snap.type === 'image' || snap.type === 'video' || snap.type === 'finalcut');
+        if (missing) {
+          data.status = 'idle'; data.progress = null;
+          data.genWarn = T('wfAssetMissing');
+        }
+        const nd = {
+          id: uid('n'), type: snap.type,
+          x: Math.round(baseX + (Number(snap.x) || 0)),
+          y: Math.round(baseY + (Number(snap.y) || 0)),
+          w: Number(snap.w) || 360, h: Number(snap.h) || 360, data,
+        };
+        idByKey.set(snap.key, nd.id);
+        return nd;
+      });
+      const madeEdges = w.edges
+        .filter((e) => idByKey.has(e.from) && idByKey.has(e.to))
+        .map((e) => ({ id: uid('e'), fromNode: idByKey.get(e.from), fromPort: e.fromPort || 'out', toNode: idByKey.get(e.to), toPort: e.toPort || '' }));
+      update((s) => {
+        for (const nd of made) s.graph.nodes[nd.id] = nd;
+        s.graph.edges.push(...madeEdges);
+        s.sel = new Set(made.map((n) => n.id));
+        s.selEdge = null;
+      });
+      pushHistory();
+      flushSave();
+      toast(T('wfInserted').replace('{n}', String(made.length)).replace('{e}', String(madeEdges.length)));
+      return { nodes: made.length, edges: madeEdges.length, missing: new Set(missingSlots).size };
     }
 
     /** 生成结果回挂角色库：图片节点的 subjectId 命中时，把新资产加进该角色的参考图。 */
@@ -16691,6 +16874,7 @@ function queueThumb(assetId) {
         // 选区/整组批量入口：右键点在已选节点上 → 对整批选区开放；组节点 → 组内成员。
         const scopeIds = n.type === 'group' ? [n.id] : (S.sel.has(n.id) && S.sel.size >= 2 ? [...S.sel] : [n.id]);
         const batchTargets = collectBatchTargets(scopeIds);
+        const wfCount = batchExpand(scopeIds).filter((x) => x && x.type !== 'group').length;
         const groupImages = n.type === 'group' ? batchExpand([n.id]).filter((x) => x.type === 'image' && x.data && x.data.assetId) : [];
         const downloadable = n.type === 'group'
           ? batchExpand([n.id]).filter((x) => (x.type === 'finalcut' ? !!(x.data && (x.data.assetId || x.data.fcAssetId)) : !!(x.data && x.data.assetId))).length
@@ -16709,6 +16893,9 @@ function queueThumb(assetId) {
             : []),
           ...(downloadable
             ? [{ label: T('batchGroupDownload').replace('{n}', String(downloadable)), icon: 'download', fn: () => batchDownloadNodes([n.id]) }]
+            : []),
+          ...(wfCount >= 2 && (n.type === 'group' || (S.sel.has(n.id) && S.sel.size >= 2))
+            ? [{ label: T('wfSave').replace('{n}', String(wfCount)), icon: 'folder', fn: () => { saveWorkflowFromIds(scopeIds); } }]
             : []),
           ...(S.sel.size >= 2 ? [{ label: T('createGroup'), icon: 'folder', fn: () => createGroupFromSelection() }] : []),
           ...(n.type === 'group' ? [{ label: T('ungroup'), icon: 'folder', fn: () => ungroupNode(n.id) }] : []),
@@ -16753,7 +16940,7 @@ function queueThumb(assetId) {
     // 统一弹窗 / 项目命名弹窗的状态与动作（供图标列、工具栏、测试缝共用）
     // ============================================================
     function normalizeStudioTab(tab) {
-      return (tab === 'assets' || tab === 'memory' || tab === 'subjects') ? tab : 'bible';
+      return (tab === 'assets' || tab === 'memory' || tab === 'subjects' || tab === 'workflows') ? tab : 'bible';
     }
     function openStudioModal(tab) {
       update((s) => { s.panelModal = normalizeStudioTab(tab); });
@@ -20643,6 +20830,12 @@ const DIRECTOR_KEY_HELP = [
             s.panelModal = 'subjects';
           }),
         }, Ic('users', 16)),
+        h('button', {
+          key: 'workflows', type: 'button',
+          className: cls('dshic-rail-btn', S.panelModal === 'workflows' && 'is-active'),
+          'data-action': 'open-workflows', title: T('wfTab'),
+          onClick: () => openStudioModal('workflows'),
+        }, Ic('board', 16)),
         // 记忆查看器：项目级每集记忆索引 + 全文（只读；agent 经 canvas_write_memory 维护）
         h('button', {
           key: 'memory', type: 'button',
@@ -20913,7 +21106,57 @@ const DIRECTOR_KEY_HELP = [
     }
 
     // ============================================================
-    // 统一弹窗（资产 + 设定集 + 角色库）：右侧面板不再有这些页签
+    // 工作流工具箱页签
+    // ============================================================
+    function WorkflowsTab() {
+      const list = loadWorkflows();
+      const [busy, setBusy] = useState(false);
+      const [err, setErr] = useState(null);
+      const insert = async (wf) => {
+        if (busy) return;
+        setBusy(true); setErr(null);
+        try {
+          await insertWorkflow(wf);
+          closeStudioModal();
+        } catch (e) { setErr(String((e && e.message) || e)); } finally { setBusy(false); }
+      };
+      const rename = (wf) => {
+        let v = null;
+        try { v = window.prompt(T('wfRename'), wf.name); } catch { v = null; }
+        if (v === null) return;
+        const name = String(v || '').trim();
+        if (name) upsertWorkflow({ ...wf, name });
+      };
+      const del = (wf) => {
+        let ok2 = false;
+        try { ok2 = window.confirm(T('wfDeleteConfirm').replace('{name}', wf.name)); } catch { ok2 = false; }
+        if (ok2) removeWorkflow(wf.id);
+      };
+      return h('div', { className: 'dshic-workflows' },
+        h('div', { className: 'dshic-hint' }, T('wfEmpty')),
+        busy ? h('div', { className: 'dshic-modal-warn', style: { display: 'flex', alignItems: 'center', gap: 6 } }, h('span', { className: 'dshic-spin' }), T('wfInsert' ) + '…') : null,
+        err ? h('div', { className: 'dshic-err' }, err) : null,
+        list.length
+          ? h('div', { className: 'dshic-wf-list' },
+              list.map((wf) => h('div', { key: wf.id, className: 'dshic-wf-card', 'data-workflow': wf.id },
+                h('div', { className: 'dshic-wf-head' },
+                  Ic('folder', 13),
+                  h('span', { className: 'dshic-wf-name', title: wf.name }, wf.name),
+                  h('span', { className: 'dshic-tag' }, T('wfBadge'))),
+                h('div', { className: 'dshic-wf-meta' }, T('wfMeta')
+                  .replace('{n}', String(wf.nodes.length))
+                  .replace('{e}', String(wf.edges.length))
+                  .replace('{a}', String((wf.assets || []).length))),
+                h('div', { className: 'dshic-wf-actions' },
+                  h('button', { type: 'button', className: 'dshic-mini is-ghost', disabled: busy, onClick: () => insert(wf), onPointerDown: (e) => e.stopPropagation() }, Ic('plus', 11), T('wfInsert')),
+                  h('button', { type: 'button', className: 'dshic-mini is-ghost', onClick: () => rename(wf), onPointerDown: (e) => e.stopPropagation() }, T('wfRename')),
+                  h('button', { type: 'button', className: 'dshic-mini is-ghost', style: { color: 'var(--dsw-alias-state-error-primary)' }, onClick: () => del(wf), onPointerDown: (e) => e.stopPropagation() }, Ic('trash', 11))))))
+          : null,
+      );
+    }
+
+    // ============================================================
+    // 统一弹窗（资产 + 设定集 + 角色库 + 工作流）：右侧面板不再有这些页签
     // ============================================================
     function StudioModal() {
       const tab = S.panelModal;
@@ -20940,6 +21183,7 @@ const DIRECTOR_KEY_HELP = [
               tabBtn('bible', T('bibleTab')),
               tabBtn('assets', T('assets')),
               tabBtn('subjects', T('subjTab')),
+              tabBtn('workflows', T('wfTab')),
               tabBtn('memory', T('memViewerTab'))),
             h('span', { className: 'dshic-studio-title' }, proj ? proj.name : ''),
             h('button', {
@@ -20953,7 +21197,9 @@ const DIRECTOR_KEY_HELP = [
                 ? h('div', { className: 'dshic-studio-memory' }, h(MemoryTab))
                 : tab === 'subjects'
                   ? h('div', { className: 'dshic-studio-subjects' }, h(SubjectsTab, { targetNodeId: S.subjectTargetNodeId }))
-                  : h('div', { className: 'dshic-modal-assets' }, h(AssetsTab, { variant: 'modal' })))),
+                  : tab === 'workflows'
+                    ? h('div', { className: 'dshic-studio-workflows' }, h(WorkflowsTab))
+                    : h('div', { className: 'dshic-modal-assets' }, h(AssetsTab, { variant: 'modal' })))),
         ));
     }
 
@@ -24937,6 +25183,8 @@ const DIRECTOR_KEY_HELP = [
           window.__DSH_IC_SUBJECTS__ = { SubjectsTab, normalizeSubject, loadSubjects, upsertSubject, removeSubject, OFFICIAL_SUBJECTS };
           // 确定性图像工具：能力注册表 + 本地超分（供 scripts/test-image-tools.mjs 直接断言）
           window.__DSH_IC_IMGTOOLS__ = { IMAGE_TOOL_CAPS, imageToolCaps, upscaleImageBlob };
+          // 工作流工具箱：保存/插入/资产重映射（供 scripts/test-workflows.mjs 真实执行）
+          window.__DSH_IC_WORKFLOWS__ = { WorkflowsTab, saveWorkflowFromIds, insertWorkflow, loadWorkflows, upsertWorkflow, removeWorkflow };
           // IC-04：参考图上传三件套的纯函数出口（供 scripts/test-image-upload.mjs 直接断言）
           window.__DSH_IC_IMGREF__ = { rawImageDims, sniffImageEncoding, registerReferenceAsset };
           // IC-03：视频厂商识别/前缀归一化的纯函数出口（供 scripts/test-vendor-detect.mjs 直接断言）

@@ -103,6 +103,11 @@ GitHub Releases carry the same notes in English; maintainer-facing runbooks live
   outpaint, multi-angle sheet and relight appear only when the selected image
   model supports `/images/edits` (or the dsh-image-gen edit bridge). Every
   result becomes a new image node beside the source instead of overwriting it.
+- **Workflow toolbox.** Multi-node selections and groups can be saved as a
+  versioned workflow snapshot (nodes, edges, parameters and asset slots).
+  The Workflows tab inserts one into any project at the viewport centre,
+  recreating edges and remapping assets by id then name; missing assets
+  become visible empty placeholders instead of broken nodes.
 
 ### Fixed
 - (nothing in this cycle yet)
