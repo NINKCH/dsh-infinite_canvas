@@ -127,6 +127,7 @@ const COVERAGE = [
   { sha: '99953f2', keys: [/Canvas refs|AutoLink|@name@|selected image nodes|wire them automatically/i] },
   { sha: '183badc', keys: [/First frame|first-frame|Long video|long-video|storyboard segments|last-frame/i] },
   { sha: '10eb89a', keys: [/Agent asset import|canvas_import_asset|canvas_list_assets|assetId|find-and-mount/i] },
+  { sha: '99e101c', keys: [/Audio nodes|final-cut audio tracks|audio node|\bBGM\b|composeFinalCut/i] },
 ];
 for (const c of COVERAGE) {
   ok(c.keys.some((re) => re.test(coverageText)), '未发版提交 ' + c.sha + ' 在 CHANGELOG（Unreleased 或最新已发布段）里找不到对应记录（补记不全）');
