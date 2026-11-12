@@ -97,6 +97,13 @@ ok(miss.total === 0, '不存在的关键词不应命中');
 
 const upd = await I.dbAssetUpdate('a_txt1', { name: '第一节分镜表·定稿' });
 ok(upd.asset.name === '第一节分镜表·定稿' && upd.asset.text === '【镜1】3s', 'assetUpdate 改名失败或丢文本字段');
+// DAM：tags / folder / mergedInto 三列往返（含清除）
+const dam1 = await I.dbAssetUpdate('a_img1', { tags: ['主角', '三视图'], folder: '角色/陈拾', mergedInto: 'a_img2' });
+ok(Array.isArray(dam1.asset.tags) && dam1.asset.tags.join(',') === '主角,三视图', 'assetUpdate tags 往返失败');
+ok(dam1.asset.folder === '角色/陈拾', 'assetUpdate folder 往返失败');
+ok(dam1.asset.mergedInto === 'a_img2', 'assetUpdate mergedInto 往返失败');
+const dam2 = await I.dbAssetUpdate('a_img1', { tags: [], folder: '', mergedInto: null });
+ok((dam2.asset.tags || []).length === 0 && !dam2.asset.folder && !dam2.asset.mergedInto, 'DAM 字段清除失败');
 const nm = await I.dbAssetNames(cp.projectId);
 ok(nm.names.length === 3 && nm.names.some((x) => x.name === '第一节分镜表·定稿'), 'assetNames 不正确');
 
