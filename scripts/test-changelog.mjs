@@ -132,6 +132,7 @@ const COVERAGE = [
   { sha: 'ee3d43d', keys: [/run token|closing and reopening|re-consume|old worker/i] },
   { sha: 'dab09cf', keys: [/Reference-video shot breakdown|vision model|image input|empty storyboard/i] },
   { sha: '7eb5bba', keys: [/Cross-project character library|Characters tab|global storage|official templates|@name@/i] },
+  { sha: 'f1a64c8', keys: [/Deterministic image tools|IMAGE_TOOL_CAPS|cutout|outpaint|multi-angle/i] },
 ];
 for (const c of COVERAGE) {
   ok(c.keys.some((re) => re.test(coverageText)), '未发版提交 ' + c.sha + ' 在 CHANGELOG（Unreleased 或最新已发布段）里找不到对应记录（补记不全）');
