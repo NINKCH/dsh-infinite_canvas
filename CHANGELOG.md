@@ -97,6 +97,12 @@ GitHub Releases carry the same notes in English; maintainer-facing runbooks live
   templates. “Apply to canvas” reuses existing reference-image nodes, wires
   them to the target image/video ref port and adds `@name@`; the generator
   panel has a direct Characters button for the same flow.
+- **Deterministic image tools.** Image nodes get a Tools panel backed by an
+  `IMAGE_TOOL_CAPS` registry: local 2×/3×/4× upscale always available;
+  cutout (transparent background on gpt-image models, clean white otherwise),
+  outpaint, multi-angle sheet and relight appear only when the selected image
+  model supports `/images/edits` (or the dsh-image-gen edit bridge). Every
+  result becomes a new image node beside the source instead of overwriting it.
 
 ### Fixed
 - (nothing in this cycle yet)

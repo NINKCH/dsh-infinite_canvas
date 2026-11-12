@@ -1189,6 +1189,25 @@ function revealCanvasInRight() {
       'subjSearch': '搜索名称/描述/标签',
       'subjOfficialHint': '官方角色模板（无参考图）：复制后可生成设定图',
       'subjUseTemplate': '用模板新建',
+      'imgTools': '图像工具',
+      'imgToolUpscale': '超分',
+      'imgToolMatte': '抠图',
+      'imgToolOutpaint': '扩图',
+      'imgToolAngles': '多角度',
+      'imgToolRelight': '打光',
+      'imgToolFactor': '倍数',
+      'imgToolRatio': '目标比例',
+      'imgToolLight': '光线',
+      'imgToolLightGolden': '黄金时刻',
+      'imgToolLightStudio': '柔光棚拍',
+      'imgToolLightNeon': '霓虹夜景',
+      'imgToolRun': '执行',
+      'imgToolRunning': '处理中…',
+      'imgToolUnsupported': '当前图片模型不支持此工具（需 images/edits 或 dsh-image-gen 桥接）；超分仍可用',
+      'imgToolDone': '已生成「{name}」节点',
+      'imgToolNoModel': '未配置图片模型：只能使用本地超分',
+      'imgToolTransparent': '透明底',
+      'imgToolWhiteBg': '白底',
       'pullShots': '拉片',
       'pullTitle': '参考视频拉片',
       'pullHint': '均匀抽帧后用视觉模型反推分镜、动态与音乐线索；只上传抽出的画面帧，不传视频文件。',
@@ -2376,6 +2395,25 @@ function revealCanvasInRight() {
       'subjSearch': 'Search name / description / tags',
       'subjOfficialHint': 'Official character templates (no references): copy one and generate a sheet',
       'subjUseTemplate': 'Use template',
+      'imgTools': 'Image tools',
+      'imgToolUpscale': 'Upscale',
+      'imgToolMatte': 'Cutout',
+      'imgToolOutpaint': 'Outpaint',
+      'imgToolAngles': 'Multi-angle',
+      'imgToolRelight': 'Relight',
+      'imgToolFactor': 'Scale',
+      'imgToolRatio': 'Target ratio',
+      'imgToolLight': 'Lighting',
+      'imgToolLightGolden': 'Golden hour',
+      'imgToolLightStudio': 'Studio softbox',
+      'imgToolLightNeon': 'Neon night',
+      'imgToolRun': 'Run',
+      'imgToolRunning': 'Processing…',
+      'imgToolUnsupported': 'The current image model does not support this tool (needs images/edits or the dsh-image-gen bridge); upscale is still available',
+      'imgToolDone': 'Created the "{name}" node',
+      'imgToolNoModel': 'No image model configured: only local upscale is available',
+      'imgToolTransparent': 'Transparent',
+      'imgToolWhiteBg': 'White background',
       'pullShots': 'Break down',
       'pullTitle': 'Reference video shot breakdown',
       'pullHint': 'Samples frames evenly and asks the vision model for shots, motion and music cues; only frames are uploaded, never the video file.',
@@ -4246,6 +4284,65 @@ body[data-ds-dark-theme] .dshic-pick-item.is-on{background:color-mix(in srgb,var
       if (d.videoModel) return d.videoModel;
       return legacyVideoApiRefMap[d.videoApiId] || '';
     }
+    /** 确定性图像工具能力注册表：按图片模型协议决定按钮是否出现（不支持就隐藏，绝不点了报错）。
+     *  upscale 是浏览器本地重采样，永远可用；其余工具需要 /images/edits（或 dsh-image-gen 桥接的 edit 模式）。
+     *  transparent = 模型原生支持透明背景（gpt-image 系）；其它 edits 模型退化为「纯白底抠图」。 */
+    const IMAGE_TOOL_CAPS = {
+      bridge: { upscale: true, matte: true, outpaint: true, angles: true, relight: true, transparent: false },
+      edits: { upscale: true, matte: true, outpaint: true, angles: true, relight: true, transparent: false },
+      generations: { upscale: true, matte: false, outpaint: false, angles: false, relight: false, transparent: false },
+    };
+    function imageToolCaps(cfg) {
+      if (cfg && cfg.viaImageGen) return { ...IMAGE_TOOL_CAPS.bridge };
+      const mode = cfg && cfg.mode === 'edits' ? 'edits' : 'generations';
+      const caps = { ...IMAGE_TOOL_CAPS[mode] };
+      if (mode === 'edits') caps.transparent = /gpt-image|transparent/i.test(String((cfg && cfg.model) || ''));
+      return caps;
+    }
+    async function imageBlobDims(blob) {
+      const url = URL.createObjectURL(blob);
+      try {
+        const img = new Image();
+        img.src = url;
+        await new Promise((res, rej) => {
+          img.onload = () => res();
+          img.onerror = () => rej(new Error('图片解码失败'));
+          setTimeout(res, 12000);
+        });
+        return { width: Number(img.naturalWidth) || 0, height: Number(img.naturalHeight) || 0 };
+      } finally {
+        try { URL.revokeObjectURL(url); } catch { /* 忽略 */ }
+      }
+    }
+    /** 本地超分：canvas 高质量重采样（不经过任何生成模型，结果确定）。 */
+    async function upscaleImageBlob(blob, factor) {
+      const f = Math.max(1, Math.min(4, Number(factor) || 2));
+      const url = URL.createObjectURL(blob);
+      try {
+        const img = new Image();
+        img.src = url;
+        await new Promise((res, rej) => {
+          img.onload = () => res();
+          img.onerror = () => rej(new Error('图片解码失败'));
+          setTimeout(res, 12000);
+        });
+        const w = Number(img.naturalWidth) || 0;
+        const h = Number(img.naturalHeight) || 0;
+        if (!w || !h) throw new Error('图片尺寸不可用');
+        const cv = document.createElement('canvas');
+        cv.width = Math.round(w * f);
+        cv.height = Math.round(h * f);
+        const g = cv.getContext('2d');
+        g.imageSmoothingEnabled = true;
+        g.imageSmoothingQuality = 'high';
+        g.drawImage(img, 0, 0, cv.width, cv.height);
+        const out = await new Promise((res) => cv.toBlob(res, 'image/png'));
+        if (!out) throw new Error('超分输出失败');
+        return { blob: out, width: cv.width, height: cv.height, factor: f };
+      } finally {
+        try { URL.revokeObjectURL(url); } catch { /* 忽略 */ }
+      }
+    }
 
     function emptyGraph() { return { nodes: {}, edges: [], view: { x: 60, y: 40, scale: 1 } }; }
 
@@ -4602,6 +4699,34 @@ body[data-ds-dark-theme] .dshic-pick-item.is-on{background:color-mix(in srgb,var
       toast(T('subjSheetCreated'));
       return nd.id;
     }
+    /** 图像工具产物：落资产 + 在源节点右侧建图片节点（保留原图，便于对比/回退）。 */
+    async function commitDerivedImage(srcNode, blob, label, opts) {
+      const src = srcNode || {};
+      const rec = await saveAssetRecord(S.activeId, 'image', blob, {
+        name: String(label || 'image-tool') + ' ' + nowStamp(),
+        prompt: String((src.data && src.data.prompt) || ''),
+        source: 'image-tool',
+        category: 'image',
+      });
+      const pos = { x: (Number(src.x) || 0) + (Number(src.w) || 360) + 80, y: Number(src.y) || 0, ratio: (opts && opts.ratio) || (src.data && src.data.ratio) || '16:9' };
+      const nd = addNodeAt('image', pos);
+      if (!nd) return null;
+      update((s) => {
+        const g = s.graph.nodes[nd.id];
+        if (!g) return;
+        g.data.assetId = rec.id;
+        g.data.status = 'done';
+        g.data.label = String(label || 'image-tool');
+        if (opts && opts.ratio) g.data.ratio = opts.ratio;
+        if (opts && opts.width && opts.height) { g.data.assetW = opts.width; g.data.assetH = opts.height; }
+        s.assetsTick++;
+        s.sel = new Set([nd.id]);
+      });
+      flushSave();
+      toast(T('imgToolDone').replace('{name}', String(label || 'image-tool')));
+      return nd.id;
+    }
+
     /** 生成结果回挂角色库：图片节点的 subjectId 命中时，把新资产加进该角色的参考图。 */
     function linkAssetToSubject(nodeId, assetId) {
       const nd = S.graph.nodes[nodeId];
@@ -6658,7 +6783,9 @@ function queueThumb(assetId) {
         if (s.model) fd.append('model', s.model);
         fd.append('prompt', prompt);
         fd.append('n', '1');
-        if (s.size) fd.append('size', s.size);
+        const editSize = String((opts && opts.size) || s.size || '').trim();
+        if (editSize) fd.append('size', editSize);
+        if (opts && opts.background) fd.append('background', String(opts.background));
         fd.append('watermark', 'false'); // 稳定默认：去水印优先（与 generations 路径一致）
         refs.forEach((b, i) => fd.append('image[]', b.blob || b, 'ref-' + i + '.png'));
         // FormData 经 Response 序列化为 multipart 字节（含 boundary）→ base64 经代理原样转发
@@ -15006,6 +15133,116 @@ function queueThumb(assetId) {
         ));
     }
 
+    /** 确定性图像工具面板：超分（本地）/ 抠图 / 扩图 / 多角度 / 打光（模型 edits）。
+     *  能力由 imageToolCaps 决定：不支持的按钮不渲染（隐藏而不是点击报错）。 */
+    function ImageToolsDialog({ nodeId, onClose }) {
+      const n = S.graph.nodes[nodeId];
+      const mcfg = n ? resolveImageModelCfg(loadSettings(), nodeImageModelRef(n)) : null;
+      const caps = imageToolCaps(mcfg);
+      const [busy, setBusy] = useState(false);
+      const [err, setErr] = useState(null);
+      const [factor, setFactor] = useState('2');
+      const [ratio, setRatio] = useState('16:9');
+      const [light, setLight] = useState('golden');
+      if (!n) return null;
+      const zh = effLang() !== 'en';
+      const editSize = (r) => {
+        if (!mcfg) return '';
+        if (mcfg.size) return mcfg.size;
+        const rr = String(r || n.data.ratio || '1:1');
+        if (/gpt-image/i.test(String(mcfg.model || ''))) {
+          return rr === '9:16' ? '1024x1536' : rr === '1:1' ? '1024x1024' : '1536x1024';
+        }
+        return '';
+      };
+      const promptFor = (kind) => {
+        if (kind === 'matte') {
+          return zh
+            ? '抠图：只保留画面主体，去除全部背景与投影，边缘干净自然；不改变主体的外观、颜色、服装和细节。' + (caps.transparent ? '背景透明。' : '背景为纯白。')
+            : 'Cutout: keep only the subject, remove all background and shadows, clean edges; do not change the subject\'s look, colours, costume or details. ' + (caps.transparent ? 'Transparent background.' : 'Pure white background.');
+        }
+        if (kind === 'outpaint') {
+          return zh
+            ? '扩图：把画面扩展到 ' + ratio + ' 比例，补全四周环境，主体不变、透视/光线/风格连贯，不裁切主体。'
+            : 'Outpaint: extend the image to ' + ratio + ' aspect ratio, fill the surrounding environment, keep the subject unchanged and the perspective/light/style continuous; never crop the subject.';
+        }
+        if (kind === 'angles') {
+          return zh
+            ? '角色多角度：以参考图中的同一角色生成四视图（正面、左侧、背面、3/4 侧），服装、发型、配色、体型完全一致；纯白背景、均匀柔光。'
+            : 'Character multi-angle: generate a four-view sheet of the same character (front, left, back, three-quarter), identical costume, hair, palette and build; pure white background, even soft light.';
+        }
+        const lightText = light === 'studio' ? (zh ? '柔光棚拍' : 'studio softbox') : light === 'neon' ? (zh ? '霓虹夜景' : 'neon night') : (zh ? '黄金时刻' : 'golden hour');
+        return zh
+          ? '打光：保持人物、构图和背景不变，把光线改为「' + lightText + '」；重设可见光源方向、色温与阴影，不改变五官和服装。'
+          : 'Relight: keep the subject, composition and background; change the lighting to "' + lightText + '"; restyle the visible key light, colour temperature and shadows without changing the face or costume.';
+      };
+      const derive = async (blob, label, opts) => {
+        await commitDerivedImage(n, blob, label, opts);
+      };
+      const runUpscale = async () => {
+        if (busy) return;
+        setBusy(true); setErr(null);
+        try {
+          const blob = await assetBlob(n.data.assetId);
+          if (!blob) throw new Error(T('mediaMissing'));
+          const up = await upscaleImageBlob(blob, factor);
+          await derive(up.blob, T('imgToolUpscale') + ' ' + up.factor + 'x', { ratio: n.data.ratio, width: up.width, height: up.height });
+          onClose();
+        } catch (e) { setErr(String((e && e.message) || e)); } finally { setBusy(false); }
+      };
+      const runEdit = async (kind) => {
+        if (busy || !mcfg) return;
+        setBusy(true); setErr(null);
+        try {
+          const blob = await assetBlob(n.data.assetId);
+          if (!blob) throw new Error(T('mediaMissing'));
+          const prompt = promptFor(kind);
+          const useRatio = kind === 'outpaint' ? ratio : (n.data.ratio || '1:1');
+          let out = null;
+          if (mcfg.viaImageGen) {
+            out = await apiGenBridge(prompt, [blob], { provider: mcfg.imageGenProvider, model: mcfg.model }, { ratio: useRatio, quality: 'high' });
+          } else {
+            out = await apiImage(prompt, [{ blob }], mcfg, {
+              ratio: useRatio,
+              size: kind === 'outpaint' ? editSize(ratio) : (kind === 'matte' || kind === 'angles' ? editSize(n.data.ratio) : (mcfg.size || '')),
+              background: kind === 'matte' && caps.transparent ? 'transparent' : undefined,
+              nodeExtra: n.data.imgExtra,
+            });
+          }
+          const label = T('imgTool' + kind.charAt(0).toUpperCase() + kind.slice(1)) || kind;
+          await derive(out, label, { ratio: useRatio });
+          onClose();
+        } catch (e) { setErr(String((e && e.message) || e)); } finally { setBusy(false); }
+      };
+      const runRow = (label, control, action) => h('div', { className: 'dshic-row', style: { gap: 8, flexWrap: 'wrap' } },
+        h('button', { type: 'button', className: 'dshic-btn', disabled: busy, onClick: action, onPointerDown: (e) => e.stopPropagation() }, busy ? h('span', { className: 'dshic-spin' }) : null, label),
+        control || null);
+      return h('div', { className: 'dshic-modal-overlay', onPointerDown: (e) => { if (e.target === e.currentTarget && !busy) onClose(); } },
+        h('div', { className: 'dshic-modal', style: { width: 460 } },
+          h('div', { className: 'dshic-modal-title' }, T('imgTools') + ' — ' + ((n.data && n.data.label) || '')),
+          !mcfg ? h('div', { className: 'dshic-modal-warn' }, T('imgToolNoModel')) : null,
+          mcfg && !caps.matte ? h('div', { className: 'dshic-modal-warn' }, T('imgToolUnsupported')) : null,
+          runRow(T('imgToolUpscale'), h('select', {
+            className: 'dshic-select', style: { width: 74 }, value: factor, disabled: busy,
+            onChange: (e) => setFactor(e.target.value), onPointerDown: (e) => e.stopPropagation(),
+          }, ['2', '3', '4'].map((v) => h('option', { key: v, value: v }, v + 'x'))), runUpscale),
+          caps.matte ? runRow(T('imgToolMatte') + (caps.transparent ? ' · ' + T('imgToolTransparent') : ' · ' + T('imgToolWhiteBg')), null, () => runEdit('matte')) : null,
+          caps.outpaint ? runRow(T('imgToolOutpaint'), h('select', {
+            className: 'dshic-select', style: { width: 84 }, value: ratio, disabled: busy,
+            onChange: (e) => setRatio(e.target.value), onPointerDown: (e) => e.stopPropagation(),
+          }, ['16:9', '9:16', '1:1'].map((v) => h('option', { key: v, value: v }, v))), () => runEdit('outpaint')) : null,
+          caps.angles ? runRow(T('imgToolAngles'), null, () => runEdit('angles')) : null,
+          caps.relight ? runRow(T('imgToolRelight'), h('select', {
+            className: 'dshic-select', style: { width: 110 }, value: light, disabled: busy,
+            onChange: (e) => setLight(e.target.value), onPointerDown: (e) => e.stopPropagation(),
+          }, [['golden', 'imgToolLightGolden'], ['studio', 'imgToolLightStudio'], ['neon', 'imgToolLightNeon']].map(([v, k]) => h('option', { key: v, value: v }, T(k)))), () => runEdit('relight')) : null,
+          busy ? h('div', { className: 'dshic-modal-warn', style: { display: 'flex', alignItems: 'center', gap: 6 } }, h('span', { className: 'dshic-spin' }), T('imgToolRunning')) : null,
+          err ? h('div', { className: 'dshic-err' }, err) : null,
+          h('div', { className: 'dshic-modal-actions' },
+            h('button', { type: 'button', className: 'dshic-btn dshic-btn-outline', disabled: busy, onClick: onClose, onPointerDown: (e) => e.stopPropagation() }, T('batchClose'))),
+        ));
+    }
+
     /** 统一媒体节点（图片/视频合并后唯一的结果节点）：节点内只显示结果。
      *  有 assetId → 预览 + 左上状态徽标 + 右上参考图角标；无结果 → 虚线空态「点击描述画面生成…」；
      *  空节点不放任何生成按钮（生成动作在 GenComposer 的发送按钮）。点击节点任意位置打开面板。 */
@@ -15088,6 +15325,7 @@ function queueThumb(assetId) {
       const [volume, setVolume] = useState(1);
       const [muted, setMuted] = useState(false);
       const [pullOpen, setPullOpen] = useState(false); // 参考视频拉片对话框（放在既有 hook 之后，保持测试注入序号稳定）
+      const [toolsOpen, setToolsOpen] = useState(false); // 图像工具对话框
       // 换了资产（重新生成/历史切换）→ 回到未就绪：旧图不残留、新图加载期间有骨架兜底
       useEffect(() => {
         setMediaState('idle');
@@ -15354,6 +15592,14 @@ function queueThumb(assetId) {
                     onClick: () => setPullOpen(true),
                   }, Ic('board', 11), T('pullShots'))
                 : null,
+              kind === 'image'
+                ? h('button', {
+                    type: 'button', className: 'dshic-mini is-ghost', title: T('imgTools'),
+                    'data-action': 'image-tools',
+                    onPointerDown: (e) => e.stopPropagation(),
+                    onClick: () => setToolsOpen(true),
+                  }, Ic('spark', 11), T('imgTools'))
+                : null,
               h('button', {
                 type: 'button', className: 'dshic-mini is-ghost', disabled: running,
                 onPointerDown: (e) => e.stopPropagation(),
@@ -15369,6 +15615,9 @@ function queueThumb(assetId) {
           : null,
         pullOpen && kind === 'video'
           ? h(PullShotsDialog, { key: 'pull', nodeId: n.id, onClose: () => setPullOpen(false) })
+          : null,
+        toolsOpen && kind === 'image'
+          ? h(ImageToolsDialog, { key: 'imgtools', nodeId: n.id, onClose: () => setToolsOpen(false) })
           : null,
       ];
     }
@@ -24686,6 +24935,8 @@ const DIRECTOR_KEY_HELP = [
           window.__DSH_IC_MEDIA__ = { extForDownload };
           // 跨项目角色库：组件 + 数据层出口（供 test-panel-layout / test-subjects 直渲染与断言）
           window.__DSH_IC_SUBJECTS__ = { SubjectsTab, normalizeSubject, loadSubjects, upsertSubject, removeSubject, OFFICIAL_SUBJECTS };
+          // 确定性图像工具：能力注册表 + 本地超分（供 scripts/test-image-tools.mjs 直接断言）
+          window.__DSH_IC_IMGTOOLS__ = { IMAGE_TOOL_CAPS, imageToolCaps, upscaleImageBlob };
           // IC-04：参考图上传三件套的纯函数出口（供 scripts/test-image-upload.mjs 直接断言）
           window.__DSH_IC_IMGREF__ = { rawImageDims, sniffImageEncoding, registerReferenceAsset };
           // IC-03：视频厂商识别/前缀归一化的纯函数出口（供 scripts/test-vendor-detect.mjs 直接断言）
