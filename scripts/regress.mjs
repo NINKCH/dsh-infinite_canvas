@@ -112,6 +112,8 @@ const SUITE = [
   { name: 'test-3dbox-presets.mjs', desc: '3D-BOX 预设：9 场景 / 6 风格 / 16+ 运镜 / 组合搭景 / 纯函数 / Host+客户端接线' },
   { name: 'test-audio-node.mjs', desc: '音频节点/音轨：audio 端口 / AudioNodeBody / finalcut 音轨 / BGM 混音 / Host 一致' },
   { name: 'test-batch-console.mjs', desc: '批量执行台：选区/整组预检 / 并发队列 / 停止 / 失败隔离 / 组动作' },
+  { name: 'test-pull-shots.mjs', desc: '参考视频拉片：帧时间轴 / JSON 契约 / 时间归一化 / 抽帧 JPEG' },
+  { name: 'test-llm-vision.mjs', desc: '视觉输入契约：dataURL → 宿主附件 → image content block；纯文本零影响' },
   { name: 'test-motion-brief-timeline.mjs', desc: '运动驱动（步频防滑步）/ 雾+景深进规格 / 一句话模板库（打斗·追逐·对话）/ 时间轴能力' },
   { name: 'test-cycle-path.mjs', desc: '循环动作（走/跑双相位闭环）+ 路径点拾取/反投影/UI 入口' },
   { name: 'test-theme-locale.mjs', desc: '深色主题跟随宿主 body[data-ds-dark-theme] / 深色变量与对比度 / 面板名中英双语 / locale 快照 active 字段' },

@@ -1138,6 +1138,25 @@ function revealCanvasInRight() {
       'sizeLabel': '清晰度',
       'llmLabel': '文本模型（DeepSeek）',
       'llmHint': '剧本与分镜提示词使用 Harness 当前配置的模型生成，无需另配 Key。',
+      'visionLlmLabel': '视觉模型（拉片）',
+      'visionLlmHint': '选择支持图片输入的模型（如 GPT-4o / Gemini / Claude）；留空则跟随文本模型。',
+      'pullShots': '拉片',
+      'pullTitle': '参考视频拉片',
+      'pullHint': '均匀抽帧后用视觉模型反推分镜、动态与音乐线索；只上传抽出的画面帧，不传视频文件。',
+      'pullFrames': '抽帧',
+      'pullFrameUnit': '{n} 帧',
+      'pullStart': '开始拉片',
+      'pullPreparing': '正在读取视频…',
+      'pullExtracting': '抽帧 {i}/{n}…',
+      'pullAnalyzing': '视觉模型分析中…（约 30–90 秒）',
+      'pullDone': '已生成分镜节点：{n} 镜',
+      'pullFail': '拉片失败',
+      'pullManual': '手动建分镜表',
+      'pullManualHint': '无法自动分析时，先建一张空分镜表手动填写。',
+      'pullNeedAsset': '这个视频还没有可分析的产物',
+      'pullAudioNote': '音乐线索：{text}',
+      'pullNoVision': '当前模型不支持图片输入——请在画布设置里选择视觉模型',
+      'pullShotCount': '{n} 镜 · {s}s',
       'saveTextAsset': '存为资产',
       'zoomView': '放大查看',
       'copyAll': '复制全部',
@@ -2257,6 +2276,25 @@ function revealCanvasInRight() {
       'ratioLabel': 'Ratio',
       'sizeLabel': 'Quality',
       'llmLabel': 'Text model (DeepSeek)',
+      'visionLlmLabel': 'Vision model (shot breakdown)',
+      'visionLlmHint': 'Pick a model that accepts image input (e.g. GPT-4o / Gemini / Claude); empty follows the text model.',
+      'pullShots': 'Break down',
+      'pullTitle': 'Reference video shot breakdown',
+      'pullHint': 'Samples frames evenly and asks the vision model for shots, motion and music cues; only frames are uploaded, never the video file.',
+      'pullFrames': 'Frames',
+      'pullFrameUnit': '{n} frames',
+      'pullStart': 'Analyze',
+      'pullPreparing': 'Reading video…',
+      'pullExtracting': 'Extracting frame {i}/{n}…',
+      'pullAnalyzing': 'Vision model analyzing… (about 30–90s)',
+      'pullDone': 'Storyboard node created: {n} shots',
+      'pullFail': 'Shot breakdown failed',
+      'pullManual': 'Create empty storyboard',
+      'pullManualHint': 'When analysis is unavailable, create an empty storyboard and fill it manually.',
+      'pullNeedAsset': 'This video has no generated asset to analyze',
+      'pullAudioNote': 'Music cue: {text}',
+      'pullNoVision': 'The current model does not accept images — choose a vision model in canvas settings',
+      'pullShotCount': '{n} shots · {s}s',
       'llmHint': 'Scripts and storyboard prompts use the model configured in Harness — no extra key needed.',
       'saveTextAsset': 'Save as asset',
       'zoomView': 'View large',
@@ -3931,6 +3969,7 @@ body[data-ds-dark-theme] .dshic-pick-item.is-on{background:color-mix(in srgb,var
     const DEFAULT_SETTINGS = {
       // 文本模型全部用 Harness 的当前模型与默认参数：画布只选择模型，不单独配置生成参数
       textLlm: { provider: '', model: '' },
+      visionLlm: { provider: '', model: '' }, // 拉片视觉模型；空 = 跟随文本模型
       // 供应商 + 模型两级：一个供应商（URL/Key）配一次，下面挂多个模型；★星标模型 = 节点未指定时的默认路由
       imageProviders: [],  // [{id, name, baseUrl, apiKey, extra, size?, responseFormat?, mode?, models: [{id, model}]}]
       videoProviders: [],  // [{id, name, url, apiKey, extra, outputFormat?, generateAudio?, protocol?, watermark?, models: [{id, model}]}]
@@ -3944,6 +3983,8 @@ body[data-ds-dark-theme] .dshic-pick-item.is-on{background:color-mix(in srgb,var
       const s = lsGet(LS_SETTINGS, {}) || {};
       const out = {
         textLlm: { provider: (s.textLlm && s.textLlm.provider) || '', model: (s.textLlm && s.textLlm.model) || '' },
+        // 视觉模型（拉片用）：留空 = 跟随文本模型；用户只选模型，密钥/参数仍由 Harness 管
+        visionLlm: { provider: (s.visionLlm && s.visionLlm.provider) || '', model: (s.visionLlm && s.visionLlm.model) || '' },
         imageProviders: Array.isArray(s.imageProviders) ? s.imageProviders : [],
         videoProviders: Array.isArray(s.videoProviders) ? s.videoProviders : [],
         imageStar: s.imageStar || '',
@@ -8472,6 +8513,55 @@ function queueThumb(assetId) {
         URL.revokeObjectURL(url);
       }
     }
+    /** 拉片抽帧：按时间轴均匀取 count 帧，缩到长边 768 的 JPEG dataURL（控请求体积）。
+     *  返回 [{ t, dataUrl }]；视频不可解码/时长为 0 时抛错，由调用方展示失败与手动入口。 */
+    async function extractVideoFramesAt(videoBlob, count, onProgress) {
+      const n = Math.max(3, Math.min(16, Number(count) || 9));
+      const url = URL.createObjectURL(videoBlob);
+      let v = null;
+      try {
+        v = document.createElement('video');
+        v.src = url; v.muted = true; v.preload = 'auto';
+        await new Promise((res, rej) => {
+          let done = false;
+          const fin = () => { if (!done) { done = true; res(); } };
+          v.onloadedmetadata = fin;
+          v.onerror = () => { if (!done) { done = true; rej(new Error('视频解码失败')); } };
+          setTimeout(fin, 12000);
+        });
+        const dur = Number(v.duration);
+        if (!isFinite(dur) || dur <= 0) throw new Error('视频时长不可用');
+        const vw = v.videoWidth || 1280;
+        const vh = v.videoHeight || 720;
+        const scale = Math.min(1, 768 / Math.max(1, vw));
+        const cv = document.createElement('canvas');
+        cv.width = Math.max(2, Math.round(vw * scale));
+        cv.height = Math.max(2, Math.round(vh * scale));
+        const g = cv.getContext('2d');
+        const out = [];
+        for (let i = 0; i < n; i++) {
+          // 均匀采样：从 0 到片尾留 0.05s 余量；避开首尾纯黑/纯色（各留半格）
+          const t = Math.min(Math.max(0, dur - 0.05), dur * ((i + 0.5) / n));
+          await new Promise((res) => {
+            let done = false;
+            const fin = () => { if (!done) { done = true; res(); } };
+            v.onseeked = fin;
+            try { v.currentTime = t; } catch { fin(); }
+            setTimeout(fin, 5000);
+          });
+          await new Promise((res) => { if (v.readyState >= 2) return res(); v.oncanplay = res; setTimeout(res, 2000); });
+          try { g.drawImage(v, 0, 0, cv.width, cv.height); } catch { continue; }
+          out.push({ t: Math.round(t * 100) / 100, dataUrl: cv.toDataURL('image/jpeg', 0.72) });
+          if (onProgress) onProgress(out.length, n);
+        }
+        if (!out.length) throw new Error('没有抽到可用画面');
+        return { frames: out, duration: dur, width: vw, height: vh };
+      } finally {
+        try { URL.revokeObjectURL(url); } catch { /* 忽略 */ }
+        v = null;
+      }
+    }
+
     /** 续帧链：找到「上一个视频节点」。按可靠性依次尝试：
      *  ① frame 口连线的来源视频（用户显式指定；也支持沿旧视频资产节点的 in 线回溯）；
      *  ② 同一上游分镜表连出的其它视频节点里、已生成且位置更靠上的那一个（一个分镜表铺多个视频段）；
@@ -9707,7 +9797,7 @@ function queueThumb(assetId) {
      * 走 Host 的流式接口生成文本：实时把「思考/正文」增量喂给 onDelta。
      * 旧 Host 没有该路由时自动回退到一次性 RPC（功能不受影响，只是没有实时预览）。
      */
-    async function aiCompleteStream({ system, user, model, onReasoning, onText }) {
+    async function aiCompleteStream({ system, user, model, images, onReasoning, onText }) {
       const settings = loadSettings();
       let provider;
       let modelId;
@@ -9718,7 +9808,7 @@ function queueThumb(assetId) {
         modelId = settings.textLlm.model || undefined;
       }
       const cfg = settings.textLlm || {};
-      const args = { provider, model: modelId, system, user };
+      const args = { provider, model: modelId, system, user, ...(Array.isArray(images) && images.length ? { images } : {}) };
       const maxTokens = Number(String(cfg.maxTokens ?? '').trim());
       if (String(cfg.maxTokens ?? '').trim() !== '' && Number.isFinite(maxTokens) && maxTokens > 0) args.maxTokens = maxTokens;
       const temperature = Number(String(cfg.temperature ?? '').trim());
@@ -9735,7 +9825,7 @@ function queueThumb(assetId) {
         if (genAborted()) throw e; // 手动打断：保持 abort 语义供上层识别
         throw new Error(T('connectFailed') + '：' + String((e && e.message) || e));
       }
-      if (res.status === 404 || !res.body) return await aiComplete({ system, user, model }); // 旧 Host 回退
+      if (res.status === 404 || !res.body) return await aiComplete({ system, user, model, images }); // 旧 Host 回退
       if (!res.ok) throw new Error((await res.text()).slice(0, 300) || T('rpcFail'));
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
@@ -9765,7 +9855,7 @@ function queueThumb(assetId) {
       return final.text || '';
     }
 
-    async function aiComplete({ system, user, model }) {
+    async function aiComplete({ system, user, model, images }) {
       const settings = loadSettings();
       let provider;
       let modelId;
@@ -9777,7 +9867,7 @@ function queueThumb(assetId) {
       }
       // 生成参数一律来自设置；留空则**不发该字段**，由 Harness 适配器/模型用已配置的默认值
       const cfg = settings.textLlm || {};
-      const args = { provider, model: modelId, system, user };
+      const args = { provider, model: modelId, system, user, ...(Array.isArray(images) && images.length ? { images } : {}) };
       const maxTokens = Number(String(cfg.maxTokens ?? '').trim());
       if (String(cfg.maxTokens ?? '').trim() !== '' && Number.isFinite(maxTokens) && maxTokens > 0) args.maxTokens = maxTokens;
       const temperature = Number(String(cfg.temperature ?? '').trim());
@@ -10149,6 +10239,152 @@ function queueThumb(assetId) {
         sfx: String(s.sfx || '').trim().slice(0, 120),
       }));
     }
+    /** 参考视频拉片：抽帧 → 视觉模型 → 归一化成与分镜表同构的 shots。
+     *  模型只拿到抽出的画面帧（不传视频文件），输出 start/end 秒与镜头描述。 */
+    function pullPromptFor(frames, duration, zh) {
+      const list = frames.map((f, i) => (zh ? '帧' : 'Frame') + (i + 1) + ': t=' + f.t + 's').join('\n');
+      const schema = zh
+        ? '{"summary":"整片一句话","shots":[{"start":0,"end":1.8,"title":"…","visual":"景别+主体+场景+光线+构图","motion":"主体动作与镜头运动","camera":"景别+焦段+运镜","timeBeats":["0s …","中段 …","结尾 …"],"dialogue":[{"role":"…","line":"…"}],"sfx":"…","characters":["…"],"scene":"…","props":["…"],"vfx":"…","transition":"cut"}],"music":{"description":"…","tempo":"…","style":"…","confidence":0.3}}'
+        : '{"summary":"one line about the whole clip","shots":[{"start":0,"end":1.8,"title":"…","visual":"shot size + subject + set + light + composition","motion":"subject action and camera movement","camera":"shot size + lens + move","timeBeats":["0s …","mid …","end …"],"dialogue":[{"role":"…","line":"…"}],"sfx":"…","characters":["…"],"scene":"…","props":["…"],"vfx":"…","transition":"cut"}],"music":{"description":"…","tempo":"…","style":"…","confidence":0.3}}';
+      const rules = zh
+        ? [
+            '- 只输出一个 JSON 对象，不要解释、不要 Markdown 代码块；',
+            '- shots 必须按时间顺序覆盖整段视频（' + duration + ' 秒）；start/end 是秒数，依据给出的帧时间估算；',
+            '- 一镜只写一个主要动作/机位运动；duration 由 end-start 得出；',
+            '- 看不清的台词不要编造：dialogue 只写画面里明确开口说话且能辨认的内容，否则给空数组；',
+            '- music 只能根据画面气氛推测（没有音轨），description 写风格/乐器/节奏，confidence 取 0–1 的低值；',
+            '- characters/scene/props 用画面里的通用名称，不要用 @；没有就给空数组。',
+          ]
+        : [
+            '- Output one JSON object only, no prose and no Markdown fences;',
+            '- shots must cover the whole clip in time order (' + duration + 's); start/end are seconds estimated from the frame timestamps;',
+            '- one main action / camera move per shot; duration = end - start;',
+            '- never invent dialogue: only fill dialogue when a person is visibly speaking and the words are legible, otherwise [] ;',
+            '- music is inferred from visuals only (no audio track): describe style/instruments/tempo and keep confidence low (0-1);',
+            '- use plain names for characters/scene/props (no @); empty arrays when absent.',
+          ];
+      return (zh ? '以下是参考视频的等间隔抽帧（按顺序发送，图片顺序与下列时间一一对应）：\n' : 'Evenly sampled frames from the reference video (sent in order, images match the timestamps below):\n')
+        + list + '\n\n' + (zh ? '请反推分镜，严格按此结构输出：\n' : 'Return the shot breakdown in exactly this shape:\n')
+        + schema + '\n' + rules.join('\n');
+    }
+    function normalizePullResult(j, duration) {
+      const rawShots = Array.isArray(j && j.shots) ? j.shots : [];
+      const dur = Math.max(0.1, Number(duration) || 0);
+      let cursor = 0;
+      const shots = rawShots.slice(0, 24).map((s, i) => {
+        let st = Number(s && s.start);
+        let en = Number(s && s.end);
+        if (!Number.isFinite(st) || st < 0) st = cursor;
+        if (!Number.isFinite(en) || en <= st) en = st + Math.max(0.3, Number(s && s.duration) || 3);
+        if (st > dur) st = Math.max(0, dur - 0.3);
+        en = Math.min(dur > 0 ? dur : en, Math.max(st + 0.3, en));
+        cursor = en;
+        return {
+          title: String((s && s.title) || (T('shotPrefix') + (i + 1))).slice(0, 24),
+          visual: String((s && (s.visual || s.description)) || '').slice(0, 600),
+          motion: String((s && (s.motion || s.action)) || '').slice(0, 400),
+          camera: String((s && s.camera) || '').slice(0, 160),
+          timeBeats: Array.isArray(s && s.timeBeats) ? s.timeBeats.map(String).map((x) => x.trim()).filter(Boolean).slice(0, 4) : [],
+          duration: Math.max(0.3, Math.round((en - st) * 10) / 10),
+          dialogue: Array.isArray(s && s.dialogue)
+            ? s.dialogue.slice(0, 6).map((d) => ({ role: String((d && d.role) || '').trim().slice(0, 24), line: String((d && d.line) || '').trim().slice(0, 200) })).filter((d) => d.role && d.line)
+            : [],
+          sfx: String((s && s.sfx) || '').trim().slice(0, 120),
+          characters: Array.isArray(s && s.characters) ? s.characters.map(String).slice(0, 6) : [],
+          scene: String((s && s.scene) || '').slice(0, 120),
+          props: Array.isArray(s && s.props) ? s.props.map(String).slice(0, 6) : [],
+          vfx: String((s && s.vfx) || '').slice(0, 160),
+          negative: '换脸、五官漂移、服装变化、手部畸形、风格突变',
+          tail: String((s && s.tail) || '').slice(0, 120),
+          cam: String((s && s.cam) || '').slice(0, 80),
+          seg: i === 0 ? 'opening' : 'continuation',
+          pullStart: Math.round(st * 10) / 10,
+          pullEnd: Math.round(en * 10) / 10,
+        };
+      });
+      const musicRaw = j && j.music;
+      const music = typeof musicRaw === 'string'
+        ? musicRaw.trim()
+        : (musicRaw && typeof musicRaw === 'object'
+          ? [musicRaw.description, musicRaw.style, musicRaw.tempo, musicRaw.confidence != null ? ('置信度 ' + musicRaw.confidence) : ''].filter(Boolean).join(' · ')
+          : '');
+      return { summary: String((j && j.summary) || '').trim(), shots, music };
+    }
+    async function analyzeReferenceVideo(n, opts) {
+      const o = opts || {};
+      const aid = n && n.data && n.data.assetId;
+      if (!aid) throw new Error(T('pullNeedAsset'));
+      const blob = await assetBlob(aid);
+      if (!blob) throw new Error(T('pullNeedAsset'));
+      const ex = await extractVideoFramesAt(blob, o.frames, (i, total) => {
+        if (o.onProgress) o.onProgress({ phase: 'extract', i, total });
+      });
+      if (o.onProgress) o.onProgress({ phase: 'analyze' });
+      const zh = effLang() !== 'en';
+      const text = await aiComplete({
+        system: zh ? '你是专业影视拉片师，只输出 JSON。' : 'You are a professional film shot-breakdown analyst. Output JSON only.',
+        user: pullPromptFor(ex.frames, ex.duration, zh),
+        model: o.model || '',
+        images: ex.frames.map((f, i) => ({ dataUrl: f.dataUrl, name: 'frame-' + (i + 1) + '.jpg' })),
+      });
+      const s = String(text || '').replace(/```json/gi, '').replace(/```/g, '').trim();
+      const a = s.indexOf('{');
+      const b = s.lastIndexOf('}');
+      let j = null;
+      try { j = JSON.parse(s.slice(a, b + 1)); } catch { j = null; }
+      if (!j || !Array.isArray(j.shots) || !j.shots.length) {
+        throw new Error(T('errParseStoryboard') + '（拉片正文 ' + s.length + ' 字；开头: ' + s.slice(0, 120) + '）');
+      }
+      const normalized = normalizePullResult(j, ex.duration);
+      normalized.frames = ex.frames.length;
+      normalized.duration = ex.duration;
+      return normalized;
+    }
+    /** 拉片结果 → 画布上的分镜表节点（与手写分镜同一数据结构，可直接铺开生成）。 */
+    function createStoryboardFromPull(videoNode, pull) {
+      const base = videoNode || {};
+      const pos = { x: (base.x || 0), y: (base.y || 0) + (base.h || 300) + 80 };
+      const sb = addNodeAt('storyboard', pos);
+      update((s) => {
+        const nd = s.graph.nodes[sb.id];
+        if (!nd) return;
+        nd.data.label = (batchNodeName(videoNode) || T('pullTitle')) + ' · ' + T('pullShots');
+        nd.data.shots = pull.shots;
+        nd.data.count = pull.shots.length;
+        nd.data.aiStatus = 'done';
+        nd.data.aiError = null;
+        nd.data.requirement = pull.summary || '';
+        nd.data.pull = {
+          summary: pull.summary || '', music: pull.music || '', frames: pull.frames || 0,
+          duration: Math.round((pull.duration || 0) * 10) / 10,
+          sourceAssetId: (videoNode && videoNode.data && videoNode.data.assetId) || null,
+          at: Date.now(),
+        };
+        s.sel = new Set([sb.id]);
+        s.composerId = null;
+      });
+      pushHistory();
+      flushSave();
+      toast(T('pullDone').replace('{n}', String(pull.shots.length)));
+      return sb.id;
+    }
+    /** 无视觉能力时的手动降级：建一张空分镜表，镜头表由用户自己填。 */
+    function createEmptyStoryboardNear(videoNode) {
+      const base = videoNode || {};
+      const sb = addNodeAt('storyboard', { x: base.x || 0, y: (base.y || 0) + (base.h || 300) + 80 });
+      update((s) => {
+        const nd = s.graph.nodes[sb.id];
+        if (!nd) return;
+        nd.data.label = (batchNodeName(videoNode) || T('pullTitle')) + ' · ' + T('pullManual');
+        nd.data.aiStatus = 'done';
+        nd.data.requirement = T('pullManualHint');
+        s.sel = new Set([sb.id]);
+      });
+      pushHistory();
+      flushSave();
+      return sb.id;
+    }
+
     /** 本地一致性检查：分镜里出现的角色/场景/道具（含 visual/motion 文本里的 @提及）是否都在
      *  设定集/资产中登记；两级告警——「未登记」与「已登记但描述为空（待补全）」。
      *  台词碎片豁免：名字以「的」结尾且出现在对白文本里的角色/场景/道具视为描述性片段（如台词
@@ -14395,6 +14631,98 @@ function queueThumb(assetId) {
         }, '\u26f6'));
     }
 
+    /** 参考视频拉片对话框：抽帧数 / 视觉模型 / 进度 / 失败降级为手动分镜表。 */
+    function PullShotsDialog({ nodeId, onClose }) {
+      const n = S.graph.nodes[nodeId];
+      const opts = useLlmOptions();
+      const s0 = loadSettings();
+      const curVision = (s0.visionLlm && s0.visionLlm.provider) ? (s0.visionLlm.provider + '|' + s0.visionLlm.model) : '';
+      const [frameCount, setFrameCount] = useState('9');
+      const [model, setModel] = useState(curVision);
+      const [busy, setBusy] = useState(false);
+      const [phase, setPhase] = useState(null);
+      const [err, setErr] = useState(null);
+      const [result, setResult] = useState(null);
+      const alive = useRef(true);
+      useEffect(() => () => { alive.current = false; }, []);
+      const options = [];
+      for (const p of ((opts && opts.providers) || [])) {
+        for (const m of (p.models || [])) options.push({ value: p.id + '|' + m.id, label: `${p.name} · ${m.name}` });
+      }
+      const currentModel = model || '';
+      const run = async () => {
+        if (busy) return;
+        setBusy(true); setErr(null); setResult(null); setPhase({ phase: 'extract', i: 0, total: Number(frameCount) });
+        // 记住本次选择的视觉模型（下次默认用它；不改 Harness 配置）
+        if (currentModel.includes('|')) {
+          const [provider, modelId] = currentModel.split('|');
+          updateSettings((b) => ({ ...b, visionLlm: { provider: provider || '', model: modelId || '' } }));
+        }
+        try {
+          const pull = await analyzeReferenceVideo(n, {
+            frames: Number(frameCount) || 9,
+            model: currentModel,
+            onProgress: (p) => { if (alive.current) setPhase(p); },
+          });
+          if (!alive.current) return;
+          createStoryboardFromPull(n, pull);
+          setResult(pull);
+        } catch (e) {
+          if (!alive.current) return;
+          const msg = String((e && e.message) || e);
+          const visionHint = /image|vision|multimodal|unsupported|content|图片/i.test(msg) ? ' ' + T('pullNoVision') : '';
+          setErr(msg + visionHint);
+        } finally {
+          if (alive.current) { setBusy(false); setPhase(null); }
+        }
+      };
+      const manual = () => { createEmptyStoryboardNear(n); onClose(); };
+      const phaseText = !phase
+        ? ''
+        : phase.phase === 'extract'
+          ? T('pullExtracting').replace('{i}', String(phase.i)).replace('{n}', String(phase.total))
+          : T('pullAnalyzing');
+      return h('div', { className: 'dshic-modal-overlay', onPointerDown: (e) => { if (e.target === e.currentTarget && !busy) onClose(); } },
+        h('div', { className: 'dshic-modal', style: { width: 460 } },
+          h('div', { className: 'dshic-modal-title' }, T('pullTitle') + ' — ' + ((n && n.data && n.data.label) || '')),
+          h('div', { className: 'dshic-modal-warn' }, T('pullHint')),
+          h('div', { className: 'dshic-row', style: { gap: 8 } },
+            h('label', { className: 'dshic-field', style: { flex: 'none', width: 120 } },
+              h('span', { className: 'dshic-field-label' }, T('pullFrames')),
+              h('select', {
+                className: 'dshic-select', value: frameCount, disabled: busy,
+                onChange: (e) => setFrameCount(e.target.value), onPointerDown: (e) => e.stopPropagation(),
+              }, ['6', '9', '12', '16'].map((v) => h('option', { key: v, value: v }, T('pullFrameUnit').replace('{n}', v))))),
+            h('label', { className: 'dshic-field', style: { flex: 1, minWidth: 0 } },
+              h('span', { className: 'dshic-field-label' }, T('visionLlmLabel')),
+              h('select', {
+                className: 'dshic-select', value: currentModel, disabled: busy,
+                onChange: (e) => setModel(e.target.value), onPointerDown: (e) => e.stopPropagation(),
+              },
+                [h('option', { key: 'follow', value: '' }, T('followSettings'))].concat(
+                  options.map((o) => h('option', { key: o.value, value: o.value }, o.label)),
+                  currentModel && !options.some((o) => o.value === currentModel)
+                    ? [h('option', { key: currentModel, value: currentModel }, currentModel)]
+                    : []))),
+          ),
+          busy ? h('div', { className: 'dshic-modal-warn', style: { display: 'flex', alignItems: 'center', gap: 6 } }, h('span', { className: 'dshic-spin' }), phaseText) : null,
+          result
+            ? h('div', { className: 'dshic-modal-warn' },
+                T('pullShotCount').replace('{n}', String(result.shots.length)).replace('{s}', String(Math.round(result.shots.reduce((a, x) => a + (Number(x.duration) || 0), 0)))),
+                result.summary ? h('div', { style: { marginTop: 4 } }, result.summary) : null,
+                result.music ? h('div', { style: { marginTop: 4 } }, T('pullAudioNote').replace('{text}', result.music)) : null)
+            : null,
+          err ? h('div', { className: 'dshic-err' }, err) : null,
+          h('div', { className: 'dshic-modal-actions' },
+            h('button', { type: 'button', className: 'dshic-btn dshic-btn-outline', disabled: busy, onClick: onClose, onPointerDown: (e) => e.stopPropagation() }, T('batchClose')),
+            err && !busy ? h('button', { type: 'button', className: 'dshic-btn dshic-btn-outline', onClick: manual, onPointerDown: (e) => e.stopPropagation() }, T('pullManual')) : null,
+            h('button', {
+              type: 'button', className: 'dshic-gen', style: { width: 'auto', padding: '0 14px' },
+              disabled: busy || !!result, onClick: run, onPointerDown: (e) => e.stopPropagation(),
+            }, busy ? h('span', { className: 'dshic-spin' }) : Ic('board', 12), T('pullStart'))),
+        ));
+    }
+
     /** 统一媒体节点（图片/视频合并后唯一的结果节点）：节点内只显示结果。
      *  有 assetId → 预览 + 左上状态徽标 + 右上参考图角标；无结果 → 虚线空态「点击描述画面生成…」；
      *  空节点不放任何生成按钮（生成动作在 GenComposer 的发送按钮）。点击节点任意位置打开面板。 */
@@ -14476,6 +14804,7 @@ function queueThumb(assetId) {
       const [duration, setDuration] = useState(0);
       const [volume, setVolume] = useState(1);
       const [muted, setMuted] = useState(false);
+      const [pullOpen, setPullOpen] = useState(false); // 参考视频拉片对话框（放在既有 hook 之后，保持测试注入序号稳定）
       // 换了资产（重新生成/历史切换）→ 回到未就绪：旧图不残留、新图加载期间有骨架兜底
       useEffect(() => {
         setMediaState('idle');
@@ -14735,6 +15064,13 @@ function queueThumb(assetId) {
               if (u) downloadBlobFromUrl(u, await downloadNameForAsset(n.data.assetId, (kind === 'image' ? 'image' : 'video') + '-' + n.id.slice(-5), kind));
             },
               }, Ic('download', 11), T('download')),
+              kind === 'video'
+                ? h('button', {
+                    type: 'button', className: 'dshic-mini is-ghost', title: T('pullHint'),
+                    onPointerDown: (e) => e.stopPropagation(),
+                    onClick: () => setPullOpen(true),
+                  }, Ic('board', 11), T('pullShots'))
+                : null,
               h('button', {
                 type: 'button', className: 'dshic-mini is-ghost', disabled: running,
                 onPointerDown: (e) => e.stopPropagation(),
@@ -14747,6 +15083,9 @@ function queueThumb(assetId) {
                 onClick: openPanel,
               }, Ic('image', 11), T('refCount').replace('{n}', String(refEdges.length))),
             )
+          : null,
+        pullOpen && kind === 'video'
+          ? h(PullShotsDialog, { key: 'pull', nodeId: n.id, onClose: () => setPullOpen(false) })
           : null,
       ];
     }
@@ -15222,6 +15561,11 @@ function queueThumb(assetId) {
                   .replace('{t}', String(segPlan.total))
                   .replace('{s}', String(Math.max(...segPlan.segments.map((sg) => sg.duration))))),
               h('span', { style: { opacity: 0.75 } }, ' · ' + (segPlan.cutMode === 'clean' ? T('segClean') : T('segForced'))))
+          : null,
+        n.data.pull && (n.data.pull.summary || n.data.pull.music)
+          ? h('div', { key: 'pull', className: 'dshic-hint', 'data-role': 'pull-summary', title: (n.data.pull.summary || '') + (n.data.pull.music ? '\n' + T('pullAudioNote').replace('{text}', n.data.pull.music) : '') },
+              '🎞 ' + T('pullShots') + (n.data.pull.frames ? ' · ' + n.data.pull.frames + 'f' : '')
+              + (n.data.pull.music ? ' · ' + n.data.pull.music.slice(0, 60) : ''))
           : null,
         n.data.contFrom
           ? h('div', { key: 'cont', className: 'dshic-hint' }, '↩ ' + T('contFrom') + '：' + n.data.contFrom + ' ' + T('lastFrame'))
@@ -21066,7 +21410,8 @@ const DIRECTOR_KEY_HELP = [
       }, []);
       return data || { skills: [] };
     }
-    function LlmModelSelect() {
+    function LlmModelSelect({ kind }) {
+      const which = kind === 'vision' ? 'visionLlm' : 'textLlm';
       const [opts, setOpts] = useState(null);
       const [s, setS] = useState(loadSettings);
       useEffect(() => {
@@ -21074,26 +21419,27 @@ const DIRECTOR_KEY_HELP = [
         hostRpc('llmOptions').then((r) => { if (ok) setOpts(r); }).catch((e) => { if (ok) setOpts({ providers: [], resolved: null, error: String((e && e.message) || e) }); });
         return () => { ok = false; };
       }, []);
-      const current = s.textLlm.provider ? (s.textLlm.provider + '|' + s.textLlm.model) : '';
+      const cur = s[which] || { provider: '', model: '' };
+      const current = cur.provider ? (cur.provider + '|' + cur.model) : '';
       const options = [];
       let firstError = (opts && opts.error) || '';
       for (const p of ((opts && opts.providers) || [])) {
         if (p.error && !(p.models || []).length) firstError = firstError || `${p.name}: ${p.error}`;
         for (const m of (p.models || [])) options.push({ value: p.id + '|' + m.id, label: `${p.name} · ${m.name}` });
       }
-      const applyTextLlm = (provider, model) => {
+      const applyLlm = (provider, model) => {
         // issue #6：基底现取磁盘最新（不再用挂载时快照整对象写回），写回后 setS 同步刷新本地快照
-        const next = updateSettings((b) => ({ ...b, textLlm: { provider: provider || '', model: model || '' } }));
+        const next = updateSettings((b) => ({ ...b, [which]: { provider: provider || '', model: model || '' } }));
         setS(next);
       };
       return h('div', { className: 'dshic-field' },
-        h('span', { className: 'dshic-field-label' }, T('llmLabel')),
+        h('span', { className: 'dshic-field-label' }, T(kind === 'vision' ? 'visionLlmLabel' : 'llmLabel')),
         h('select', {
           className: 'dshic-select', value: current,
           disabled: !options.length,
           onChange: (e) => {
             const [provider, model] = e.target.value.split('|');
-            applyTextLlm(provider, model);
+            applyLlm(provider, model);
           },
           onPointerDown: (e) => e.stopPropagation(),
         },
@@ -21107,7 +21453,7 @@ const DIRECTOR_KEY_HELP = [
           placeholder: 'provider|model（手动覆盖）',
           onChange: (e) => {
             const [provider, model] = e.target.value.split('|');
-            applyTextLlm(provider, model);
+            applyLlm(provider, model);
           },
           onPointerDown: (e) => e.stopPropagation(),
         }),
@@ -21918,7 +22264,14 @@ const DIRECTOR_KEY_HELP = [
             h('strong', { style: { fontSize: 12, flex: 1, minWidth: 0 } }, T('llmLabel')),
             InfoTip(T('llmHint')),
           ),
-          h(LlmModelSelect),
+          h(LlmModelSelect, { kind: 'text' }),
+          h('div', { className: 'dshic-row', style: { marginTop: 6 } },
+            Ic('image', 12),
+            h('strong', { style: { fontSize: 12, flex: 1, minWidth: 0 } }, T('visionLlmLabel')),
+            InfoTip(T('visionLlmHint')),
+          ),
+          h(LlmModelSelect, { kind: 'vision' }),
+          h('div', { className: 'dshic-hint' }, T('visionLlmHint')),
         ),
         h(ModelProviderEditor, { key: 'imglist', kind: 'image' }),
         h(ModelProviderEditor, { key: 'vidlist', kind: 'video' }),
@@ -23842,6 +24195,8 @@ const DIRECTOR_KEY_HELP = [
             seamVerdict,
             tailFrameScore,
           };
+          // 拉片纯函数出口：抽帧/提示词/结果归一化可在假浏览器环境里真实执行。
+          window.__DSH_IC_PULL__ = { pullPromptFor, normalizePullResult, extractVideoFramesAt };
           window.__DSH_IC_SYNC__ = {
             hostSyncTick, mergeHostDoc, loadBible, loadGraphDoc, flushSave, pushAllProjectsToHost,
             removeNodes, ungroupNode, undo, redo, pushHistory,

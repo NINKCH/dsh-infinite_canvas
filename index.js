@@ -3795,7 +3795,35 @@ export function apply(ctx) {
         ...(temperature === undefined ? {} : { temperature }),
         ...(maxTokens === undefined ? {} : { maxTokens }),
       };
-      const userMessage = { role: 'user', content: [{ type: 'text', text: user }] };
+      // 视觉输入（拉片）：把 dataURL 存成宿主附件，作为 image content block 发给模型。
+      // 模型不支持图片输入时适配器会报错——调用方据此提示用户换视觉模型，绝不静默丢图。
+      const imageBlocks = [];
+      const wantImages = Array.isArray(want.images) ? want.images.slice(0, 16) : [];
+      if (wantImages.length) {
+        let attachments = null;
+        try { attachments = (ctx.get && ctx.get('attachments')) || ctx.attachments || null; } catch { attachments = null; }
+        if (!attachments || typeof attachments.saveImage !== 'function') {
+          throw new Error('当前宿主不支持图片附件（attachments），无法做视觉拉片');
+        }
+        for (let i = 0; i < wantImages.length; i++) {
+          const im = wantImages[i] || {};
+          const raw = String(im.dataUrl || '');
+          const m = /^data:([^;]+);base64,([\s\S]+)$/.exec(raw);
+          let data = null;
+          let mediaType = String(im.mediaType || 'image/jpeg');
+          if (m) {
+            mediaType = m[1];
+            data = Buffer.from(m[2], 'base64');
+          } else if (im.data && (im.data instanceof Uint8Array || Buffer.isBuffer(im.data))) {
+            data = im.data;
+          }
+          if (!data || !data.length) continue;
+          const ref = await attachments.saveImage({ data, mediaType, name: String(im.name || ('frame-' + (i + 1) + '.jpg')) });
+          if (ref) imageBlocks.push({ type: 'image', attachment: ref });
+        }
+        if (!imageBlocks.length) throw new Error('拉片图片解码失败（没有可用的帧）');
+      }
+      const userMessage = { role: 'user', content: [{ type: 'text', text: user }, ...imageBlocks] };
       /** 跑一次流：统计 chunk 类型，返回文本与失败原因（单次尝试抛错不致命，便于逐级回退）。 */
       const run = async (options, label) => {
         const kinds = [];
@@ -6545,7 +6573,7 @@ export function apply(ctx) {
             let raw = '';
             for await (const chunk of req) {
               raw += chunk;
-              if (raw.length > 4e6) throw new Error('请求过大');
+              if (raw.length > 16e6) throw new Error('请求过大'); // 视觉拉片可能带多帧 base64
             }
             const args = JSON.parse(raw || '{}');
             res.statusCode = 200;
