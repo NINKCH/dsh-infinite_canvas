@@ -1234,6 +1234,22 @@ function revealCanvasInRight() {
       'damZip': '下载 ZIP（{n}）',
       'damZipDone': '已打包 {n} 个文件（跳过 {s}）',
       'damZipEmpty': '没有可打包的资产',
+      'damMerge': '合并重复（{n}）',
+      'damMergeNone': '选中资产里没有字节相同的重复项',
+      'damMergeConfirm': '找到 {n} 组重复，将合并 {k} 个重复资产。引用会迁移到保留项，重复项隐藏；本次会话可用「撤销合并」恢复。',
+      'damMergeDone': '已合并 {n} 个重复资产',
+      'damMergeUndoConfirm': '撤销本次合并并恢复节点/角色库/工作流里的引用？',
+      'damMergeUndone': '已撤销合并，恢复 {n} 个资产',
+      'damUndoMerge': '撤销合并',
+      'damShowMerged': '显示已合并（{n}）',
+      'damHideMerged': '隐藏已合并（{n}）',
+      'damMerged': '已合并',
+      'damMergedHint': '与同内容资产合并，引用已迁移；可用「撤销合并」恢复',
+      'damSource': '来源',
+      'damDate': '日期',
+      'damDate7': '最近 7 天',
+      'damDate30': '最近 30 天',
+      'damDate90': '最近 90 天',
       'pullShots': '拉片',
       'pullTitle': '参考视频拉片',
       'pullHint': '均匀抽帧后用视觉模型反推分镜、动态与音乐线索；只上传抽出的画面帧，不传视频文件。',
@@ -2466,6 +2482,22 @@ function revealCanvasInRight() {
       'damZip': 'Download ZIP ({n})',
       'damZipDone': 'Packed {n} files ({s} skipped)',
       'damZipEmpty': 'Nothing to pack',
+      'damMerge': 'Merge duplicates ({n})',
+      'damMergeNone': 'No byte-identical duplicates in the selection',
+      'damMergeConfirm': 'Found {n} duplicate groups; {k} assets will be merged. References move to the keeper, duplicates are hidden, and this session can undo the merge.',
+      'damMergeDone': 'Merged {n} duplicate assets',
+      'damMergeUndoConfirm': 'Undo this merge and restore references in nodes / character library / workflows?',
+      'damMergeUndone': 'Merge undone; {n} assets restored',
+      'damUndoMerge': 'Undo merge',
+      'damShowMerged': 'Show merged ({n})',
+      'damHideMerged': 'Hide merged ({n})',
+      'damMerged': 'Merged',
+      'damMergedHint': 'Merged with an identical asset; references moved. Use "Undo merge" to restore.',
+      'damSource': 'Source',
+      'damDate': 'Date',
+      'damDate7': 'Last 7 days',
+      'damDate30': 'Last 30 days',
+      'damDate90': 'Last 90 days',
       'pullShots': 'Break down',
       'pullTitle': 'Reference video shot breakdown',
       'pullHint': 'Samples frames evenly and asks the vision model for shots, motion and music cues; only frames are uploaded, never the video file.',
@@ -6405,6 +6437,7 @@ body[data-ds-dark-theme] .dshic-pick-item.is-on{background:color-mix(in srgb,var
       if (rec.nodeLabel) out.nodeLabel = rec.nodeLabel;
       if (Array.isArray(rec.tags) && rec.tags.length) out.tags = rec.tags;
       if (rec.folder) out.folder = rec.folder;
+      if (rec.mergedInto) out.mergedInto = rec.mergedInto;
       if (rec.kind === 'text' && typeof rec.text === 'string') out.text = rec.text;
       return out;
     }
@@ -11144,6 +11177,7 @@ function queueThumb(assetId) {
       canvasCollapsed: false,
       menu: null,          // {x, y, kind:'add'}
       batch: null,         // 批量执行台：{ items, running, stopped, concurrency, price, videoSecs, source } | null（纯 UI）
+      damUndo: null,       // 资产合并撤销快照：{ pairs, nodeSnapshots, subjects, workflows, at } | null（本次会话）
       composerId: null,    // 生成面板当前挂靠的节点 id（单例；纯 UI 状态，不持久化）
       assetsTick: 0,
       // 设定集更新信号：编辑器 persist 后自增，分镜详情据此自动重算一致性告警（旧告警自动消失，免手动 revalidate）。
@@ -21895,6 +21929,9 @@ const DIRECTOR_KEY_HELP = [
       const [qDeb, setQDeb] = useState('');
       const [tagFilter, setTagFilter] = useState('');
       const [folderFilter, setFolderFilter] = useState('');
+      const [sourceFilter, setSourceFilter] = useState('');
+      const [daysFilter, setDaysFilter] = useState('');
+      const [showMerged, setShowMerged] = useState(false);
       const [craftFor, setCraftFor] = useState(null);
       const [delTarget, setDelTarget] = useState(null); // 待确认删除的资产（确认框见 DeleteAssetModal）
       const [assetName, setAssetName] = useState(''); // 删除确认框的输入内容
@@ -21907,7 +21944,7 @@ const DIRECTOR_KEY_HELP = [
         const t = setTimeout(() => setQDeb(search), 300);
         return () => clearTimeout(t);
       }, [search]);
-      useEffect(() => { setPage(0); setPageDraft(null); }, [filter, qDeb, scope, tagFilter, folderFilter]);
+      useEffect(() => { setPage(0); setPageDraft(null); }, [filter, qDeb, scope, tagFilter, folderFilter, sourceFilter, daysFilter, showMerged]);
       useEffect(() => {
         probeCraft();
         let ok = true;
@@ -21981,6 +22018,8 @@ const DIRECTOR_KEY_HELP = [
       };
       const allTags = [...new Set(assets.flatMap((a) => (Array.isArray(a.tags) ? a.tags : [])))].sort();
       const allFolders = [...new Set(assets.map((a) => String(a.folder || '').trim()).filter(Boolean))].sort();
+      const allSources = [...new Set(assets.map((a) => String(a.source || '').trim()).filter(Boolean))].sort();
+      const mergedCount = assets.filter((a) => a.mergedInto).length;
       const onImport = async (e) => {
         const files = [...((e.target.files) || [])];
         e.target.value = '';
@@ -22027,6 +22066,7 @@ const DIRECTOR_KEY_HELP = [
       // ---------- 批量选择：一键按列导入画布 / 批量删除 ----------
       // 落点由 layoutBatchColumns 决定（现有节点最右侧之外按列铺开，一列 ≤5，零重叠）。
       const selList = assets.filter((a) => selIds.has(a.id));
+      const mergeGroups = findDuplicateAssetGroups(selList);
       const addableList = selList;
       const allPageSel = () => shown.length > 0 && shown.every((a) => selIds.has(a.id));
       const toggleSel = (a) => setSelIds((prev) => { const n = new Set(prev); if (n.has(a.id)) n.delete(a.id); else n.add(a.id); return n; });
@@ -22097,6 +22137,29 @@ const DIRECTOR_KEY_HELP = [
         setTimeout(() => { try { URL.revokeObjectURL(url); } catch { /* 忽略 */ } }, 8000);
         toast(T('damZipDone').replace('{n}', String(files.length)).replace('{s}', String(skipped)));
       };
+      const mergeSelected = async () => {
+        if (!mergeGroups.length) { toast(T('damMergeNone')); return; }
+        let ok2 = false;
+        try { ok2 = window.confirm(T('damMergeConfirm').replace('{n}', String(mergeGroups.length)).replace('{k}', String(mergeGroups.reduce((a, g) => a + g.length - 1, 0)))); } catch { ok2 = false; }
+        if (!ok2) return;
+        const r = await mergeDuplicateAssets(selList);
+        if (!r.ok) { toast(T('damMergeNone')); return; }
+        setAssets((prev) => prev.map((a) => {
+          const p = r.pairs.find((x) => x.from === a.id);
+          return p ? { ...a, mergedInto: p.to } : a;
+        }));
+        setSelIds(new Set());
+        toast(T('damMergeDone').replace('{n}', String(r.pairs.length)));
+      };
+      const undoMerge = async () => {
+        let ok2 = false;
+        try { ok2 = window.confirm(T('damMergeUndoConfirm')); } catch { ok2 = false; }
+        if (!ok2) return;
+        const r = await undoAssetMerge();
+        if (!r.ok) return;
+        setAssets((prev) => prev.map((a) => (a.mergedInto ? { ...a, mergedInto: null } : a)));
+        toast(T('damMergeUndone').replace('{n}', String(r.restored)));
+      };
       // 资产重命名：服务端写回（SQL/JSON 各自落库）+ 刷新名称缓存（@引用与连线名称都吃这份缓存）
       const rename = async (a, name) => {
         if (S.store) {
@@ -22134,10 +22197,13 @@ const DIRECTOR_KEY_HELP = [
         if (filter !== 'all' && normCat(a.category) !== filter) return false;
         if (tagFilter && !(Array.isArray(a.tags) && a.tags.includes(tagFilter))) return false;
         if (folderFilter && String(a.folder || '') !== folderFilter) return false;
+        if (a.mergedInto && !showMerged) return false;
+        if (sourceFilter && String(a.source || '') !== sourceFilter) return false;
+        if (daysFilter && (!a.createdAt || Date.now() - a.createdAt > Number(daysFilter) * 86400000)) return false;
         if (!q) return true;
         const hay = [
           a.name, a.prompt || '', a.text || '', catLabel(normCat(a.category)),
-          projectName(a.projectId), a.folder || '', (a.tags || []).join(' '),
+          projectName(a.projectId), a.folder || '', (a.tags || []).join(' '), a.source || '',
           a.kind === 'image' ? T('kindImage') : a.kind === 'video' ? T('kindVideo') : a.kind === 'audio' ? T('kindAudio') : 'text',
         ].join(' ').toLowerCase();
         return hay.includes(q);
@@ -22186,7 +22252,7 @@ const DIRECTOR_KEY_HELP = [
             })),
         ),
         // DAM 筛选（标签 / 文件夹）：有值才显示，避免空资产时多一排空控件
-        allTags.length || allFolders.length
+        allTags.length || allFolders.length || allSources.length || mergedCount
           ? h('div', { key: 'damrow', className: 'dshic-asset-searchrow', 'data-role': 'assets-dam-filters' },
               allTags.length
                 ? h('div', { className: 'dshic-asset-scope' }, h(MiniSelect, {
@@ -22202,12 +22268,33 @@ const DIRECTOR_KEY_HELP = [
                     onChange: (v) => setFolderFilter(v),
                   }))
                 : null,
+              allSources.length
+                ? h('div', { className: 'dshic-asset-scope' }, h(MiniSelect, {
+                    value: sourceFilter, title: T('damSource'),
+                    options: [{ value: '', label: T('damSource') + '：' + T('damAll') }].concat(allSources.map((v) => ({ value: v, label: v }))),
+                    onChange: (v) => setSourceFilter(v),
+                  }))
+                : null,
+              h('div', { className: 'dshic-asset-scope' }, h(MiniSelect, {
+                value: daysFilter, title: T('damDate'),
+                options: [{ value: '', label: T('damDate') + '：' + T('damAll') }, { value: '7', label: T('damDate7') }, { value: '30', label: T('damDate30') }, { value: '90', label: T('damDate90') }],
+                onChange: (v) => setDaysFilter(v),
+              })),
+              mergedCount
+                ? h('button', {
+                    type: 'button', className: cls('dshic-toolbtn', showMerged && 'is-active'),
+                    'data-action': 'dam-show-merged', onClick: () => setShowMerged((v) => !v), onPointerDown: (e) => e.stopPropagation(),
+                  }, (showMerged ? T('damHideMerged') : T('damShowMerged')).replace('{n}', String(mergedCount)))
+                : null,
               h('div', { className: 'dshic-flex' }))
           : null,
         // 工具栏（项目下一行）：所有操作按钮 + 分页集中在一行，窄窗口自动换行、分页始终靠右。
         // 按钮统一「透明底 + 1px 线框 + 文字」（UI-RULES：禁止灰底色块）。
         h('div', { key: 'toolbar', className: 'dshic-asset-toolbar', 'data-role': 'assets-toolbar' },
           h('div', { className: 'dshic-asset-toolbar-main' },
+            S.damUndo
+              ? h('button', { type: 'button', className: 'dshic-toolbtn', 'data-action': 'dam-undo-merge', onClick: undoMerge, onPointerDown: (e) => e.stopPropagation() }, Ic('undoIc', 11), T('damUndoMerge'))
+              : null,
             h('button', {
               type: 'button', className: 'dshic-toolbtn', 'data-action': 'assets-sync-all',
               disabled: !craftOkCached(), title: craftOkCached() ? T('craftSyncAll') : T('craftUnreachable'),
@@ -22225,6 +22312,9 @@ const DIRECTOR_KEY_HELP = [
               ? h('div', { key: 'batchbar', className: 'dshic-asset-batch', 'data-role': 'assets-batch-bar' },
                   h('button', { type: 'button', className: 'dshic-toolbtn', 'data-action': 'assets-add-selected', disabled: !addableList.length, onClick: addSelectedToCanvas, onPointerDown: (e) => e.stopPropagation() }, Ic('expandAll', 11), T('assetsAddToCanvas') + '（' + addableList.length + '）'),
                   h('button', { type: 'button', className: 'dshic-toolbtn', 'data-action': 'assets-download-zip', disabled: !selList.length, onClick: downloadSelectedZip, onPointerDown: (e) => e.stopPropagation() }, Ic('download', 11), T('damZip').replace('{n}', String(selList.length))),
+                  mergeGroups.length
+                    ? h('button', { type: 'button', className: 'dshic-toolbtn', 'data-action': 'dam-merge', onClick: mergeSelected, onPointerDown: (e) => e.stopPropagation() }, Ic('link', 11), T('damMerge').replace('{n}', String(mergeGroups.reduce((a, g) => a + g.length - 1, 0))))
+                    : null,
                   h('button', { type: 'button', className: 'dshic-toolbtn is-danger', 'data-action': 'assets-batch-delete', onClick: () => setBatchDel(true), onPointerDown: (e) => e.stopPropagation() }, T('doDelete') + '（' + selIds.size + '）'),
                   h('button', { type: 'button', className: 'dshic-toolbtn', 'data-action': 'assets-clear-sel', onClick: clearSel, onPointerDown: (e) => e.stopPropagation() }, T('assetsClearSel')),
                 )
@@ -22408,8 +22498,9 @@ const DIRECTOR_KEY_HELP = [
         a.kind !== 'text'
           ? projSel
           : null,
-        (a.folder || (Array.isArray(a.tags) && a.tags.length))
+        (a.folder || a.mergedInto || (Array.isArray(a.tags) && a.tags.length))
           ? h('div', { className: 'dshic-asset-dam' },
+              a.mergedInto ? h('span', { className: 'dshic-tag', title: T('damMergedHint') }, '⇠ ' + T('damMerged')) : null,
               a.folder ? h('span', { className: 'dshic-tag', title: a.folder }, '▸ ' + a.folder) : null,
               (a.tags || []).slice(0, 3).map((t) => h('span', { key: t, className: 'dshic-tag' }, '#' + t)),
               (a.tags || []).length > 3 ? h('span', { className: 'dshic-hint' }, '+' + ((a.tags || []).length - 3)) : null)
@@ -22490,6 +22581,95 @@ const DIRECTOR_KEY_HELP = [
       for (let i = 0; i < u8.length; i++) c = CRC32_TABLE[(c ^ u8[i]) & 0xff] ^ (c >>> 8);
       return (c ^ 0xffffffff) >>> 0;
     }
+    /** 同 sha（字节完全相同）的资产分组；已合并过的条目不再参与。 */
+    function findDuplicateAssetGroups(list) {
+      const bySha = new Map();
+      for (const a of (list || [])) {
+        if (!a || !a.sha || a.mergedInto) continue;
+        const key = String(a.sha);
+        if (!bySha.has(key)) bySha.set(key, []);
+        bySha.get(key).push(a);
+      }
+      return [...bySha.values()].filter((g) => g.length > 1);
+    }
+    /** 深度克隆并把所有等于旧资产 id 的字符串替换为 keeper id（节点 data / 角色库 / 工作流通用）。 */
+    function remapAssetIdsDeep(value, map) {
+      if (typeof value === 'string') return map.get(value) || value;
+      if (Array.isArray(value)) return value.map((v) => remapAssetIdsDeep(v, map));
+      if (value && typeof value === 'object') {
+        const out = {};
+        for (const [k, v] of Object.entries(value)) out[k] = remapAssetIdsDeep(v, map);
+        return out;
+      }
+      return value;
+    }
+    async function setAssetMergedInto(id, keeperId) {
+      const patch = { mergedInto: keeperId || null };
+      if (S.store) {
+        try { await hostRpc('assetUpdate', { id, patch }); } catch { /* 索引失败不阻塞合并 */ }
+      } else {
+        const rec = await idbGet(id).catch(() => null);
+        if (rec) { rec.mergedInto = keeperId || undefined; try { await idbPut(rec); } catch { /* 忽略 */ } }
+      }
+    }
+    /** 合并重复资产：引用迁移（节点/角色库/工作流）+ 隐藏重复项 + 本次会话可撤销。
+     *  只合并 sha 完全相同（字节级一致）的资产，绝不按名称误合并。 */
+    async function mergeDuplicateAssets(list) {
+      const groups = findDuplicateAssetGroups(list);
+      if (!groups.length) return { ok: false, pairs: [] };
+      const pairs = [];
+      for (const g of groups) {
+        const sorted = g.slice().sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
+        const keeper = sorted[0];
+        for (const dup of sorted.slice(1)) pairs.push({ from: dup.id, to: keeper.id });
+      }
+      if (!pairs.length) return { ok: false, pairs: [] };
+      const map = new Map(pairs.map((p) => [p.from, p.to]));
+      const nodeSnapshots = [];
+      for (const nd of Object.values(S.graph.nodes)) {
+        if (!nd || !nd.data) continue;
+        const raw = JSON.stringify(nd.data);
+        if (pairs.some((p) => raw.includes(p.from))) {
+          nodeSnapshots.push({ id: nd.id, data: JSON.parse(raw) });
+        }
+      }
+      const subjectsSnap = loadSubjects();
+      const workflowsSnap = loadWorkflows();
+      pushHistory();
+      update((s) => {
+        for (const snap of nodeSnapshots) {
+          const nd = s.graph.nodes[snap.id];
+          if (nd) nd.data = remapAssetIdsDeep(snap.data, map);
+        }
+      });
+      saveSubjects(remapAssetIdsDeep(subjectsSnap, map));
+      saveWorkflows(remapAssetIdsDeep(workflowsSnap, map));
+      for (const p of pairs) await setAssetMergedInto(p.from, p.to);
+      update((s) => {
+        s.damUndo = { pairs, nodeSnapshots, subjects: subjectsSnap, workflows: workflowsSnap, at: Date.now() };
+        s.assetsTick++;
+      });
+      flushSave();
+      return { ok: true, pairs };
+    }
+    async function undoAssetMerge() {
+      const u = S.damUndo;
+      if (!u) return { ok: false, restored: 0 };
+      update((s) => {
+        for (const snap of (u.nodeSnapshots || [])) {
+          const nd = s.graph.nodes[snap.id];
+          if (nd) nd.data = JSON.parse(JSON.stringify(snap.data));
+        }
+        s.damUndo = null;
+        s.assetsTick++;
+      });
+      saveSubjects(u.subjects || []);
+      saveWorkflows(u.workflows || []);
+      for (const p of (u.pairs || [])) await setAssetMergedInto(p.from, null);
+      flushSave();
+      return { ok: true, restored: (u.pairs || []).length };
+    }
+
     /** 极简 ZIP（method=0，UTF-8 文件名）。单包上限由调用方控制，避免一次吃爆内存。 */
     function buildZipStore(files) {
       const chunks = [];
@@ -25345,7 +25525,7 @@ const DIRECTOR_KEY_HELP = [
           // 工作流工具箱：保存/插入/资产重映射（供 scripts/test-workflows.mjs 真实执行）
           window.__DSH_IC_WORKFLOWS__ = { WorkflowsTab, saveWorkflowFromIds, insertWorkflow, loadWorkflows, upsertWorkflow, removeWorkflow };
           // 资产库 DAM：ZIP 打包纯函数（供 scripts/test-dam.mjs 直接断言字节结构）
-          window.__DSH_IC_DAM__ = { buildZipStore, crc32Bytes };
+          window.__DSH_IC_DAM__ = { buildZipStore, crc32Bytes, findDuplicateAssetGroups, remapAssetIdsDeep, mergeDuplicateAssets, undoAssetMerge };
           // IC-04：参考图上传三件套的纯函数出口（供 scripts/test-image-upload.mjs 直接断言）
           window.__DSH_IC_IMGREF__ = { rawImageDims, sniffImageEncoding, registerReferenceAsset };
           // IC-03：视频厂商识别/前缀归一化的纯函数出口（供 scripts/test-vendor-detect.mjs 直接断言）

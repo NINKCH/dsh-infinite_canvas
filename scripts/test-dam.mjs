@@ -94,13 +94,41 @@ async function main() {
   const text = new TextDecoder('utf-8').decode(u8);
   ok(text.includes('a.txt') && text.includes('空 格.png'), 'ZIP 内缺少 UTF-8 文件名');
 
+  // 合并重复：sha 分组（已合并项排除）+ 深度引用迁移 + 合并/撤销
+  const groups = api.findDuplicateAssetGroups([
+    { id: 'a1', sha: 'same', createdAt: 1 },
+    { id: 'a2', sha: 'same', createdAt: 2 },
+    { id: 'a3', sha: 'other', createdAt: 3 },
+    { id: 'a4', sha: 'same', createdAt: 4, mergedInto: 'a1' },
+  ]);
+  eq(groups.length, 1, '重复资产分组数量不对');
+  eq(groups[0].map((a) => a.id), ['a1', 'a2'], '重复资产分组内容不对');
+  const remapped = api.remapAssetIdsDeep({
+    assetId: 'a2', fcAssetId: 'a3', history: [{ assetId: 'a2' }], text: 'a2 不是独立 id',
+    nested: { ids: ['a2', 'a3'] },
+  }, new Map([['a2', 'a1']]));
+  eq(remapped.assetId, 'a1', 'assetId 未迁移');
+  eq(remapped.history[0].assetId, 'a1', 'history 未迁移');
+  eq(remapped.fcAssetId, 'a3', '无关键被误改');
+  eq(remapped.text, 'a2 不是独立 id', '大文本中的子串被误改');
+  eq(remapped.nested.ids, ['a1', 'a3'], '嵌套数组未迁移');
+  const merged = await api.mergeDuplicateAssets([
+    { id: 'm1', sha: 'dup', createdAt: 1 },
+    { id: 'm2', sha: 'dup', createdAt: 2 },
+  ]);
+  ok(merged.ok && merged.pairs.length === 1 && merged.pairs[0].from === 'm2' && merged.pairs[0].to === 'm1', '合并结果不正确');
+  const undone = await api.undoAssetMerge();
+  ok(undone.ok && undone.restored === 1, '撤销合并失败');
+
   // Host 迁移/写回
   ok(host.includes("ALTER TABLE assets ADD COLUMN tags TEXT"), 'Host 缺少 tags 列迁移');
   ok(host.includes("ALTER TABLE assets ADD COLUMN folder TEXT"), 'Host 缺少 folder 列迁移');
+  ok(host.includes("ALTER TABLE assets ADD COLUMN merged_into TEXT"), 'Host 缺少 merged_into 列迁移');
   ok(host.includes('tags: Array.isArray(a.tags)'), 'Host assetRowFromRecord 未写 tags');
   ok(host.includes('folder: a.folder ? String(a.folder)'), 'Host assetRowFromRecord 未写 folder');
-  ok(host.includes('if (r.tags)') && host.includes('if (r.folder)'), 'Host rowToAsset 未读 tags/folder');
-  ok(host.includes('patch.tags !== undefined') && host.includes('patch.folder !== undefined'), 'Host assetUpdate 未处理 tags/folder');
+  ok(host.includes('merged_into: a.mergedInto'), 'Host assetRowFromRecord 未写 mergedInto');
+  ok(host.includes('if (r.tags)') && host.includes('if (r.folder)') && host.includes('if (r.merged_into)'), 'Host rowToAsset 未读 tags/folder/mergedInto');
+  ok(host.includes('patch.tags !== undefined') && host.includes('patch.folder !== undefined') && host.includes('patch.mergedInto !== undefined'), 'Host assetUpdate 未处理 tags/folder/mergedInto');
 
   // 客户端接线
   ok(src.includes('const updateAssetMeta = (a, patch)') || src.includes('const updateAssetMeta = (a, patch) =>'), '缺少 updateAssetMeta');
@@ -108,6 +136,11 @@ async function main() {
   ok(src.includes('function buildZipStore(files)'), '缺少 buildZipStore');
   ok(src.includes('if (tagFilter && !(Array.isArray(a.tags)'), '标签筛选未接线');
   ok(src.includes('if (folderFilter && String(a.folder'), '文件夹筛选未接线');
+  ok(src.includes('if (sourceFilter && String(a.source'), '来源筛选未接线');
+  ok(src.includes('if (daysFilter && (!a.createdAt'), '日期筛选未接线');
+  ok(src.includes("'data-action': 'dam-merge'"), '缺少合并重复入口');
+  ok(src.includes("'data-action': 'dam-undo-merge'"), '缺少撤销合并入口');
+  ok(src.includes("'data-action': 'dam-show-merged'"), '缺少显示已合并开关');
   ok(src.includes('onMeta: updateAssetMeta'), '资产卡未接标签/文件夹编辑');
 
   if (errs.length) {
@@ -115,7 +148,7 @@ async function main() {
     for (const e of errs) console.error('  - ' + e);
     process.exit(1);
   }
-  console.log('✓ DAM 测试通过（ZIP 字节结构 / UTF-8 文件名 / CRC32 / tags+folder 落库与筛选）');
+  console.log('✓ DAM 测试通过（ZIP / CRC32 / tags+folder / 重复合并+撤销 / 来源日期筛选）');
   process.exit(0);
 }
 main().catch((e) => { console.error('✗ DAM 测试异常：' + (e && e.stack ? e.stack : e)); process.exit(1); });

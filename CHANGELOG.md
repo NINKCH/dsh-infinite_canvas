@@ -112,7 +112,10 @@ GitHub Releases carry the same notes in English; maintainer-facing runbooks live
   an in-place migration); the asset browser filters by tag/folder and edits
   both from each card. Multi-select can download up to 100 assets as a
   standard store-mode ZIP (UTF-8 names, 500 MB guard) without any third-party
-  dependency.
+  dependency. Byte-identical duplicates can be merged: references move from
+  the duplicate to the keeper across node data, the character library and
+  workflows; duplicates are hidden, and the merge can be undone in the same
+  session. Source and date-range filters complete the DAM filter row.
 - **Host-agnostic core contract.** A new regression proves `apply(ctx)` only
   needs `effect` + `tools.register` + `webServer.register`: 34 tools and nine
   API routes register synchronously on a minimal ctx, while llm / attachments
