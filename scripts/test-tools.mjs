@@ -433,12 +433,29 @@ try {
   let badCam = false;
   try { await byName.get('canvas_director_stage').execute({ action: 'camera', projectId, prompt: '乱运镜' }, {}); } catch { badCam = true; }
   if (!badCam) throw new Error('invalid AI camera keys was accepted');
-  // 3D-BOX 库：brief RPC + list RPC 必须能拿到当前项目
+  // 3D-BOX 库：AI brief 生成完整 spec；同一项目多次生成必须保留多条 stage
   const rpc = mod._internals.rpcMethods();
-  const briefR = await rpc.directorStageBrief({ projectId, brief: '两人在巷子里对话，6秒' });
+  const aiSpec = (title, name) => JSON.stringify({
+    title, duration: 6,
+    characters: [{ name, pos: [-1, 0, 0], rotY: 1, clip: 'run', path: [[-1, 0], [4, 0]], locomotion: { source: 'clip', clip: 'run', stride: 1.1, cycle: 0.8, refSpeed: 4 } }],
+    props: [{ name: '路面', preset: 'plane', pos: [0, 0, 0], scale: [20, 1, 8], color: '#9aa3ad' }],
+    cameras: [{ name: '跟拍', pos: [0, 1.6, 6], target: [0, 1, 0], fov: 40 }],
+    shots: [{ camera: '跟拍', start: 0, end: 6 }],
+  });
+  mod._internals.__auto.setRoomLlm(async () => aiSpec('AI 追车 A', '警'));
+  const briefR = await rpc.directorStageBrief({ projectId, brief: '城市街头警匪追车，6秒' });
   if (!briefR || !briefR.ok) throw new Error('directorStageBrief failed');
+  if (briefR.source !== 'llm' || !briefR.stageId) throw new Error('brief did not use AI or stageId missing');
+  if (!briefR.spec || !briefR.spec.characters || !briefR.spec.characters[0].path) throw new Error('AI brief did not produce action staging');
+  mod._internals.__auto.setRoomLlm(async () => aiSpec('AI 追车 B', '匪'));
+  const briefR2 = await rpc.directorStageBrief({ projectId, brief: '另一条追车，6秒' });
+  if (!briefR2 || !briefR2.ok || !briefR2.stageId || briefR2.stageId === briefR.stageId) throw new Error('second brief did not create a new stage');
   const listR = await rpc.directorStageList();
   if (!listR || !listR.ok || !Array.isArray(listR.items) || !listR.items.some((x) => x.projectId === projectId)) throw new Error('directorStageList missing current project');
+  const stages = listR.items.filter((x) => x.projectId === projectId && x.stageId);
+  if (stages.length < 2) throw new Error('old 3D-BOX stages disappeared from the library');
+  const firstLoad = await rpc.directorStageLoad({ projectId, stageId: briefR.stageId });
+  if (!firstLoad || !firstLoad.ok || !firstLoad.found || firstLoad.spec.title !== 'AI 追车 A') throw new Error('first stage no longer loadable after a new brief');
   // 运镜/转场预设库：清单 + 施加
   const presets = await byName.get('canvas_list_presets').execute({ kind: 'transition' }, {});
   if (!presets || !presets.ok || !Array.isArray(presets.presets) || !presets.presets.some((x) => x.id === 'travel_zoom_in')) throw new Error('canvas_list_presets missing transition preset');

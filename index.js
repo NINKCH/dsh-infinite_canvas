@@ -3751,6 +3751,11 @@ function resolveModel(providers, want) {
   return { provider: provider.id, model: model.id };
 }
 
+/** 3D-BOX stage id → 文件系统安全名（空值表示旧版单文件入口）。 */
+function safeStageId(id) {
+  return String(id || '').replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 80);
+}
+
 export function apply(ctx) {
   ctx.effect(() => {
     const llm = () => ctx.get('llm');
@@ -3991,6 +3996,98 @@ export function apply(ctx) {
       'Preserve all fields the instruction does not mention. Keep cameras/shots non-empty. Use meters and seconds.',
       'Examples: "机位低一点" -> lower camera pos.y and target.y; "让 A 从左入画" -> move A pos.x negative; "加一张桌子" -> add a box prop; "手持" -> set shot.cameraMove="handheld".',
     ].join('\n');
+    /** 3D-BOX 一句话搭景：LLM 生成完整 spec（动作/道具/机位/分镜），本地模板只做 schema 骨架与失败兜底。 */
+    const DIRECTOR_BRIEF_SYSTEM = [
+      'You are a 3D previs director. Turn a one-line brief into a complete, playable previz spec.',
+      'Return ONLY one JSON object, no prose, no markdown fences.',
+      'Schema: { title, duration, env:{preset,grid,tonemap,bg?}, style?, characters[], props[], cameras[], shots[], shot:{duration,cameraMove}, lights[], fog?, dof? }',
+      'Character: { name, pos:[x,y,z], rotY, color, clip, pose, path?, pathFace?, locomotion?, poseAnim? }',
+      'poseAnim: [{"t":0,"pose":"idle"},{"t":1.2,"pose":"punch"},{"t":2.4,"pose":"hit"}] — use it for fights/actions.',
+      'path: [[x,z],...] + locomotion:{source:"clip",clip:"run",stride:1.1,cycle:0.8,refSpeed:4} for chase/walk movement.',
+      'Camera: { name, pos:[x,y,z], target:[x,y,z], fov, keys?[] } — keys are [{t,pos,target,fov,ease}] for camera movement.',
+      'Shot: { camera, start, end } — shots must cover 0..duration without gaps.',
+      'Prop: { name, preset, pos:[x,y,z], scale:[x,y,z], color }',
+      'Valid prop presets: box, sphere, cylinder, cone, plane, capsule, torus, pyramid, disc, arc, half_cylinder, ancient_house, ancient_stall, stone_step.',
+      'Valid pose ids: none, stand, arms_up, punch, kick, flip, fly, crouch, fight, walk, run, jump, hit, fall, walk_a, walk_b, run_a, run_b.',
+      'env.preset: studio | daylight | night. Use meters and seconds.',
+      'Rules: read the brief literally and cast 2–6 characters, 2–6 props, 2–5 cameras, 3–6 shots. Build a recognizable set (street: road + buildings/cars; room: table/chairs; fight: arena/ground).',
+      'Action words must become poseAnim/path/locomotion, not just labels. A chase needs running paths and a moving camera; a fight needs punch/kick/hit beats; dialogue needs idle poses and over-shoulder cameras.',
+      'The BASE SKELETON is only a valid fallback shape; replace or extend its arrays with your own detailed staging. Never return empty cameras or shots.',
+    ].join('\n');
+    function mergeDirectorSpec(base, patch) {
+      if (Array.isArray(patch)) return patch;
+      if (patch && typeof patch === 'object') {
+        const out = (base && typeof base === 'object' && !Array.isArray(base)) ? { ...base } : {};
+        for (const [k, v] of Object.entries(patch)) out[k] = mergeDirectorSpec(out[k], v);
+        return out;
+      }
+      return patch === undefined ? base : patch;
+    }
+    /** 动作语义兜底：模型偶尔只给“站着”的角色；按 brief 的关键词补路径/姿态关键帧，
+     *  保证“追车/打斗”至少能被预演出来（不替代 AI 的完整编排，只补最低可演要求）。 */
+    function enrichDirectorSpec(spec, brief) {
+      if (!spec || typeof spec !== 'object') return spec;
+      const text = String(brief || '').toLowerCase();
+      const chase = /追|跑|逃|追逐|警匪|chase|run|escape|pursuit/i.test(text);
+      const fight = /打|斗|拳|踢|击|fight|punch|kick|combat|battle/i.test(text);
+      const chars = Array.isArray(spec.characters) ? spec.characters : [];
+      if (!Array.isArray(spec.props) || !spec.props.length) spec.props = [{ name: '地面', preset: 'plane', pos: [0, 0, 0], scale: [16, 1, 12], color: '#9aa3ad' }];
+      if (chase) {
+        chars.slice(0, 2).forEach((c, i) => {
+          if (!c || typeof c !== 'object') return;
+          if (!Array.isArray(c.path) || c.path.length < 2) c.path = [[Number(c.pos?.[0]) || (i ? 1.2 : -1.2), Number(c.pos?.[2]) || 0], [8 + i * 1.5, 0]];
+          if (!c.clip || c.clip === 'idle') c.clip = 'run';
+          c.pathFace = c.pathFace !== false;
+          if (!c.locomotion || typeof c.locomotion !== 'object') c.locomotion = { source: 'clip', clip: 'run', stride: 1.1, cycle: 0.8, refSpeed: 4 };
+        });
+      }
+      if (fight) {
+        const hasBeat = chars.some((c) => Array.isArray(c && c.poseAnim) && c.poseAnim.length);
+        if (!hasBeat) {
+          chars.slice(0, 2).forEach((c, i) => {
+            if (!c || typeof c !== 'object') return;
+            c.clip = c.clip || 'fight';
+            c.poseAnim = i === 0
+              ? [{ t: 0, pose: 'idle' }, { t: 0.5, pose: 'punch' }, { t: 1.1, pose: 'hit' }, { t: 1.6, pose: 'fight' }]
+              : [{ t: 0, pose: 'fight' }, { t: 0.6, pose: 'kick' }, { t: 1.2, pose: 'hit' }, { t: 1.8, pose: 'idle' }];
+          });
+        }
+      }
+      return spec;
+    }
+    async function briefDirectorSpec(brief, opts) {
+      const text = String(brief || '').trim();
+      if (!text) throw new Error('需要 brief');
+      const eng = await loadDirectorEngine();
+      if (!eng || typeof eng.buildStageFromSpec !== 'function' || typeof eng.specFromBrief !== 'function') throw new Error('引擎未就绪');
+      const o = opts || {};
+      const seed = eng.specFromBrief(text, o);
+      const call = (o && typeof o.llm === 'function') ? o.llm : roomLlm;
+      const hints = [
+        o.scene && o.scene !== 'auto' ? 'SCENE PRESET: ' + o.scene : '',
+        o.style && o.style !== 'auto' ? 'STYLE PRESET: ' + o.style : '',
+        o.cameraMove && o.cameraMove !== 'auto' ? 'CAMERA PRESET: ' + o.cameraMove : '',
+      ].filter(Boolean).join('\n');
+      const baseUser = 'BRIEF:\n' + text + (hints ? '\n\n' + hints : '') + '\n\nBASE SKELETON JSON:\n' + JSON.stringify(seed);
+      let lastErr = null;
+      for (let attempt = 0; attempt < 2; attempt++) {
+        const user = attempt === 0
+          ? baseUser
+          : baseUser + '\n\n【修正】上一轮返回不可用：' + String((lastErr && lastErr.message) || lastErr) + '\n只输出修正后的完整 JSON 对象。';
+        const raw = await call({ system: DIRECTOR_BRIEF_SYSTEM, user });
+        const parsed = roomJson(raw);
+        if (!parsed || typeof parsed !== 'object') { lastErr = new Error('模型没有返回可解析的 JSON'); continue; }
+        const ai = (parsed.spec && typeof parsed.spec === 'object') ? parsed.spec : parsed;
+        const next = enrichDirectorSpec(mergeDirectorSpec(seed, ai), text);
+        const built = eng.buildStageFromSpec(next);
+        if (!built || !Array.isArray(built.cameras) || !built.cameras.length || !Array.isArray(built.shots) || !built.shots.length) {
+          lastErr = new Error('返回的规格缺机位/分镜，无法构建');
+          continue;
+        }
+        return { spec: next, built, source: 'llm' };
+      }
+      throw lastErr || new Error('AI 搭景失败');
+    }
     async function editDirectorSpec(currentSpec, instruction, opts) {
       const text = String(instruction || '').trim();
       if (!text) throw new Error('需要 instruction');
@@ -4706,50 +4803,87 @@ export function apply(ctx) {
        *  客户端知道自己要删哪个项目，Host 按项目物理文件夹定位（与 projectDirGet 同一基准），
        *  只删 projects/<folder>/craft 这一个子目录——绝不碰项目镜像、其他项目、数据根其他内容。
        *  幂等：目录不存在也是成功；失败可见（removed=false + reason），不静默吞。 */
-      /** 导演台场景规格：AI / 脚本写入，客户端打开导演台时自动套用（存 <projectDir>/craft/director-stage.json）。 */
+      /** 3D-BOX stage id：文件系统安全 + 稳定（一个 stage = 一条库记录）。 */
       async directorStageSave(args) {
         const dir = await methods.projectDirGet({ projectId: args && args.projectId });
         if (!dir || !dir.ok) return { ok: false, error: (dir && dir.error) || '项目目录不可用' };
         const craftDir = path.join(dir.abs, 'craft');
-        try { mkdirSync(craftDir, { recursive: true }); } catch { /* 交给写入报错 */ }
-        const file = path.join(craftDir, 'director-stage.json');
+        const stageId = safeStageId(args && args.stageId);
         const spec = (args && args.spec) || null;
         if (!spec || typeof spec !== 'object') return { ok: false, error: '缺少 spec 对象' };
-        const payload = { ok: true, savedAt: Date.now(), spec };
-        try { writeFileSync(file, JSON.stringify(payload, null, 2), 'utf8'); }
-        catch (e) { return { ok: false, error: '写入失败: ' + String((e && e.message) || e) }; }
-        return { ok: true, projectId: String(args.projectId), file, bytes: Buffer.byteLength(JSON.stringify(payload)) };
+        const payload = { ok: true, savedAt: Date.now(), stageId: stageId || null, spec };
+        try {
+          if (stageId) {
+            const stageDir = path.join(craftDir, '3dbox');
+            mkdirSync(stageDir, { recursive: true });
+            // 旧版单文件先迁到 3dbox/，避免第一次生成新 stage 时把旧预演覆盖掉。
+            const legacyFile = path.join(craftDir, 'director-stage.json');
+            if (existsSync(legacyFile)) {
+              try {
+                const old = JSON.parse(readFileSync(legacyFile, 'utf8'));
+                const oldSid = safeStageId(old.stageId);
+                if (!oldSid || oldSid !== stageId) {
+                  const keepSid = oldSid || ('legacy_' + (Number(old.savedAt) || Date.now()));
+                  const keepFile = path.join(stageDir, safeStageId(keepSid) + '.json');
+                  if (!existsSync(keepFile)) writeFileSync(keepFile, JSON.stringify({ ...old, stageId: safeStageId(keepSid) }, null, 2), 'utf8');
+                }
+              } catch { /* 旧文件损坏则放弃迁移，不阻塞新保存 */ }
+            }
+            writeFileSync(path.join(stageDir, stageId + '.json'), JSON.stringify(payload, null, 2), 'utf8');
+          }
+          // 兼容旧入口：始终维护「最近一次」文件（列表会按 stageId 去重，不重复展示）
+          mkdirSync(craftDir, { recursive: true });
+          writeFileSync(path.join(craftDir, 'director-stage.json'), JSON.stringify(payload, null, 2), 'utf8');
+        } catch (e) { return { ok: false, error: '写入失败: ' + String((e && e.message) || e) }; }
+        return { ok: true, projectId: String(args.projectId), stageId: stageId || null, file: path.join(craftDir, stageId ? '3dbox/' + stageId + '.json' : 'director-stage.json'), bytes: Buffer.byteLength(JSON.stringify(payload)) };
       },
       async directorStageLoad(args) {
         const dir = await methods.projectDirGet({ projectId: args && args.projectId });
         if (!dir || !dir.ok) return { ok: false, error: (dir && dir.error) || '项目目录不可用' };
-        const file = path.join(dir.abs, 'craft', 'director-stage.json');
-        if (!existsSync(file)) return { ok: true, found: false, file };
+        const stageId = safeStageId(args && args.stageId);
+        const file = stageId
+          ? path.join(dir.abs, 'craft', '3dbox', stageId + '.json')
+          : path.join(dir.abs, 'craft', 'director-stage.json');
+        if (!existsSync(file)) return { ok: true, found: false, file, stageId: stageId || null };
         try {
           const doc = JSON.parse(readFileSync(file, 'utf8'));
-          return { ok: true, found: true, file, savedAt: doc.savedAt || null, spec: doc.spec || null };
-        } catch (e) { return { ok: false, found: false, file, error: '读取失败: ' + String((e && e.message) || e) }; }
+          return { ok: true, found: true, file, stageId: stageId || doc.stageId || null, savedAt: doc.savedAt || null, spec: doc.spec || null };
+        } catch (e) { return { ok: false, found: false, file, stageId: stageId || null, error: '读取失败: ' + String((e && e.message) || e) }; }
       },
       async directorStageList() {
         let list = [];
         try { list = await projectsList(); } catch { list = []; }
         const items = [];
+        const seen = new Set();
         for (const p of (Array.isArray(list) ? list : [])) {
           try {
             const dir = await methods.projectDirGet({ projectId: p.id });
             if (!dir || !dir.ok) continue;
-            const file = path.join(dir.abs, 'craft', 'director-stage.json');
-            if (!existsSync(file)) continue;
-            const doc = JSON.parse(readFileSync(file, 'utf8'));
-            const spec = doc.spec || {};
-            items.push({
-              projectId: p.id, projectName: p.name || p.id,
-              title: String(spec.title || '3D-BOX'),
-              savedAt: Number(doc.savedAt) || 0,
-              cameras: Array.isArray(spec.cameras) ? spec.cameras.length : 0,
-              shots: Array.isArray(spec.shots) ? spec.shots.length : 0,
-              duration: Number(spec.duration) || 0,
-            });
+            const craftDir = path.join(dir.abs, 'craft');
+            const stageDir = path.join(craftDir, '3dbox');
+            const files = [];
+            try {
+              for (const f of readdirSync(stageDir)) if (f.endsWith('.json')) files.push({ file: path.join(stageDir, f), stageId: f.slice(0, -5) });
+            } catch { /* 没有目录 */ }
+            files.push({ file: path.join(craftDir, 'director-stage.json'), stageId: null });
+            for (const ent of files) {
+              if (!existsSync(ent.file)) continue;
+              let doc = null;
+              try { doc = JSON.parse(readFileSync(ent.file, 'utf8')); } catch { continue; }
+              const sid = safeStageId(ent.stageId || doc.stageId);
+              const key = p.id + '::' + (sid || 'legacy');
+              if (seen.has(key)) continue;
+              seen.add(key);
+              const spec = doc.spec || {};
+              items.push({
+                projectId: p.id, projectName: p.name || p.id, stageId: sid || null,
+                title: String(spec.title || '3D-BOX'),
+                savedAt: Number(doc.savedAt) || 0,
+                cameras: Array.isArray(spec.cameras) ? spec.cameras.length : 0,
+                shots: Array.isArray(spec.shots) ? spec.shots.length : 0,
+                duration: Number(spec.duration) || 0,
+              });
+            }
           } catch { /* 单个项目读失败不影响列表 */ }
         }
         items.sort((a, b) => b.savedAt - a.savedAt);
@@ -4761,55 +4895,78 @@ export function apply(ctx) {
         if (!brief) return { ok: false, error: '需要 brief' };
         const eng = await loadDirectorEngine();
         if (!eng || typeof eng.specFromBrief !== 'function') return { ok: false, error: '引擎未就绪' };
+        const stageId = safeStageId(args && args.stageId) || ('box_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 6));
+        const scene = String((args && args.scene) || '');
+        let spec = null;
+        let source = 'llm';
+        let warning = '';
+        if (scene === 'blank') {
+          spec = eng.specFromBrief(brief, { scene: 'blank', style: args && args.style, cameraMove: args && args.cameraMove, duration: args && args.duration });
+          source = 'blank';
+        } else {
+          try {
+            const made = await briefDirectorSpec(brief, {
+              scene: args && args.scene, style: args && args.style,
+              cameraMove: args && args.cameraMove, duration: args && args.duration,
+            });
+            spec = made.spec;
+          } catch (e) {
+            // 明确降级：AI 失败时仍可出图，但前端必须展示 warning（不静默假装 AI 成功）
+            spec = enrichDirectorSpec(eng.specFromBrief(brief, {
+              scene: args && args.scene, style: args && args.style,
+              cameraMove: args && args.cameraMove, duration: args && args.duration,
+            }), brief);
+            source = 'fallback';
+            warning = 'AI 搭景失败，已使用本地模板：' + String((e && e.message) || e);
+          }
+        }
         try {
-          const spec = eng.specFromBrief(brief, {
-            scene: args && args.scene, style: args && args.style,
-            cameraMove: args && args.cameraMove, duration: args && args.duration,
-          });
-          const saved = await methods.directorStageSave({ projectId, spec });
+          const saved = await methods.directorStageSave({ projectId, stageId, spec });
           if (!saved || !saved.ok) return { ok: false, error: (saved && saved.error) || '保存失败' };
-          return { ok: true, projectId, spec, savedAt: saved.savedAt || Date.now() };
+          return { ok: true, projectId, stageId, spec, source, warning, savedAt: saved.savedAt || Date.now() };
         } catch (e) {
           return { ok: false, error: String((e && e.message) || e) };
         }
       },
       async directorStageEdit(args) {
         const projectId = String((args && args.projectId) || '');
+        const stageId = safeStageId(args && args.stageId);
         const instruction = String((args && args.instruction) || '').trim();
         if (!instruction) return { ok: false, error: '需要 instruction' };
-        const cur = await methods.directorStageLoad({ projectId });
+        const cur = await methods.directorStageLoad({ projectId, stageId });
         if (!cur || !cur.ok) return { ok: false, error: (cur && cur.error) || '读取场景失败' };
-        if (!cur.found || !cur.spec) return { ok: false, error: '当前项目还没有 3D-BOX 规格：先生成或导入一版' };
+        if (!cur.found || !cur.spec) return { ok: false, error: '当前 3D-BOX 还没有规格：先生成或导入一版' };
         try {
           const edited = await editDirectorSpec(cur.spec, instruction);
-          const saved = await methods.directorStageSave({ projectId, spec: edited.spec });
+          const saved = await methods.directorStageSave({ projectId, stageId, spec: edited.spec });
           if (!saved || !saved.ok) return { ok: false, error: (saved && saved.error) || '保存失败' };
-          return { ok: true, projectId, spec: edited.spec, savedAt: saved.savedAt || Date.now() };
+          return { ok: true, projectId, stageId: stageId || null, spec: edited.spec, savedAt: saved.savedAt || Date.now() };
         } catch (e) {
           return { ok: false, error: String((e && e.message) || e) };
         }
       },
       async directorStageCamera(args) {
         const projectId = String((args && args.projectId) || '');
+        const stageId = safeStageId(args && args.stageId);
         const prompt = String((args && args.prompt) || '').trim();
         const moveId = String((args && args.cameraMove) || '').trim();
         if (!prompt && !moveId) return { ok: false, error: '需要 prompt 或 cameraMove' };
-        const cur = await methods.directorStageLoad({ projectId });
+        const cur = await methods.directorStageLoad({ projectId, stageId });
         if (!cur || !cur.ok) return { ok: false, error: (cur && cur.error) || '读取场景失败' };
-        if (!cur.found || !cur.spec) return { ok: false, error: '当前项目还没有 3D-BOX 规格：先生成或导入一版' };
+        if (!cur.found || !cur.spec) return { ok: false, error: '当前 3D-BOX 还没有规格：先生成或导入一版' };
         try {
           if (prompt) {
             const planned = await planCameraMotion(cur.spec, prompt, { duration: args && args.duration });
-            const saved = await methods.directorStageSave({ projectId, spec: planned.spec });
+            const saved = await methods.directorStageSave({ projectId, stageId, spec: planned.spec });
             if (!saved || !saved.ok) return { ok: false, error: (saved && saved.error) || '保存失败' };
-            return { ok: true, projectId, spec: planned.spec, keys: planned.keys.length, savedAt: saved.savedAt || Date.now() };
+            return { ok: true, projectId, stageId: stageId || null, spec: planned.spec, keys: planned.keys.length, savedAt: saved.savedAt || Date.now() };
           }
           const eng = await loadDirectorEngine();
           if (!eng || typeof eng.applyCameraMove !== 'function') return { ok: false, error: '引擎未就绪' };
           const next = eng.applyCameraMove(cur.spec, moveId, { duration: args && args.duration });
-          const saved = await methods.directorStageSave({ projectId, spec: next });
+          const saved = await methods.directorStageSave({ projectId, stageId, spec: next });
           if (!saved || !saved.ok) return { ok: false, error: (saved && saved.error) || '保存失败' };
-          return { ok: true, projectId, spec: next, keys: (next.cameras && next.cameras[0] && next.cameras[0].keys || []).length, savedAt: saved.savedAt || Date.now() };
+          return { ok: true, projectId, stageId: stageId || null, spec: next, keys: (next.cameras && next.cameras[0] && next.cameras[0].keys || []).length, savedAt: saved.savedAt || Date.now() };
         } catch (e) {
           return { ok: false, error: String((e && e.message) || e) };
         }

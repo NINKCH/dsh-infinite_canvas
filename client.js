@@ -517,7 +517,7 @@ function revealCanvasInRight() {
       'boxStyleAuto': '风格：自动',
       'boxMoveAuto': '运镜：自动',
       'boxBuild': '生成预演',
-      'boxBuilding': '搭景中…',
+      'boxBuilding': 'AI 搭景中…',
       'boxEdit': '改景',
       'boxEditing': '改景中…',
       'boxEdited': '已按你的描述改景',
@@ -1772,7 +1772,7 @@ function revealCanvasInRight() {
       'boxStyleAuto': 'Style: Auto',
       'boxMoveAuto': 'Move: Auto',
       'boxBuild': 'Build previz',
-      'boxBuilding': 'Building…',
+      'boxBuilding': 'AI building…',
       'boxEdit': 'Edit scene',
       'boxEditing': 'Editing…',
       'boxEdited': 'Scene updated',
@@ -11245,6 +11245,8 @@ function queueThumb(assetId) {
       hostBindingStale: false, // 宿主进程为旧版（缺 bindingCapabilities rev>=2）→ 菜单提示重启并拦截动作
       // 3D 导演台（纯 UI 状态；场景数据存在节点/项目的 director 文档里，见 directorDoc）
       directorOpen: false,
+      directorStageId: null,        // 当前 3D-BOX stage（库里的某一条；null = 旧版单文件）
+      directorStageTitle: '',
       directorFull: false,          // 导演台是否全屏
       directorPendingPlace: null,   // 待放置资产（点选预设后进入放置模式）
       directorTool: 'select',       // 'select' | 'move' | 'rotate' | 'camera'
@@ -18228,7 +18230,7 @@ const DIRECTOR_KEY_HELP = [
       // 引擎过期检测：engine.js 只在整页加载时 import 一次，插件更新后旧页面仍在跑旧引擎——
       // 打开面板时对比 sessionStorage 里记录的版本，不一致就常驻提示「刷新页面」。
       const [staleEngine, setStaleEngine] = useState(false);
-      const [scene, setScene] = useState(() => (directorEngine() ? directorEngine().loadStageDoc(S.activeId, T('directorDefaultTitle')) : null));
+      const [scene, setScene] = useState(() => (directorEngine() ? directorEngine().loadStageDoc(S.activeId, T('directorDefaultTitle'), S.directorStageId) : null));
       const [tick, setTick] = useState(0);
       const [busy, setBusy] = useState(false);
       const [recording, setRecording] = useState(false);
@@ -18324,7 +18326,7 @@ const DIRECTOR_KEY_HELP = [
       const pushUndo = () => pushUndoSnapshot(scene);
       const applyHistoryScene = (text) => {
         const n = JSON.parse(text);
-        setScene(n); markDirty(); directorEngine().saveStageDoc(S.activeId, n); bumpView();
+        setScene(n); markDirty(); directorEngine().saveStageDoc(S.activeId, n, S.directorStageId); bumpView();
       };
       const undo = () => {
         const prev = undoRef.current.pop();
@@ -18346,7 +18348,7 @@ const DIRECTOR_KEY_HELP = [
           applyHistoryScene(next);
         } catch { setMsg({ kind: 'err', text: T('dirUndoFailed') }); }
       };
-      const commit = (next) => { setScene(next); markDirty(); const E2 = directorEngine(); if (E2) E2.saveStageDoc(S.activeId, next); bumpView(); };
+      const commit = (next) => { setScene(next); markDirty(); const E2 = directorEngine(); if (E2) E2.saveStageDoc(S.activeId, next, S.directorStageId); bumpView(); };
       /** 成片场景（实时渲染预览 / 截图 / 视频导出共用）：保留颜色材质灯光，只剥编辑辅助。 */
       const directorFilmScene = (src) => {
         const E2 = directorEngine();
@@ -18426,7 +18428,7 @@ const DIRECTOR_KEY_HELP = [
         setMsg({ kind: 'ok', text: T('dirCharAdded').replace('{name}', c.name) });
         bumpView();
       };
-      const pickSave = (next) => { markDirty(); const E2 = directorEngine(); if (E2) E2.saveStageDoc(S.activeId, next); };
+      const pickSave = (next) => { markDirty(); const E2 = directorEngine(); if (E2) E2.saveStageDoc(S.activeId, next, S.directorStageId); };
       /** 自然语言改景：Host 用用户已配置的模型改 spec → 本地构场景 → 可撤销。 */
       const editBox = () => {
         const E2 = directorEngine();
@@ -18435,13 +18437,13 @@ const DIRECTOR_KEY_HELP = [
         if (!instruction) { setMsg({ kind: 'err', text: T('boxFailed') + T('boxBriefPh') }); return; }
         if (!scene) { setMsg({ kind: 'err', text: T('boxFailed') + T('boxBriefPh') }); return; }
         setBoxBusy(true);
-        hostRpc('directorStageEdit', { projectId: S.activeId, instruction }).then((r) => {
+        hostRpc('directorStageEdit', { projectId: S.activeId, stageId: S.directorStageId, instruction }).then((r) => {
           if (!r || !r.ok) throw new Error((r && r.error) || 'edit failed');
           const built = E2.buildStageFromSpec(r.spec);
           if (!built) throw new Error('buildStageFromSpec returned null');
           built.updatedAt = Date.now();
           pushUndo();
-          E2.saveStageDoc(S.activeId, built);
+          E2.saveStageDoc(S.activeId, built, S.directorStageId);
           setScene(built);
           markDirty();
           bumpView();
@@ -18458,13 +18460,13 @@ const DIRECTOR_KEY_HELP = [
         if (!prompt) { setMsg({ kind: 'err', text: T('boxFailed') + T('boxBriefPh') }); return; }
         if (!scene) { setMsg({ kind: 'err', text: T('boxFailed') + T('boxBriefPh') }); return; }
         setBoxBusy(true);
-        hostRpc('directorStageCamera', { projectId: S.activeId, prompt }).then((r) => {
+        hostRpc('directorStageCamera', { projectId: S.activeId, stageId: S.directorStageId, prompt }).then((r) => {
           if (!r || !r.ok) throw new Error((r && r.error) || 'camera failed');
           const built = E2.buildStageFromSpec(r.spec);
           if (!built) throw new Error('buildStageFromSpec returned null');
           built.updatedAt = Date.now();
           pushUndo();
-          E2.saveStageDoc(S.activeId, built);
+          E2.saveStageDoc(S.activeId, built, S.directorStageId);
           setScene(built);
           markDirty();
           bumpView();
@@ -18479,19 +18481,19 @@ const DIRECTOR_KEY_HELP = [
         if (!open) return;
         loadDirectorEngine().then(() => {
           setEngReady(true);
-          const localStage = ENG.loadStageDoc(S.activeId, T('directorDefaultTitle'));
+          const localStage = ENG.loadStageDoc(S.activeId, T('directorDefaultTitle'), S.directorStageId);
           setScene(localStage);
         // ── AI 规格自动套用：仅当 Host 规格比本地场景更新（或本地尚无修改）时应用 ──
         (async () => {
           try {
-            const r = await hostRpc('directorStageLoad', { projectId: S.activeId });
+            const r = await hostRpc('directorStageLoad', { projectId: S.activeId, stageId: S.directorStageId });
             const localUpdated = Number(localStage && localStage.updatedAt) || 0;
             const hostUpdated = Number(r && r.savedAt) || 0;
             if (r && r.ok && r.found && r.spec && (!localUpdated || hostUpdated > localUpdated)) {
               const built = ENG.buildStageFromSpec ? ENG.buildStageFromSpec(r.spec) : null;
               if (built) {
                 built.updatedAt = hostUpdated || Date.now();
-                ENG.saveStageDoc(S.activeId, built);
+                ENG.saveStageDoc(S.activeId, built, S.directorStageId);
                 setScene(built);
                 setMsg({ kind: 'ok', text: T('dirSpecApplied') });
                 // AI 全自动出片：规格里带 autoExport:true 时，套用后直接走「导出视频」
@@ -18506,7 +18508,7 @@ const DIRECTOR_KEY_HELP = [
           // 场景里引用到的模型必须全部预加载：否则 tree/furniture/building 等资产在重开后会退化成方块
           const preloadSceneAssets = async () => {
             try {
-              const sc = ENG.loadStageDoc(S.activeId, T('directorDefaultTitle'));
+              const sc = ENG.loadStageDoc(S.activeId, T('directorDefaultTitle'), S.directorStageId);
               const ids = [...new Set((sc.objects || [])
                 .filter((o) => o && (o.kind === 'model' || o.kind === 'gltf') && o.assetId)
                 .map((o) => String(o.assetId)))];
@@ -18635,7 +18637,7 @@ const DIRECTOR_KEY_HELP = [
           markDirty();
           setScene((s2) => {
             const E2 = directorEngine();
-            if (E2) E2.saveStageDoc(S.activeId, s2);
+            if (E2) E2.saveStageDoc(S.activeId, s2, S.directorStageId);
             return s2;
           });
         }
@@ -19139,7 +19141,7 @@ const DIRECTOR_KEY_HELP = [
         S.directorCamFollow = false;
         setScene(fresh);
         const E2 = directorEngine();
-        if (E2) E2.saveStageDoc(S.activeId, fresh);
+        if (E2) E2.saveStageDoc(S.activeId, fresh, S.directorStageId);
         markDirty();
         bumpView();
         setMsg({ kind: 'ok', text: T('dirWsCleared') + ' (' + n + ')' });
@@ -19692,7 +19694,7 @@ const DIRECTOR_KEY_HELP = [
         // 路径点拖拽收口：写入舞台文档并提示
         if (d && d.mode === 'pathpoint') {
           if (d.before) pushUndoSnapshot(d.before);
-          setScene((s2) => { const n = JSON.parse(JSON.stringify(s2)); n.updatedAt = Date.now(); E.saveStageDoc(S.activeId, n); return n; });
+          setScene((s2) => { const n = JSON.parse(JSON.stringify(s2)); n.updatedAt = Date.now(); E.saveStageDoc(S.activeId, n, S.directorStageId); return n; });
           markDirty();
           const ob2 = (scene.objects || []).find((x2) => x2.id === d.objId);
           const pt = ob2 && Array.isArray(ob2.path) ? ob2.path[d.index] : null;
@@ -19725,7 +19727,7 @@ const DIRECTOR_KEY_HELP = [
               }
             }
             n.updatedAt = Date.now();
-            if (isObjDrag || isCamDrag) E.saveStageDoc(S.activeId, n);
+            if (isObjDrag || isCamDrag) E.saveStageDoc(S.activeId, n, S.directorStageId);
             return n;
           });
           if (isObjDrag || isCamDrag) { markDirty(); bumpView(); }
@@ -19766,7 +19768,7 @@ const DIRECTOR_KEY_HELP = [
           if (wheelBeforeRef.current) pushUndoSnapshot(wheelBeforeRef.current);
           wheelBeforeRef.current = null;
           wheelGestureOpenRef.current = false;
-          setScene((s2) => { const n = JSON.parse(JSON.stringify(s2)); n.updatedAt = Date.now(); E.saveStageDoc(S.activeId, n); return n; });
+          setScene((s2) => { const n = JSON.parse(JSON.stringify(s2)); n.updatedAt = Date.now(); E.saveStageDoc(S.activeId, n, S.directorStageId); return n; });
           markDirty(); bumpView();
         }, 180);
         S.directorWheelTick = Date.now();   // 标记「刚滚过轮」，渲染时显示实时相机
@@ -19928,7 +19930,7 @@ const DIRECTOR_KEY_HELP = [
                         if (!next.env) next.env = {};
                         pushUndo();
                         setScene(next);
-                        if (E2) E2.saveStageDoc(S.activeId, next);
+                        if (E2) E2.saveStageDoc(S.activeId, next, S.directorStageId);
                         S.directorSel = null; S.directorSelSet = null;
                         S.directorDirty = false; setDirtyState(false);
                         setMsg({ kind: 'ok', text: T('dirWsLoaded') + ' ' + String((doc && doc.name) || f.name) });
@@ -20081,7 +20083,7 @@ const DIRECTOR_KEY_HELP = [
                 }, '\u2715 ' + T('dirExitFull')) : null,
                 h('div', { className: 'dshic-dir-pillgroup' },
                   h('div', { className: cls('dshic-dir-pill', S.directorKeysOpen && 'is-on'), 'data-action': 'dir-keys-toggle', onClick: () => { S.directorKeysOpen = !S.directorKeysOpen; bumpView(); } }, T('dirKeys')),
-                  isRenderMode ? null : isRenderMode ? null : h('div', { className: 'dshic-dir-pill dshic-dir-pill-r', 'data-action': 'dir-reset-view', onClick: () => { pushUndo(); const n = JSON.parse(JSON.stringify(scene)); E.resetView(n); E.saveStageDoc(S.activeId, n); S.directorCamFollow = false; setScene(n); bumpView(); } }, T('dirResetView')),
+                  isRenderMode ? null : isRenderMode ? null : h('div', { className: 'dshic-dir-pill dshic-dir-pill-r', 'data-action': 'dir-reset-view', onClick: () => { pushUndo(); const n = JSON.parse(JSON.stringify(scene)); E.resetView(n); E.saveStageDoc(S.activeId, n, S.directorStageId); S.directorCamFollow = false; setScene(n); bumpView(); } }, T('dirResetView')),
                 ),
                 S.directorKeysOpen ? h('div', { className: 'dshic-dir-keys', 'data-action': 'dir-keys' },
                   DIRECTOR_KEY_HELP.map((row) => h('div', { key: row.k, className: 'dshic-dir-keys-row' }, row.k + '  ' + (effLang() === 'en' ? row.en : row.zh)))) : null,
@@ -20798,7 +20800,7 @@ const DIRECTOR_KEY_HELP = [
                 h('div', { className: 'dshic-dir-keyrow' },
                   h('button', { type: 'button', className: 'dshic-dir-mini', 'data-action': 'dir-spec-toggle', onClick: () => setSpecOpen((v) => !v) }, (specOpen ? '▾ ' : '▸ ') + T('dirSpecShow')),
                   h('button', { type: 'button', className: 'dshic-dir-mini', 'data-action': 'dir-spec-copy', onClick: () => { try { const txt = JSON.stringify(ENG.compileStageSpec(scene), null, 2); setSpecText(txt); if (navigator.clipboard) navigator.clipboard.writeText(txt).catch(() => {}); setMsg({ kind: 'ok', text: T('dirSpecCopied') }); } catch (e2) { setMsg({ kind: 'err', text: String(e2 && e2.message || e2) }); } } }, '⧉ ' + T('dirSpecCopy')),
-                  h('button', { type: 'button', className: 'dshic-dir-mini', 'data-action': 'dir-spec-save', onClick: async () => { try { const spec = ENG.compileStageSpec(scene); const r = await hostRpc('directorStageSave', { projectId: S.activeId, spec }); if (r && r.ok) setMsg({ kind: 'ok', text: T('dirSpecSaved') }); else setMsg({ kind: 'err', text: String((r && r.error) || '保存失败') }); } catch (e2) { setMsg({ kind: 'err', text: String(e2 && e2.message || e2) }); } } }, '⇪ ' + T('dirSpecSaveHost'))),
+                  h('button', { type: 'button', className: 'dshic-dir-mini', 'data-action': 'dir-spec-save', onClick: async () => { try { const spec = ENG.compileStageSpec(scene); const r = await hostRpc('directorStageSave', { projectId: S.activeId, stageId: S.directorStageId, spec }); if (r && r.ok) setMsg({ kind: 'ok', text: T('dirSpecSaved') }); else setMsg({ kind: 'err', text: String((r && r.error) || '保存失败') }); } catch (e2) { setMsg({ kind: 'err', text: String(e2 && e2.message || e2) }); } } }, '⇪ ' + T('dirSpecSaveHost'))),
                 specOpen ? h('textarea', {
                   className: 'dshic-dir-prompt', style: { minHeight: '120px' }, 'data-action': 'dir-spec-text',
                   placeholder: T('dirSpecPlaceholder'),
@@ -20941,9 +20943,13 @@ const DIRECTOR_KEY_HELP = [
       }, [open]);
       void engineTick;
       if (!open) return null;
-      const openStage = (projectId) => {
+      const openStage = (projectId, stageId, title) => {
         if (projectId && projectId !== S.activeId) switchProject(projectId);
-        update((s) => { s.boxHomeOpen = false; s.directorOpen = true; });
+        update((s) => {
+          s.boxHomeOpen = false; s.directorOpen = true;
+          s.directorStageId = stageId || null;
+          s.directorStageTitle = String(title || '');
+        });
       };
       const current = items.find((it) => it && it.projectId === S.activeId) || null;
       const create = (blank) => {
@@ -20960,7 +20966,8 @@ const DIRECTOR_KEY_HELP = [
         hostRpc('directorStageBrief', args).then((r) => {
           if (!r || !r.ok) throw new Error((r && r.error) || 'brief failed');
           setBrief('');
-          openStage(S.activeId);
+          if (r.warning) toast(String(r.warning));
+          openStage(S.activeId, r.stageId, (r.spec && r.spec.title) || text);
         }).catch((e) => setErr(T('boxFailed') + hostRpcErrText(e, ''))).finally(() => setBusy(false));
       };
       return h('div', {
@@ -20981,7 +20988,7 @@ const DIRECTOR_KEY_HELP = [
                 onKeyDown: (e) => { if (e.key === 'Enter') create(false); },
               }),
               h('button', { type: 'button', className: 'dshic-boxhome-btn is-primary', 'data-action': 'boxhome-create', disabled: busy, onClick: () => create(false) }, busy ? T('boxBuilding') : T('boxHomeNew')),
-              current ? h('button', { type: 'button', className: 'dshic-boxhome-btn', 'data-action': 'boxhome-continue', disabled: busy, onClick: () => openStage(S.activeId) }, T('boxHomeContinue')) : null,
+              current ? h('button', { type: 'button', className: 'dshic-boxhome-btn', 'data-action': 'boxhome-continue', disabled: busy, onClick: () => openStage(S.activeId, current.stageId, current.title) }, T('boxHomeContinue')) : null,
               h('button', { type: 'button', className: 'dshic-boxhome-btn', 'data-action': 'boxhome-blank', disabled: busy, onClick: () => create(true) }, T('boxHomeBlank'))),
             h('div', { className: 'dshic-boxhome-examples' },
               [T('boxEx1'), T('boxEx2'), T('boxEx3')].map((x) => h('button', { key: x, type: 'button', className: 'dshic-boxhome-chip', onClick: () => setBrief(x) }, x))),
@@ -20997,8 +21004,9 @@ const DIRECTOR_KEY_HELP = [
             loading ? h('div', { className: 'dshic-boxhome-loading' }, T('boxHomeLoading'))
               : (items.length
                 ? items.map((it) => h('button', {
-                    key: it.projectId, type: 'button', className: 'dshic-boxhome-card', 'data-action': 'boxhome-open',
-                    onClick: () => openStage(it.projectId),
+                    key: it.projectId + '::' + (it.stageId || 'legacy'), type: 'button', className: 'dshic-boxhome-card', 'data-action': 'boxhome-open',
+                    'data-stage-id': it.stageId || '',
+                    onClick: () => openStage(it.projectId, it.stageId, it.title),
                   },
                     h('span', { className: 'dshic-boxhome-card-t' }, it.title || '3D-BOX'),
                     h('span', { className: 'dshic-boxhome-card-m' }, (it.projectId === S.activeId ? T('boxHomeCurrent') + ' · ' : '') + (it.projectName || it.projectId)),

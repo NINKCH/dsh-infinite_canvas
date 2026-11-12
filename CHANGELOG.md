@@ -136,6 +136,13 @@ GitHub Releases carry the same notes in English; maintainer-facing runbooks live
   instead of a raw unknown-operation error. Bible characters gain a “Save to
   character library” action, and workflows saved from a group re-group their
   nodes when inserted.
+- **3D-BOX now plans with the configured LLM and keeps every preview.**
+  One-line briefs go through a dedicated previz prompt that fills characters,
+  props, cameras, shots, lighting and action beats (`poseAnim` / paths /
+  locomotion), then validates through the engine. Local template generation is
+  only a visible fallback. Each preview gets its own stage id under
+  `craft/3dbox/`, so generating a new one no longer hides the old library
+  entries; legacy single-file previews are migrated before the first new save.
 
 ### Internal
 - (nothing in this cycle yet)

@@ -5045,7 +5045,7 @@ const DIRECTOR_GL_FS = [
 // ============================================================
 // 舞台文档持久化（按项目 id 存 localStorage）
 // ============================================================
-export const directorDocKey = (pid) => 'dsh-director-stage:' + String(pid || 'default');
+export const directorDocKey = (pid, stageId) => 'dsh-director-stage:' + String(pid || 'default') + (stageId ? '::' + String(stageId) : '');
 /** 用户自建动作（骨骼+姿态编排后保存；出现在「动作」下拉里，与模型自带片段并列）。 */
 const userActionsKey = (pid) => 'dsh-director-actions:' + String(pid || 'default');
 export function loadUserActions(pid) {
@@ -5104,10 +5104,10 @@ export function applyUserAction(ob, action) {
   if (!ob.poseLoop) delete ob.poseLoop;
   return ob;
 }
-export function saveStageDoc(pid, scene) {
+export function saveStageDoc(pid, scene, stageId) {
   try {
     if (typeof localStorage === 'undefined') return false;
-    localStorage.setItem(directorDocKey(pid), JSON.stringify(Object.assign({}, scene, { updatedAt: Date.now() })));
+    localStorage.setItem(directorDocKey(pid, stageId), JSON.stringify(Object.assign({}, scene, { updatedAt: Date.now() })));
     return true;
   } catch { return false; }
 }
@@ -5141,10 +5141,10 @@ export function migrateStageScene(scene) {
   return scene;
 }
 
-export function loadStageDoc(pid, title) {
+export function loadStageDoc(pid, title, stageId) {
   try {
     if (typeof localStorage === 'undefined') return directorDefaultScene(title);
-    const raw = localStorage.getItem(directorDocKey(pid));
+    const raw = localStorage.getItem(directorDocKey(pid, stageId));
     if (!raw) return directorDefaultScene(title);
     const doc = JSON.parse(raw);
     if (!doc || !Array.isArray(doc.objects)) return directorDefaultScene(title);
@@ -5156,8 +5156,8 @@ export function loadStageDoc(pid, title) {
     return migrateStageScene(doc);   // 旧场景自动升级到真实人偶资产
   } catch { return directorDefaultScene(title); }
 }
-export function clearStageDoc(pid) {
-  try { if (typeof localStorage !== 'undefined') localStorage.removeItem(directorDocKey(pid)); return true; }
+export function clearStageDoc(pid, stageId) {
+  try { if (typeof localStorage !== 'undefined') localStorage.removeItem(directorDocKey(pid, stageId)); return true; }
   catch { return false; }
 }
 

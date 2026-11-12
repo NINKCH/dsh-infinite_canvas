@@ -225,7 +225,7 @@ ok(/out\.pos = live\.pos; out\.rotY = live\.rotY; out\.rx = live\.rx; out\.rz = 
   ok(/cameraFlyStep\(c2, input, dt/.test(cli), '漫游必须调用引擎 cameraFlyStep（不得另写位移公式）');
   ok(/Math\.min\(0\.1, Math\.max\(0, \(ts - f\.last\) \/ 1000\)\)/.test(cli), '漫游 dt 应钳制 0.1s（切后台不瞬移）');
   ok(/f\.before = JSON\.stringify\(scene\);/.test(cli) && /pushUndo\(\);/.test(cli), '整段漫游应只 pushUndo 一次');
-  ok(/const flyStop = \(\) =>/.test(cli) && /E2\.saveStageDoc\(S\.activeId, s2\)/.test(cli), '松键停飞应落盘');
+  ok(/const flyStop = \(\) =>/.test(cli) && /E2\.saveStageDoc\(S\.activeId, s2, S\.directorStageId\)/.test(cli), '松键停飞应落盘');
   ok(/onKeyUp/.test(cli) && /onFlyBlur/.test(cli) && /visibilitychange/.test(cli), '松键/失焦/切页应停飞清键');
   ok(/!\(S\.directorDragging && dragRef\.current\)/.test(cli), '拖动 gizmo 时不应触发漫游');
   {
