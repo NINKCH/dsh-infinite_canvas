@@ -15,6 +15,7 @@ ok(Array.isArray(E.DIRECTOR_STYLES) && E.DIRECTOR_STYLES.length >= 6, '缺少 6 
 ok(Array.isArray(E.CAMERA_MOVES) && E.CAMERA_MOVES.length >= 16, '缺少 16+ 运镜预设（CAMERA_MOVES）');
 ok(typeof E.specFromScenePreset === 'function', '缺少 specFromScenePreset');
 ok(typeof E.applyCameraMove === 'function', '缺少 applyCameraMove');
+ok(typeof E.viewCamerasAround === 'function', '缺少 viewCamerasAround（四/十二方位截图）');
 
 // ── ② 每个场景预设都能构建出合法场景 ──
 for (const p of (E.SCENE_PRESETS || [])) {
@@ -68,6 +69,30 @@ for (const p of (E.SCENE_PRESETS || [])) {
   }
 }
 
+// ── ⑤b 四/十二方位截图：机位数量/角度/高度分层 ──
+{
+  const base = E.specFromScenePreset('dialogue2');
+  const sc = E.buildStageFromSpec(base);
+  const four = E.viewCamerasAround(sc, { count: 4 });
+  ok(Array.isArray(four) && four.length === 4, '四方位截图应返回 4 个机位，实际 ' + (four && four.length));
+  const twelve = E.viewCamerasAround(sc, { count: 12 });
+  ok(Array.isArray(twelve) && twelve.length === 12, '十二方位截图应返回 12 个机位，实际 ' + (twelve && twelve.length));
+  if (four && four.length === 4) {
+    const keys = four.map((v) => v.pos.map((x) => Math.round(x * 100) / 100).join(','));
+    ok(new Set(keys).size === 4, '四方位机位不应重合');
+    ok(four.every((v) => Number.isFinite(v.pos[0]) && Number.isFinite(v.pos[1]) && Number.isFinite(v.pos[2])), '方位机位坐标必须合法');
+    ok(four.every((v) => v.pos[1] >= 0.3), '方位机位不应钻到地面以下');
+  }
+  if (twelve && twelve.length === 12) {
+    const ys = new Set(twelve.map((v) => Math.round(v.pos[1] * 10) / 10));
+    ok(ys.size >= 3, '十二方位应至少分 3 个高度层，实际 ' + ys.size);
+  }
+  // 纯函数：不改入参
+  const before = JSON.stringify(sc);
+  E.viewCamerasAround(sc, { count: 4 });
+  ok(JSON.stringify(sc) === before, 'viewCamerasAround 不应修改入参场景');
+}
+
 // ── ⑥ Host 工具与客户端入口接线 ──
 {
   const host = fs.readFileSync(path.join(ROOT, 'index.js'), 'utf8');
@@ -75,9 +100,13 @@ for (const p of (E.SCENE_PRESETS || [])) {
   ok(host.includes('SCENE_PRESETS') || host.includes('scenePresets'), 'Host 未暴露场景预设');
   ok(host.includes('applyCameraMove'), 'Host 未接线 applyCameraMove');
   ok(host.includes('cameraMove'), 'Host 工具未接收 cameraMove');
+  ok(host.includes("action === 'edit'") && host.includes('editDirectorSpec'), 'Host 缺少自然语言改景 action=edit');
   const cli = fs.readFileSync(path.join(ROOT, 'client.js'), 'utf8');
   ok(cli.includes('dshic-dir-boxbar'), '客户端缺少 3D-BOX 提示条');
   ok(cli.includes("'box-build'"), '客户端缺少「生成预演」按钮');
+  ok(cli.includes("'box-edit'") && cli.includes('directorStageEdit'), '客户端缺少「改景」入口或未接 RPC');
+  ok(cli.includes("'box-shot-4'") && cli.includes("'box-shot-12'"), '客户端缺少四/十二方位截图入口');
+  ok(cli.includes('viewCamerasAround'), '客户端未接线四/十二方位截图');
   ok(cli.includes('specFromBrief'), '客户端未接线一句话搭景');
   ok(cli.includes('CAMERA_MOVES') || cli.includes('DIRECTOR_MOVES'), '客户端未接线运镜清单');
 }

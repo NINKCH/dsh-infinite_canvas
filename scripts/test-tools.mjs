@@ -401,6 +401,30 @@ try {
 } catch (e) {
   errs.push('墓碑校验失败 → ' + ((e && e.message) || e));
 }
+// 3D-BOX 自然语言改景：注入假 LLM，验证 action=edit 写回 + 校验失败可见
+try {
+  mod._internals.setDataRoot(path.join(SANDBOX, 'data'));
+  const spec0 = { title: 'edit-test', duration: 5, characters: [{ name: 'A', pos: [0, 0, 0] }], cameras: [{ name: 'c', pos: [0, 2, 6], target: [0, 1, 0], fov: 42 }], shots: [{ camera: 'c', start: 0, end: 5 }] };
+  const a0 = await byName.get('canvas_director_stage').execute({ action: 'apply', projectId, spec: spec0 }, {});
+  if (!a0 || !a0.ok) throw new Error('apply failed');
+  const spec1 = JSON.parse(JSON.stringify(spec0));
+  spec1.cameras[0].pos = [0, 1.1, 6];
+  spec1.duration = 6;
+  mod._internals.__auto.setRoomLlm(async () => JSON.stringify(spec1));
+  const ed = await byName.get('canvas_director_stage').execute({ action: 'edit', projectId, instruction: '机位低一点，时长改成6秒' }, {});
+  if (!ed || !ed.ok) throw new Error('edit failed');
+  if (!ed.spec || ed.spec.cameras[0].pos[1] !== 1.1) throw new Error('edit spec not applied');
+  const got = await byName.get('canvas_director_stage').execute({ action: 'get', projectId }, {});
+  if (!got || !got.spec || got.spec.duration !== 6) throw new Error('edit not persisted');
+  mod._internals.__auto.setRoomLlm(async () => 'not json');
+  let bad = false;
+  try { await byName.get('canvas_director_stage').execute({ action: 'edit', projectId, instruction: '乱改' }, {}); } catch { bad = true; }
+  if (!bad) throw new Error('invalid LLM output was accepted');
+} catch (e) {
+  errs.push('3D-BOX 自然语言改景失败 → ' + ((e && e.message) || e));
+} finally {
+  mod._internals.__auto.setRoomLlm(async () => '');
+}
 await run('canvas_delete_project', { projectId, confirm: '删除整个测试项目' });
 
 // 运行/打开请求与删除通知必须一次性消费（projectsSync 读走即清空）

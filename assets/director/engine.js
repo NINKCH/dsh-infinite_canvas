@@ -3452,6 +3452,58 @@ export function applyCameraMove(spec, moveId, opts) {
   return out;
 }
 
+/**
+ * 以当前机位为基准，生成四/十二方位截图用的临时机位（纯函数）。
+ * count=4：围绕主体的前/右/后/左；count=12：3 个高度层 × 4 个方向。
+ * 返回 [{ name, nameEn, pos:[x,y,z], target:[x,y,z], fov }]，不修改入参。
+ */
+export function viewCamerasAround(scene, opts) {
+  const o = opts || {};
+  const count = Number(o.count) === 12 ? 12 : 4;
+  const cams = Array.isArray(scene && scene.cameras) ? scene.cameras : [];
+  const base = cams.find((c) => c && c.id === (scene && scene.activeCameraId)) || cams[0] || {};
+  const target = asVec3(base.target, [0, 1, 0]);
+  const pos = asVec3(base.pos, [0, 2, 6]);
+  const fov = clampFov(base.fov);
+  const dist = Math.max(1.6, Math.hypot(pos[0] - target[0], pos[2] - target[2]));
+  const baseYaw = Math.atan2(pos[0] - target[0], pos[2] - target[2]);
+  const dirs = [
+    { zh: '前', en: 'front', a: 0 },
+    { zh: '右', en: 'right', a: Math.PI / 2 },
+    { zh: '后', en: 'back', a: Math.PI },
+    { zh: '左', en: 'left', a: -Math.PI / 2 },
+  ];
+  const out = [];
+  if (count === 4) {
+    for (const d of dirs) {
+      const a = baseYaw + d.a;
+      out.push({
+        name: d.zh, nameEn: d.en,
+        pos: [target[0] + Math.sin(a) * dist, Math.max(0.3, pos[1]), target[2] + Math.cos(a) * dist],
+        target: target.slice(), fov,
+      });
+    }
+    return out;
+  }
+  const heights = [
+    Math.max(0.8, pos[1] - 0.8),
+    Math.max(1.2, pos[1]),
+    Math.max(1.8, pos[1] + 1.2),
+  ];
+  const levels = [{ zh: '低', en: 'low' }, { zh: '中', en: 'mid' }, { zh: '高', en: 'high' }];
+  for (let li = 0; li < 3; li++) {
+    for (const d of dirs) {
+      const a = baseYaw + d.a;
+      out.push({
+        name: levels[li].zh + d.zh, nameEn: levels[li].en + '-' + d.en,
+        pos: [target[0] + Math.sin(a) * dist, heights[li], target[2] + Math.cos(a) * dist],
+        target: target.slice(), fov,
+      });
+    }
+  }
+  return out;
+}
+
 /** 9 个场景预设 → 规格。所有坐标用 [x,y,z]，与 buildStageFromSpec 的二维 [x,z] 兼容。 */
 export function specFromScenePreset(presetId, opts) {
   const o = opts || {};

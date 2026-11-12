@@ -484,8 +484,16 @@ function revealCanvasInRight() {
       'boxMoveAuto': '运镜：自动',
       'boxBuild': '生成预演',
       'boxBuilding': '搭景中…',
+      'boxEdit': '改景',
+      'boxEditing': '改景中…',
+      'boxEdited': '已按你的描述改景',
       'boxBuilt': '已生成 3D-BOX 预演',
       'boxFailed': '搭景失败：',
+      'boxShot4': '四方位截图',
+      'boxShot12': '十二方位截图',
+      'boxShotBusy': '截图中…',
+      'boxShotDone': '已生成 {n} 张方位截图',
+      'boxShotName': '3D-BOX 方位',
       'boxExamples': '试试：',
       'boxEx1': '城市街头警匪追车',
       'boxEx2': '环绕香水瓶运镜',
@@ -1511,8 +1519,16 @@ function revealCanvasInRight() {
       'boxMoveAuto': 'Move: Auto',
       'boxBuild': 'Build previz',
       'boxBuilding': 'Building…',
+      'boxEdit': 'Edit scene',
+      'boxEditing': 'Editing…',
+      'boxEdited': 'Scene updated',
       'boxBuilt': '3D-BOX previz generated',
       'boxFailed': 'Build failed: ',
+      'boxShot4': '4-view screenshots',
+      'boxShot12': '12-view screenshots',
+      'boxShotBusy': 'Capturing…',
+      'boxShotDone': 'Generated {n} view screenshots',
+      'boxShotName': '3D-BOX view',
       'boxExamples': 'Try:',
       'boxEx1': 'City street chase',
       'boxEx2': 'Orbit a perfume bottle',
@@ -16511,6 +16527,29 @@ const DIRECTOR_KEY_HELP = [
           setBoxBusy(false);
         }
       };
+      /** 自然语言改景：Host 用用户已配置的模型改 spec → 本地构场景 → 可撤销。 */
+      const editBox = () => {
+        const E2 = directorEngine();
+        if (!E2 || typeof E2.buildStageFromSpec !== 'function') { setMsg({ kind: 'err', text: T('boxFailed') + 'engine' }); return; }
+        const instruction = String(boxBrief || '').trim();
+        if (!instruction) { setMsg({ kind: 'err', text: T('boxFailed') + T('boxBriefPh') }); return; }
+        if (!scene) { setMsg({ kind: 'err', text: T('boxFailed') + T('boxBriefPh') }); return; }
+        setBoxBusy(true);
+        hostRpc('directorStageEdit', { projectId: S.activeId, instruction }).then((r) => {
+          if (!r || !r.ok) throw new Error((r && r.error) || 'edit failed');
+          const built = E2.buildStageFromSpec(r.spec);
+          if (!built) throw new Error('buildStageFromSpec returned null');
+          built.updatedAt = Date.now();
+          pushUndo();
+          E2.saveStageDoc(S.activeId, built);
+          setScene(built);
+          markDirty();
+          bumpView();
+          setMsg({ kind: 'ok', text: T('boxEdited') });
+        }).catch((e) => {
+          setMsg({ kind: 'err', text: T('boxFailed') + String((e && e.message) || e) });
+        }).finally(() => setBoxBusy(false));
+      };
 
       // 引擎 + 模型清单
       useEffect(() => {
@@ -17236,6 +17275,52 @@ const DIRECTOR_KEY_HELP = [
           setMsg({ kind: 'ok', text: T('directorExported') + ' · ' + (used === 'webgl' ? T('dirRendererGL') : T('dirRendererFallback')) });
         } catch (e2) { setMsg({ kind: 'err', text: String((e2 && e2.message) || e2) }); } finally { setBusy(false); }
       };
+      /** 3D-BOX 四/十二方位截图：围绕当前主体渲染多机位，直接落 image 节点。 */
+      const exportViews = async (count) => {
+        if (busy) return;
+        const views = E.viewCamerasAround(scene, { count: Number(count) === 12 ? 12 : 4 });
+        if (!views.length) { setMsg({ kind: 'err', text: T('dirEngineFail') }); return; }
+        setBusy(true); setMsg({ kind: 'ok', text: T('boxShotBusy') });
+        try {
+          const w = 1280, h = 720;
+          const cv = document.createElement('canvas');
+          cv.width = w; cv.height = h;
+          const glOut = E.createDirectorGlRenderer(cv);
+          if (glOut) glOut.resize(w, h, 1);
+          const base = worldCenter();
+          const dur = Math.max(0.5, Number(scene.shot && scene.shot.duration) || Number(durS) || 5);
+          const t = Math.min(Math.max(0, playT), dur);
+          const made = [];
+          for (let i = 0; i < views.length; i++) {
+            const v = views[i];
+            const viewScene = JSON.parse(JSON.stringify(scene));
+            viewScene.cameras = [{ id: 'viewcam', name: v.name, pos: v.pos, target: v.target, fov: v.fov, roll: 0, keys: [] }];
+            viewScene.activeCameraId = 'viewcam';
+            viewScene.shots = [{ id: 'viewshot', cameraId: 'viewcam', start: 0, end: dur }];
+            const film = directorFilmScene(viewScene);
+            if (glOut) glOut.draw(E.applyPlayhead(film, t), { selectedId: null, renderGround: true, renderOnly: true });
+            else E.directorRenderScene(cv.getContext('2d'), w, h, E.applyPlayhead(film, t), { selectedId: null });
+            const blob = await new Promise((res2, rej) => { try { cv.toBlob((b) => (b ? res2(b) : rej(new Error('blob'))), 'image/png'); } catch (e2) { rej(e2); } });
+            const name = T('boxShotName') + ' ' + v.name + ' ' + nowStamp();
+            const saved = await saveAssetRecord(S.activeId, 'image', blob, {
+              name, prompt: E.compileDirectorPrompt(viewScene, { zh: effLang() !== 'en' }),
+              source: 'director', category: 'shot', nodeLabel: T('boxTitle'),
+            });
+            const col = i % 4, row = Math.floor(i / 4);
+            const node = addNodeAt('image', { x: base.x + 520 + col * 380, y: base.y - 200 + row * 380 });
+            update((st) => {
+              const g = st.graph.nodes[node.id];
+              if (g) g.data = Object.assign({}, g.data, { assetId: saved.id, prompt: saved.prompt || '', label: name, status: 'done' });
+              st.assetsTick++;
+            });
+            made.push(saved.id);
+          }
+          try { if (glOut) glOut.dispose(); } catch { /* 忽略 */ }
+          setMsg({ kind: 'ok', text: T('boxShotDone').replace('{n}', String(made.length)) });
+        } catch (e2) {
+          setMsg({ kind: 'err', text: String((e2 && e2.message) || e2) });
+        } finally { setBusy(false); }
+      };
       /** 导出预演视频：离屏 GL 逐帧渲染 + MediaRecorder 录制。
        *  不用主视口 captureStream —— WebGL context 未开 preserveDrawingBuffer 会录出黑屏。 */
       const exportVideo = async () => {
@@ -17949,6 +18034,18 @@ const DIRECTOR_KEY_HELP = [
               type: 'button', className: 'dshic-dir-cta', 'data-action': 'box-build',
               disabled: boxBusy, onClick: buildBox,
             }, boxBusy ? T('boxBuilding') : T('boxBuild')),
+            h('button', {
+              type: 'button', className: 'dshic-dir-mini', 'data-action': 'box-edit',
+              disabled: boxBusy, title: T('boxEdit'), onClick: editBox,
+            }, boxBusy ? T('boxEditing') : T('boxEdit')),
+            h('button', {
+              type: 'button', className: 'dshic-dir-mini', 'data-action': 'box-shot-4',
+              disabled: boxBusy, title: T('boxShot4'), onClick: () => exportViews(4),
+            }, '4向'),
+            h('button', {
+              type: 'button', className: 'dshic-dir-mini', 'data-action': 'box-shot-12',
+              disabled: boxBusy, title: T('boxShot12'), onClick: () => exportViews(12),
+            }, '12向'),
           ),
           h('div', { className: 'dshic-dir-body' },
             h('aside', { className: 'dshic-dir-side dshic-dir-side-l' },

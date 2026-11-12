@@ -3920,6 +3920,44 @@ export function apply(ctx) {
     }
     /** needJson 失败局部重试指令：追加在 user 尾部，测试以「只输出 JSON」识别重试轮。 */
     const AUTO_JSON_RETRY = '\n\n【格式重试】上一轮输出无法解析为 JSON。只输出 JSON 对象本身：不要任何解释文字、不要 markdown 代码围栏、不要前后缀。';
+    /** 3D-BOX 自然语言改景：把当前 spec + 指令交给用户已配置的模型，返回完整可构建 spec。 */
+    const DIRECTOR_EDIT_SYSTEM = [
+      'You are a 3D previs scene editor. Modify the CURRENT SPEC according to the INSTRUCTION.',
+      'Return ONLY one JSON object, no prose, no markdown fences.',
+      'Keep the same schema: { title, duration, env, style, characters[], props[], cameras[], shots[], shot }',
+      'Camera: { name, pos:[x,y,z], target:[x,y,z], fov, keys?[] }',
+      'Shot: { camera, start, end }',
+      'Character: { name, pos:[x,y,z], rotY, pose, color, path?, keys?, poseAnim? }',
+      'Valid pose ids: none, stand, arms_up, punch, kick, flip, fly, crouch, fight, walk, run, jump, hit, fall, walk_a, walk_b, run_a, run_b.',
+      'Preserve all fields the instruction does not mention. Keep cameras/shots non-empty. Use meters and seconds.',
+      'Examples: "机位低一点" -> lower camera pos.y and target.y; "让 A 从左入画" -> move A pos.x negative; "加一张桌子" -> add a box prop; "手持" -> set shot.cameraMove="handheld".',
+    ].join('\n');
+    async function editDirectorSpec(currentSpec, instruction, opts) {
+      const text = String(instruction || '').trim();
+      if (!text) throw new Error('需要 instruction');
+      if (!currentSpec || typeof currentSpec !== 'object') throw new Error('缺少当前场景规格');
+      const eng = await loadDirectorEngine();
+      if (!eng || typeof eng.buildStageFromSpec !== 'function') throw new Error('引擎未就绪');
+      const call = (opts && typeof opts.llm === 'function') ? opts.llm : roomLlm;
+      const baseUser = 'CURRENT SPEC JSON:\n' + JSON.stringify(currentSpec) + '\n\nINSTRUCTION:\n' + text;
+      let lastErr = null;
+      for (let attempt = 0; attempt < 2; attempt++) {
+        const user = attempt === 0
+          ? baseUser
+          : baseUser + '\n\n【修正】上一轮返回不可用：' + String((lastErr && lastErr.message) || lastErr) + '\n只输出修正后的完整 JSON 对象。';
+        const raw = await call({ system: DIRECTOR_EDIT_SYSTEM, user });
+        const parsed = roomJson(raw);
+        if (!parsed || typeof parsed !== 'object') { lastErr = new Error('模型没有返回可解析的 JSON'); continue; }
+        const next = (parsed.spec && typeof parsed.spec === 'object') ? parsed.spec : parsed;
+        const built = eng.buildStageFromSpec(next);
+        if (!built || !Array.isArray(built.cameras) || !built.cameras.length || !Array.isArray(built.shots) || !built.shots.length) {
+          lastErr = new Error('返回的规格缺机位/分镜，无法构建');
+          continue;
+        }
+        return { ok: true, spec: next, built };
+      }
+      throw lastErr || new Error('改景失败');
+    }
     async function autoRoomStep(run, role, system, user, needJson) {
       if (run.status !== 'running') throw new Error('aborted');
       const raw = await roomLlm({ system, user });
@@ -4428,6 +4466,7 @@ export function apply(ctx) {
     __autoApi.runs = AUTO_RUNS;
     __autoApi.setRoomLlm = (fn) => { roomLlm = fn; };
     __autoApi.setCanvasRunner = (fn) => { canvasExec = fn; };
+    __autoApi.editDirectorSpec = editDirectorSpec;
 
     const methods = {
       async ping() { return { ok: true, version: VERSION }; },
@@ -4511,6 +4550,22 @@ export function apply(ctx) {
           const doc = JSON.parse(readFileSync(file, 'utf8'));
           return { ok: true, found: true, file, savedAt: doc.savedAt || null, spec: doc.spec || null };
         } catch (e) { return { ok: false, found: false, file, error: '读取失败: ' + String((e && e.message) || e) }; }
+      },
+      async directorStageEdit(args) {
+        const projectId = String((args && args.projectId) || '');
+        const instruction = String((args && args.instruction) || '').trim();
+        if (!instruction) return { ok: false, error: '需要 instruction' };
+        const cur = await methods.directorStageLoad({ projectId });
+        if (!cur || !cur.ok) return { ok: false, error: (cur && cur.error) || '读取场景失败' };
+        if (!cur.found || !cur.spec) return { ok: false, error: '当前项目还没有 3D-BOX 规格：先生成或导入一版' };
+        try {
+          const edited = await editDirectorSpec(cur.spec, instruction);
+          const saved = await methods.directorStageSave({ projectId, spec: edited.spec });
+          if (!saved || !saved.ok) return { ok: false, error: (saved && saved.error) || '保存失败' };
+          return { ok: true, projectId, spec: edited.spec, savedAt: saved.savedAt || Date.now() };
+        } catch (e) {
+          return { ok: false, error: String((e && e.message) || e) };
+        }
       },
       async projectCraftRemove(args) {
         const root = dataRoot();
@@ -5524,12 +5579,13 @@ export function apply(ctx) {
           parameters: {
             type: 'object',
             properties: {
-              action: { type: 'string', enum: ['apply', 'get', 'help', 'brief', 'presets', 'camera'], description: '操作类型' },
+              action: { type: 'string', enum: ['apply', 'get', 'help', 'brief', 'presets', 'camera', 'edit'], description: '操作类型' },
               brief: { type: 'string', description: '一句话描述（action=brief 时用，如「两人在巷子里打斗，8秒」）；会套用场景/风格/运镜预设生成规格并落盘' },
               template: { type: 'string', enum: ['fight', 'chase', 'dialogue'], description: '旧版模板（保留兼容；新代码用 scene）' },
               scene: { type: 'string', description: '场景预设 id（action=brief 时用；见 action=presets 的 scenePresets，如 dialogue3 / interview / meeting / chase）' },
               style: { type: 'string', description: '导演风格 id（action=brief 时用；见 action=presets 的 directorStyles，如 animation / tvc / mv / documentary / commerce / suspense）' },
               cameraMove: { type: 'string', description: '运镜预设 id（action=brief 或 action=camera 时用；见 action=presets 的 cameraMoves，如 push_in / arc_left / crane_up / dolly_zoom）' },
+              instruction: { type: 'string', description: '自然语言改景指令（action=edit 时用）：如「机位再低一点」「让角色 A 从左入画」「加一张桌子」；由用户已配置的模型改当前 spec，失败自动重试一次' },
               duration: { type: 'number', description: '时长秒数（不传则从 brief 里抓「N秒」，否则用模板默认值）' },
               projectId: { type: 'string', description: '项目 id' },
               spec: { type: 'object', description: '场景规格（action=apply 时必填）' },
@@ -5605,6 +5661,16 @@ export function apply(ctx) {
               return {
                 ok: true, projectId: String(args.projectId || ''), spec: next,
                 text: '✅ 已施加运镜「' + moveId + '」并写入项目（' + ((next.cameras && next.cameras[0] && next.cameras[0].keys) || []).length + ' 个机位关键帧）。刷新 3D-BOX 即可预览。',
+              };
+            }
+            if (action === 'edit') {
+              const instruction = String((args && args.instruction) || '').trim();
+              if (!instruction) throw new Error('action=edit 需要 instruction');
+              const r6 = await methods.directorStageEdit({ projectId: args.projectId, instruction });
+              if (!r6 || !r6.ok) throw new Error((r6 && r6.error) || '改景失败');
+              return {
+                ok: true, projectId: String(args.projectId || ''), spec: r6.spec,
+                text: '✅ 已按「' + instruction.slice(0, 60) + '」改景并写入项目（' + ((r6.spec && r6.spec.cameras) || []).length + ' 机位 / ' + ((r6.spec && r6.spec.shots) || []).length + ' 分镜）。刷新 3D-BOX 即可预览。',
               };
             }
             if (action === 'get') {

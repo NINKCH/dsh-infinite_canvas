@@ -22,6 +22,12 @@ GitHub Releases carry the same notes in English; maintainer-facing runbooks live
     `scene` / `style` / `cameraMove`.
   - The full 3D inspector and timeline stay available underneath for users who
     want to adjust the agent's first pass.
+- **3D-BOX: edit a scene in words and shoot four/twelve views.**
+  `canvas_director_stage action=edit` sends the current spec + the user's
+  instruction to the model they already configured, validates the returned
+  spec and retries once; the stage also gains 4-view/12-view screenshot
+  buttons that render around the current subject and drop image nodes with
+  references, closing the previz → generation loop.
 
 ### Fixed
 - (nothing in this cycle yet)
