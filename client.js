@@ -18518,7 +18518,7 @@ const DIRECTOR_KEY_HELP = [
           };
           loadModelIndex().then(async (l) => { if (l && l.length) bumpView(); await loadModel('xbot').catch(() => {}); await preloadSceneAssets(); bumpView(); }).catch(() => {});
         }).catch((e) => setMsg({ kind: 'err', text: T('dirEngineFail') + ' ' + String((e && e.message) || e) }));
-      }, [open, S.activeId]);
+      }, [open, S.activeId, S.directorStageId]);
 
       // 播放循环（只依赖 playing/open；不依赖 scene，否则每帧重渲染都重启 rAF → 暂停失灵）
       useEffect(() => {
