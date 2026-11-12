@@ -518,6 +518,7 @@ function revealCanvasInRight() {
       'boxMoveAuto': '运镜：自动',
       'boxBuild': '生成预演',
       'boxBuilding': 'AI 搭景中…',
+      'boxAiBuilt': 'AI 已生成预演',
       'boxEdit': '改景',
       'boxEditing': '改景中…',
       'boxEdited': '已按你的描述改景',
@@ -1773,6 +1774,7 @@ function revealCanvasInRight() {
       'boxMoveAuto': 'Move: Auto',
       'boxBuild': 'Build previz',
       'boxBuilding': 'AI building…',
+      'boxAiBuilt': 'AI previz generated',
       'boxEdit': 'Edit scene',
       'boxEditing': 'Editing…',
       'boxEdited': 'Scene updated',
@@ -20969,6 +20971,7 @@ const DIRECTOR_KEY_HELP = [
           if (r.briefVersion !== 2) throw new Error(T('hostStaleHint'));
           setBrief('');
           if (r.warning) toast(String(r.warning));
+          else if (r.source === 'llm') toast(T('boxAiBuilt'));
           openStage(S.activeId, r.stageId, (r.spec && r.spec.title) || text);
         }).catch((e) => setErr(T('boxFailed') + hostRpcErrText(e, ''))).finally(() => setBusy(false));
       };

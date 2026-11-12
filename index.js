@@ -4032,6 +4032,13 @@ export function apply(ctx) {
       const fight = /打|斗|拳|踢|击|fight|punch|kick|combat|battle/i.test(text);
       const chars = Array.isArray(spec.characters) ? spec.characters : [];
       if (!Array.isArray(spec.props) || !spec.props.length) spec.props = [{ name: '地面', preset: 'plane', pos: [0, 0, 0], scale: [16, 1, 12], color: '#9aa3ad' }];
+      const duration = Math.max(0.5, Number(spec.duration) || 6);
+      if (Array.isArray(spec.shots) && spec.shots.length) {
+        const shots = spec.shots.slice().sort((a, b) => (Number(a.start) || 0) - (Number(b.start) || 0));
+        shots[0].start = 0;
+        shots[shots.length - 1].end = duration;
+        spec.shots = shots;
+      }
       if (chase) {
         chars.slice(0, 2).forEach((c, i) => {
           if (!c || typeof c !== 'object') return;
