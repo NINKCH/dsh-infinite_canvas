@@ -62,6 +62,11 @@ GitHub Releases carry the same notes in English; maintainer-facing runbooks live
   currently selected image nodes as `ref` edges (“Canvas refs”), or match
   `@name@` mentions in the prompt to same-named image nodes and wire them
   automatically (“AutoLink”).
+- **Video quick presets: first frame + long-video guidance.** The preflight
+  row adds a “First frame” chip (switches to hard first-frame chaining when
+  a frame edge exists) and a “Long video” hint; durations over 15s now warn
+  to use storyboard segments + final cut. First/last-frame stays gated on
+  vendor last-frame support instead of pretending to support it.
 
 ### Fixed
 - (nothing in this cycle yet)

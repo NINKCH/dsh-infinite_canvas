@@ -534,6 +534,12 @@ function revealCanvasInRight() {
       'videoAutoLinkNone': '提示词里没有可匹配的 @名称@',
       'videoAutoLinkAdded': '已自动连接 {n} 张参考',
       'videoAutoLinkMiss': '有 @名称@ 但没有找到同名图片节点',
+      'videoFirstFrame': '首帧',
+      'videoFirstFrameNoEdge': '先连一张首帧图片到 frame 端口',
+      'videoFirstFrameDone': '已切换为首帧硬衔接',
+      'videoLong': '长视频',
+      'videoLongHint': '长视频请用分镜表按镜头切段，再由成片拼接；单节点保持厂商时长上限',
+      'videoLongWarn': '时长 {d}s 超过单段建议上限 15s，建议用分镜表切段 + 成片',
       'boxExamples': '试试：',
       'boxEx1': '城市街头警匪追车',
       'boxEx2': '环绕香水瓶运镜',
@@ -1615,6 +1621,12 @@ function revealCanvasInRight() {
       'videoAutoLinkNone': 'No @name@ mentions to link',
       'videoAutoLinkAdded': 'Auto-linked {n} refs',
       'videoAutoLinkMiss': 'Mentions found, but no matching image nodes',
+      'videoFirstFrame': 'First frame',
+      'videoFirstFrameNoEdge': 'Wire a first-frame image into the frame port first',
+      'videoFirstFrameDone': 'Switched to hard first-frame chaining',
+      'videoLong': 'Long video',
+      'videoLongHint': 'For long videos, split shots with a storyboard and compose them in final cut; keep each node within the vendor duration cap',
+      'videoLongWarn': 'Duration {d}s exceeds the 15s per-segment guideline; use a storyboard + final cut',
       'boxExamples': 'Try:',
       'boxEx1': 'City street chase',
       'boxEx2': 'Orbit a perfume bottle',
@@ -13571,6 +13583,14 @@ function queueThumb(assetId) {
         }
         toast(T('videoAutoLinkAdded').replace('{n}', String(added)));
       };
+      /** 首帧预设：有 frame 连线时切 hard 首帧；没有则明确提示。 */
+      const useFirstFrame = () => {
+        const has = S.graph.edges.some((e) => e.toNode === n.id && e.toPort === 'frame');
+        if (!has) { toast(T('videoFirstFrameNoEdge')); return; }
+        setData('frameMode', 'hard');
+        toast(T('videoFirstFrameDone'));
+      };
+      const showLongHint = () => toast(T('videoLongHint'));
       /** 生成前素材预检：参考图上限按当前视频厂商。 */
       const videoPreflight = (() => {
         if (!isVideo) return null;
@@ -13586,6 +13606,8 @@ function queueThumb(assetId) {
             ? T('videoRefCapWarn').replace('{n}', String(nRefs)).replace('{vendor}', label).replace('{cap}', String(caps.img))
             : T('videoNoRefVendor').replace('{vendor}', label).replace('{n}', String(nRefs)));
         }
+        const dur = Number(n.data.duration) || 5;
+        if (dur > 15) warns.push(T('videoLongWarn').replace('{d}', String(dur)));
         return { vendor, caps, nRefs, warns };
       })();
       return h('div', {
@@ -13689,7 +13711,9 @@ function queueThumb(assetId) {
                     })
                   : null,
                 h('button', { type: 'button', className: 'dshic-dir-mini', 'data-action': 'video-canvas-ref', onClick: addCanvasRefs }, T('videoCanvasRef')),
-                h('button', { type: 'button', className: 'dshic-dir-mini', 'data-action': 'video-autolink', onClick: autoLinkRefs }, T('videoAutoLink')))
+                h('button', { type: 'button', className: 'dshic-dir-mini', 'data-action': 'video-autolink', onClick: autoLinkRefs }, T('videoAutoLink')),
+                h('button', { type: 'button', className: 'dshic-dir-mini', 'data-action': 'video-first-frame', onClick: useFirstFrame }, T('videoFirstFrame')),
+                h('button', { type: 'button', className: 'dshic-dir-mini', 'data-action': 'video-long-hint', onClick: showLongHint }, T('videoLong')))
             : null,
           h('div', { className: 'dshic-composer-prompt' },
             h(PromptArea, {
