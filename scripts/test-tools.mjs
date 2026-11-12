@@ -439,6 +439,12 @@ try {
   if (!briefR || !briefR.ok) throw new Error('directorStageBrief failed');
   const listR = await rpc.directorStageList();
   if (!listR || !listR.ok || !Array.isArray(listR.items) || !listR.items.some((x) => x.projectId === projectId)) throw new Error('directorStageList missing current project');
+  // 运镜/转场预设库：清单 + 施加
+  const presets = await byName.get('canvas_list_presets').execute({ kind: 'transition' }, {});
+  if (!presets || !presets.ok || !Array.isArray(presets.presets) || !presets.presets.some((x) => x.id === 'travel_zoom_in')) throw new Error('canvas_list_presets missing transition preset');
+  const applied = await byName.get('canvas_apply_preset').execute({ projectId, presetId: 'travel_zoom_in' }, {});
+  if (!applied || !applied.ok || !applied.spec || applied.spec.motionPreset !== 'travel_zoom_in') throw new Error('canvas_apply_preset failed');
+  if (!applied.spec.cameras || !applied.spec.cameras[0].keys || applied.spec.cameras[0].keys.length < 2) throw new Error('canvas_apply_preset did not create camera keys');
 } catch (e) {
   errs.push('3D-BOX 自然语言改景失败 → ' + ((e && e.message) || e));
 } finally {

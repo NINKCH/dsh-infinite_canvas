@@ -515,6 +515,9 @@ function revealCanvasInRight() {
       'dirCharAdded': '已添加角色：{name}',
       'dirCharExists': '角色已在场景里：{name}',
       'dirCharRefs': '{n} 张参考图',
+      'motionPresetLabel': '运镜/转场',
+      'motionPresetPick': '选择运镜/转场',
+      'motionPresetTag': '运镜/转场',
       'boxExamples': '试试：',
       'boxEx1': '城市街头警匪追车',
       'boxEx2': '环绕香水瓶运镜',
@@ -1577,6 +1580,9 @@ function revealCanvasInRight() {
       'dirCharAdded': 'Added character: {name}',
       'dirCharExists': 'Character already in scene: {name}',
       'dirCharRefs': '{n} reference images',
+      'motionPresetLabel': 'Camera / transition',
+      'motionPresetPick': 'Pick camera / transition',
+      'motionPresetTag': 'Camera/transition',
       'boxExamples': 'Try:',
       'boxEx1': 'City street chase',
       'boxEx2': 'Orbit a perfume bottle',
@@ -3695,6 +3701,8 @@ body[data-ds-dark-theme] .dshic-storage-details{border-color:var(--dsw-alias-bor
 .dshic-ref-thumb.is-drop{outline:2px solid var(--dshic-accent);outline-offset:1px;}
 .dshic-composer-refhint{font-size:10px;color:var(--dshic-field-hint);line-height:1.45;}
 .dshic-composer-prompt{flex:none;padding:9px 0 0;}
+.dshic-composer-motion{display:flex;align-items:center;gap:6px;padding:7px 10px 0;}
+.dshic-composer-motion-lb{font-size:11px;color:var(--dsw-alias-label-secondary);white-space:nowrap;}
 /* 分镜面板第二个提示词（额外要求）与上一个之间保留间距 */
 .dshic-composer-prompt + .dshic-prompt{margin-top:7px;}
 /* 提示词：13px / 行高 1.62 / 内距 9px 14px（原型 .pw）；面板里是白底无边框的直接书写区 */
@@ -13215,6 +13223,7 @@ function queueThumb(assetId) {
       const [atPos, setAtPos] = useState({ left: 0, top: 0 });
       // 「更多」默认收起：高级项（衔接模式/重绘/接续/声音参考/扩展参数/历史…）不渲染、不占版面
       const [isMoreOpen, setIsMoreOpen] = useState(false);
+      const [motionPresets, setMotionPresets] = useState([]);
       // 参考图拖拽排序的 UI 状态：拖动源下标 / 当前插入位置下标（只影响高亮，不动数据）
       const [dragRefIdx, setDragRefIdx] = useState(-1);
       const [overRefIdx, setOverRefIdx] = useState(-1);
@@ -13271,6 +13280,13 @@ function queueThumb(assetId) {
           window.removeEventListener('resize', position);
         };
       }, [nid]);
+      // 运镜/转场预设：视频节点打开时按需加载导演引擎（与 3D-BOX 共用一份清单）
+      useEffect(() => {
+        if (!n || n.type !== 'video') return undefined;
+        let alive = true;
+        loadDirectorEngine().then((E2) => { if (alive) setMotionPresets((E2 && E2.MOTION_PRESETS) || []); }).catch(() => {});
+        return () => { alive = false; };
+      }, [n && n.type]);
       // Ctrl/⌘+滚动写在画布上会缩放：面板内保持原生滚动（全局 wheel 处理器已排除 .dshic-composer）
       if (!n) return null;
       const kind = n.type;
@@ -13522,6 +13538,23 @@ function queueThumb(assetId) {
                 refEdges.length ? null : h('span', { className: 'dshic-composer-refhint' }, T('refNoneHint')))
             : null,
           h('input', { ref: fileRef, type: 'file', accept: 'image/*', style: { display: 'none' }, onChange: onFile }),
+          isVideo && motionPresets.length
+            ? h('div', { className: 'dshic-composer-motion', 'data-role': 'motion-presets' },
+                h('span', { className: 'dshic-composer-motion-lb' }, T('motionPresetLabel')),
+                h(PopupSelect, {
+                  value: '', width: 190, title: T('motionPresetPick'), className: 'is-motion', searchable: true,
+                  options: [{ value: '', label: T('motionPresetPick') }].concat(motionPresets.map((p) => ({ value: p.id, label: effLang() === 'en' ? p.en : p.zh }))),
+                  onChange: (v) => {
+                    if (!v) return;
+                    const p = motionPresets.find((x) => x.id === v);
+                    if (!p) return;
+                    const marker = '【' + T('motionPresetTag') + '】';
+                    const line = marker + (effLang() === 'en' ? p.promptEn : p.promptZh);
+                    const cleaned = String(promptVal || '').split('\n').filter((l) => !l.startsWith(marker)).join('\n').trim();
+                    setPrompt((cleaned ? cleaned + '\n' : '') + line);
+                  },
+                }))
+            : null,
           h('div', { className: 'dshic-composer-prompt' },
             h(PromptArea, {
               value: promptVal, minHeight: 70, readOnly: isStoryboard && wiredScript,

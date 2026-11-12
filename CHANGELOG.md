@@ -47,6 +47,12 @@ GitHub Releases carry the same notes in English; maintainer-facing runbooks live
   `addBibleCharacter` places a jointed mannequin with the character's name
   and reference asset ids; a duplicate selects the existing one instead of
   adding another.
+- **Motion preset library: 33 camera/transition presets.** `MOTION_PRESETS`
+  adds travel transitions, product spins, dramatic moves and a storyboard
+  grid on top of the camera moves. The video-node composer gets a
+  “Camera / transition” picker that writes the preset prompt, and
+  `canvas_list_presets` / `canvas_apply_preset` expose the same list to the
+  agent and 3D-BOX.
 
 ### Fixed
 - (nothing in this cycle yet)

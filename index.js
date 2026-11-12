@@ -5823,6 +5823,68 @@ export function apply(ctx) {
         });
 
         reg({
+          name: 'canvas_list_presets',
+          description: '列出运镜/转场预设（视频节点“尝试”区、3D-BOX 预设页、Agent 共用一份）。kind=all/camera/transition/template；先查清单再选 id，避免编造。',
+          parameters: {
+            type: 'object',
+            properties: {
+              kind: { type: 'string', enum: ['all', 'camera', 'transition', 'template'], description: '可选：按类型过滤（缺省 all）' },
+            },
+            additionalProperties: false,
+          },
+          output: textOutput,
+          timeoutMs: 15000,
+          async execute(args) {
+            const eng = await loadDirectorEngine();
+            const all = (eng && eng.MOTION_PRESETS) || [];
+            const kind = String((args && args.kind) || 'all');
+            const list = kind === 'all' ? all : all.filter((x) => x.kind === kind);
+            const lines = list.map((x) => '- ' + x.id + ' [' + x.kind + '] ' + x.zh + '：' + x.promptZh);
+            return {
+              ok: true,
+              presets: list.map((x) => {
+                const o = { id: x.id, zh: x.zh, en: x.en, kind: x.kind, category: x.category, promptZh: x.promptZh, promptEn: x.promptEn };
+                if (x.cameraMove) o.cameraMove = x.cameraMove;
+                return o;
+              }),
+              text: '✅ 运镜/转场预设（' + list.length + '）：\n' + lines.join('\n'),
+            };
+          },
+        });
+        reg({
+          name: 'canvas_apply_preset',
+          description: '给当前项目的 3D-BOX 规格施加一个运镜/转场预设（转场会映射到基础机位运动；模板只写备注）。先用 canvas_list_presets 查 presetId。',
+          parameters: {
+            type: 'object',
+            properties: {
+              projectId: { type: 'string', description: '项目 id' },
+              presetId: { type: 'string', description: '运镜/转场预设 id（见 canvas_list_presets）' },
+              duration: { type: 'number', description: '可选：时长秒数（缺省用规格时长）' },
+            },
+            required: ['projectId', 'presetId'],
+            additionalProperties: false,
+          },
+          output: textOutput,
+          timeoutMs: 30000,
+          async execute(args) {
+            const pid = String((args && args.projectId) || '');
+            const presetId = String((args && args.presetId) || '').trim();
+            if (!presetId) throw new Error('需要 presetId');
+            const eng = await loadDirectorEngine();
+            if (!eng || typeof eng.applyMotionPreset !== 'function') throw new Error('引擎未就绪');
+            const cur = await methods.directorStageLoad({ projectId: pid });
+            if (!cur || !cur.found || !cur.spec) throw new Error('当前项目还没有 3D-BOX 规格：先用 canvas_director_stage action=brief/apply');
+            const next = eng.applyMotionPreset(cur.spec, presetId, { duration: args.duration });
+            const saved = await methods.directorStageSave({ projectId: pid, spec: next });
+            if (!saved.ok) throw new Error(saved.error || '保存失败');
+            return {
+              ok: true, projectId: pid, spec: next,
+              text: '✅ 已应用预设「' + presetId + '」并写入项目（' + ((next.cameras && next.cameras[0] && next.cameras[0].keys) || []).length + ' 个机位关键帧）。刷新 3D-BOX 即可预览。',
+            };
+          },
+        });
+
+        reg({
           name: 'canvas_delete_project',
           description: '删除无限画布上的一个项目（含其全部节点）。用户明确要求删除项目、或清理误创建的空项目时使用；删除前请先用 canvas_list_projects 确认 id。',
           parameters: { type: 'object', properties: { projectId: { type: 'string', description: '项目 id' } }, required: ['projectId'], additionalProperties: false },

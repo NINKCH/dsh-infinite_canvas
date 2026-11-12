@@ -3294,6 +3294,30 @@ export const CAMERA_MOVES = [
   { id: 'vertigo', zh: '眩晕变焦', en: 'Vertigo', category: 'special', promptZh: '眩晕变焦，空间拉伸', promptEn: 'vertigo zoom, spatial stretch' },
 ];
 
+/**
+ * 运镜/转场预设库：视频节点“尝试”区、3D-BOX 预设页与 Agent 共用一份。
+ * kind: camera（机位运动）/ transition（转场，映射到基础机位运动）/ template（分镜/版式模板）。
+ */
+export const MOTION_PRESETS = [
+  ...CAMERA_MOVES.map((m) => ({
+    id: m.id, zh: m.zh, en: m.en, kind: 'camera', category: m.category,
+    promptZh: m.promptZh, promptEn: m.promptEn, cameraMove: m.id,
+  })),
+  { id: 'travel_zoom_in', zh: '旅拍转场 zoom in', en: 'Travel zoom in', kind: 'transition', category: 'travel', promptZh: '旅拍转场：快速推近并轻微右旋，接下一场', promptEn: 'Travel transition: quick zoom in with a slight right rotation', cameraMove: 'push_in' },
+  { id: 'travel_zoom_out', zh: '旅拍转场 zoom out', en: 'Travel zoom out', kind: 'transition', category: 'travel', promptZh: '旅拍转场：快速拉远并轻微左旋，交代新环境', promptEn: 'Travel transition: quick zoom out with a slight left rotation', cameraMove: 'pull_out' },
+  { id: 'travel_rotate', zh: '旅拍转场 旋转', en: 'Travel rotate', kind: 'transition', category: 'travel', promptZh: '旅拍转场：旋转镜头带出下一场', promptEn: 'Travel transition: rotate into the next scene', cameraMove: 'orbit_right' },
+  { id: 'travel_grow', zh: '旅拍转场 生长', en: 'Travel grow', kind: 'transition', category: 'travel', promptZh: '旅拍转场：从局部生长拉出全貌', promptEn: 'Travel transition: grow from detail to full scene', cameraMove: 'reveal' },
+  { id: 'spin_360', zh: '360 旋转展示', en: '360 spin', kind: 'transition', category: 'product', promptZh: '360 度旋转展示主体，背景干净', promptEn: '360-degree product spin on a clean background', cameraMove: 'orbit_right' },
+  { id: 'robot_arm', zh: '机械臂视角', en: 'Robot arm', kind: 'transition', category: 'product', promptZh: '机械臂视角：低角度弧线滑入，精密感', promptEn: 'Robot-arm move: low arc slide-in, precise feel', cameraMove: 'arc_left' },
+  { id: 'pupil_zoom', zh: '瞳孔拉近', en: 'Pupil zoom', kind: 'transition', category: 'dramatic', promptZh: '瞳孔/细节急速拉近，制造压迫感', promptEn: 'Pupil/detail crash zoom for pressure', cameraMove: 'crash_zoom' },
+  { id: 'bird_disintegrate', zh: '飞鸟解体', en: 'Bird dissolve', kind: 'transition', category: 'dramatic', promptZh: '主体解体为粒子/飞鸟散开，转场到下一场', promptEn: 'Subject dissolves into particles/birds into the next scene', cameraMove: 'dolly_zoom' },
+  { id: 'box_break', zh: '破盒而出', en: 'Box break', kind: 'transition', category: 'dramatic', promptZh: '从盒内破出，镜头快速拉远揭示全貌', promptEn: 'Break out of the box, pull back to reveal', cameraMove: 'reveal' },
+  { id: 'anti_gravity', zh: '反重力漂浮', en: 'Anti-gravity', kind: 'transition', category: 'dramatic', promptZh: '人物/物体反重力漂浮，机位升起环绕', promptEn: 'Anti-gravity float, camera rises and orbits', cameraMove: 'crane_up' },
+  { id: 'particle_dissolve', zh: '粒子融解', en: 'Particle dissolve', kind: 'transition', category: 'dramatic', promptZh: '画面粒子化融解，平滑转场', promptEn: 'Image dissolves into particles, smooth transition', cameraMove: 'dolly_zoom' },
+  { id: 'hero_shot', zh: '英雄视角', en: 'Hero shot', kind: 'transition', category: 'dramatic', promptZh: '英雄视角：低机位仰拍，高位环绕收尾', promptEn: 'Hero shot: low angle, high orbit finish', cameraMove: 'orbit_high' },
+  { id: 'storyboard_grid', zh: '大师分镜九宫格-经典暗调', en: 'Master storyboard 9-grid', kind: 'template', category: 'storyboard', promptZh: '九宫格分镜：经典暗调、统一光影、每格一个镜头', promptEn: 'Nine-panel storyboard: classic low-key, consistent light, one shot per panel', cameraMove: null },
+];
+
 const cloneSpec = (s) => JSON.parse(JSON.stringify(s || {}));
 const asVec3 = (v, d) => {
   const q = d || [0, 0, 0];
@@ -3449,6 +3473,20 @@ export function applyCameraMove(spec, moveId, opts) {
   out.cameraMove = id;
   out.shot = out.shot || {};
   out.shot.cameraMove = id;
+  return out;
+}
+
+/**
+ * 应用运镜/转场预设：转场映射到基础机位运动；模板只写备注。
+ * 纯函数，不修改入参。
+ */
+export function applyMotionPreset(spec, presetId, opts) {
+  const p = MOTION_PRESETS.find((x) => x.id === String(presetId || ''));
+  if (!p) return spec;
+  let out = p.cameraMove ? applyCameraMove(spec, p.cameraMove, opts) : cloneSpec(spec);
+  out.motionPreset = p.id;
+  out.shot = out.shot || {};
+  out.shot.note = [out.shot.note, p.promptZh].filter(Boolean).join(' · ');
   return out;
 }
 

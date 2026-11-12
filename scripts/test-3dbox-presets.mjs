@@ -18,6 +18,8 @@ ok(typeof E.applyCameraMove === 'function', '缺少 applyCameraMove');
 ok(typeof E.viewCamerasAround === 'function', '缺少 viewCamerasAround（四/十二方位截图）');
 ok(typeof E.cameraPathKeys === 'function', '缺少 cameraPathKeys（手绘运镜）');
 ok(typeof E.addBibleCharacter === 'function', '缺少 addBibleCharacter（角色库入口）');
+ok(Array.isArray(E.MOTION_PRESETS) && E.MOTION_PRESETS.length >= 30, '缺少 30+ 运镜/转场预设（MOTION_PRESETS）');
+ok(typeof E.applyMotionPreset === 'function', '缺少 applyMotionPreset');
 
 // ── ② 每个场景预设都能构建出合法场景 ──
 for (const p of (E.SCENE_PRESETS || [])) {
@@ -126,6 +128,22 @@ for (const p of (E.SCENE_PRESETS || [])) {
   ok(dup && dup.added === false, '同名角色应去重');
 }
 
+// ── ⑤e 运镜/转场预设库：分类/映射/纯函数 ──
+{
+  const kinds = new Set((E.MOTION_PRESETS || []).map((p) => p.kind));
+  ok(kinds.has('camera') && kinds.has('transition') && kinds.has('template'), '预设应覆盖 camera/transition/template 三类');
+  const ids = new Set((E.MOTION_PRESETS || []).map((p) => p.id));
+  ok(ids.size === (E.MOTION_PRESETS || []).length, '预设 id 不应重复');
+  const base = E.specFromScenePreset('dialogue2');
+  const before = JSON.stringify(base);
+  const move = E.applyMotionPreset(base, 'travel_zoom_in', { duration: 4 });
+  ok(move && move.motionPreset === 'travel_zoom_in', '转场应写入 motionPreset');
+  ok(move && move.cameras && move.cameras[0].keys && move.cameras[0].keys.length >= 2, '转场应映射到机位关键帧');
+  ok(JSON.stringify(base) === before, 'applyMotionPreset 不应修改入参');
+  const tpl = E.applyMotionPreset(base, 'storyboard_grid', { duration: 4 });
+  ok(tpl && tpl.motionPreset === 'storyboard_grid', '模板预设应可应用');
+}
+
 // ── ⑥ Host 工具与客户端入口接线 ──
 {
   const host = fs.readFileSync(path.join(ROOT, 'index.js'), 'utf8');
@@ -135,6 +153,7 @@ for (const p of (E.SCENE_PRESETS || [])) {
   ok(host.includes('cameraMove'), 'Host 工具未接收 cameraMove');
   ok(host.includes("action === 'edit'") && host.includes('editDirectorSpec'), 'Host 缺少自然语言改景 action=edit');
   ok(host.includes('directorStageList') && host.includes('directorStageBrief'), 'Host 缺少 3D-BOX 库 RPC（list/brief）');
+  ok(host.includes("name: 'canvas_list_presets'") && host.includes("name: 'canvas_apply_preset'"), 'Host 缺少预设库工具');
   const cli = fs.readFileSync(path.join(ROOT, 'client.js'), 'utf8');
   ok(cli.includes('BoxHome') && cli.includes("'open-3dbox-home'"), '客户端缺少 3D-BOX 库首页入口');
   ok(cli.includes("'boxhome-create'") && cli.includes("'boxhome-open'"), '客户端缺少 3D-BOX 库新建/打开动作');
@@ -146,6 +165,7 @@ for (const p of (E.SCENE_PRESETS || [])) {
   ok(cli.includes('viewCamerasAround'), '客户端未接线四/十二方位截图');
   ok(cli.includes('cameraPathKeys') && cli.includes("'dir-cam-path-draw'"), '客户端未接线手绘运镜');
   ok(cli.includes("'dir-char-add'") && cli.includes('loadBible'), '客户端缺少角色库入口/设定集接线');
+  ok(cli.includes('motion-presets') && cli.includes('MOTION_PRESETS'), '客户端缺少视频节点运镜/转场预设入口');
   ok(cli.includes('specFromBrief'), '客户端未接线一句话搭景');
   ok(cli.includes('CAMERA_MOVES') || cli.includes('DIRECTOR_MOVES'), '客户端未接线运镜清单');
 }
