@@ -474,6 +474,22 @@ function revealCanvasInRight() {
       'segNoChain': '硬切（不接力）',
       // ---- 3D 导演台 ----
       'directorTitle': '3D 导演台',
+      // ---- 3D-BOX（一句话搭景）----
+      'boxTitle': '3D-BOX',
+      'boxSubtitle': '一句话搭景 · Agent 可接管',
+      'boxBriefPh': '预演一段城市街头的警匪追车戏…',
+      'boxAuto': '自动',
+      'boxSceneAuto': '场景：自动',
+      'boxStyleAuto': '风格：自动',
+      'boxMoveAuto': '运镜：自动',
+      'boxBuild': '生成预演',
+      'boxBuilding': '搭景中…',
+      'boxBuilt': '已生成 3D-BOX 预演',
+      'boxFailed': '搭景失败：',
+      'boxExamples': '试试：',
+      'boxEx1': '城市街头警匪追车',
+      'boxEx2': '环绕香水瓶运镜',
+      'boxEx3': '古装庭院对峙',
       'directorHint': '摆位与取景：拖视口旋转机位，拖人偶移动站位；导出即得到一张带布景的镜头首帧',
       'directorDefaultTitle': '未命名布景',
       'directorActor': '演员',
@@ -1485,6 +1501,22 @@ function revealCanvasInRight() {
       'segNoChain': 'hard cut (no chain)',
       // ---- 3D director stage ----
       'directorTitle': '3D director stage',
+      // ---- 3D-BOX (one-line previz) ----
+      'boxTitle': '3D-BOX',
+      'boxSubtitle': 'Describe it; the agent builds it',
+      'boxBriefPh': 'Previz a city street chase…',
+      'boxAuto': 'Auto',
+      'boxSceneAuto': 'Scene: Auto',
+      'boxStyleAuto': 'Style: Auto',
+      'boxMoveAuto': 'Move: Auto',
+      'boxBuild': 'Build previz',
+      'boxBuilding': 'Building…',
+      'boxBuilt': '3D-BOX previz generated',
+      'boxFailed': 'Build failed: ',
+      'boxExamples': 'Try:',
+      'boxEx1': 'City street chase',
+      'boxEx2': 'Orbit a perfume bottle',
+      'boxEx3': 'Costume courtyard standoff',
       'directorHint': 'Block and frame: drag the viewport to orbit the camera, drag a figure to move it; export gives you a shot first frame with real blocking',
       'directorDefaultTitle': 'Untitled set',
       'directorActor': 'Actor',
@@ -2662,6 +2694,12 @@ body[data-ds-dark-theme] .dshic-studio-modal{border-color:var(--dsw-alias-border
 .dshic-dir-win.is-full{border-radius:0;border:none;box-shadow:none;}
 .dshic-dir-overlay:has(.dshic-dir-win.is-full){padding:0;background:var(--dsw-alias-bg-base);}
 .dshic-dir-top{flex:none;height:44px;display:flex;align-items:center;gap:10px;padding:0 12px;border-bottom:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-base);position:relative;z-index:2;}
+/* 3D-BOX 一句话搭景：默认只露这一条，复杂 3D 控件留在下方三栏 */
+.dshic-dir-boxbar{flex:none;display:flex;align-items:center;gap:6px;padding:6px 12px;border-bottom:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-1);position:relative;z-index:2;}
+.dshic-dir-boxtitle{flex:none;font-size:12px;font-weight:700;letter-spacing:.02em;color:var(--dsw-alias-label-primary);padding:2px 6px;border-radius:6px;background:var(--dsw-alias-bg-layer-2);}
+.dshic-dir-boxbrief{flex:1;min-width:140px;}
+.dshic-dir-boxbar select.dshic-dir-input{max-width:132px;}
+.dshic-dir-boxbar .dshic-dir-cta{flex:none;height:28px;padding:0 12px;white-space:nowrap;}
 .dshic-dir-top-l{display:flex;align-items:center;gap:10px;min-width:180px;}
 .dshic-dir-title{font-size:13px;font-weight:600;}
 .dshic-dir-saved{font-size:11px;color:var(--dsw-alias-label-secondary);}
@@ -16228,16 +16266,23 @@ function queueThumb(assetId) {
       const list = (E2 && E2.SHOT_FILLS) || [];
       return list.map((x) => ({ id: x.id, label: effLang() === 'en' ? x.en : x.zh, fill: x.fill, targetH: x.targetH }));
     };
-    const DIRECTOR_MOVES = () => [
-      { id: 'static', label: T('dirMoveStatic') },
-      { id: 'push_in', label: T('dirMovePush') },
-      { id: 'pull_out', label: T('dirMovePull') },
-      { id: 'pan_left', label: T('dirMovePanL') },
-      { id: 'pan_right', label: T('dirMovePanR') },
-      { id: 'orbit_left', label: T('dirMoveOrbitL') },
-      { id: 'orbit_right', label: T('dirMoveOrbitR') },
-      { id: 'handheld', label: T('dirMoveHandheld') },
-    ];
+    const DIRECTOR_MOVES = () => {
+      const E2 = directorEngine();
+      if (E2 && Array.isArray(E2.CAMERA_MOVES) && E2.CAMERA_MOVES.length) {
+        const en = effLang() === 'en';
+        return E2.CAMERA_MOVES.map((m) => ({ id: m.id, label: en ? (m.en || m.zh) : (m.zh || m.en) }));
+      }
+      return [
+        { id: 'static', label: T('dirMoveStatic') },
+        { id: 'push_in', label: T('dirMovePush') },
+        { id: 'pull_out', label: T('dirMovePull') },
+        { id: 'pan_left', label: T('dirMovePanL') },
+        { id: 'pan_right', label: T('dirMovePanR') },
+        { id: 'orbit_left', label: T('dirMoveOrbitL') },
+        { id: 'orbit_right', label: T('dirMoveOrbitR') },
+        { id: 'handheld', label: T('dirMoveHandheld') },
+      ];
+    };
     /** 本地化后的角色/几何/建筑/机位预设清单（引擎给 zh/en 双语字段）。 */
     function directorPresetLists() {
       const en = effLang() === 'en';
@@ -16336,6 +16381,12 @@ const DIRECTOR_KEY_HELP = [
     const [actionName, setActionName] = useState('');
     const [specText, setSpecText] = useState('');
     const [specOpen, setSpecOpen] = useState(false);
+    // ── 3D-BOX：一句话搭景（场景/风格/运镜）──
+    const [boxBrief, setBoxBrief] = useState('');
+    const [boxScene, setBoxScene] = useState('auto');
+    const [boxStyle, setBoxStyle] = useState('auto');
+    const [boxMove, setBoxMove] = useState('auto');
+    const [boxBusy, setBoxBusy] = useState(false);
       const [boxSel, setBoxSel] = useState(null);   // 框选矩形 {x0,y0,x1,y1}
       const [dirtyState, setDirtyState] = useState(false);  // 有未保存改动
       const [previzMode, setPrevizMode] = useState('static'); // 'static' | 'dynamic' | 'render'（模式，不随暂停改变）
@@ -16426,6 +16477,40 @@ const DIRECTOR_KEY_HELP = [
       };
       const patch = (fn) => { pushUndo(); const n = JSON.parse(JSON.stringify(scene)); fn(n); n.updatedAt = Date.now(); commit(n); };
       const pickSave = (next) => { markDirty(); const E2 = directorEngine(); if (E2) E2.saveStageDoc(S.activeId, next); };
+      /** 3D-BOX 预设清单（引擎未就绪时退回空数组，UI 仍可渲染）。 */
+      const boxPresetList = (key) => {
+        const E2 = directorEngine();
+        return (E2 && Array.isArray(E2[key])) ? E2[key] : [];
+      };
+      /** 一句话搭景：本地引擎先出规格 → 构场景 → 存本地 + Host，Agent 之后可继续改。 */
+      const buildBox = () => {
+        const E2 = directorEngine();
+        if (!E2 || typeof E2.specFromBrief !== 'function') { setMsg({ kind: 'err', text: T('boxFailed') + 'engine' }); return; }
+        const brief = String(boxBrief || '').trim();
+        if (!brief) { setMsg({ kind: 'err', text: T('boxFailed') + T('boxBriefPh') }); return; }
+        setBoxBusy(true);
+        try {
+          const opts = {};
+          if (boxScene !== 'auto') opts.scene = boxScene;
+          if (boxStyle !== 'auto') opts.style = boxStyle;
+          if (boxMove !== 'auto') opts.cameraMove = boxMove;
+          const spec = E2.specFromBrief(brief, opts);
+          const built = E2.buildStageFromSpec(spec);
+          if (!built) throw new Error('buildStageFromSpec returned null');
+          built.updatedAt = Date.now();
+          pushUndo();
+          E2.saveStageDoc(S.activeId, built);
+          setScene(built);
+          markDirty();
+          bumpView();
+          try { hostRpc('directorStageSave', { projectId: S.activeId, spec }).catch(() => {}); } catch { /* Host 保存失败不阻塞本地 */ }
+          setMsg({ kind: 'ok', text: T('boxBuilt') });
+        } catch (e) {
+          setMsg({ kind: 'err', text: T('boxFailed') + String((e && e.message) || e) });
+        } finally {
+          setBoxBusy(false);
+        }
+      };
 
       // 引擎 + 模型清单
       useEffect(() => {
@@ -17767,7 +17852,7 @@ const DIRECTOR_KEY_HELP = [
         h('div', { className: cls('dshic-dir-win', S.directorFull && 'is-full') },
           h('div', { className: 'dshic-dir-top' },
             h('div', { className: 'dshic-dir-top-l' },
-              h('span', { className: 'dshic-dir-title' }, T('directorTitle')),
+              h('span', { className: 'dshic-dir-title', title: T('boxSubtitle') }, T('boxTitle')),
               h('span', { className: 'dshic-dir-saved' }, dirtyState ? T('dirUnsaved') : T('dirSaved'))),
             h('div', { className: 'dshic-dir-top-c' },
               h('div', { className: 'dshic-dir-seg' },
@@ -17839,6 +17924,32 @@ const DIRECTOR_KEY_HELP = [
               h('button', { type: 'button', className: 'dshic-dir-icobtn', title: T('redo'), disabled: redoDepth === 0, onClick: redo, 'aria-label': T('redo') }, miniIcon(ICON_REDO)),
               h('button', { type: 'button', className: 'dshic-dir-icobtn', title: T('dirFullscreen'), onClick: () => update((st) => { st.directorFull = !st.directorFull; }) }, miniIcon(ICON_FULL)),
               h('button', { type: 'button', className: 'dshic-dir-icobtn', title: T('cancel'), onClick: () => update((st) => { st.directorOpen = false; st.directorSel = null; }) }, miniIcon(ICON_EXIT)))),
+          // 3D-BOX：一句话搭景。默认只露这一条，3D 编辑器细节留在三栏里。
+          h('div', { className: 'dshic-dir-boxbar', 'data-role': '3dbox-bar' },
+            h('span', { className: 'dshic-dir-boxtitle', title: T('boxSubtitle') }, T('boxTitle')),
+            h('input', {
+              className: 'dshic-dir-input dshic-dir-boxbrief', 'data-action': 'box-brief',
+              value: boxBrief, placeholder: T('boxBriefPh'),
+              onChange: (e2) => setBoxBrief(e2.target.value),
+              onKeyDown: (e2) => { if (e2.key === 'Enter' && !e2.nativeEvent?.isComposing) buildBox(); },
+            }),
+            h('select', {
+              className: 'dshic-dir-input', 'data-action': 'box-scene',
+              value: boxScene, onChange: (e2) => setBoxScene(e2.target.value), title: T('boxSceneAuto'),
+            }, [h('option', { key: 'auto', value: 'auto' }, T('boxSceneAuto')), ...boxPresetList('SCENE_PRESETS').map((p) => h('option', { key: p.id, value: p.id }, effLang() === 'en' ? p.en : p.zh))]),
+            h('select', {
+              className: 'dshic-dir-input', 'data-action': 'box-style',
+              value: boxStyle, onChange: (e2) => setBoxStyle(e2.target.value), title: T('boxStyleAuto'),
+            }, [h('option', { key: 'auto', value: 'auto' }, T('boxStyleAuto')), ...boxPresetList('DIRECTOR_STYLES').map((p) => h('option', { key: p.id, value: p.id }, effLang() === 'en' ? p.en : p.zh))]),
+            h('select', {
+              className: 'dshic-dir-input', 'data-action': 'box-move',
+              value: boxMove, onChange: (e2) => setBoxMove(e2.target.value), title: T('boxMoveAuto'),
+            }, [h('option', { key: 'auto', value: 'auto' }, T('boxMoveAuto')), ...boxPresetList('CAMERA_MOVES').map((p) => h('option', { key: p.id, value: p.id }, effLang() === 'en' ? p.en : p.zh))]),
+            h('button', {
+              type: 'button', className: 'dshic-dir-cta', 'data-action': 'box-build',
+              disabled: boxBusy, onClick: buildBox,
+            }, boxBusy ? T('boxBuilding') : T('boxBuild')),
+          ),
           h('div', { className: 'dshic-dir-body' },
             h('aside', { className: 'dshic-dir-side dshic-dir-side-l' },
               h('div', { className: 'dshic-dir-sidehead' }, T('dirAssets')),
@@ -18728,7 +18839,7 @@ const DIRECTOR_KEY_HELP = [
         h('button', {
           key: 'director', type: 'button',
           className: cls('dshic-rail-btn', S.directorOpen && 'is-active'),
-          'data-action': 'open-director', title: T('directorTitle'),
+          'data-action': 'open-director', title: T('boxTitle'),
           onClick: () => update((s) => { s.directorOpen = true; }),
         }, Ic('camera', 16)),
         S.running

@@ -109,6 +109,7 @@ const SUITE = [
   { name: 'test-render-pixels.mjs', desc: '像素级渲染验证（无头浏览器）：真阴影/墙面阴影/路径隔离/PBR粗糙度/色调映射/白模环境' },
   { name: 'test-video-record.mjs', desc: '视频导出端到端：真实 MediaRecorder 产出合法 webm + 画面非黑屏（无浏览器则 SKIP）' },
   { name: 'test-stage-spec.mjs', desc: 'AI 场景规格：spec→scene→spec 往返/分镜解析/路径转向/容错/循环动作/Host 工具与客户端接线' },
+  { name: 'test-3dbox-presets.mjs', desc: '3D-BOX 预设：9 场景 / 6 风格 / 16+ 运镜 / 组合搭景 / 纯函数 / Host+客户端接线' },
   { name: 'test-motion-brief-timeline.mjs', desc: '运动驱动（步频防滑步）/ 雾+景深进规格 / 一句话模板库（打斗·追逐·对话）/ 时间轴能力' },
   { name: 'test-cycle-path.mjs', desc: '循环动作（走/跑双相位闭环）+ 路径点拾取/反投影/UI 入口' },
   { name: 'test-theme-locale.mjs', desc: '深色主题跟随宿主 body[data-ds-dark-theme] / 深色变量与对比度 / 面板名中英双语 / locale 快照 active 字段' },

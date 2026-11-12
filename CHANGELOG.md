@@ -6,6 +6,32 @@ GitHub Releases carry the same notes in English; maintainer-facing runbooks live
 
 ## [Unreleased]
 
+### Added
+- **3D-BOX: one-line previz.** The 3D director stage now opens as a
+  agent-first 3D-BOX workspace. A single prompt plus optional scene preset,
+  director style and camera move builds the first blocking pass locally:
+  - **Nine scene presets** (blank, two/three-person dialogue, interview,
+    monologue, lecture, chase, outdoor walk, meeting room) and **six director
+    styles** (animation, TVC, music video, documentary, commerce, suspense).
+  - **Twenty camera-move presets** with real editable camera keyframes
+    (`push_in`, `arc_left`, `crane_up`, `dolly_zoom`, `whip_pan`, `vertigo`…),
+    not just prompt labels; the old eight move names remain compatible.
+  - **One prompt bar** at the top of the stage: scene/style/move selectors and
+    “Build previz”; the host tool `canvas_director_stage` gains
+    `action=presets` and `action=camera`, and `action=brief` accepts
+    `scene` / `style` / `cameraMove`.
+  - The full 3D inspector and timeline stay available underneath for users who
+    want to adjust the agent's first pass.
+
+### Fixed
+- (nothing in this cycle yet)
+
+### Changed
+- (nothing in this cycle yet)
+
+### Internal
+- (nothing in this cycle yet)
+
 ## [0.20.5] — 2026-11-11
 
 ### Added

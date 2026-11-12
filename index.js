@@ -5510,20 +5510,26 @@ export function apply(ctx) {
         });
         reg({
           name: 'canvas_director_stage',
-          description: '3D 导演台（预演场景）的总控工具：用一段 JSON 规格直接生成/更新整场预演，无需手动搭场景。\n' +
-            'action=apply：把 spec 写入项目并落盘（客户端打开导演台时自动套用；再点「导出视频」即得白模预演片）。\n' +
+          description: '3D-BOX / 3D 导演台（预演场景）的总控工具：用一段 JSON 规格或一句话直接生成/更新整场预演，无需手动搭场景。\n' +
+            'action=apply：把 spec 写入项目并落盘（客户端打开 3D-BOX 时自动套用；再点「导出视频」即得白模预演片）。\n' +
+            'action=brief：一句话搭景。可选 scene（场景预设，见 action=presets）、style（导演风格）、cameraMove（运镜预设）；不传则按关键词自动选。\n' +
+            'action=camera：给当前已保存的规格施加一个运镜预设（生成可编辑的机位关键帧）。\n' +
+            'action=presets：返回场景预设 / 导演风格 / 运镜清单（Agent 先查再选，避免编造 id）。\n' +
             'action=get：读回当前项目的规格。\n' +
             'action=help：返回规格 schema 与可用姿态/预设清单。\n' +
-            'spec 结构：{ title, duration, env{preset,bg,ground,grid,exposure,tonemap}, ' +
+            'spec 结构：{ title, duration, env{preset,bg,ground,grid,exposure,tonemap}, style, ' +
             'characters[{name,pos:[x,y,z],rotY,h,pose,color,material{roughness,metallic,specular},path:[[x,z]...],pathFace,poseAnim[{t,pose}],loop,loopPeriod,keys[{t,pos,rotY}]}], ' +
-            'props[{preset,pos,scale,color}], cameras[{name,pos,target,fov,keys[{t,pos,target}]}], shots[{camera,start,end}] }。\n' +
+            'props[{preset,pos,scale,color}], cameras[{name,pos,target,fov,keys[{t,pos,target,fov}]}], shots[{camera,start,end}], shot{cameraMove,shotSize,note} }。\n' +
             'pose 取值见 action=help 的 poses；道具 preset 见 presets。坐标两维数组 [x,z] 自动补 y=0。',
           parameters: {
             type: 'object',
             properties: {
-              action: { type: 'string', enum: ['apply', 'get', 'help', 'brief'], description: '操作类型' },
-              brief: { type: 'string', description: '一句话描述（action=brief 时用，如「两人在巷子里打斗，8秒」）；会套用打斗/追逐/对话模板生成规格并落盘' },
-              template: { type: 'string', enum: ['fight', 'chase', 'dialogue'], description: '强制指定模板（不传则按 brief 关键词自动判断）' },
+              action: { type: 'string', enum: ['apply', 'get', 'help', 'brief', 'presets', 'camera'], description: '操作类型' },
+              brief: { type: 'string', description: '一句话描述（action=brief 时用，如「两人在巷子里打斗，8秒」）；会套用场景/风格/运镜预设生成规格并落盘' },
+              template: { type: 'string', enum: ['fight', 'chase', 'dialogue'], description: '旧版模板（保留兼容；新代码用 scene）' },
+              scene: { type: 'string', description: '场景预设 id（action=brief 时用；见 action=presets 的 scenePresets，如 dialogue3 / interview / meeting / chase）' },
+              style: { type: 'string', description: '导演风格 id（action=brief 时用；见 action=presets 的 directorStyles，如 animation / tvc / mv / documentary / commerce / suspense）' },
+              cameraMove: { type: 'string', description: '运镜预设 id（action=brief 或 action=camera 时用；见 action=presets 的 cameraMoves，如 push_in / arc_left / crane_up / dolly_zoom）' },
               duration: { type: 'number', description: '时长秒数（不传则从 brief 里抓「N秒」，否则用模板默认值）' },
               projectId: { type: 'string', description: '项目 id' },
               spec: { type: 'object', description: '场景规格（action=apply 时必填）' },
@@ -5535,6 +5541,19 @@ export function apply(ctx) {
           timeoutMs: 30000,
           async execute(args) {
             const action = String((args && args.action) || 'get');
+            if (action === 'presets') {
+              const eng = await loadDirectorEngine();
+              return {
+                ok: true,
+                scenePresets: (eng && eng.SCENE_PRESETS) || [],
+                directorStyles: (eng && eng.DIRECTOR_STYLES) || [],
+                cameraMoves: (eng && eng.CAMERA_MOVES) || [],
+                text: '✅ 3D-BOX 预设清单\n' +
+                  '· 场景：' + (((eng && eng.SCENE_PRESETS) || []).map((x) => x.id + '=' + x.zh).join(' / ') || '(引擎未就绪)') + '\n' +
+                  '· 风格：' + (((eng && eng.DIRECTOR_STYLES) || []).map((x) => x.id + '=' + x.zh).join(' / ') || '(引擎未就绪)') + '\n' +
+                  '· 运镜：' + (((eng && eng.CAMERA_MOVES) || []).map((x) => x.id + '=' + x.zh).join(' / ') || '(引擎未就绪)'),
+              };
+            }
             if (action === 'help') {
               const eng = await loadDirectorEngine();
               return {
@@ -5544,7 +5563,10 @@ export function apply(ctx) {
                   '· 道具 preset：box, sphere, cylinder, cone, plane, capsule, torus, pyramid, disc, arc\n' +
                   '· 循环动作：poseAnim 首尾 pose 相同即可循环（如 walk_a→walk_b→walk_a）\n' +
                   '· 路径：path 为二维地面点数组，物体沿路径运动并按切线自动转向（pathFace:false 关闭）\n' +
-                  '· 角色一律使用资产库的真实关节人偶（assetId=xbot）：characters[].preset 可填 actors 列表里的体型，未填默认 m_standard',
+                  '· 角色一律使用资产库的真实关节人偶（assetId=xbot）：characters[].preset 可填 actors 列表里的体型，未填默认 m_standard\n' +
+                  '· 3D-BOX 场景预设：' + (((eng && eng.SCENE_PRESETS) || []).map((x) => x.id).join(', ') || '(引擎未就绪)') + '\n' +
+                  '· 导演风格：' + (((eng && eng.DIRECTOR_STYLES) || []).map((x) => x.id).join(', ') || '(引擎未就绪)') + '\n' +
+                  '· 运镜：' + (((eng && eng.CAMERA_MOVES) || []).map((x) => x.id).join(', ') || '(引擎未就绪)'),
                 poses: (eng && eng.BONE_POSES ? eng.BONE_POSES.map((p) => ({ id: p.id, zh: p.zh, en: p.en })) : []),
                 presets: ['box', 'sphere', 'cylinder', 'cone', 'plane', 'capsule', 'torus', 'pyramid', 'disc', 'arc'],
                 actors: (eng && eng.ACTOR_PRESETS ? eng.ACTOR_PRESETS.map((p) => ({ preset: p.id, zh: p.zh, en: p.en, h: p.h })) : []),
@@ -5556,12 +5578,33 @@ export function apply(ctx) {
               if (!brief) throw new Error('action=brief 需要 brief 一句话描述');
               const eng2 = await loadDirectorEngine();
               if (!eng2 || typeof eng2.specFromBrief !== 'function') throw new Error('引擎未就绪');
-              const spec2 = eng2.specFromBrief(brief, { template: args.template, duration: args.duration });
+              const spec2 = eng2.specFromBrief(brief, {
+                template: args.template,
+                scene: args.scene,
+                style: args.style,
+                cameraMove: args.cameraMove,
+                duration: args.duration,
+              });
               const r4 = await methods.directorStageSave({ projectId: args.projectId, spec: spec2 });
               if (!r4.ok) throw new Error(r4.error || '保存失败');
               return {
                 ok: true, projectId: String(args.projectId || ''), spec: spec2,
-                text: '✅ 已按「' + (spec2.title || brief) + '」生成预演规格并写入项目（' + (spec2.characters || []).length + ' 角色 / ' + (spec2.cameras || []).length + ' 机位 / ' + (spec2.shots || []).length + ' 分镜 / ' + spec2.duration + 's）。打开或刷新 3D 导演台即可看到；点「导出视频」出片。',
+                text: '✅ 已按「' + (spec2.title || brief) + '」生成 3D-BOX 预演并写入项目（' + (spec2.characters || []).length + ' 角色 / ' + (spec2.cameras || []).length + ' 机位 / ' + (spec2.shots || []).length + ' 分镜 / ' + spec2.duration + 's' + (spec2.style ? ' / 风格 ' + spec2.style : '') + (spec2.cameraMove ? ' / 运镜 ' + spec2.cameraMove : '') + '）。打开或刷新 3D-BOX 即可看到；点「导出视频」出片。',
+              };
+            }
+            if (action === 'camera') {
+              const moveId = String((args && args.cameraMove) || '').trim();
+              if (!moveId) throw new Error('action=camera 需要 cameraMove');
+              const eng3 = await loadDirectorEngine();
+              const cur = await methods.directorStageLoad({ projectId: args.projectId });
+              if (!cur || !cur.found || !cur.spec) throw new Error('当前项目还没有 3D-BOX 规格：先用 action=brief 或 action=apply');
+              if (!eng3 || typeof eng3.applyCameraMove !== 'function') throw new Error('引擎未就绪');
+              const next = eng3.applyCameraMove(cur.spec, moveId, { duration: args.duration });
+              const r5 = await methods.directorStageSave({ projectId: args.projectId, spec: next });
+              if (!r5.ok) throw new Error(r5.error || '保存失败');
+              return {
+                ok: true, projectId: String(args.projectId || ''), spec: next,
+                text: '✅ 已施加运镜「' + moveId + '」并写入项目（' + ((next.cameras && next.cameras[0] && next.cameras[0].keys) || []).length + ' 个机位关键帧）。刷新 3D-BOX 即可预览。',
               };
             }
             if (action === 'get') {

@@ -3241,6 +3241,325 @@ export const BRIEF_TEMPLATES = [
   { id: 'dialogue', zh: '对话', en: 'Dialogue', keywords: ['对话', '说话', '交谈', '对峙', '谈判', 'dialogue', 'talk', 'conversation', '聊'] },
 ];
 
+// ============================================================
+// 3D-BOX 预设库（场景 / 导演风格 / 运镜）
+//   产品原则：用户只说一句，Agent 选场景 + 风格 + 运镜先搭第一版；
+//   这些清单同时给 Host 工具、客户端下拉和 Agent 技能引用，避免三处漂移。
+// ============================================================
+export const SCENE_PRESETS = [
+  { id: 'blank', zh: '空白场景', en: 'Blank scene', descZh: '纯网格 + 默认机位', descEn: 'Grid + default camera' },
+  { id: 'dialogue2', zh: '对话双人', en: 'Two-person dialogue', descZh: '2 人面对面 + 中景机位', descEn: '2 people, eye line, medium shot' },
+  { id: 'dialogue3', zh: '三人对话', en: 'Three-person dialogue', descZh: '3 人三角站位 + 全景机位', descEn: '3 people, triangle blocking, wide shot' },
+  { id: 'interview', zh: '采访场景', en: 'Interview', descZh: '1 主持 + 1 嘉宾 + 桌子 + 双机位', descEn: 'Host + guest + table + two cameras' },
+  { id: 'monologue', zh: '独白特写', en: 'Monologue close-up', descZh: '1 人 + 特写正面机位', descEn: '1 person + frontal close-up' },
+  { id: 'lecture', zh: '课堂/演讲', en: 'Lecture', descZh: '1 讲者 + 3 听众', descEn: 'Speaker + 3 listeners' },
+  { id: 'chase', zh: '追逐场景', en: 'Chase', descZh: '2 人前后 + 侧面跟拍 + 低角度', descEn: '2 runners, side tracking + low angle' },
+  { id: 'outdoor_walk', zh: '户外行走', en: 'Outdoor walk', descZh: '2 人并排 + 侧面跟拍', descEn: '2 people side by side, tracking' },
+  { id: 'meeting', zh: '会议室', en: 'Meeting room', descZh: '4 人围桌 + 俯拍机位', descEn: '4 people around a table + top-down' },
+];
+
+export const DIRECTOR_STYLES = [
+  { id: 'animation', zh: '动画剧情', en: 'Animation', promptZh: '中近景叙事 · 慢速推进 · 高饱和光影 · 配乐主导', promptEn: 'Medium-close storytelling, slow push, saturated light, score-led' },
+  { id: 'tvc', zh: 'TVC 广告', en: 'TVC', promptZh: '特写堆叠 · 微距环绕 · 高对比布光 · 音效突出', promptEn: 'Close-up stacking, macro orbit, high-contrast lighting, sound-led' },
+  { id: 'mv', zh: '卡点 MV', en: 'Music video', promptZh: '景别跳跃 · 快切环绕 · 强反差调色 · 音频驱动', promptEn: 'Jump cuts, fast orbit, high-contrast grade, beat-driven' },
+  { id: 'documentary', zh: '纪录片', en: 'Documentary', promptZh: '中远景观察 · 手持横移 · 自然光低饱和 · 环境音优先', promptEn: 'Wide observation, handheld lateral, natural low-sat light, ambience-led' },
+  { id: 'commerce', zh: '口播带货', en: 'Commerce', promptZh: '近中景固定 · 缓慢推进 · 明亮布光 · 人声优先', promptEn: 'Medium-close static, slow push, bright lighting, voice-led' },
+  { id: 'suspense', zh: '悬疑短剧', en: 'Suspense', promptZh: '远近交替 · 手持降镜头 · 冷色低调 · 静音对比', promptEn: 'Alternating wide/close, handheld descent, cool low-key, silence contrast' },
+];
+
+/**
+ * 运镜预设：id 同时用于 3D 机位关键帧生成与视频提示词标签。
+ * path 是生成策略名（applyCameraMove 里 switch），不是文件路径。
+ */
+export const CAMERA_MOVES = [
+  { id: 'static', zh: '固定机位', en: 'Static', category: 'basic', promptZh: '固定机位', promptEn: 'static camera' },
+  { id: 'push_in', zh: '推近', en: 'Push in', category: 'basic', promptZh: '缓慢推近主体', promptEn: 'slow push in' },
+  { id: 'pull_out', zh: '拉远', en: 'Pull out', category: 'basic', promptZh: '缓慢拉远，交代环境', promptEn: 'slow pull out' },
+  { id: 'pan_left', zh: '向左摇', en: 'Pan left', category: 'basic', promptZh: '机位向左横摇', promptEn: 'pan left' },
+  { id: 'pan_right', zh: '向右摇', en: 'Pan right', category: 'basic', promptZh: '机位向右横摇', promptEn: 'pan right' },
+  { id: 'orbit_left', zh: '左环绕', en: 'Orbit left', category: 'orbit', promptZh: '机位绕主体左环绕', promptEn: 'orbit left around subject' },
+  { id: 'orbit_right', zh: '右环绕', en: 'Orbit right', category: 'orbit', promptZh: '机位绕主体右环绕', promptEn: 'orbit right around subject' },
+  { id: 'handheld', zh: '手持微晃', en: 'Handheld', category: 'basic', promptZh: '手持跟拍，轻微自然晃动', promptEn: 'handheld with natural micro-shake' },
+  { id: 'arc_left', zh: '左弧滑行', en: 'Arc left', category: 'orbit', promptZh: '左弧滑行，边环绕边靠近', promptEn: 'arc left while closing in' },
+  { id: 'arc_right', zh: '右弧滑行', en: 'Arc right', category: 'orbit', promptZh: '右弧滑行，边环绕边靠近', promptEn: 'arc right while closing in' },
+  { id: 'crane_up', zh: '升镜', en: 'Crane up', category: 'crane', promptZh: '机位垂直升起，揭示空间', promptEn: 'crane up to reveal the space' },
+  { id: 'crane_down', zh: '降镜', en: 'Crane down', category: 'crane', promptZh: '机位垂直下降，压近主体', promptEn: 'crane down toward subject' },
+  { id: 'dolly_zoom', zh: '滑动变焦', en: 'Dolly zoom', category: 'special', promptZh: '滑动变焦：推进同时拉宽视角，背景压缩', promptEn: 'dolly zoom: push in while widening FOV' },
+  { id: 'crash_zoom', zh: '急速推镜', en: 'Crash zoom', category: 'special', promptZh: '急速推镜，制造冲击', promptEn: 'crash zoom for impact' },
+  { id: 'follow', zh: '跟随', en: 'Follow', category: 'tracking', promptZh: '机位跟随主体同向移动', promptEn: 'follow the subject' },
+  { id: 'reveal', zh: '拉远揭示', en: 'Reveal', category: 'special', promptZh: '从近景拉远，揭示完整场景', promptEn: 'pull back to reveal the full scene' },
+  { id: 'whip_pan', zh: '甩镜', en: 'Whip pan', category: 'special', promptZh: '快速甩镜，带运动模糊', promptEn: 'whip pan with motion blur' },
+  { id: 'orbit_high', zh: '高位环绕', en: 'High orbit', category: 'orbit', promptZh: '高位环绕，俯拍主体', promptEn: 'high orbit looking down' },
+  { id: 'tracking', zh: '横向跟拍', en: 'Lateral tracking', category: 'tracking', promptZh: '横向跟拍，保持主体在画面中心', promptEn: 'lateral tracking, subject centered' },
+  { id: 'vertigo', zh: '眩晕变焦', en: 'Vertigo', category: 'special', promptZh: '眩晕变焦，空间拉伸', promptEn: 'vertigo zoom, spatial stretch' },
+];
+
+const cloneSpec = (s) => JSON.parse(JSON.stringify(s || {}));
+const asVec3 = (v, d) => {
+  const q = d || [0, 0, 0];
+  if (Array.isArray(v)) return [Number(v[0]) || 0, Number(v[1]) || 0, Number(v[2]) || 0];
+  if (v && typeof v === 'object') return [Number(v.x) || 0, Number(v.y) || 0, Number(v.z) || 0];
+  return q.slice();
+};
+const lerpVec = (a, b, k) => [a[0] + (b[0] - a[0]) * k, a[1] + (b[1] - a[1]) * k, a[2] + (b[2] - a[2]) * k];
+const orbitVec = (pos, target, deg, radiusScale) => {
+  const dx = pos[0] - target[0];
+  const dz = pos[2] - target[2];
+  const r = Math.sqrt(dx * dx + dz * dz) * (radiusScale === undefined ? 1 : radiusScale);
+  const a0 = Math.atan2(dz, dx);
+  const a = a0 + (deg * Math.PI) / 180;
+  return [target[0] + Math.cos(a) * r, pos[1], target[2] + Math.sin(a) * r];
+};
+const clampFov = (v) => Math.max(8, Math.min(140, Number(v) || 42));
+
+/** 把导演风格写进规格：只改光影/雾/景深与备注，不改角色与分镜结构。 */
+export function applyDirectorStyle(spec, styleId) {
+  const st = DIRECTOR_STYLES.find((x) => x.id === String(styleId || ''));
+  if (!st) return spec;
+  const out = cloneSpec(spec);
+  out.style = st.id;
+  out.shot = out.shot || {};
+  out.shot.note = [out.shot.note, st.promptZh].filter(Boolean).join(' · ');
+  out.env = Object.assign({ preset: 'studio', grid: true, tonemap: 'agx' }, out.env || {});
+  const setKey = (dir, color, intensity) => {
+    const list = Array.isArray(out.lights) ? out.lights : [];
+    if (list.length) list[0] = Object.assign({}, list[0], { dir, color, intensity });
+    else list.push({ dir, color, intensity });
+    out.lights = list;
+  };
+  if (st.id === 'suspense') {
+    out.env.preset = 'night'; out.env.bg = '#0a0d12';
+    out.env.fog = { color: '#0d141d', near: 2, far: 14, density: 1.5 };
+    setKey([0.3, -0.7, 0.4], '#9fb6d4', 0.75);
+    out.dof = Object.assign({ focus: 4, range: 2, maxBlur: 7 }, out.dof || {});
+  } else if (st.id === 'mv') {
+    out.env.preset = 'night'; out.env.bg = '#0a0714';
+    setKey([0.4, -0.6, 0.5], '#ff5ea8', 1.5);
+    out.lights = (out.lights || []).concat([{ dir: [-0.4, -0.3, -0.5], color: '#31d7ff', intensity: 0.8 }]);
+    out.dof = Object.assign({ focus: 4.5, range: 3, maxBlur: 6 }, out.dof || {});
+  } else if (st.id === 'documentary') {
+    out.env.preset = 'daylight'; out.env.bg = '#cfd8e0';
+    setKey([0.45, -0.8, 0.35], '#fff3df', 1.15);
+    out.dof = Object.assign({ focus: 5, range: 4, maxBlur: 3 }, out.dof || {});
+  } else if (st.id === 'commerce') {
+    out.env.preset = 'studio'; out.env.bg = '#e8e6e2';
+    setKey([0.2, -0.55, 0.6], '#ffffff', 1.8);
+    out.lights = (out.lights || []).concat([{ dir: [-0.3, -0.3, 0.5], color: '#fff6e8', intensity: 0.7 }]);
+    out.dof = Object.assign({ focus: 5, range: 4, maxBlur: 2 }, out.dof || {});
+  } else if (st.id === 'tvc') {
+    out.env.bg = '#0c0f14';
+    setKey([0.35, -0.65, 0.55], '#ffffff', 1.85);
+    out.dof = Object.assign({ focus: 4.2, range: 2.4, maxBlur: 4 }, out.dof || {});
+  } else {
+    out.env.bg = '#1b1a22';
+    setKey([0.35, -0.7, 0.5], '#ffe7c4', 1.4);
+  }
+  return out;
+}
+
+/**
+ * 给规格里的机位生成一段可编辑关键帧。纯函数：不改入参。
+ * opts = { duration, camera（id 或 name，缺省第一台）, fovEnd }
+ */
+export function applyCameraMove(spec, moveId, opts) {
+  const o = opts || {};
+  const id = String(moveId || 'static');
+  const out = cloneSpec(spec);
+  const cams = Array.isArray(out.cameras) ? out.cameras : [];
+  if (!cams.length) return out;
+  let cam = cams[0];
+  if (o.camera) cam = cams.find((c) => c.id === o.camera || c.name === o.camera) || cam;
+  const pos = asVec3(cam.pos, [0, 2, 6]);
+  const target = asVec3(cam.target, [0, 1, 0]);
+  const fov = clampFov(cam.fov);
+  const dur = Math.max(0.5, Number(o.duration) || Number(out.duration) || 5);
+  const toc = (p, tg, f, t, ease) => ({ t, pos: p.slice(), target: (tg || target).slice(), fov: f === undefined ? fov : clampFov(f), ...(ease ? { ease } : {}) });
+  const dir = [target[0] - pos[0], target[1] - pos[1], target[2] - pos[2]];
+  const dist = Math.max(0.001, Math.sqrt(dir[0] * dir[0] + dir[1] * dir[1] + dir[2] * dir[2]));
+  const unit = [dir[0] / dist, dir[1] / dist, dir[2] / dist];
+  let keys;
+  switch (id) {
+    case 'push_in':
+      keys = [toc(pos, target, fov, 0), toc(lerpVec(pos, target, 0.3), target, fov, dur)];
+      break;
+    case 'pull_out':
+      keys = [toc(pos, target, fov, 0), toc(lerpVec(pos, target, -0.3), target, fov, dur)];
+      break;
+    case 'pan_left':
+      keys = [toc(pos, target, fov, 0), toc(pos, [target[0] - 1.2, target[1], target[2]], fov, dur)];
+      break;
+    case 'pan_right':
+      keys = [toc(pos, target, fov, 0), toc(pos, [target[0] + 1.2, target[1], target[2]], fov, dur)];
+      break;
+    case 'orbit_left':
+      keys = [toc(pos, target, fov, 0), toc(orbitVec(pos, target, -45), target, fov, dur)];
+      break;
+    case 'orbit_right':
+      keys = [toc(pos, target, fov, 0), toc(orbitVec(pos, target, 45), target, fov, dur)];
+      break;
+    case 'arc_left':
+      keys = [toc(pos, target, fov, 0), toc(orbitVec(pos, target, -60, 0.9), target, fov, dur)];
+      break;
+    case 'arc_right':
+      keys = [toc(pos, target, fov, 0), toc(orbitVec(pos, target, 60, 0.9), target, fov, dur)];
+      break;
+    case 'crane_up':
+      keys = [toc(pos, target, fov, 0), toc([pos[0], pos[1] + 1.3, pos[2]], [target[0], target[1] + 0.2, target[2]], fov, dur)];
+      break;
+    case 'crane_down':
+      keys = [toc(pos, target, fov, 0), toc([pos[0], Math.max(0.3, pos[1] - 1.3), pos[2]], [target[0], Math.max(0.2, target[1] - 0.2), target[2]], fov, dur)];
+      break;
+    case 'dolly_zoom':
+      keys = [toc(pos, target, fov, 0), toc(lerpVec(pos, target, 0.25), target, Math.min(140, fov * 1.35), dur)];
+      break;
+    case 'crash_zoom':
+      keys = [toc(pos, target, fov, 0), toc(lerpVec(pos, target, 0.45), target, Math.max(8, fov * 0.72), dur * 0.35, 'linear'), toc(lerpVec(pos, target, 0.45), target, Math.max(8, fov * 0.72), dur, 'constant')];
+      break;
+    case 'follow':
+      keys = [toc(pos, target, fov, 0), toc([pos[0] + unit[0] * 1.6, pos[1], pos[2] + unit[2] * 1.6], [target[0] + unit[0] * 1.6, target[1], target[2] + unit[2] * 1.6], fov, dur)];
+      break;
+    case 'tracking':
+      keys = [toc(pos, target, fov, 0), toc([pos[0] + 2, pos[1], pos[2]], [target[0] + 2, target[1], target[2]], fov, dur)];
+      break;
+    case 'reveal':
+      keys = [toc(lerpVec(pos, target, 0.35), target, fov, 0), toc(pos, target, fov, dur)];
+      break;
+    case 'whip_pan':
+      keys = [toc(pos, target, fov, 0), toc(pos, [target[0] + 3, target[1], target[2]], fov, dur * 0.2, 'linear'), toc(pos, [target[0] + 3, target[1], target[2]], fov, dur, 'constant')];
+      break;
+    case 'orbit_high':
+      keys = [toc(pos, target, fov, 0), toc([orbitVec(pos, target, 45)[0], pos[1] + 1.1, orbitVec(pos, target, 45)[2]], target, fov, dur)];
+      break;
+    case 'vertigo':
+      keys = [toc(pos, target, fov, 0), toc(lerpVec(pos, target, 0.25), target, Math.max(8, fov * 0.7), dur)];
+      break;
+    case 'handheld':
+      keys = [0, 0.25, 0.5, 0.75, 1].map((k) => toc([
+        pos[0] + Math.sin(k * 17.3) * 0.025,
+        pos[1] + Math.sin(k * 23.1) * 0.02,
+        pos[2] + Math.cos(k * 19.7) * 0.025,
+      ], target, fov, dur * k));
+      break;
+    case 'static':
+    default:
+      keys = [toc(pos, target, fov, 0), toc(pos, target, fov, dur)];
+      break;
+  }
+  cam.keys = keys;
+  out.cameraMove = id;
+  out.shot = out.shot || {};
+  out.shot.cameraMove = id;
+  return out;
+}
+
+/** 9 个场景预设 → 规格。所有坐标用 [x,y,z]，与 buildStageFromSpec 的二维 [x,z] 兼容。 */
+export function specFromScenePreset(presetId, opts) {
+  const o = opts || {};
+  const id = String(presetId || 'dialogue2');
+  const dur = Math.max(1.5, Number(o.duration) || 8);
+  const actors = Array.isArray(o.actors) && o.actors.length ? o.actors : ['主角', '对手', '第三角色', '第四角色'];
+  const A = String(actors[0] || '主角');
+  const B = String(actors[1] || '对手');
+  const C = String(actors[2] || '第三角色');
+  const D = String(actors[3] || '第四角色');
+  const base = (title, env) => ({
+    title: String(o.brief || title).slice(0, 40),
+    duration: dur,
+    env: Object.assign({ preset: 'studio', grid: true, tonemap: 'agx' }, env || {}),
+  });
+  const lights = [{ dir: [0.35, -0.78, 0.45], color: '#ffffff', intensity: 1.3 }, { dir: [-0.45, -0.25, -0.5], color: '#9fb4d8', intensity: 0.5 }];
+  const table = { name: '桌子', preset: 'box', pos: [0, 0, 0], scale: [2.2, 0.75, 1.1], color: '#8f98a3' };
+  if (id === 'blank') {
+    return Object.assign(base('空白场景', { preset: 'studio' }), {
+      characters: [], props: [{ name: '地面', preset: 'plane', pos: [0, 0, 0], scale: [14, 1, 14], color: '#9aa3ad' }],
+      cameras: [{ name: '主机位', pos: [0, 2.2, 6], target: [0, 1, 0], fov: 42 }],
+      shots: [{ camera: '主机位', start: 0, end: dur }], lights, dof: { focus: 5, range: 4, maxBlur: 4 },
+    });
+  }
+  if (id === 'chase') {
+    const half = Math.max(0.8, dur / 2);
+    return Object.assign(base('追逐场景', { preset: 'daylight' }), {
+      characters: [
+        { name: A, pos: [-3, 0, 0], rotY: 0, clip: 'run', color: '#c9ced6', path: [[-3, 0], [-3, 0], [4, -1.5], [9, -1.5]], pathFace: true, locomotion: { source: 'clip', stride: 1.1, cycle: 0.8, refSpeed: 4 } },
+        { name: B, pos: [-4.6, 0, 0.6], rotY: 0, clip: 'run', color: '#b3bcc6', path: [[-4.6, 0.6], [-4.6, 0.6], [3, -1.0], [8.2, -1.0]], pathFace: true, locomotion: { source: 'clip', stride: 1.1, cycle: 0.8, refSpeed: 4 } },
+      ],
+      props: [{ name: '路面', preset: 'plane', pos: [2, 0, 0], scale: [26, 1, 10], color: '#9aa3ad' }],
+      cameras: [{ name: '侧跟', pos: [1.5, 1.6, 7.5], target: [1.5, 1.0, 0], fov: 44 }, { name: '低位追', pos: [5.5, 0.8, 5.2], target: [3.5, 1.0, 0], fov: 40 }],
+      shots: [{ camera: '侧跟', start: 0, end: half }, { camera: '低位追', start: half, end: dur }],
+      lights: [{ dir: [0.4, -0.75, 0.4], color: '#fff4e0', intensity: 1.3 }], dof: { focus: 6, range: 5, maxBlur: 4 },
+    });
+  }
+  if (id === 'dialogue2' || id === 'dialogue3') {
+    const three = id === 'dialogue3';
+    const chars = three
+      ? [{ name: A, pos: [-1.1, 0, 0.2], rotY: 1.2, clip: 'idle', color: '#c9ced6' }, { name: B, pos: [1.1, 0, 0.2], rotY: -1.2, clip: 'idle', color: '#b9c2cc' }, { name: C, pos: [0, 0, -1.3], rotY: 0.2, clip: 'idle', color: '#c3bdd0' }]
+      : [{ name: A, pos: [-0.9, 0, 0], rotY: 1.45, clip: 'idle', color: '#c9ced6' }, { name: B, pos: [0.9, 0, 0], rotY: -1.45, clip: 'idle', color: '#b9c2cc' }];
+    const half = Math.max(0.8, dur / 2);
+    const cams = three
+      ? [{ name: '全景', pos: [0, 1.9, 5.2], target: [0, 1.05, 0], fov: 44 }, { name: 'A 过肩', pos: [-1.8, 1.55, -2.2], target: [0.9, 1.4, 0], fov: 40 }, { name: 'B 过肩', pos: [1.8, 1.55, -2.2], target: [-0.9, 1.4, 0], fov: 40 }]
+      : [{ name: 'A 过肩', pos: [-1.5, 1.55, -2.1], target: [0.9, 1.4, 0], fov: 40 }, { name: 'B 过肩', pos: [1.5, 1.55, -2.1], target: [-0.9, 1.4, 0], fov: 40 }, { name: '双人', pos: [0, 1.5, 4.6], target: [0, 1.05, 0], fov: 40 }];
+    const shots = three
+      ? [{ camera: '全景', start: 0, end: dur * 0.25 }, { camera: 'A 过肩', start: dur * 0.25, end: dur * 0.62 }, { camera: 'B 过肩', start: dur * 0.62, end: dur }]
+      : [{ camera: '双人', start: 0, end: Math.max(0.6, dur * 0.2) }, { camera: 'A 过肩', start: Math.max(0.6, dur * 0.2), end: half }, { camera: 'B 过肩', start: half, end: dur }];
+    return Object.assign(base(three ? '三人对话' : '对话双人', { preset: 'studio' }), {
+      characters: chars, props: [table], cameras: cams, shots, lights,
+      dof: { focus: 4.5, range: 2.2, maxBlur: 7 },
+    });
+  }
+  if (id === 'interview') {
+    return Object.assign(base('采访场景', { preset: 'studio' }), {
+      characters: [{ name: A, pos: [-1.1, 0, 0], rotY: 1.35, clip: 'idle', color: '#c9ced6' }, { name: B, pos: [1.1, 0, 0], rotY: -1.35, clip: 'idle', color: '#b9c2cc' }],
+      props: [table, { name: '水杯', preset: 'cylinder', pos: [0.7, 0.82, 0.2], scale: [0.09, 0.16, 0.09], color: '#b9c6d2' }],
+      cameras: [{ name: '主持近景', pos: [-2.2, 1.55, 1.8], target: [-1.1, 1.4, 0], fov: 36 }, { name: '嘉宾近景', pos: [2.2, 1.55, 1.8], target: [1.1, 1.4, 0], fov: 36 }, { name: '双人', pos: [0, 1.65, 4.4], target: [0, 1.1, 0], fov: 42 }],
+      shots: [{ camera: '双人', start: 0, end: dur * 0.2 }, { camera: '主持近景', start: dur * 0.2, end: dur * 0.6 }, { camera: '嘉宾近景', start: dur * 0.6, end: dur }],
+      lights, dof: { focus: 4.2, range: 2.4, maxBlur: 5 },
+    });
+  }
+  if (id === 'monologue') {
+    return Object.assign(base('独白特写', { preset: 'studio' }), {
+      characters: [{ name: A, pos: [0, 0, 0], rotY: 0, clip: 'idle', color: '#c9ced6' }],
+      props: [{ name: '地面', preset: 'plane', pos: [0, 0, 0], scale: [10, 1, 10], color: '#9aa3ad' }],
+      cameras: [{ name: '正面特写', pos: [0, 1.55, 1.5], target: [0, 1.42, 0], fov: 30 }, { name: '侧面近景', pos: [1.7, 1.5, 1.2], target: [0, 1.35, 0], fov: 34 }],
+      shots: [{ camera: '正面特写', start: 0, end: dur * 0.65 }, { camera: '侧面近景', start: dur * 0.65, end: dur }],
+      lights, dof: { focus: 1.8, range: 1.1, maxBlur: 8 },
+    });
+  }
+  if (id === 'lecture') {
+    return Object.assign(base('课堂/演讲', { preset: 'daylight' }), {
+      characters: [{ name: A, pos: [0, 0, -1.4], rotY: 0, clip: 'idle', color: '#c9ced6' }, { name: B, pos: [-1.8, 0, 1.5], rotY: -2.6, clip: 'idle', color: '#b9c2cc' }, { name: C, pos: [0, 0, 1.8], rotY: -3.1, clip: 'idle', color: '#c3bdd0' }, { name: D, pos: [1.8, 0, 1.5], rotY: 2.6, clip: 'idle', color: '#b7c6bd' }],
+      props: [{ name: '讲台', preset: 'box', pos: [0, 0.55, -0.9], scale: [2.4, 0.8, 0.7], color: '#8f98a3' }],
+      cameras: [{ name: '全景', pos: [0, 2.4, 7], target: [0, 1.0, 0], fov: 44 }, { name: '讲者', pos: [0, 1.6, 2.4], target: [0, 1.25, -1.4], fov: 36 }],
+      shots: [{ camera: '全景', start: 0, end: dur * 0.55 }, { camera: '讲者', start: dur * 0.55, end: dur }],
+      lights: [{ dir: [0.4, -0.8, 0.35], color: '#fff7e8', intensity: 1.25 }], dof: { focus: 6, range: 4, maxBlur: 3 },
+    });
+  }
+  if (id === 'outdoor_walk') {
+    return Object.assign(base('户外行走', { preset: 'daylight' }), {
+      characters: [
+        { name: A, pos: [-0.55, 0, 0], rotY: 0, clip: 'walk', color: '#c9ced6', path: [[-0.55, 0], [-0.55, 0], [5, 0]], pathFace: true, locomotion: { source: 'clip', stride: 0.9, cycle: 1.0, refSpeed: 1.6 } },
+        { name: B, pos: [0.55, 0, 0.2], rotY: 0, clip: 'walk', color: '#b9c2cc', path: [[0.55, 0.2], [0.55, 0.2], [5, 0.2]], pathFace: true, locomotion: { source: 'clip', stride: 0.9, cycle: 1.0, refSpeed: 1.6 } },
+      ],
+      props: [{ name: '路面', preset: 'plane', pos: [2, 0, 0], scale: [20, 1, 8], color: '#9aa3ad' }],
+      cameras: [{ name: '侧面跟拍', pos: [1.8, 1.65, 5.2], target: [1.8, 1.0, 0], fov: 42 }, { name: '正面跟拍', pos: [1.8, 1.6, -4.5], target: [1.8, 1.05, 0], fov: 38 }],
+      shots: [{ camera: '侧面跟拍', start: 0, end: dur * 0.55 }, { camera: '正面跟拍', start: dur * 0.55, end: dur }],
+      lights: [{ dir: [0.45, -0.8, 0.35], color: '#fff4e0', intensity: 1.2 }], dof: { focus: 6, range: 5, maxBlur: 3 },
+    });
+  }
+  // meeting
+  return Object.assign(base('会议室', { preset: 'studio' }), {
+    characters: [
+      { name: A, pos: [-1.7, 0, 0], rotY: 1.5, clip: 'idle', color: '#c9ced6' },
+      { name: B, pos: [1.7, 0, 0], rotY: -1.5, clip: 'idle', color: '#b9c2cc' },
+      { name: C, pos: [0, 0, -1.4], rotY: 0.2, clip: 'idle', color: '#c3bdd0' },
+      { name: D, pos: [0, 0, 1.4], rotY: 3.1, clip: 'idle', color: '#b7c6bd' },
+    ],
+    props: [{ name: '会议桌', preset: 'box', pos: [0, 0.4, 0], scale: [3.6, 0.8, 1.8], color: '#7f8a96' }],
+    cameras: [{ name: '俯拍', pos: [0, 4.2, 3.4], target: [0, 0.4, 0], fov: 46 }, { name: '侧方全景', pos: [0, 2.1, 5.2], target: [0, 1.0, 0], fov: 42 }],
+    shots: [{ camera: '俯拍', start: 0, end: dur * 0.45 }, { camera: '侧方全景', start: dur * 0.45, end: dur }],
+    lights, dof: { focus: 5, range: 4, maxBlur: 4 },
+  });
+}
+
 /**
  * 一句话 → 场景规格。
  * opts = { template, duration, actors, mood }
@@ -3265,8 +3584,16 @@ export function specFromBrief(brief, opts) {
     duration: dur,
     env: { preset: tpl === 'chase' ? 'daylight' : tpl === 'fight' ? 'night' : 'studio', grid: true, tonemap: 'agx' },
   };
+  // 3D-BOX 组合入口：显式场景预设优先；风格与运镜在最后统一施加，保持旧模板行为不变。
+  const finish = (spec) => {
+    let out = spec;
+    if (o.style) out = applyDirectorStyle(out, o.style);
+    if (o.cameraMove) out = applyCameraMove(out, o.cameraMove, { duration: out.duration || dur });
+    return out;
+  };
+  if (o.scene) return finish(specFromScenePreset(o.scene, { brief, duration: dur, actors }));
   if (tpl === 'fight') {
-    return Object.assign(base, {
+    return finish(Object.assign(base, {
       characters: [
         { name: A, pos: [-1.1, 0, 0], rotY: 1.2, pose: 'fight', color: '#c9ced6' },
         { name: B, pos: [1.1, 0, 0], rotY: -1.2, pose: 'fight', color: '#b9c2cc' },
@@ -3287,10 +3614,10 @@ export function specFromBrief(brief, opts) {
       fog: { color: '#2a3038', near: 6, far: 22, density: 1 },
       dof: { focus: 4.2, range: 2.6, maxBlur: 5 },
       poseAnim: null,
-    });
+    }));
   }
   if (tpl === 'chase') {
-    return Object.assign(base, {
+    return finish(Object.assign(base, {
       characters: [
         { name: A, pos: [-3, 0, 0], rotY: 0, pose: 'run' && null, clip: 'run', color: '#c9ced6',
           path: [[-3, 0], [-3, 0], [4, -1.5], [9, -1.5]], pathFace: true,
@@ -3307,10 +3634,10 @@ export function specFromBrief(brief, opts) {
       shots: [{ camera: '侧跟', start: 0, end: half }, { camera: '低位追', start: half, end: dur }],
       lights: [{ dir: [0.4, -0.75, 0.4], color: '#fff4e0', intensity: 1.3 }],
       dof: { focus: 6, range: 5, maxBlur: 4 },
-    });
+    }));
   }
   // dialogue：正反打
-  return Object.assign(base, {
+  return finish(Object.assign(base, {
     characters: [
       { name: A, pos: [-0.9, 0, 0], rotY: 1.45, clip: 'idle', color: '#c9ced6' },
       { name: B, pos: [0.9, 0, 0], rotY: -1.45, clip: 'idle', color: '#b9c2cc' },
@@ -3328,7 +3655,7 @@ export function specFromBrief(brief, opts) {
     ],
     lights: [{ dir: [0.3, -0.7, 0.5], color: '#fff6ea', intensity: 1.15 }, { dir: [-0.5, -0.2, -0.4], color: '#cfd6e2', intensity: 0.5 }],
     dof: { focus: 4.5, range: 2.2, maxBlur: 7 },
-  });
+  }));
 }
 
 
@@ -6358,16 +6685,7 @@ export function compileDirectorPrompt(scene, opts) {
   // 景别/运镜文案一律从中英双语的单一来源取：避免输出内部 id（如 medium_close），也避免英文分支里混中文
   const fillDef = SHOT_FILLS.find((f) => f.id === shot.shotSize) || null;
   const sizeLabel = fillDef ? (zh ? fillDef.zh : fillDef.en) : String(shot.shotSize || '');
-  const MOVE_LABELS = {
-    static: { zh: '固定机位', en: 'static camera' },
-    push_in: { zh: '推近', en: 'push in' },
-    pull_out: { zh: '拉远', en: 'pull out' },
-    pan_left: { zh: '向左摇', en: 'pan left' },
-    pan_right: { zh: '向右摇', en: 'pan right' },
-    orbit_left: { zh: '左环绕', en: 'orbit left' },
-    orbit_right: { zh: '右环绕', en: 'orbit right' },
-    handheld: { zh: '手持微晃', en: 'handheld' },
-  };
+  const MOVE_LABELS = Object.fromEntries(CAMERA_MOVES.map((m) => [m.id, { zh: m.zh, en: m.en }]));
   const mvDef = MOVE_LABELS[shot.cameraMove] || null;
   const moveLabel = mvDef ? (zh ? mvDef.zh : mvDef.en) : String(shot.cameraMove || '');
   const cam = (scene.cameras || []).find((c) => c.id === scene.activeCameraId) || (scene.cameras || [])[0] || {};
