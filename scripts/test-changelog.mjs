@@ -136,6 +136,7 @@ const COVERAGE = [
   { sha: '83c893e', keys: [/Workflow toolbox|workflow snapshot|asset slots|placeholders|remapping assets/i] },
   { sha: '36a5df2', keys: [/Asset library DAM|tags and a folder|ZIP|UTF-8 names|500 MB/i] },
   { sha: 'fe89242', keys: [/Host-agnostic core contract|apply\(ctx\)|minimal ctx|multi-host-adapters|standalone canvas server/i] },
+  { sha: '5d37199', keys: [/merged_into|mergedInto|merge duplicates|references move|undo|source and date-range/i] },
 ];
 for (const c of COVERAGE) {
   ok(c.keys.some((re) => re.test(coverageText)), '未发版提交 ' + c.sha + ' 在 CHANGELOG（Unreleased 或最新已发布段）里找不到对应记录（补记不全）');
