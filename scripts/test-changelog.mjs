@@ -119,6 +119,7 @@ const COVERAGE = [
   { sha: '84b4e23', keys: [/3D-BOX|one-line previz|scene preset|camera move|scene presets|director style/i] },
   { sha: 'f0e5f4a', keys: [/4-view|12-view|four\/twelve|view screenshots|action=edit|natural-language|edit a scene/i] },
   { sha: 'f73d07e', keys: [/AI camera|camera keyframes|planCameraMotion|action=camera|natural-language `prompt`/i] },
+  { sha: '0fa1ede', keys: [/hand-drawn camera path|cameraPathKeys|draw camera path|手绘运镜/i] },
 ];
 for (const c of COVERAGE) {
   ok(c.keys.some((re) => re.test(coverageText)), '未发版提交 ' + c.sha + ' 在 CHANGELOG（Unreleased 或最新已发布段）里找不到对应记录（补记不全）');
