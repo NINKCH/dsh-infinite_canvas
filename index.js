@@ -4621,6 +4621,49 @@ export function apply(ctx) {
           return { ok: true, found: true, file, savedAt: doc.savedAt || null, spec: doc.spec || null };
         } catch (e) { return { ok: false, found: false, file, error: '读取失败: ' + String((e && e.message) || e) }; }
       },
+      async directorStageList() {
+        let list = [];
+        try { list = await projectsList(); } catch { list = []; }
+        const items = [];
+        for (const p of (Array.isArray(list) ? list : [])) {
+          try {
+            const dir = await methods.projectDirGet({ projectId: p.id });
+            if (!dir || !dir.ok) continue;
+            const file = path.join(dir.abs, 'craft', 'director-stage.json');
+            if (!existsSync(file)) continue;
+            const doc = JSON.parse(readFileSync(file, 'utf8'));
+            const spec = doc.spec || {};
+            items.push({
+              projectId: p.id, projectName: p.name || p.id,
+              title: String(spec.title || '3D-BOX'),
+              savedAt: Number(doc.savedAt) || 0,
+              cameras: Array.isArray(spec.cameras) ? spec.cameras.length : 0,
+              shots: Array.isArray(spec.shots) ? spec.shots.length : 0,
+              duration: Number(spec.duration) || 0,
+            });
+          } catch { /* 单个项目读失败不影响列表 */ }
+        }
+        items.sort((a, b) => b.savedAt - a.savedAt);
+        return { ok: true, items };
+      },
+      async directorStageBrief(args) {
+        const projectId = String((args && args.projectId) || '');
+        const brief = String((args && args.brief) || '').trim();
+        if (!brief) return { ok: false, error: '需要 brief' };
+        const eng = await loadDirectorEngine();
+        if (!eng || typeof eng.specFromBrief !== 'function') return { ok: false, error: '引擎未就绪' };
+        try {
+          const spec = eng.specFromBrief(brief, {
+            scene: args && args.scene, style: args && args.style,
+            cameraMove: args && args.cameraMove, duration: args && args.duration,
+          });
+          const saved = await methods.directorStageSave({ projectId, spec });
+          if (!saved || !saved.ok) return { ok: false, error: (saved && saved.error) || '保存失败' };
+          return { ok: true, projectId, spec, savedAt: saved.savedAt || Date.now() };
+        } catch (e) {
+          return { ok: false, error: String((e && e.message) || e) };
+        }
+      },
       async directorStageEdit(args) {
         const projectId = String((args && args.projectId) || '');
         const instruction = String((args && args.instruction) || '').trim();

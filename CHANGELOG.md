@@ -37,6 +37,11 @@ GitHub Releases carry the same notes in English; maintainer-facing runbooks live
   camera path” toggle: click the ground to place path points, click the
   toggle again and `cameraPathKeys` turns the points into editable camera
   keyframes (look-ahead target, evenly distributed duration).
+- **3D-BOX library: one-line create + My 3D-BOX.** A new rail entry opens
+  the 3D-BOX library: prompt box + example chips + “New blank 3D-BOX”, plus
+  a list of saved scenes across projects (`directorStageList` /
+  `directorStageBrief`). Selecting a card switches project and opens the
+  stage, so previz is no longer hidden behind one project.
 
 ### Fixed
 - (nothing in this cycle yet)

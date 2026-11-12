@@ -118,7 +118,10 @@ for (const p of (E.SCENE_PRESETS || [])) {
   ok(host.includes('applyCameraMove'), 'Host 未接线 applyCameraMove');
   ok(host.includes('cameraMove'), 'Host 工具未接收 cameraMove');
   ok(host.includes("action === 'edit'") && host.includes('editDirectorSpec'), 'Host 缺少自然语言改景 action=edit');
+  ok(host.includes('directorStageList') && host.includes('directorStageBrief'), 'Host 缺少 3D-BOX 库 RPC（list/brief）');
   const cli = fs.readFileSync(path.join(ROOT, 'client.js'), 'utf8');
+  ok(cli.includes('BoxHome') && cli.includes("'open-3dbox-home'"), '客户端缺少 3D-BOX 库首页入口');
+  ok(cli.includes("'boxhome-create'") && cli.includes("'boxhome-open'"), '客户端缺少 3D-BOX 库新建/打开动作');
   ok(cli.includes('dshic-dir-boxbar'), '客户端缺少 3D-BOX 提示条');
   ok(cli.includes("'box-build'"), '客户端缺少「生成预演」按钮');
   ok(cli.includes("'box-edit'") && cli.includes('directorStageEdit'), '客户端缺少「改景」入口或未接 RPC');

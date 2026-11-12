@@ -433,6 +433,12 @@ try {
   let badCam = false;
   try { await byName.get('canvas_director_stage').execute({ action: 'camera', projectId, prompt: '乱运镜' }, {}); } catch { badCam = true; }
   if (!badCam) throw new Error('invalid AI camera keys was accepted');
+  // 3D-BOX 库：brief RPC + list RPC 必须能拿到当前项目
+  const rpc = mod._internals.rpcMethods();
+  const briefR = await rpc.directorStageBrief({ projectId, brief: '两人在巷子里对话，6秒' });
+  if (!briefR || !briefR.ok) throw new Error('directorStageBrief failed');
+  const listR = await rpc.directorStageList();
+  if (!listR || !listR.ok || !Array.isArray(listR.items) || !listR.items.some((x) => x.projectId === projectId)) throw new Error('directorStageList missing current project');
 } catch (e) {
   errs.push('3D-BOX 自然语言改景失败 → ' + ((e && e.message) || e));
 } finally {

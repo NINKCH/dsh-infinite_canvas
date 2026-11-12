@@ -249,9 +249,9 @@ function cssRulesMatchingClass(name) {
   const rail = TABS.IconRail();
   const els = all(rail);
   const acts = els.filter((e) => e.props && e.props['data-action']).map((e) => e.props['data-action']);
-  // 导演台（open-director）放在动作分区：它和"运行工作流"一样是工具，不是节点类型
+  // 导演台（open-director）与 3D-BOX 库（open-3dbox-home）放在动作分区：它们是工具，不是节点类型
   // 记忆查看器（open-memory，0.20.x 会话绑定/项目记忆）：跟在设定集之后，属「项目资料」分组
-  eq(acts.join(','), 'add-text,add-script,add-storyboard,add-image,add-video,add-finalcut,open-assets,open-bible,open-memory,open-director,run-workflow',
+  eq(acts.join(','), 'add-text,add-script,add-storyboard,add-image,add-video,add-finalcut,open-assets,open-bible,open-memory,open-director,open-3dbox-home,run-workflow',
     '左侧图标列顺序/动作不符合要求');
   ok(/\.dshic-rail\{[^}]*position:absolute/.test((LAYOUT.CSS || '')), '图标列不再是绝对定位悬浮层');
   // 第 2 条：图标列整列垂直居中（内层绝对定位居中，不是贴左上角/撑满整列）

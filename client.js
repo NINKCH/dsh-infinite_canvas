@@ -497,6 +497,17 @@ function revealCanvasInRight() {
       'boxShotBusy': '截图中…',
       'boxShotDone': '已生成 {n} 张方位截图',
       'boxShotName': '3D-BOX 方位',
+      'boxHomeTitle': '3D-BOX 库',
+      'boxHomeSub': '一句话搭景 · 我的 3D-BOX',
+      'boxHomeNew': '生成预演',
+      'boxHomeBlank': '新建空白 3D-BOX',
+      'boxHomeList': '我的 3D-BOX',
+      'boxHomeEmpty': '还没有 3D-BOX；说一句话开始',
+      'boxHomeOpen': '打开',
+      'boxHomeLoading': '加载中…',
+      'boxHomeCurrent': '当前项目',
+      'boxHomeFailed': '加载 3D-BOX 库失败：',
+      'boxHomeMeta': '{c} 机位 · {s} 分镜 · {d}s',
       'boxExamples': '试试：',
       'boxEx1': '城市街头警匪追车',
       'boxEx2': '环绕香水瓶运镜',
@@ -1541,6 +1552,17 @@ function revealCanvasInRight() {
       'boxShotBusy': 'Capturing…',
       'boxShotDone': 'Generated {n} view screenshots',
       'boxShotName': '3D-BOX view',
+      'boxHomeTitle': '3D-BOX library',
+      'boxHomeSub': 'One-line previz · My 3D-BOX',
+      'boxHomeNew': 'Build previz',
+      'boxHomeBlank': 'New blank 3D-BOX',
+      'boxHomeList': 'My 3D-BOX',
+      'boxHomeEmpty': 'No 3D-BOX yet; describe a scene to start',
+      'boxHomeOpen': 'Open',
+      'boxHomeLoading': 'Loading…',
+      'boxHomeCurrent': 'Current project',
+      'boxHomeFailed': 'Failed to load 3D-BOX library:',
+      'boxHomeMeta': '{c} cameras · {s} shots · {d}s',
       'boxExamples': 'Try:',
       'boxEx1': 'City street chase',
       'boxEx2': 'Orbit a perfume bottle',
@@ -2681,6 +2703,35 @@ body[data-ds-dark-theme] .dshic-proj-menu-item.is-active{background:color-mix(in
   background:var(--dsw-alias-bg-layer-1);border:1px solid var(--dshic-line2);border-radius:16px;
   box-shadow:var(--dshic-shadow-lg);overflow:hidden;box-sizing:border-box;}
 body[data-ds-dark-theme] .dshic-studio-modal{border-color:var(--dsw-alias-border-l2);}
+/* 3D-BOX 库：一句话新建 + 我的 3D-BOX */
+.dshic-boxhome-overlay{position:fixed;inset:0;z-index:320;background:color-mix(in srgb,var(--dsw-alias-label-primary) 32%,transparent);
+  display:flex;align-items:center;justify-content:center;padding:24px;box-sizing:border-box;}
+.dshic-boxhome{width:min(980px,calc(100vw - 48px));height:min(720px,calc(100vh - 48px));display:flex;flex-direction:column;
+  background:var(--dsw-alias-bg-layer-1);border:1px solid var(--dshic-line2);border-radius:16px;box-shadow:var(--dshic-shadow-lg);
+  overflow:hidden;box-sizing:border-box;}
+.dshic-boxhome-head{flex:none;display:flex;align-items:center;gap:10px;padding:12px 16px;border-bottom:1px solid var(--dsw-alias-border-l1);}
+.dshic-boxhome-title{font-size:16px;font-weight:700;}
+.dshic-boxhome-sub{color:var(--dsw-alias-label-secondary);font-size:12px;}
+.dshic-boxhome-spacer{flex:1;}
+.dshic-boxhome-hero{flex:none;padding:18px 18px 12px;display:flex;flex-direction:column;gap:10px;border-bottom:1px solid var(--dsw-alias-border-l1);}
+.dshic-boxhome-row{display:flex;align-items:center;gap:8px;}
+.dshic-boxhome-input{flex:1;min-width:180px;height:36px;border-radius:9px;border:1px solid var(--dshic-line2);
+  background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-primary);padding:0 12px;font-size:13px;outline:none;}
+.dshic-boxhome-input:focus{border-color:var(--dsw-alias-label-primary);}
+.dshic-boxhome-btn{height:36px;padding:0 14px;border-radius:9px;border:1px solid var(--dshic-line2);background:var(--dsw-alias-bg-base);
+  color:var(--dsw-alias-label-primary);font-size:13px;cursor:pointer;white-space:nowrap;}
+.dshic-boxhome-btn.is-primary{background:var(--dsw-alias-label-primary);color:var(--dsw-alias-bg-base);border-color:transparent;font-weight:600;}
+.dshic-boxhome-examples{display:flex;gap:8px;flex-wrap:wrap;}
+.dshic-boxhome-chip{font-size:12px;padding:5px 9px;border-radius:999px;border:1px solid var(--dshic-line2);
+  background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-secondary);cursor:pointer;}
+.dshic-boxhome-list{flex:1;min-height:0;overflow:auto;padding:14px 18px 18px;display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:10px;align-content:start;}
+.dshic-boxhome-card{display:flex;flex-direction:column;gap:6px;padding:12px;border-radius:12px;border:1px solid var(--dshic-line2);
+  background:var(--dsw-alias-bg-base);cursor:pointer;text-align:left;}
+.dshic-boxhome-card:hover{border-color:var(--dsw-alias-label-primary);}
+.dshic-boxhome-card-t{font-size:13px;font-weight:600;color:var(--dsw-alias-label-primary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.dshic-boxhome-card-m{font-size:11px;color:var(--dsw-alias-label-secondary);}
+.dshic-boxhome-empty{grid-column:1/-1;padding:36px 12px;text-align:center;color:var(--dsw-alias-label-secondary);font-size:13px;}
+.dshic-boxhome-loading{grid-column:1/-1;padding:24px;text-align:center;color:var(--dsw-alias-label-secondary);font-size:12px;}
 .dshic-studio-head{flex:none;display:flex;align-items:center;gap:10px;padding:10px 14px;border-bottom:1px solid var(--dsw-alias-border-l1);}
 .dshic-studio-tabs{display:flex;gap:4px;}
 .dshic-studio-tab{height:30px;padding:0 14px;border:none;border-radius:8px;background:transparent;color:var(--dsw-alias-label-secondary);
@@ -10083,6 +10134,7 @@ function queueThumb(assetId) {
       directorTlZoom: 140,          // 时间轴缩放（px/秒）
       directorCamPathPick: false,   // 手绘运镜：地面点击模式
       directorCamPath: [],          // 手绘运镜：路径点 [{x,z}]
+      boxHomeOpen: false,           // 3D-BOX 库首页（我的 3D-BOX / 一句话新建）
     };
     const listeners = new Set();
     let saveTimer = null;
@@ -19034,6 +19086,12 @@ const DIRECTOR_KEY_HELP = [
           'data-action': 'open-director', title: T('boxTitle'),
           onClick: () => update((s) => { s.directorOpen = true; }),
         }, Ic('camera', 16)),
+        h('button', {
+          key: 'boxhome', type: 'button',
+          className: cls('dshic-rail-btn', S.boxHomeOpen && 'is-active'),
+          'data-action': 'open-3dbox-home', title: T('boxHomeTitle'),
+          onClick: () => update((s) => { s.boxHomeOpen = true; }),
+        }, Ic('folder', 16)),
         S.running
           ? h('button', {
               key: 'stop', type: 'button', className: 'dshic-rail-btn is-danger',
@@ -19045,6 +19103,76 @@ const DIRECTOR_KEY_HELP = [
             }, Ic('play', 16)),
         ),
       );
+    }
+
+    // ============================================================
+    // 3D-BOX 库：一句话新建 + 我的 3D-BOX 列表
+    // ============================================================
+    function BoxHome() {
+      const open = S.boxHomeOpen;
+      const [items, setItems] = useState([]);
+      const [loading, setLoading] = useState(false);
+      const [brief, setBrief] = useState('');
+      const [busy, setBusy] = useState(false);
+      const [err, setErr] = useState('');
+      useEffect(() => {
+        if (!open) return;
+        setLoading(true); setErr('');
+        hostRpc('directorStageList', {}).then((r) => {
+          if (!r || !r.ok) throw new Error((r && r.error) || 'list failed');
+          setItems(Array.isArray(r.items) ? r.items : []);
+        }).catch((e) => setErr(T('boxHomeFailed') + String((e && e.message) || e))).finally(() => setLoading(false));
+      }, [open]);
+      if (!open) return null;
+      const openStage = (projectId) => {
+        if (projectId && projectId !== S.activeId) switchProject(projectId);
+        update((s) => { s.boxHomeOpen = false; s.directorOpen = true; });
+      };
+      const create = (blank) => {
+        const text = blank ? '空白场景' : String(brief || '').trim();
+        if (!text) { setErr(T('boxBriefPh')); return; }
+        setBusy(true); setErr('');
+        const args = { projectId: S.activeId, brief: text };
+        if (blank) args.scene = 'blank';
+        hostRpc('directorStageBrief', args).then((r) => {
+          if (!r || !r.ok) throw new Error((r && r.error) || 'brief failed');
+          setBrief('');
+          openStage(S.activeId);
+        }).catch((e) => setErr(T('boxFailed') + String((e && e.message) || e))).finally(() => setBusy(false));
+      };
+      return h('div', {
+        className: 'dshic-boxhome-overlay', 'data-role': '3dbox-home',
+        onPointerDown: (e) => { if (e.target === e.currentTarget) update((s) => { s.boxHomeOpen = false; }); },
+      },
+        h('div', { className: 'dshic-boxhome', onPointerDown: (e) => e.stopPropagation() },
+          h('div', { className: 'dshic-boxhome-head' },
+            h('span', { className: 'dshic-boxhome-title' }, T('boxTitle')),
+            h('span', { className: 'dshic-boxhome-sub' }, T('boxHomeSub')),
+            h('span', { className: 'dshic-boxhome-spacer' }),
+            h('button', { type: 'button', className: 'dshic-dir-icobtn', 'data-action': 'boxhome-close', onClick: () => update((s) => { s.boxHomeOpen = false; }) }, '✕')),
+          h('div', { className: 'dshic-boxhome-hero' },
+            h('div', { className: 'dshic-boxhome-row' },
+              h('input', {
+                className: 'dshic-boxhome-input', 'data-action': 'boxhome-brief', value: brief,
+                placeholder: T('boxBriefPh'), onChange: (e) => setBrief(e.target.value),
+                onKeyDown: (e) => { if (e.key === 'Enter') create(false); },
+              }),
+              h('button', { type: 'button', className: 'dshic-boxhome-btn is-primary', 'data-action': 'boxhome-create', disabled: busy, onClick: () => create(false) }, busy ? T('boxBuilding') : T('boxHomeNew')),
+              h('button', { type: 'button', className: 'dshic-boxhome-btn', 'data-action': 'boxhome-blank', disabled: busy, onClick: () => create(true) }, T('boxHomeBlank'))),
+            h('div', { className: 'dshic-boxhome-examples' },
+              [T('boxEx1'), T('boxEx2'), T('boxEx3')].map((x) => h('button', { key: x, type: 'button', className: 'dshic-boxhome-chip', onClick: () => setBrief(x) }, x))),
+            err ? h('div', { className: 'dshic-boxhome-card-m', 'data-role': 'boxhome-error' }, err) : null),
+          h('div', { className: 'dshic-boxhome-list' },
+            loading ? h('div', { className: 'dshic-boxhome-loading' }, T('boxHomeLoading'))
+              : (items.length
+                ? items.map((it) => h('button', {
+                    key: it.projectId, type: 'button', className: 'dshic-boxhome-card', 'data-action': 'boxhome-open',
+                    onClick: () => openStage(it.projectId),
+                  },
+                    h('span', { className: 'dshic-boxhome-card-t' }, it.title || '3D-BOX'),
+                    h('span', { className: 'dshic-boxhome-card-m' }, (it.projectId === S.activeId ? T('boxHomeCurrent') + ' · ' : '') + (it.projectName || it.projectId)),
+                    h('span', { className: 'dshic-boxhome-card-m' }, T('boxHomeMeta').replace('{c}', String(it.cameras || 0)).replace('{s}', String(it.shots || 0)).replace('{d}', String(it.duration || 0)))))
+                : h('div', { className: 'dshic-boxhome-empty' }, T('boxHomeEmpty'))))));
     }
 
     // ============================================================
@@ -22049,6 +22177,7 @@ const DIRECTOR_KEY_HELP = [
           S.rightOpen ? h(Rightbar) : null,
         ),
         h(StudioModal),          // 资产 + 设定集统一弹窗（单例；S.panelModal 控制）
+        h(BoxHome),              // 3D-BOX 库（一句话新建 + 我的 3D-BOX）
         h(DirectorStage),        // 3D 导演台（全屏浮层；左侧图标列入口，S.directorOpen 控制）
         h(ProjectNameDialog),    // 新建 / 重命名项目（空名校验）
         S.menu ? h(ContextMenu, { menu: S.menu }) : null,
@@ -22885,7 +23014,7 @@ const DIRECTOR_KEY_HELP = [
             // 自动创作卡（0.20.2 T12）：快捷动作区（启动/预算/批准/生成/中止）——供 test-panel-layout 直渲染与断言
             AutoModeCard,
             // 面板结构重构（左侧图标列 / 顶部工具栏 / 右侧面板 / 统一弹窗）
-            Toolbar, Rightbar, IconRail, StudioModal, ProjectNameDialog,
+            Toolbar, Rightbar, IconRail, StudioModal, ProjectNameDialog, BoxHome,
             // 技能页（四层图标瓦片）：组件 + 图标表 + 配置读写 + 切片入口
             SkillsTab, SkillTileGrid, SkillSeg, SkillCard, SkillGlyph,
             // 测试注入口：vm 沙箱里没有动态 import()，测试直接把真实的 pack 模块与清单塞进来
@@ -23013,7 +23142,7 @@ const DIRECTOR_KEY_HELP = [
           // 引擎加载器；引擎内部的纯函数由测试直接 ESM import engine.js 断言——
           // 两端同一份代码，不存在"测试测的是拷贝"的问题。
           window.__DSH_IC_DIRECTOR__ = {
-            DirectorStage, loadDirectorEngine, directorEngine,
+            DirectorStage, BoxHome, loadDirectorEngine, directorEngine,
             DIRECTOR_ENGINE_REL,
           };
           // 面板结构（左侧图标列 / 统一弹窗 / 工具栏项目切换 / 就地改名 / 右栏当前项目面板）：
