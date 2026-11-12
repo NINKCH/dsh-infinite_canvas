@@ -72,6 +72,10 @@ GitHub Releases carry the same notes in English; maintainer-facing runbooks live
   `canvas_list_assets` lists find-and-mount candidates;
   `canvas_create_node` / `canvas_update_node` accept `assetId`, and asset
   nodes open as done instead of empty.
+- **Audio nodes + final-cut audio tracks.** A new `audio` node type
+  (asset-backed, with mute / loop / gain controls) can be wired into the
+  final cut's `audio` input; `composeFinalCut` decodes BGM/SFX tracks and
+  mixes them into the recorded output alongside segment audio and TTS.
 
 ### Fixed
 - (nothing in this cycle yet)

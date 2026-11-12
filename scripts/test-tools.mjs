@@ -467,6 +467,20 @@ try {
   await byName.get('canvas_update_node').execute({ projectId, nodeId: nodeB.nodeId, patch: { assetId: imp.assetId } }, {});
   const stB = await byName.get('canvas_node_status').execute({ projectId, nodeId: nodeB.nodeId }, {});
   if (!stB || stB.assetId !== imp.assetId) throw new Error('canvas_update_node assetId not applied');
+  // 音频节点 + 成片 audio 输入：默认连线应落到 audio 端口
+  const audioPath = path.join(SANDBOX, 'import-test.mp3');
+  fs.writeFileSync(audioPath, Buffer.from([0x49, 0x44, 0x33, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]));
+  const impA = await byName.get('canvas_import_asset').execute({ projectId, path: audioPath, kind: 'audio', name: '导入测试音频' }, {});
+  if (!impA || !impA.ok || !impA.assetId) throw new Error('audio import failed');
+  const audioNode = await byName.get('canvas_create_node').execute({ projectId, type: 'audio', name: 'BGM', assetId: impA.assetId }, {});
+  const stAudio = await byName.get('canvas_node_status').execute({ projectId, nodeId: audioNode.nodeId }, {});
+  if (!stAudio || stAudio.type !== 'audio' || stAudio.assetId !== impA.assetId) throw new Error('audio node not created with assetId');
+  const finalNode = await byName.get('canvas_create_node').execute({ projectId, type: 'finalcut', name: '成片测试' }, {});
+  const edgeA = await byName.get('canvas_connect').execute({ projectId, fromNode: audioNode.nodeId, toNode: finalNode.nodeId }, {});
+  if (!edgeA || !edgeA.edgeId) throw new Error('audio → finalcut connect failed');
+  const docA = await mod._internals.projectsGet({ id: projectId });
+  const ae = (docA.edges || []).find((e) => e.id === edgeA.edgeId);
+  if (!ae || ae.toPort !== 'audio') throw new Error('audio → finalcut did not land on audio port');
 } catch (e) {
   errs.push('Agent 素材导入/挂载失败 → ' + ((e && e.message) || e));
 }

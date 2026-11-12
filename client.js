@@ -82,7 +82,8 @@ function revealCanvasInRight() {
         // last = 真·最后一帧（画面结尾）；tailpick = 续帧接力的最佳选帧（动作进行中/清晰/不抖）
         outputs: [{ id: 'out', kind: 'video' }, { id: 'tailpick', kind: 'image' }, { id: 'last', kind: 'image' }],
       },
-      'finalcut': { inputs: [{ id: 'in', kind: 'video' }], outputs: [] },
+      'finalcut': { inputs: [{ id: 'in', kind: 'video' }, { id: 'audio', kind: 'audio' }], outputs: [] },
+      'audio': { inputs: [], outputs: [{ id: 'out', kind: 'audio' }] },
       'group': { inputs: [], outputs: [] },
     };
     // 旧节点类型 → 合并类型。旧项目文档在读入时统一归一（loadGraphDoc / mergeHostDoc / importHostProject），
@@ -294,7 +295,7 @@ function revealCanvasInRight() {
       return null;
     }
     // 允许多条入线的输入端口（参考图类），其余输入端口保持单线
-    const MULTI_INPUT_PORTS = new Set(['ref', 'char', 'scene', 'prop']);
+    const MULTI_INPUT_PORTS = new Set(['ref', 'char', 'scene', 'prop', 'audio']);
     // 分镜端口期望的资产分类（仅用于连接时的非阻断提示）
     const PORT_CATEGORY = { char: 'character', scene: 'scene', prop: 'prop' };
     const CATEGORIES = ['character', 'scene', 'prop', 'script', 'storyboard', 'audio', 'finalcut', 'general'];
@@ -434,11 +435,19 @@ function revealCanvasInRight() {
       'nText': '文本',
       'nImage': '图片',
       'nVideo': '视频',
+      'nAudio': '音频',
+      'audioNodeEmpty': '空音频节点：从资产库拖入音频',
+      'audioMute': '静音',
+      'audioLoop': '循环',
+      'audioGain': '音量',
+      'audioTracksLabel': '音频轨（BGM/音效）',
+      'audioTracksEmpty': '连接音频节点到成片的 audio 输入口',
       'tagText': '文本节点',
       'tagScript': '剧本节点',
       'tagStoryboard': '分镜表',
       'tagImage': '图片节点',
       'tagVideo': '视频节点',
+      'tagAudio': '音频节点',
       'tagFinalCut': '成片节点',
       'genRunning': '生成中…',
       'generated': '已生成',
@@ -1521,11 +1530,19 @@ function revealCanvasInRight() {
       'nText': 'Text',
       'nImage': 'Image',
       'nVideo': 'Video',
+      'nAudio': 'Audio',
+      'audioNodeEmpty': 'Empty audio node: add an audio asset from the library',
+      'audioMute': 'Mute',
+      'audioLoop': 'Loop',
+      'audioGain': 'Gain',
+      'audioTracksLabel': 'Audio tracks (BGM/SFX)',
+      'audioTracksEmpty': 'Connect audio nodes to the final cut audio input',
       'tagText': 'Text node',
       'tagScript': 'Script node',
       'tagStoryboard': 'Storyboard',
       'tagImage': 'Image node',
       'tagVideo': 'Video node',
+      'tagAudio': 'Audio node',
       'tagFinalCut': 'Final cut node',
       'genRunning': 'Generating…',
       'generated': 'Generated',
@@ -3201,6 +3218,10 @@ body[data-ds-dark-theme] .dshic-inline-input{border-color:var(--dsw-alias-border
 .dshic-input:focus{border-color:var(--dsw-alias-brand-primary);}
 .dshic-preview{width:100%;border-radius:8px;background:var(--dsw-alias-bg-layer-2);object-fit:contain;max-height:190px;display:block;}
 .dshic-video{width:100%;max-height:190px;border-radius:8px;background:#000;display:block;}
+.dshic-audio-body{display:flex;flex-direction:column;gap:8px;padding:10px;box-sizing:border-box;}
+.dshic-audio-title{display:flex;align-items:center;gap:6px;font-size:12px;font-weight:600;color:var(--dsw-alias-label-primary);}
+.dshic-audio-ctl{display:flex;align-items:center;gap:8px;font-size:11px;color:var(--dsw-alias-label-secondary);}
+.dshic-audio-ctl input[type="range"]{flex:1;min-width:40px;}
 .dshic-node-row{display:flex;align-items:center;gap:6px;min-width:0;flex-wrap:wrap;}
 .dshic-node-row .dshic-flex{flex:1;min-width:0;}
 .dshic-mini{display:inline-flex;align-items:center;gap:4px;height:24px;padding:0 8px;border-radius:7px;border:none;cursor:pointer;
@@ -8546,6 +8567,44 @@ function queueThumb(assetId) {
         stream.addTrack(dest.stream.getAudioTracks()[0]);
         audio = { ac, dest };
       } catch { audio = null; }
+      // BGM / SFX 轨：先解码成 AudioBuffer，录制开始时与画面同步启动
+      const bgm = [];
+      if (audio && Array.isArray(opts.audioTracks)) {
+        for (const tr of opts.audioTracks) {
+          try {
+            const resp = await fetch(tr.url);
+            if (!resp.ok) continue;
+            const ab = await resp.arrayBuffer();
+            const buffer = await audio.ac.decodeAudioData(ab);
+            bgm.push({ ...tr, buffer, node: null, gainNode: null });
+          } catch { /* 单条音频解码失败不阻塞成片 */ }
+        }
+      }
+      function startBgm() {
+        if (!audio || !bgm.length) return;
+        try { audio.ac.resume(); } catch { /* 忽略 */ }
+        const t0 = audio.ac.currentTime + 0.05;
+        for (const tr of bgm) {
+          try {
+            const src = audio.ac.createBufferSource();
+            src.buffer = tr.buffer;
+            const g = audio.ac.createGain();
+            g.gain.value = Math.max(0, Math.min(2, Number(tr.gain) || 1));
+            src.connect(g); g.connect(audio.dest);
+            src.loop = !!tr.loop;
+            const offset = Math.max(0, Math.min(Number(tr.offset) || 0, tr.buffer.duration));
+            const dur = Number(tr.duration) > 0 ? Number(tr.duration) : undefined;
+            src.start(t0 + (Number(tr.start) || 0), offset, dur);
+            tr.node = src; tr.gainNode = g;
+          } catch { /* 单条失败不影响其余 */ }
+        }
+      }
+      function stopBgm() {
+        for (const tr of bgm) {
+          try { if (tr.node) tr.node.stop(); } catch { /* 忽略 */ }
+          try { if (tr.gainNode) tr.gainNode.disconnect(); } catch { /* 忽略 */ }
+        }
+      }
       const rec = new MediaRecorder(stream, {
         mimeType: mime,
         // 码率：仅在用户显式选择时指定，否则交给浏览器/编码器默认（不在代码里写死）
@@ -8555,6 +8614,7 @@ function queueThumb(assetId) {
       rec.ondataavailable = (e) => { if (e.data && e.data.size) chunks.push(e.data); };
       const stopped = new Promise((res) => { rec.onstop = res; });
       rec.start(200);
+      startBgm();
       function startPlayback(item) {
         if (item.started) return;
         item.started = true;
@@ -8609,6 +8669,7 @@ function queueThumb(assetId) {
           if (done) return;
           done = true;
           failed = err || null;
+          try { stopBgm(); } catch { /* 忽略 */ }
           resolve();
         }
         function frame() {
@@ -8687,6 +8748,7 @@ function queueThumb(assetId) {
         }, totalMs + 30000);
       });
       vids.forEach(stopItem);
+      stopBgm();
       rec.stop();
       await stopped;
       if (audio) { try { audio.ac.close(); } catch { /* 忽略 */ } }
@@ -10458,6 +10520,11 @@ function queueThumb(assetId) {
         data.prompt = ''; data.assetId = null; data.demo = false;
         data.duration = 5; data.resolution = '720P'; data.ratio = '16:9';
       }
+      if (type === 'audio') {
+        data.assetId = null;
+        data.audioGain = 1; data.audioStart = 0; data.audioOffset = 0;
+        data.audioDuration = 0; data.audioLoop = false; data.audioMute = false;
+      }
       if (type === 'finalcut') {
         data.resolution = '720P'; data.ratio = '16:9'; data.transition = 'none';
         data.status = 'idle'; data.error = null; data.progress = null; data.assetId = null;
@@ -10472,6 +10539,8 @@ function queueThumb(assetId) {
       let size = { w: NODE_W, h: NODE_H };
       if (type === 'image' || type === 'video') {
         size = nodeSizeForRatio(data.ratio, { hasFooter: false });
+      } else if (type === 'audio') {
+        size = { w: 360, h: 180 };
       }
       return {
         id: uid('n'), type,
@@ -10729,6 +10798,7 @@ function queueThumb(assetId) {
       if (!n) return 'text';
       if (n.type === 'image') return 'image';
       if (n.type === 'video' || n.type === 'finalcut') return 'video';
+      if (n.type === 'audio') return 'audio';
       return 'text';
     }
     /** 端口单点后的自动选口：左边一个点 / 右边一个点，具体连到内部哪个语义端口由系统按上游类型判定。
@@ -10762,7 +10832,7 @@ function queueThumb(assetId) {
         else if (isImageLike(fromNode)) ip = pickIn('image', 'ref');
         else if (isVideoLike(fromNode)) ip = pickIn('image', 'frame');
       } else if (toNode.type === 'finalcut') {
-        ip = isVideoLike(fromNode) ? pickIn('video', 'in') : null;
+        ip = isVideoLike(fromNode) ? pickIn('video', 'in') : (fromNode.type === 'audio' ? pickIn('audio', 'audio') : null);
       } else if (toNode.type === 'shot') {
         ip = pickIn(fromKind);
       }
@@ -11250,6 +11320,27 @@ function queueThumb(assetId) {
         return v != null ? v : defSub;
       };
       const metas = [];
+      const audioTracks = [];
+      const audioEdges = S.graph.edges.filter((x) => x.toNode === n.id && x.toPort === 'audio');
+      for (const e of audioEdges) {
+        const nd = S.graph.nodes[e.fromNode];
+        if (!nd || !nd.data || !nd.data.assetId || nd.data.audioMute === true) continue;
+        try {
+          const rec = await idbGet(nd.data.assetId).catch(() => null);
+          const url = await assetUrl(nd.data.assetId);
+          if (!url) continue;
+          const gain = Number(nd.data.audioGain);
+          audioTracks.push({
+            url,
+            name: (rec && rec.name) || nd.data.label || 'audio',
+            start: Math.max(0, Number(nd.data.audioStart) || 0),
+            offset: Math.max(0, Number(nd.data.audioOffset) || 0),
+            duration: Number(nd.data.audioDuration) > 0 ? Number(nd.data.audioDuration) : undefined,
+            gain: Number.isFinite(gain) && gain >= 0 ? Math.min(2, gain) : 1,
+            loop: nd.data.audioLoop === true,
+          });
+        } catch { /* 单条音频读失败不阻塞成片 */ }
+      }
       const skipped = []; // 被跳过的片段必须让用户看见：静默少段 = 用户以为全片都合进去了
       for (const x of segs) {
         const segName = String((x.nd.data && x.nd.data.label) || TYPE_LABEL()[x.nd.type] || '片段');
@@ -11287,6 +11378,7 @@ function queueThumb(assetId) {
         const blob = await composeFinalCut(metas, {
           width: dims.w, height: dims.h, keepAudio: n.data.keepAudio !== false, transition: n.data.transition,
           bitrate: n.data.bitrate ? Number(n.data.bitrate) : undefined,
+          audioTracks,
         }, (frac, name) => {
           update((s) => { const nd = s.graph.nodes[n.id]; if (nd) nd.data.progress = Math.round(frac * 100) + '% · ' + name; });
         });
@@ -12189,15 +12281,16 @@ function queueThumb(assetId) {
       // 合并后的图片/视频节点：既是"生成器"也是"资产"（有结果就是资产）
       'image': T('nImage'),
       'video': T('nVideo'),
+      'audio': T('nAudio'),
       'finalcut': T('nFinalCut'),
       'group': T('group'),
     });
     // 生成面板标题行里的类型标签（比节点默认名更长一点，便于区分"节点"）
     const TYPE_TAG = () => ({
       'text': T('tagText'), 'script': T('tagScript'), 'storyboard': T('tagStoryboard'),
-      'image': T('tagImage'), 'video': T('tagVideo'), 'finalcut': T('tagFinalCut'),
+      'image': T('tagImage'), 'video': T('tagVideo'), 'audio': T('tagAudio'), 'finalcut': T('tagFinalCut'),
     });
-    const TYPE_KIND = { 'text': 'text', 'shot': 'shot', 'script': 'script', 'storyboard': 'shot', 'image': 'image', 'video': 'video', 'finalcut': 'video', 'group': 'text' };
+    const TYPE_KIND = { 'text': 'text', 'shot': 'shot', 'script': 'script', 'storyboard': 'shot', 'image': 'image', 'video': 'video', 'audio': 'audio', 'finalcut': 'video', 'group': 'text' };
 
     /** 节点框相交判定（含最小间距，默认 24px）。 */
     /** 实时碰撞推挤共享核心（拖动 / 节点尺寸变化共用）：与 movers 里节点相交的其他节点，
@@ -12309,7 +12402,7 @@ function queueThumb(assetId) {
       });
     }
 
-    const TYPE_ICON = { 'text': 'text', 'shot': 'shot', 'script': 'script', 'storyboard': 'board', 'image': 'image', 'video': 'video', 'finalcut': 'film', 'group': 'folder' };
+    const TYPE_ICON = { 'text': 'text', 'shot': 'shot', 'script': 'script', 'storyboard': 'board', 'image': 'image', 'video': 'video', 'audio': 'audio', 'finalcut': 'film', 'group': 'folder' };
 
     function ungroupNode(id) {
       update((s) => {
@@ -15125,6 +15218,7 @@ function queueThumb(assetId) {
         .map((e) => ({ e, nd: S.graph.nodes[e.fromNode] }))
         .filter((x) => x.nd)
         .sort((a, b) => (a.nd.y - b.nd.y) || (a.nd.x - b.nd.x));
+      const audioEdges = S.graph.edges.filter((x) => x.toNode === n.id && x.toPort === 'audio');
       const assetUrlV = useAssetUrl(n.data.assetId);
       const fcUrl = useAssetUrl(n.data.fcAssetId);
       const [voiceDlg, setVoiceDlg] = useState(false);
@@ -15281,6 +15375,16 @@ function queueThumb(assetId) {
               })
             : h('div', { className: 'dshic-hint' }, T('noSegments')),
         ),
+        h('span', { key: 'a1', className: 'dshic-shot-label' }, T('audioTracksLabel')),
+        h('div', { key: 'alist', className: 'dshic-shot-list' },
+          audioEdges.length
+            ? audioEdges.map((e) => {
+                const nd = S.graph.nodes[e.fromNode] || {};
+                return h('div', { key: e.id, className: 'dshic-shot-item', style: { display: 'flex', alignItems: 'center', gap: 6 } },
+                  Ic('audio', 11), h('span', {}, (nd.data && nd.data.label) || TYPE_LABEL()[nd.type] || 'audio'),
+                  h('span', { className: 'dshic-hint' }, 'Gain ' + String(nd.data && nd.data.audioGain != null ? nd.data.audioGain : 1)));
+              })
+            : h('div', { className: 'dshic-hint' }, T('audioTracksEmpty'))),
         h('div', { key: 'hint', className: 'dshic-hint' }, T('composeHint')),
         n.data.error ? h('div', { key: 'err', className: 'dshic-err' }, n.data.error) : null,
         h('button', {
@@ -15344,6 +15448,33 @@ function queueThumb(assetId) {
       ];
     }
 
+    function AudioNodeBody({ n }) {
+      const url = useAssetUrl(n.data.assetId);
+      const setAudio = (k, v) => {
+        update((s) => { const nd = s.graph.nodes[n.id]; if (nd) nd.data[k] = v; });
+        flushSave();
+      };
+      return h('div', { className: 'dshic-audio-body' },
+        h('div', { className: 'dshic-audio-title' }, Ic('audio', 14), h('span', {}, n.data.label || T('nAudio'))),
+        url
+          ? h('audio', {
+              src: url, controls: true, preload: 'metadata',
+              muted: n.data.audioMute === true,
+              style: { width: '100%', height: 32 },
+              onPointerDown: (e) => e.stopPropagation(),
+            })
+          : h('div', { className: 'dshic-hint' }, T('audioNodeEmpty')),
+        h('div', { className: 'dshic-node-row dshic-audio-ctl' },
+          h('label', {}, h('input', { type: 'checkbox', checked: n.data.audioMute === true, onChange: (e) => setAudio('audioMute', e.target.checked) }), T('audioMute')),
+          h('label', {}, h('input', { type: 'checkbox', checked: n.data.audioLoop === true, onChange: (e) => setAudio('audioLoop', e.target.checked) }), T('audioLoop')),
+          h('input', {
+            type: 'range', min: 0, max: 1, step: 0.05,
+            value: Number(n.data.audioGain == null ? 1 : n.data.audioGain), title: T('audioGain'),
+            onChange: (e) => setAudio('audioGain', Number(e.target.value)),
+            onPointerDown: (e) => e.stopPropagation(),
+          })));
+    }
+
     function nodeBody(n, edgeSig) {
       // 兜底：文档入口已归一，但历史上存进撤销快照/外部注入的节点类型仍可能是旧名
       const type = normalizeNodeType(n.type);
@@ -15353,6 +15484,7 @@ function queueThumb(assetId) {
       if (type === 'storyboard') return h(StoryboardNodeBody, { n });
       if (type === 'image') return h(MediaNodeBody, { n, kind: 'image', refSig: edgeSig || '', rev: bumpNodeRev(n) });
       if (type === 'video') return h(MediaNodeBody, { n, kind: 'video', refSig: edgeSig || '', rev: bumpNodeRev(n) });
+      if (type === 'audio') return h(AudioNodeBody, { n });
       if (type === 'finalcut') return h(FinalCutNodeBody, { n });
       return null;
     }
@@ -19287,6 +19419,7 @@ const DIRECTOR_KEY_HELP = [
       { type: 'storyboard', icon: 'board' },
       { type: 'image', icon: 'image' },
       { type: 'video', icon: 'video' },
+      { type: 'audio', icon: 'audio' },
       { type: 'finalcut', icon: 'film' },
     ];
     function IconRail() {
@@ -20183,7 +20316,6 @@ const DIRECTOR_KEY_HELP = [
         toast(T('moved'));
       };
       const addNodeFor = (a) => {
-        if (a.kind === 'audio') return; // 音频资产在卡片内直接试听
         if (a.kind === 'text') {
           const c = worldCenter();
           const nd = addNodeAt('text', { x: c.x - 120, y: c.y - 60 });
@@ -20194,7 +20326,7 @@ const DIRECTOR_KEY_HELP = [
           return;
         }
         const c = worldCenter();
-        const type = a.kind === 'image' ? 'image' : 'video';
+        const type = a.kind === 'image' ? 'image' : a.kind === 'audio' ? 'audio' : 'video';
         const n = addNodeAt(type, { x: c.x + (Math.random() * 60 - 30), y: c.y + (Math.random() * 60 - 30) });
         update((s) => {
           const nd = s.graph.nodes[n.id];
@@ -20251,11 +20383,9 @@ const DIRECTOR_KEY_HELP = [
         bumpView();
       };
       // ---------- 批量选择：一键按列导入画布 / 批量删除 ----------
-      // 落点由 layoutBatchColumns 决定（现有节点最右侧之外按列铺开，一列 ≤5，零重叠），
-      // 音频资产不成节点（与单个添加同一口径），导入时跳过并提示数量。
+      // 落点由 layoutBatchColumns 决定（现有节点最右侧之外按列铺开，一列 ≤5，零重叠）。
       const selList = assets.filter((a) => selIds.has(a.id));
-      const addableList = selList.filter((a) => a.kind !== 'audio');
-      const audioN = selList.length - addableList.length;
+      const addableList = selList;
       const allPageSel = () => shown.length > 0 && shown.every((a) => selIds.has(a.id));
       const toggleSel = (a) => setSelIds((prev) => { const n = new Set(prev); if (n.has(a.id)) n.delete(a.id); else n.add(a.id); return n; });
       const selectAllPage = () => setSelIds((prev) => {
@@ -20271,7 +20401,7 @@ const DIRECTOR_KEY_HELP = [
         const rects = Object.values(S.graph.nodes)
           .filter((nd) => nd.type !== 'group' && !(nd.data && nd.data.hidden))
           .map((nd) => ({ x: Number(nd.x) || 0, y: Number(nd.y) || 0, w: Number(nd.w) || 280, h: Number(nd.h) || 160 }));
-        const items = addableList.map((a) => (a.kind === 'text' ? { w: 360, h: 220 } : nodeSizeForRatio('16:9', { hasFooter: false })));
+        const items = addableList.map((a) => (a.kind === 'text' ? { w: 360, h: 220 } : a.kind === 'audio' ? { w: 360, h: 180 } : nodeSizeForRatio('16:9', { hasFooter: false })));
         const pts = layoutBatchColumns(rects, items);
         const newIds = [];
         update((s) => {
@@ -20288,7 +20418,7 @@ const DIRECTOR_KEY_HELP = [
         pushHistory();
         flushSave();
         setSelIds(new Set());
-        toast(T('assetsAdded').replace('{n}', String(addable.length)) + (audioN ? '，' + T('assetsAudioSkip').replace('{n}', String(audioN)) : ''));
+        toast(T('assetsAdded').replace('{n}', String(addableList.length)));
       };
       const delSelected = async () => {
         const list = selList.slice();
@@ -20404,7 +20534,6 @@ const DIRECTOR_KEY_HELP = [
                   h('button', { type: 'button', className: 'dshic-toolbtn', 'data-action': 'assets-add-selected', disabled: !addableList.length, onClick: addSelectedToCanvas, onPointerDown: (e) => e.stopPropagation() }, Ic('expandAll', 11), T('assetsAddToCanvas') + '（' + addableList.length + '）'),
                   h('button', { type: 'button', className: 'dshic-toolbtn is-danger', 'data-action': 'assets-batch-delete', onClick: () => setBatchDel(true), onPointerDown: (e) => e.stopPropagation() }, T('doDelete') + '（' + selIds.size + '）'),
                   h('button', { type: 'button', className: 'dshic-toolbtn', 'data-action': 'assets-clear-sel', onClick: clearSel, onPointerDown: (e) => e.stopPropagation() }, T('assetsClearSel')),
-                  audioN ? h('span', { className: 'dshic-asset-audiohint' }, T('assetsAudioSkip').replace('{n}', String(audioN))) : null,
                 )
               : null,
           ),
@@ -20540,7 +20669,7 @@ const DIRECTOR_KEY_HELP = [
       return h('div', {
         className: cls('dshic-asset', checked && 'is-checked'),
         onClick: () => onToggleSel(a),
-        onDoubleClick: a.kind === 'audio' ? undefined : () => onAdd(a), // 双击 = 单个直接添加（熟练用户捷径）
+        onDoubleClick: () => onAdd(a), // 双击 = 单个直接添加（熟练用户捷径；音频也可）
         title: T('assetClickHint'),
       },
         // 复选框：批量选择入口（单击卡片也切换选中；图标按钮仍 stopPropagation 不受影响）

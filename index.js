@@ -2543,7 +2543,7 @@ function canvasCreateNode(args) {
   const doc = readToolDoc(args);
   const rawType = String((args && args.type) || 'text');
   const type = normalizeNodeType(rawType);
-  if (!['script', 'text', 'image', 'video', 'storyboard', 'finalcut'].includes(type)) throw new Error('不支持的节点类型: ' + rawType);
+  if (!['script', 'text', 'image', 'video', 'audio', 'storyboard', 'finalcut'].includes(type)) throw new Error('不支持的节点类型: ' + rawType);
   const legacyType = rawType !== type ? rawType : '';
   const label = args && args.name ? String(args.name).slice(0, 40) : '';
   const prompt = String((args && args.prompt) || '');
@@ -2614,6 +2614,14 @@ function canvasCreateNode(args) {
     }
     node.data = { ...node.data, status: assetId ? 'done' : 'idle', error: null, prompt: hasAsset ? '' : (autoConnectId ? '' : prompt), assetId: assetId || null, demo: false, duration: Number(args && args.duration) || 5, resolution: (args && args.resolution) || '720P', ratio: (args && args.ratio) || '16:9' };
     autoConnected = autoConnectId ? { from: autoConnectId, ignoredPrompt: forced && hasPrompt, emptyShots: !sbWithShots && !!sbEmpty } : null;
+  } else if (type === 'audio') {
+    node = agentNode('text', '', pos.x, pos.y, label || '音频节点');
+    node.type = 'audio';
+    node.w = 360; node.h = 180;
+    node.data = {
+      ...node.data, status: assetId ? 'done' : 'idle', error: null, prompt: '', assetId: assetId || null,
+      audioGain: 1, audioStart: 0, audioOffset: 0, audioDuration: 0, audioLoop: false, audioMute: false,
+    };
   } else if (type === 'storyboard') {
     node = agentNode('text', '', pos.x, pos.y, label || '分镜表');
     node.type = 'storyboard';
@@ -3409,10 +3417,11 @@ const PORT_TABLE = {
   'storyboard': { inputs: [{ id: 'prev', kind: 'text' }, { id: 'script', kind: 'text' }], outputs: [{ id: 'out', kind: 'text' }, { id: 'tail', kind: 'text' }] },
   'image': { inputs: [{ id: 'prompt', kind: 'text' }, { id: 'ref', kind: 'image' }], outputs: [{ id: 'out', kind: 'image' }] },
   'video': { inputs: [{ id: 'prompt', kind: 'text' }, { id: 'frame', kind: 'image' }, { id: 'ref', kind: 'image' }], outputs: [{ id: 'out', kind: 'video' }, { id: 'tailpick', kind: 'image' }, { id: 'last', kind: 'image' }] },
-  'finalcut': { inputs: [{ id: 'in', kind: 'video' }], outputs: [] },
+  'finalcut': { inputs: [{ id: 'in', kind: 'video' }, { id: 'audio', kind: 'audio' }], outputs: [] },
+  'audio': { inputs: [], outputs: [{ id: 'out', kind: 'audio' }] },
   'group': { inputs: [], outputs: [] },
 };
-const MULTI_INPUT_PORTS = new Set(['ref', 'char', 'scene', 'prop']);
+const MULTI_INPUT_PORTS = new Set(['ref', 'char', 'scene', 'prop', 'audio']);
 /** Agent 改动了项目文档：记一次性信号，让画布在几秒内拉回合并（否则画布上看不到 Agent 的改动）。
  *  canvasId 记录是哪个画布被改（缺省/默认画布 = null），客户端只刷新当前画布。 */
 function markDocChanged(projectId, canvasId) {
@@ -3450,7 +3459,7 @@ function connectEdge(doc, fromId, toId, fromPort, toPort) {
       else if (from.type === 'image' || from.type === 'image-asset' || from.type === 'image-gen') tp = 'ref';
       else tp = 'prompt';
     } else if (to.type === 'finalcut') {
-      tp = 'in';
+      tp = from.type === 'audio' ? 'audio' : 'in';
     } else {
       tp = String((ins[0] && ins[0].id) || '');
     }
@@ -6268,7 +6277,7 @@ export function apply(ctx) {
             properties: {
               projectId: { type: 'string', description: '项目 id' },
               canvasId: { type: 'string', description: '可选：画布 id（项目下的子画布；缺省 = 项目默认画布）' },
-              type: { type: 'string', enum: ['script', 'text', 'image', 'video', 'storyboard', 'finalcut', 'image-gen', 'image-asset', 'video-gen', 'video-asset'], description: '节点类型（image/video 为合并类型；旧名 image-gen 等仍接受并自动映射）' },
+              type: { type: 'string', enum: ['script', 'text', 'image', 'video', 'audio', 'storyboard', 'finalcut', 'image-gen', 'image-asset', 'video-gen', 'video-asset'], description: '节点类型（image/video/audio 为合并/资产类型；旧名 image-gen 等仍接受并自动映射）' },
               name: { type: 'string', description: '节点名字（建议填写，如"角色-陈拾 参考图"）' },
               assetId: { type: 'string', description: '可选：已有资产 id（canvas_import_asset / canvas_list_assets 返回）。有 assetId 时图片/视频节点直接呈现该素材，不再需要生成 prompt' },
               prompt: { type: 'string', description: '提示词（图片/视频用画面提示词；剧本用创作意图；文本用正文）' },
