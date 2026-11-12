@@ -113,6 +113,12 @@ GitHub Releases carry the same notes in English; maintainer-facing runbooks live
   both from each card. Multi-select can download up to 100 assets as a
   standard store-mode ZIP (UTF-8 names, 500 MB guard) without any third-party
   dependency.
+- **Host-agnostic core contract.** A new regression proves `apply(ctx)` only
+  needs `effect` + `tools.register` + `webServer.register`: 34 tools and nine
+  API routes register synchronously on a minimal ctx, while llm / attachments
+  / workspace services stay optional. Standalone canvas server, MCP and CLI
+  remain the `multi-host-adapters` distribution (verified against this core),
+  so the main npm package stays lightweight.
 
 ### Fixed
 - (nothing in this cycle yet)

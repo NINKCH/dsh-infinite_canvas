@@ -46,6 +46,7 @@ const REQUIRED = [
   'assets/director/models/xbot.json',
   'assets/support/wechat.png',
   'docs/artcraft-handoff.md',
+  'docs/host-agnostic.md',
   'docs/release.md',
 ];
 // 包内允许出现的路径形态（package.json 与 LICENSE 由 npm 恒定收入，无需列 files 白名单）
