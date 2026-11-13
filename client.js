@@ -1171,7 +1171,6 @@ function revealCanvasInRight() {
       'sizeLabel': '清晰度',
       'llmLabel': '文本模型（DeepSeek）',
       'llmHint': '剧本与分镜提示词使用 Harness 当前配置的模型生成，无需另配 Key。',
-      'visionLlmLabel': '视觉模型（拉片）',
       'model3dTitle': '精细 3D 模型（Meshy）',
       'model3dHint': '3D-BOX 的精细资产：文生 3D → 精修贴图 → 自动绑定 → 文字动作。需要 Meshy 付费 API Key；单模型通常几分钟，按 Meshy 套餐计费。',
       'model3dEnable': '启用精细 3D 资产',
@@ -1194,7 +1193,6 @@ function revealCanvasInRight() {
       'model3dNoKey': '请先在画布设置 →「精细 3D 模型」填入 Meshy API Key',
       'model3dApply': '应用到当前对象',
       'model3dNeedObject': '先选中一个角色或道具',
-      'visionLlmHint': '选择支持图片输入的模型（如 GPT-4o / Gemini / Claude）；留空则跟随文本模型。',
       'subjTab': '角色库',
       'subjTitle': '跨项目角色库',
       'subjMine': '我的角色库',
@@ -1307,20 +1305,21 @@ function revealCanvasInRight() {
       'damDate90': '最近 90 天',
       'pullShots': '拉片',
       'pullTitle': '参考视频拉片',
-      'pullHint': '均匀抽帧后用视觉模型反推分镜、动态与音乐线索；只上传抽出的画面帧，不传视频文件。',
+      'pullHint': '均匀抽帧后用当前文本模型（需支持图片输入）反推分镜、动态与音乐线索；只上传抽出的画面帧，不传视频文件。',
       'pullFrames': '抽帧',
       'pullFrameUnit': '{n} 帧',
       'pullStart': '开始拉片',
       'pullPreparing': '正在读取视频…',
       'pullExtracting': '抽帧 {i}/{n}…',
-      'pullAnalyzing': '视觉模型分析中…（约 30–90 秒）',
+      'pullAnalyzing': '模型分析中…（约 30–90 秒）',
+      'pullUsingTextModel': '使用文本模型：{model}（需支持图片输入）',
       'pullDone': '已生成分镜节点：{n} 镜',
       'pullFail': '拉片失败',
       'pullManual': '手动建分镜表',
       'pullManualHint': '无法自动分析时，先建一张空分镜表手动填写。',
       'pullNeedAsset': '这个视频还没有可分析的产物',
       'pullAudioNote': '音乐线索：{text}',
-      'pullNoVision': '当前模型不支持图片输入——请在画布设置里选择视觉模型',
+      'pullNoVision': '当前文本模型不支持图片输入——请在画布设置 → 文本模型里选择支持视觉的多模态模型。',
       'pullShotCount': '{n} 镜 · {s}s',
       'saveTextAsset': '存为资产',
       'zoomView': '放大查看',
@@ -2477,7 +2476,6 @@ function revealCanvasInRight() {
       'ratioLabel': 'Ratio',
       'sizeLabel': 'Quality',
       'llmLabel': 'Text model (DeepSeek)',
-      'visionLlmLabel': 'Vision model (shot breakdown)',
       'model3dTitle': 'Detailed 3D models (Meshy)',
       'model3dHint': 'Detailed 3D-BOX assets: text-to-3D → textured refine → auto-rig → text-to-motion. Requires a paid Meshy API key; a model usually takes minutes and is billed by your Meshy plan.',
       'model3dEnable': 'Enable detailed 3D assets',
@@ -2500,7 +2498,6 @@ function revealCanvasInRight() {
       'model3dNoKey': 'Add a Meshy API key in Settings → Detailed 3D models first',
       'model3dApply': 'Apply to selected object',
       'model3dNeedObject': 'Select a character or prop first',
-      'visionLlmHint': 'Pick a model that accepts image input (e.g. GPT-4o / Gemini / Claude); empty follows the text model.',
       'subjTab': 'Characters',
       'subjTitle': 'Cross-project character library',
       'subjMine': 'My library',
@@ -2613,20 +2610,21 @@ function revealCanvasInRight() {
       'damDate90': 'Last 90 days',
       'pullShots': 'Break down',
       'pullTitle': 'Reference video shot breakdown',
-      'pullHint': 'Samples frames evenly and asks the vision model for shots, motion and music cues; only frames are uploaded, never the video file.',
+      'pullHint': 'Samples frames evenly and asks the current text model (must accept image input) for shots, motion and music cues; only frames are uploaded, never the video file.',
       'pullFrames': 'Frames',
       'pullFrameUnit': '{n} frames',
       'pullStart': 'Analyze',
       'pullPreparing': 'Reading video…',
       'pullExtracting': 'Extracting frame {i}/{n}…',
-      'pullAnalyzing': 'Vision model analyzing… (about 30–90s)',
+      'pullAnalyzing': 'Model analyzing… (about 30–90s)',
+      'pullUsingTextModel': 'Text model: {model} (must accept image input)',
       'pullDone': 'Storyboard node created: {n} shots',
       'pullFail': 'Shot breakdown failed',
       'pullManual': 'Create empty storyboard',
       'pullManualHint': 'When analysis is unavailable, create an empty storyboard and fill it manually.',
       'pullNeedAsset': 'This video has no generated asset to analyze',
       'pullAudioNote': 'Music cue: {text}',
-      'pullNoVision': 'The current model does not accept images — choose a vision model in canvas settings',
+      'pullNoVision': 'The current text model does not accept images — choose a multimodal model under Settings → Text model.',
       'pullShotCount': '{n} shots · {s}s',
       'llmHint': 'Scripts and storyboard prompts use the model configured in Harness — no extra key needed.',
       'saveTextAsset': 'Save as asset',
@@ -4338,7 +4336,7 @@ body[data-ds-dark-theme] .dshic-pick-item.is-on{background:color-mix(in srgb,var
     const DEFAULT_SETTINGS = {
       // 文本模型全部用 Harness 的当前模型与默认参数：画布只选择模型，不单独配置生成参数
       textLlm: { provider: '', model: '' },
-      visionLlm: { provider: '', model: '' }, // 拉片视觉模型；空 = 跟随文本模型
+
       model3d: { enabled: false, provider: 'meshy', apiKey: '', baseUrl: 'https://api.meshy.ai' }, // 精细 3D 资产（Meshy）
       // 供应商 + 模型两级：一个供应商（URL/Key）配一次，下面挂多个模型；★星标模型 = 节点未指定时的默认路由
       imageProviders: [],  // [{id, name, baseUrl, apiKey, extra, size?, responseFormat?, mode?, models: [{id, model}]}]
@@ -4353,8 +4351,6 @@ body[data-ds-dark-theme] .dshic-pick-item.is-on{background:color-mix(in srgb,var
       const s = lsGet(LS_SETTINGS, {}) || {};
       const out = {
         textLlm: { provider: (s.textLlm && s.textLlm.provider) || '', model: (s.textLlm && s.textLlm.model) || '' },
-        // 视觉模型（拉片用）：留空 = 跟随文本模型；用户只选模型，密钥/参数仍由 Harness 管
-        visionLlm: { provider: (s.visionLlm && s.visionLlm.provider) || '', model: (s.visionLlm && s.visionLlm.model) || '' },
         model3d: {
           enabled: !!(s.model3d && s.model3d.enabled),
           provider: (s.model3d && s.model3d.provider) || 'meshy',
@@ -11117,7 +11113,7 @@ function queueThumb(assetId) {
         sfx: String(s.sfx || '').trim().slice(0, 120),
       }));
     }
-    /** 参考视频拉片：抽帧 → 视觉模型 → 归一化成与分镜表同构的 shots。
+    /** 参考视频拉片：抽帧 → 当前文本模型（需支持图片输入）→ 归一化成与分镜表同构的 shots。
      *  模型只拿到抽出的画面帧（不传视频文件），输出 start/end 秒与镜头描述。 */
     function pullPromptFor(frames, duration, zh) {
       const list = frames.map((f, i) => (zh ? '帧' : 'Frame') + (i + 1) + ': t=' + f.t + 's').join('\n');
@@ -15559,37 +15555,26 @@ function queueThumb(assetId) {
         }, '\u26f6'));
     }
 
-    /** 参考视频拉片对话框：抽帧数 / 视觉模型 / 进度 / 失败降级为手动分镜表。 */
+    /** 参考视频拉片对话框：抽帧数 / 进度 / 失败降级为手动分镜表。
+     *  不单独配置视觉模型：统一用画布文本模型；不支持图片输入时提示换多模态模型。 */
     function PullShotsDialog({ nodeId, onClose }) {
       const n = S.graph.nodes[nodeId];
-      const opts = useLlmOptions();
       const s0 = loadSettings();
-      const curVision = (s0.visionLlm && s0.visionLlm.provider) ? (s0.visionLlm.provider + '|' + s0.visionLlm.model) : '';
+      const textModel = s0.textLlm || { provider: '', model: '' };
+      const modelLabel = textModel.provider ? (textModel.provider + ' · ' + textModel.model) : T('followSettings');
       const [frameCount, setFrameCount] = useState('9');
-      const [model, setModel] = useState(curVision);
       const [busy, setBusy] = useState(false);
       const [phase, setPhase] = useState(null);
       const [err, setErr] = useState(null);
       const [result, setResult] = useState(null);
       const alive = useRef(true);
       useEffect(() => () => { alive.current = false; }, []);
-      const options = [];
-      for (const p of ((opts && opts.providers) || [])) {
-        for (const m of (p.models || [])) options.push({ value: p.id + '|' + m.id, label: `${p.name} · ${m.name}` });
-      }
-      const currentModel = model || '';
       const run = async () => {
         if (busy) return;
         setBusy(true); setErr(null); setResult(null); setPhase({ phase: 'extract', i: 0, total: Number(frameCount) });
-        // 记住本次选择的视觉模型（下次默认用它；不改 Harness 配置）
-        if (currentModel.includes('|')) {
-          const [provider, modelId] = currentModel.split('|');
-          updateSettings((b) => ({ ...b, visionLlm: { provider: provider || '', model: modelId || '' } }));
-        }
         try {
           const pull = await analyzeReferenceVideo(n, {
             frames: Number(frameCount) || 9,
-            model: currentModel,
             onProgress: (p) => { if (alive.current) setPhase(p); },
           });
           if (!alive.current) return;
@@ -15621,17 +15606,8 @@ function queueThumb(assetId) {
                 className: 'dshic-select', value: frameCount, disabled: busy,
                 onChange: (e) => setFrameCount(e.target.value), onPointerDown: (e) => e.stopPropagation(),
               }, ['6', '9', '12', '16'].map((v) => h('option', { key: v, value: v }, T('pullFrameUnit').replace('{n}', v))))),
-            h('label', { className: 'dshic-field', style: { flex: 1, minWidth: 0 } },
-              h('span', { className: 'dshic-field-label' }, T('visionLlmLabel')),
-              h('select', {
-                className: 'dshic-select', value: currentModel, disabled: busy,
-                onChange: (e) => setModel(e.target.value), onPointerDown: (e) => e.stopPropagation(),
-              },
-                [h('option', { key: 'follow', value: '' }, T('followSettings'))].concat(
-                  options.map((o) => h('option', { key: o.value, value: o.value }, o.label)),
-                  currentModel && !options.some((o) => o.value === currentModel)
-                    ? [h('option', { key: currentModel, value: currentModel }, currentModel)]
-                    : []))),
+            h('div', { className: 'dshic-hint', style: { flex: 1, minWidth: 0, alignSelf: 'center' } },
+              T('pullUsingTextModel').replace('{model}', modelLabel)),
           ),
           busy ? h('div', { className: 'dshic-modal-warn', style: { display: 'flex', alignItems: 'center', gap: 6 } }, h('span', { className: 'dshic-spin' }), phaseText) : null,
           result
@@ -23224,8 +23200,7 @@ const DIRECTOR_KEY_HELP = [
       }, []);
       return data || { skills: [] };
     }
-    function LlmModelSelect({ kind }) {
-      const which = kind === 'vision' ? 'visionLlm' : 'textLlm';
+    function LlmModelSelect() {
       const [opts, setOpts] = useState(null);
       const [s, setS] = useState(loadSettings);
       useEffect(() => {
@@ -23233,7 +23208,7 @@ const DIRECTOR_KEY_HELP = [
         hostRpc('llmOptions').then((r) => { if (ok) setOpts(r); }).catch((e) => { if (ok) setOpts({ providers: [], resolved: null, error: String((e && e.message) || e) }); });
         return () => { ok = false; };
       }, []);
-      const cur = s[which] || { provider: '', model: '' };
+      const cur = s.textLlm || { provider: '', model: '' };
       const current = cur.provider ? (cur.provider + '|' + cur.model) : '';
       const options = [];
       let firstError = (opts && opts.error) || '';
@@ -23243,11 +23218,11 @@ const DIRECTOR_KEY_HELP = [
       }
       const applyLlm = (provider, model) => {
         // issue #6：基底现取磁盘最新（不再用挂载时快照整对象写回），写回后 setS 同步刷新本地快照
-        const next = updateSettings((b) => ({ ...b, [which]: { provider: provider || '', model: model || '' } }));
+        const next = updateSettings((b) => ({ ...b, textLlm: { provider: provider || '', model: model || '' } }));
         setS(next);
       };
       return h('div', { className: 'dshic-field' },
-        h('span', { className: 'dshic-field-label' }, T(kind === 'vision' ? 'visionLlmLabel' : 'llmLabel')),
+        h('span', { className: 'dshic-field-label' }, T('llmLabel')),
         h('select', {
           className: 'dshic-select', value: current,
           disabled: !options.length,
@@ -24142,14 +24117,7 @@ const DIRECTOR_KEY_HELP = [
             h('strong', { style: { fontSize: 12, flex: 1, minWidth: 0 } }, T('llmLabel')),
             InfoTip(T('llmHint')),
           ),
-          h(LlmModelSelect, { kind: 'text' }),
-          h('div', { className: 'dshic-row', style: { marginTop: 6 } },
-            Ic('image', 12),
-            h('strong', { style: { fontSize: 12, flex: 1, minWidth: 0 } }, T('visionLlmLabel')),
-            InfoTip(T('visionLlmHint')),
-          ),
-          h(LlmModelSelect, { kind: 'vision' }),
-          h('div', { className: 'dshic-hint' }, T('visionLlmHint')),
+          h(LlmModelSelect),
         ),
         h(ModelProviderEditor, { key: 'imglist', kind: 'image' }),
         h(ModelProviderEditor, { key: 'vidlist', kind: 'video' }),

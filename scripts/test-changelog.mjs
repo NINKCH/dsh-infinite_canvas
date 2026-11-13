@@ -130,7 +130,7 @@ const COVERAGE = [
   { sha: '99e101c', keys: [/Audio nodes|final-cut audio tracks|audio node|\bBGM\b|composeFinalCut/i] },
   { sha: '08be232', keys: [/Batch run console|batch run|batch queue|estimated cost|concurrency/i] },
   { sha: 'ee3d43d', keys: [/run token|closing and reopening|re-consume|old worker/i] },
-  { sha: 'dab09cf', keys: [/Reference-video shot breakdown|vision model|image input|empty storyboard/i] },
+  { sha: 'dab09cf', keys: [/Reference-video shot breakdown|text model|image input|empty storyboard/i] },
   { sha: '7eb5bba', keys: [/Cross-project character library|Characters tab|global storage|official templates|@name@/i] },
   { sha: 'f1a64c8', keys: [/Deterministic image tools|IMAGE_TOOL_CAPS|cutout|outpaint|multi-angle/i] },
   { sha: '83c893e', keys: [/Workflow toolbox|workflow snapshot|asset slots|placeholders|remapping assets/i] },

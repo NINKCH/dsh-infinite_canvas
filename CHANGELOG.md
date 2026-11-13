@@ -84,11 +84,11 @@ GitHub Releases carry the same notes in English; maintainer-facing runbooks live
   token scopes each queue, so closing and reopening the console cannot
   re-consume a new batch from an old worker.
 - **Reference-video shot breakdown.** A video node can sample 6/9/12/16
-  frames and send them to the user's configured vision model (Settings →
-  Vision model, falling back to the text model). The returned shots, motion,
+  frames and send them to the current text model (no separate vision-model
+  setting; the model must accept image input). The returned shots, motion,
   camera notes and music cue create a normal storyboard node ready for
-  generation; models without image input fail with a clear hint and a
-  one-click empty storyboard as the manual fallback.
+  generation; models without image input fail with a clear hint to switch to a
+  multimodal model and a one-click empty storyboard as the manual fallback.
 - **Cross-project character library.** A new Characters tab keeps reusable
   subjects in global storage with multi-view reference assets (copied into
   the general project), description, gender/age/culture filters and tags.

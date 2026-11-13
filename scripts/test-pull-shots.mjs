@@ -116,6 +116,11 @@ const ok = (c, m) => { if (!c) errs.push(m); };
 const eq = (a, b, label) => { if (JSON.stringify(a) !== JSON.stringify(b)) errs.push(label + '\n    期望 ' + JSON.stringify(b) + '\n    实际 ' + JSON.stringify(a)); };
 
 async function main() {
+  // 0) 不单独配置视觉模型：拉片统一用文本模型
+  ok(!src.includes('visionLlm'), '仍存在独立的视觉模型配置（应删除）');
+  ok(src.includes("'pullUsingTextModel'"), '拉片未显示所用文本模型');
+  ok(src.includes('不支持图片输入') && src.includes('多模态模型'), '缺少文本模型不支持图片时的引导');
+
   // 1) 提示词：帧时间 + 输出契约 + 不编造台词
   const prompt = api.pullPromptFor([{ t: 0.5 }, { t: 2 }, { t: 3.5 }], 4, true);
   ok(prompt.includes('t=0.5s') && prompt.includes('t=3.5s'), '提示词缺少帧时间轴');
