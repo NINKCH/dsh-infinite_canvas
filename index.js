@@ -2634,9 +2634,10 @@ function canvasCreateNode(args) {
   } else if (type === 'audio') {
     node = agentNode('text', '', pos.x, pos.y, label || '音频节点');
     node.type = 'audio';
-    node.w = 360; node.h = 180;
+    node.w = 360; node.h = 300;
     node.data = {
       ...node.data, status: assetId ? 'done' : 'idle', error: null, prompt: '', assetId: assetId || null,
+      audioModel: '', voiceId: '', audioEmotion: 'auto', audioEmotionScale: '4', audioSpeechRate: '0', audioFormat: 'mp3',
       audioGain: 1, audioStart: 0, audioOffset: 0, audioDuration: 0, audioLoop: false, audioMute: false,
     };
   } else if (type === 'storyboard') {
@@ -3435,7 +3436,7 @@ const PORT_TABLE = {
   'image': { inputs: [{ id: 'prompt', kind: 'text' }, { id: 'ref', kind: 'image' }], outputs: [{ id: 'out', kind: 'image' }] },
   'video': { inputs: [{ id: 'prompt', kind: 'text' }, { id: 'frame', kind: 'image' }, { id: 'ref', kind: 'image' }], outputs: [{ id: 'out', kind: 'video' }, { id: 'tailpick', kind: 'image' }, { id: 'last', kind: 'image' }] },
   'finalcut': { inputs: [{ id: 'in', kind: 'video' }, { id: 'audio', kind: 'audio' }], outputs: [] },
-  'audio': { inputs: [], outputs: [{ id: 'out', kind: 'audio' }] },
+  'audio': { inputs: [{ id: 'prompt', kind: 'text' }], outputs: [{ id: 'out', kind: 'audio' }] },
   'group': { inputs: [], outputs: [] },
 };
 const MULTI_INPUT_PORTS = new Set(['ref', 'char', 'scene', 'prop', 'audio']);

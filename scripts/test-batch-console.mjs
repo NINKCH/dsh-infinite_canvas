@@ -11,7 +11,7 @@ const has = (s, m) => ok(cli.includes(s), m);
 
 // 状态与目标收集
 has('batch: null,', 'S 缺少 batch 状态');
-has('const BATCH_TYPES = new Set([\'image\', \'video\', \'script\', \'storyboard\', \'finalcut\']);', '可执行类型集合缺失/被改');
+has('const BATCH_TYPES = new Set([\'image\', \'video\', \'audio\', \'script\', \'storyboard\', \'finalcut\']);', '可执行类型集合缺失/被改');
 has('function collectBatchTargets(ids)', '缺少 collectBatchTargets');
 has('for (const m of (n.data.members || [])) walk(m);', '组节点未递归展开成员');
 has('function openBatchConsole(ids, source)', '缺少 openBatchConsole');

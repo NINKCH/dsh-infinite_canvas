@@ -83,7 +83,7 @@ function revealCanvasInRight() {
         outputs: [{ id: 'out', kind: 'video' }, { id: 'tailpick', kind: 'image' }, { id: 'last', kind: 'image' }],
       },
       'finalcut': { inputs: [{ id: 'in', kind: 'video' }, { id: 'audio', kind: 'audio' }], outputs: [] },
-      'audio': { inputs: [], outputs: [{ id: 'out', kind: 'audio' }] },
+      'audio': { inputs: [{ id: 'prompt', kind: 'text' }], outputs: [{ id: 'out', kind: 'audio' }] },
       'group': { inputs: [], outputs: [] },
     };
     // 旧节点类型 → 合并类型。旧项目文档在读入时统一归一（loadGraphDoc / mergeHostDoc / importHostProject），
@@ -442,6 +442,32 @@ function revealCanvasInRight() {
       'audioGain': '音量',
       'audioTracksLabel': '音频轨（BGM/音效）',
       'audioTracksEmpty': '连接音频节点到成片的 audio 输入口',
+      'audioTextPh': '输入要合成的文本…',
+      'audioGenerate': '生成音频',
+      'audioRegenerate': '重新生成',
+      'audioGenerating': '生成中…',
+      'audioModel': '音频模型',
+      'audioNoModel': '未配置 TTS（设置 → 音频模型）',
+      'audioVoice': '音色',
+      'audioVoiceDefault': '默认音色',
+      'audioVoicePh': '音色 ID（留空用默认）',
+      'audioVoiceLoadFail': '音色列表加载失败，可手动填音色 ID',
+      'audioEmotion': '情感',
+      'audioEmotionAuto': '自动',
+      'audioEmotionHappy': '开心',
+      'audioEmotionSad': '悲伤',
+      'audioEmotionAngry': '愤怒',
+      'audioEmotionFear': '恐惧',
+      'audioEmotionSurprised': '惊讶',
+      'audioEmotionCalm': '平静',
+      'audioEmotionScale': '情绪强度',
+      'audioSpeechRate': '语速',
+      'audioFormat': '格式',
+      'ttsProtocol': 'TTS 协议',
+      'ttsProtocolHint': 'OpenAI /audio/speech 为同步接口；星海聚合走 /v1/media/generate 异步任务（豆包 TTS 2.0）。',
+      'ttsProtocolOpenai': 'OpenAI 同步 /audio/speech',
+      'ttsProtocolLk888': '星海聚合 异步 /v1/media/generate',
+      'ttsPresetLk888': '填入豆包 TTS 2.0 预设',
       'batchTitle': '批量执行',
       'batchStart': '开始执行',
       'batchStop': '停止',
@@ -1723,6 +1749,32 @@ function revealCanvasInRight() {
       'audioGain': 'Gain',
       'audioTracksLabel': 'Audio tracks (BGM/SFX)',
       'audioTracksEmpty': 'Connect audio nodes to the final cut audio input',
+      'audioTextPh': 'Text to synthesize…',
+      'audioGenerate': 'Generate audio',
+      'audioRegenerate': 'Regenerate',
+      'audioGenerating': 'Generating…',
+      'audioModel': 'Audio model',
+      'audioNoModel': 'No TTS configured (Settings → Audio models)',
+      'audioVoice': 'Voice',
+      'audioVoiceDefault': 'Default voice',
+      'audioVoicePh': 'Voice ID (empty = default)',
+      'audioVoiceLoadFail': 'Voice list failed; enter a voice ID manually',
+      'audioEmotion': 'Emotion',
+      'audioEmotionAuto': 'Auto',
+      'audioEmotionHappy': 'Happy',
+      'audioEmotionSad': 'Sad',
+      'audioEmotionAngry': 'Angry',
+      'audioEmotionFear': 'Fearful',
+      'audioEmotionSurprised': 'Surprised',
+      'audioEmotionCalm': 'Calm',
+      'audioEmotionScale': 'Intensity',
+      'audioSpeechRate': 'Rate',
+      'audioFormat': 'Format',
+      'ttsProtocol': 'TTS protocol',
+      'ttsProtocolHint': 'OpenAI /audio/speech is synchronous; the lk888 gateway uses /v1/media/generate async tasks (Doubao TTS 2.0).',
+      'ttsProtocolOpenai': 'OpenAI sync /audio/speech',
+      'ttsProtocolLk888': 'lk888 async /v1/media/generate',
+      'ttsPresetLk888': 'Fill Doubao TTS 2.0 preset',
       'batchTitle': 'Batch run',
       'batchStart': 'Start',
       'batchStop': 'Stop',
@@ -3620,7 +3672,8 @@ body[data-ds-dark-theme] .dshic-inline-input{border-color:var(--dsw-alias-border
 .dshic-input:focus{border-color:var(--dsw-alias-brand-primary);}
 .dshic-preview{width:100%;border-radius:8px;background:var(--dsw-alias-bg-layer-2);object-fit:contain;max-height:190px;display:block;}
 .dshic-video{width:100%;max-height:190px;border-radius:8px;background:#000;display:block;}
-.dshic-audio-body{display:flex;flex-direction:column;gap:8px;padding:10px;box-sizing:border-box;}
+.dshic-audio-body{display:flex;flex-direction:column;gap:8px;padding:10px;box-sizing:border-box;min-height:0;overflow:auto;}
+.dshic-audio-form{display:flex;flex-direction:column;gap:6px;min-height:0;}
 .dshic-audio-title{display:flex;align-items:center;gap:6px;font-size:12px;font-weight:600;color:var(--dsw-alias-label-primary);}
 .dshic-audio-ctl{display:flex;align-items:center;gap:8px;font-size:11px;color:var(--dsw-alias-label-secondary);}
 .dshic-audio-ctl input[type="range"]{flex:1;min-width:40px;}
@@ -7011,6 +7064,96 @@ function queueThumb(assetId) {
       let text = '';
       if (!ct || /json|text|plain/.test(ct)) { try { text = new TextDecoder().decode(buf); } catch { text = ''; } }
       return { ok: res.ok, status: res.status, contentType: ct, text, blob };
+    }
+    // ---- TTS 统一适配：OpenAI /audio/speech（同步）与星海聚合 /v1/media/generate（异步）----
+    const TTS_VOICE_CACHE = new Map();
+    function ttsProtocolOf(cfg) {
+      const p = String((cfg && cfg.protocol) || '').toLowerCase();
+      if (p === 'lk888' || p === 'media' || p === 'async') return 'lk888';
+      if (p === 'openai' || p === 'speech') return 'openai';
+      const base = String((cfg && cfg.baseUrl) || '');
+      return /lk888|lk666/i.test(base) ? 'lk888' : 'openai';
+    }
+    function ttsAuthHeaders(cfg) {
+      return cfg && cfg.apiKey ? { Authorization: 'Bearer ' + String(cfg.apiKey).trim() } : {};
+    }
+    function ttsBase(cfg) { return String((cfg && cfg.baseUrl) || '').replace(/\/+$/, ''); }
+    /** 音色列表：星海聚合走 /v1/skills/voices；OpenAI 兼容没有统一音色端点，返回空（UI 用自由输入/配置默认）。 */
+    async function ttsVoiceList(cfg) {
+      if (!cfg || ttsProtocolOf(cfg) !== 'lk888') return [];
+      const base = ttsBase(cfg);
+      const model = String(cfg.model || '').trim();
+      const key = base + '|' + model;
+      if (TTS_VOICE_CACHE.has(key)) return TTS_VOICE_CACHE.get(key);
+      const url = base + '/v1/skills/voices?model=' + encodeURIComponent(model);
+      const res = await fetchViaProxy(url, { method: 'GET', headers: ttsAuthHeaders(cfg), timeoutMs: 30000, label: 'TTS 音色列表' });
+      if (!res.ok) throw new Error('TTS 音色列表 HTTP ' + res.status + '：' + String(res.text || '').slice(0, 200));
+      let j = null; try { j = JSON.parse(res.text || '{}'); } catch { j = null; }
+      const list = Array.isArray(j && j.voices) ? j.voices : (Array.isArray(j && j.data && j.data.voices) ? j.data.voices : []);
+      TTS_VOICE_CACHE.set(key, list);
+      return list;
+    }
+    async function ttsSynthesize(cfg, text, opts) {
+      const o = opts || {};
+      const input = String(text || '').trim();
+      if (!cfg) throw new Error(T('errNoTts'));
+      if (!input) throw new Error(T('subPlaceholder'));
+      const base = ttsBase(cfg);
+      const protocol = ttsProtocolOf(cfg);
+      if (protocol === 'lk888') {
+        const params = { format: String(o.format || cfg.format || 'mp3') };
+        if (o.voice) params.voice_id = String(o.voice);
+        if (o.speechRate !== undefined) params.speech_rate = String(o.speechRate);
+        if (o.emotion && o.emotion !== 'auto') { params.emotion = String(o.emotion); params.emotion_scale = String(o.emotionScale || 4); }
+        else params.emotion = 'auto';
+        const body = { model: String(cfg.model || 'doubao-tts-2.0'), prompt: input, params };
+        let created = null;
+        try {
+          created = await fetchViaProxy(base + '/v1/media/generate', { headers: ttsAuthHeaders(cfg), body, timeoutMs: Number(cfg.timeoutMs) > 0 ? Number(cfg.timeoutMs) : 120000, label: 'TTS 创建任务' });
+        } catch (e) { throw new Error('TTS 创建任务失败：' + String((e && e.message) || e)); }
+        // 站点文档同时出现 voice_id / speaker：400 明确指向音色字段时换名重试一次。
+        if (!created.ok && created.status === 400 && params.voice_id && /voice_id|speaker|音色/i.test(String(created.text || ''))) {
+          const params2 = { ...params, speaker: params.voice_id };
+          delete params2.voice_id;
+          try {
+            created = await fetchViaProxy(base + '/v1/media/generate', { headers: ttsAuthHeaders(cfg), body: { ...body, params: params2 }, timeoutMs: Number(cfg.timeoutMs) > 0 ? Number(cfg.timeoutMs) : 120000, label: 'TTS 创建任务(speaker)' });
+          } catch { /* 保留首次错误 */ }
+        }
+        if (!created.ok) throw new Error('TTS 创建任务 HTTP ' + created.status + '：' + String(created.text || '').slice(0, 300));
+        let cj = null; try { cj = JSON.parse(created.text || '{}'); } catch { cj = null; }
+        const taskId = cj && ((cj.data && cj.data.task_id) || cj.task_id);
+        if (!taskId) throw new Error('TTS 创建任务未返回 task_id：' + String(created.text || '').slice(0, 200));
+        const deadline = Date.now() + 180000;
+        for (;;) {
+          if (genAborted()) throw new Error(T('stoppedNote'));
+          if (Date.now() > deadline) throw new Error('TTS 任务超时（180s）');
+          await sleep(3000);
+          const st = await fetchViaProxy(base + '/v1/media/status?task_id=' + encodeURIComponent(taskId), { method: 'GET', headers: ttsAuthHeaders(cfg), timeoutMs: 30000, label: 'TTS 任务查询' });
+          if (!st.ok) continue;
+          let sj = null; try { sj = JSON.parse(st.text || '{}'); } catch { sj = null; }
+          if (!sj) continue;
+          if (!sj.is_final) continue;
+          if (String(sj.state || '').toLowerCase() !== 'success') throw new Error('TTS 失败：' + String(sj.error || sj.status || sj.state || '未知错误'));
+          if (!sj.result_url) throw new Error('TTS 成功但没有 result_url');
+          const out = await fetchViaProxy(String(sj.result_url), { method: 'GET', timeoutMs: 120000, label: 'TTS 下载' });
+          if (!out.ok) throw new Error('TTS 下载失败 HTTP ' + out.status);
+          return new Blob([out.blob], { type: out.contentType || 'audio/mpeg' });
+        }
+      }
+      const res = await fetchViaProxy(base + '/audio/speech', {
+        headers: { ...ttsAuthHeaders(cfg) },
+        body: {
+          ...(cfg.model ? { model: cfg.model } : {}),
+          input,
+          voice: o.voice || cfg.voice || 'alloy',
+          response_format: o.format || 'mp3',
+          ...(o.speechRate !== undefined ? { speed: Math.max(0.25, Math.min(4, 1 + Number(o.speechRate) / 100)) } : {}),
+        },
+        timeoutMs: Number(cfg.timeoutMs) > 0 ? Number(cfg.timeoutMs) : 120000,
+        label: 'TTS API',
+      });
+      if (!res.ok) throw new Error('TTS HTTP ' + res.status + '：' + String(res.text || '').slice(0, 200));
+      return /^audio\//.test(res.contentType) ? res.blob : new Blob([res.blob], { type: 'audio/mpeg' });
     }
     /** 扩展参数（JSON 字符串 → 对象）：厂商专属参数的通用出口（watermark/prompt_extend/output_format/seed…）。
      *  非空但不是合法 JSON 对象时抛错（配置错误应当立刻暴露，而不是被静默吞掉）。 */
@@ -11572,7 +11715,9 @@ function queueThumb(assetId) {
         data.duration = 5; data.resolution = '720P'; data.ratio = '16:9';
       }
       if (type === 'audio') {
-        data.assetId = null;
+        data.assetId = null; data.prompt = ''; data.audioModel = '';
+        data.voiceId = ''; data.audioEmotion = 'auto'; data.audioEmotionScale = '4';
+        data.audioSpeechRate = '0'; data.audioFormat = 'mp3';
         data.audioGain = 1; data.audioStart = 0; data.audioOffset = 0;
         data.audioDuration = 0; data.audioLoop = false; data.audioMute = false;
       }
@@ -11591,7 +11736,7 @@ function queueThumb(assetId) {
       if (type === 'image' || type === 'video') {
         size = nodeSizeForRatio(data.ratio, { hasFooter: false });
       } else if (type === 'audio') {
-        size = { w: 360, h: 180 };
+        size = { w: 360, h: 300 };
       }
       return {
         id: uid('n'), type,
@@ -12470,6 +12615,38 @@ function queueThumb(assetId) {
       } catch { /* 留痕尽力而为：Host 不在/目录不可写都不能挡住生成 */ }
     }
 
+    /** 音频生成节点：文本 → 配置的 TTS（OpenAI 同步 / 星海聚合异步）→ 音频资产。 */
+    async function genAudioNode(n) {
+      const settings = loadSettings();
+      const list = flattenTtsModels(settings);
+      const want = String((n.data && n.data.audioModel) || settings.ttsStar || '');
+      const cfg = list.find((x) => x.ref === want) || list[0];
+      if (!cfg) throw new Error(T('errNoTts'));
+      const text = resolvePrompt(n);
+      if (!String(text || '').trim()) throw new Error(T('subPlaceholder'));
+      const blob = await ttsSynthesize(cfg, text, {
+        voice: String((n.data && n.data.voiceId) || cfg.voice || ''),
+        emotion: String((n.data && n.data.audioEmotion) || 'auto'),
+        emotionScale: String((n.data && n.data.audioEmotionScale) || '4'),
+        speechRate: String((n.data && n.data.audioSpeechRate) || '0'),
+        format: String((n.data && n.data.audioFormat) || 'mp3'),
+      });
+      const rec = await saveAssetRecord(S.activeId, 'audio', blob, {
+        name: String((n.data && n.data.label) || 'TTS') + ' ' + nowStamp(),
+        prompt: text, source: 'api', category: 'audio',
+      });
+      update((s) => {
+        const nd = s.graph.nodes[n.id];
+        if (nd) {
+          nd.data.assetId = rec.id;
+          nd.data.status = 'done';
+          nd.data.error = null;
+          nd.data.progress = null;
+        }
+        s.assetsTick++;
+      });
+      return rec.id;
+    }
     async function runGenNode(n) {
       const type = n.type;
       const settings = loadSettings(); // 模型解析（供应商+模型）用
@@ -12499,6 +12676,7 @@ function queueThumb(assetId) {
         if (type === 'script') { await genScriptNode(n); return true; }
         if (type === 'storyboard') { await genStoryboardNode(n); return true; }
         if (type === 'finalcut') { await genFinalCutNode(n); return true; }
+        if (type === 'audio') { await genAudioNode(n); return true; }
         if (type !== 'image' && type !== 'video') throw new Error(T('nodeNotRunnable'));
         let prompt = resolvePrompt(n);
         const bible = loadBible(S.activeId);
@@ -12798,7 +12976,7 @@ function queueThumb(assetId) {
           if (!n) continue;
           // 已在生成中的节点跳过：避免与对话触发的 canvas_run_node 并发调用同一节点（重复计费/重复资产）
           if (n.data && n.data.status === 'running') continue;
-          if (n.type === 'image' || n.type === 'video' || n.type === 'script' || n.type === 'storyboard' || n.type === 'finalcut') {
+          if (n.type === 'image' || n.type === 'video' || n.type === 'audio' || n.type === 'script' || n.type === 'storyboard' || n.type === 'finalcut') {
             await runGenNode(n);
           }
         }
@@ -12815,7 +12993,7 @@ function queueThumb(assetId) {
     // ============================================================
     // 批量执行台（选区 / 整组）：预检 → 队列 → 进度 / 停止
     // ============================================================
-    const BATCH_TYPES = new Set(['image', 'video', 'script', 'storyboard', 'finalcut']);
+    const BATCH_TYPES = new Set(['image', 'video', 'audio', 'script', 'storyboard', 'finalcut']);
     const batchNodeName = (n) => String((n.data && n.data.label) || (TYPE_LABEL()[n.type]) || n.type || '节点');
     /** 选区/组展开成真实节点：组递归展开，去重；不改变画布选择。 */
     function batchExpand(ids) {
@@ -16730,15 +16908,8 @@ function queueThumb(assetId) {
         if (!text) { toast(T('subPlaceholder')); return; }
         update((s) => { const nd = s.graph.nodes[n.id]; if (nd) { nd.data.tts = nd.data.tts || {}; nd.data.tts[x.e.id] = { status: 'running' }; } });
         try {
-          // TTS 也走 Host 代理：浏览器直连 TTS 网关同样会被 CORS 拦
-          const res = await fetchViaProxy((cfg.baseUrl || '').replace(/\/+$/, '') + '/audio/speech', {
-            headers: { ...(cfg.apiKey ? { Authorization: 'Bearer ' + cfg.apiKey } : {}) },
-            body: { ...(cfg.model ? { model: cfg.model } : {}), input: text, voice: cfg.voice || 'alloy', response_format: 'mp3' },
-            timeoutMs: Number(cfg.timeoutMs) > 0 ? Number(cfg.timeoutMs) : 120000,
-            label: 'TTS API',
-          });
-          if (!res.ok) throw new Error('TTS HTTP ' + res.status + '：' + res.text.slice(0, 200));
-          const blob = /^audio\//.test(res.contentType) ? res.blob : new Blob([res.blob], { type: 'audio/mpeg' });
+          // 与独立音频节点共用同一适配器：OpenAI 同步 / 星海聚合异步均可
+          const blob = await ttsSynthesize(cfg, text, { voice: cfg.voice || '', format: 'mp3' });
           const rec = await saveAssetRecord(S.activeId, 'audio', blob, { name: 'TTS-' + text.slice(0, 12), prompt: text, source: 'api', category: 'audio' });
           update((s) => { const nd = s.graph.nodes[n.id]; if (nd) { nd.data.tts = nd.data.tts || {}; nd.data.tts[x.e.id] = { status: 'done', assetId: rec.id }; } s.assetsTick++; });
         } catch (e) {
@@ -16943,28 +17114,102 @@ function queueThumb(assetId) {
 
     function AudioNodeBody({ n }) {
       const url = useAssetUrl(n.data.assetId);
-      const setAudio = (k, v) => {
+      const settings = loadSettings();
+      const models = flattenTtsModels(settings);
+      const modelRef = String(n.data.audioModel || settings.ttsStar || (models[0] && models[0].ref) || '');
+      const cfg = models.find((x) => x.ref === modelRef) || models[0] || null;
+      const running = n.data.status === 'running';
+      const [editing, setEditing] = useState(!n.data.assetId);
+      const [voices, setVoices] = useState([]);
+      const [voiceErr, setVoiceErr] = useState('');
+      useEffect(() => {
+        if (!cfg || ttsProtocolOf(cfg) !== 'lk888') { setVoices([]); setVoiceErr(''); return undefined; }
+        let alive = true;
+        ttsVoiceList(cfg).then((list) => { if (alive) { setVoices(list); setVoiceErr(''); } })
+          .catch((e) => { if (alive) { setVoices([]); setVoiceErr(String((e && e.message) || e)); } });
+        return () => { alive = false; };
+      }, [cfg && cfg.ref, cfg && cfg.baseUrl, cfg && cfg.model, cfg && cfg.protocol]);
+      const setData = (k, v) => {
         update((s) => { const nd = s.graph.nodes[n.id]; if (nd) nd.data[k] = v; });
         flushSave();
       };
+      const stop = (e) => { if (e && e.stopPropagation) e.stopPropagation(); };
+      const fmtOpts = [{ v: 'mp3', l: 'mp3' }, { v: 'wav', l: 'wav' }, { v: 'ogg_opus', l: 'ogg_opus' }];
+      const emoOpts = [['auto', T('audioEmotionAuto')], ['happy', T('audioEmotionHappy')], ['sad', T('audioEmotionSad')], ['angry', T('audioEmotionAngry')], ['fearful', T('audioEmotionFear')], ['surprised', T('audioEmotionSurprised')], ['calm', T('audioEmotionCalm')]];
+      const rateOpts = ['-50', '-25', '0', '25', '50', '100'];
+      const voiceVal = String(n.data.voiceId || cfg && cfg.voice || '');
       return h('div', { className: 'dshic-audio-body' },
         h('div', { className: 'dshic-audio-title' }, Ic('audio', 14), h('span', {}, n.data.label || T('nAudio'))),
+        running ? h('div', { className: 'dshic-hint', style: { display: 'flex', gap: 6, alignItems: 'center' } }, h('span', { className: 'dshic-spin' }), n.data.progress || T('audioGenerating')) : null,
+        n.data.error ? h('div', { className: 'dshic-err', title: n.data.error }, String(n.data.error)) : null,
+        (editing || !n.data.assetId) ? h('div', { className: 'dshic-audio-form' },
+          h('textarea', {
+            className: 'dshic-textarea', style: { minHeight: 56 }, value: n.data.prompt || '',
+            placeholder: T('audioTextPh'), disabled: running,
+            onChange: (e) => setData('prompt', e.target.value), onPointerDown: stop,
+          }),
+          h('div', { className: 'dshic-node-row' },
+            h('select', {
+              className: 'dshic-msel', style: { flex: 1, minWidth: 0 }, value: modelRef, disabled: running,
+              title: T('audioModel'), onChange: (e) => setData('audioModel', e.target.value), onPointerDown: stop,
+            }, models.length ? models.map((m) => h('option', { key: m.ref, value: m.ref }, m.providerName + ' · ' + m.model)) : [h('option', { key: '', value: '' }, T('audioNoModel'))]),
+            h('select', {
+              className: 'dshic-msel', style: { width: 86 }, value: n.data.audioFormat || 'mp3', disabled: running,
+              title: T('audioFormat'), onChange: (e) => setData('audioFormat', e.target.value), onPointerDown: stop,
+            }, fmtOpts.map((o) => h('option', { key: o.v, value: o.v }, o.l)))),
+          h('div', { className: 'dshic-node-row' },
+            voices.length
+              ? h('select', {
+                  className: 'dshic-msel', style: { flex: 1, minWidth: 0 }, value: voiceVal, disabled: running,
+                  title: T('audioVoice'), onChange: (e) => setData('voiceId', e.target.value), onPointerDown: stop,
+                }, [h('option', { key: '', value: '' }, T('audioVoiceDefault'))].concat(voices.map((v) => h('option', { key: v.voice_id, value: v.voice_id }, [v.name, v.gender, v.language].filter(Boolean).join(' · ')))))
+              : h('input', {
+                  className: 'dshic-input', style: { flex: 1, minWidth: 0 }, value: voiceVal, disabled: running,
+                  placeholder: cfg && cfg.voice || T('audioVoicePh'), title: voiceErr || T('audioVoice'),
+                  onChange: (e) => setData('voiceId', e.target.value), onPointerDown: stop,
+                }),
+            h('select', {
+              className: 'dshic-msel', style: { width: 82 }, value: n.data.audioEmotion || 'auto', disabled: running,
+              title: T('audioEmotion'), onChange: (e) => setData('audioEmotion', e.target.value), onPointerDown: stop,
+            }, emoOpts.map(([v, l]) => h('option', { key: v, value: v }, l)))),
+          h('div', { className: 'dshic-node-row' },
+            h('span', { className: 'dshic-hint' }, T('audioSpeechRate')),
+            h('select', {
+              className: 'dshic-msel', style: { width: 68 }, value: n.data.audioSpeechRate || '0', disabled: running,
+              onChange: (e) => setData('audioSpeechRate', e.target.value), onPointerDown: stop,
+            }, rateOpts.map((v) => h('option', { key: v, value: v }, v))),
+            (n.data.audioEmotion && n.data.audioEmotion !== 'auto')
+              ? h('select', {
+                  className: 'dshic-msel', style: { width: 58 }, value: n.data.audioEmotionScale || '4', disabled: running,
+                  title: T('audioEmotionScale'), onChange: (e) => setData('audioEmotionScale', e.target.value), onPointerDown: stop,
+                }, ['1', '2', '3', '4', '5'].map((v) => h('option', { key: v, value: v }, v)))
+              : null,
+            h('div', { className: 'dshic-flex' }),
+            h('button', {
+              type: 'button', className: 'dshic-mini', disabled: running || !cfg,
+              onPointerDown: stop, onClick: () => { setEditing(false); runGenNode(S.graph.nodes[n.id]); },
+            }, Ic('audio', 11), running ? T('audioGenerating') : T('audioGenerate'))),
+          voiceErr ? h('div', { className: 'dshic-hint', title: voiceErr }, T('audioVoiceLoadFail')) : null,
+        ) : null,
         url
           ? h('audio', {
               src: url, controls: true, preload: 'metadata',
               muted: n.data.audioMute === true,
               style: { width: '100%', height: 32 },
-              onPointerDown: (e) => e.stopPropagation(),
+              onPointerDown: stop,
             })
-          : h('div', { className: 'dshic-hint' }, T('audioNodeEmpty')),
+          : null,
+        (n.data.assetId && !editing) ? h('div', { className: 'dshic-node-row' },
+          h('button', { type: 'button', className: 'dshic-mini is-ghost', onPointerDown: stop, onClick: () => setEditing(true) }, T('audioRegenerate')),
+          h('button', { type: 'button', className: 'dshic-mini is-ghost', onPointerDown: stop, onClick: async () => { const u = await assetUrl(n.data.assetId); if (u) downloadBlobFromUrl(u, await downloadNameForAsset(n.data.assetId, 'audio-' + n.id.slice(-5), 'audio')); } }, Ic('download', 11))) : null,
         h('div', { className: 'dshic-node-row dshic-audio-ctl' },
-          h('label', {}, h('input', { type: 'checkbox', checked: n.data.audioMute === true, onChange: (e) => setAudio('audioMute', e.target.checked) }), T('audioMute')),
-          h('label', {}, h('input', { type: 'checkbox', checked: n.data.audioLoop === true, onChange: (e) => setAudio('audioLoop', e.target.checked) }), T('audioLoop')),
+          h('label', {}, h('input', { type: 'checkbox', checked: n.data.audioMute === true, onChange: (e) => setData('audioMute', e.target.checked), onPointerDown: stop }), T('audioMute')),
+          h('label', {}, h('input', { type: 'checkbox', checked: n.data.audioLoop === true, onChange: (e) => setData('audioLoop', e.target.checked), onPointerDown: stop }), T('audioLoop')),
           h('input', {
             type: 'range', min: 0, max: 1, step: 0.05,
             value: Number(n.data.audioGain == null ? 1 : n.data.audioGain), title: T('audioGain'),
-            onChange: (e) => setAudio('audioGain', Number(e.target.value)),
-            onPointerDown: (e) => e.stopPropagation(),
+            onChange: (e) => setData('audioGain', Number(e.target.value)),
+            onPointerDown: stop,
           })));
     }
 
@@ -17027,7 +17272,7 @@ function queueThumb(assetId) {
       if (menu.kind === 'node') {
         const n = S.graph.nodes[menu.nodeId];
         if (!n) return null;
-        const canRun = n.type === 'image' || n.type === 'video';
+        const canRun = n.type === 'image' || n.type === 'video' || n.type === 'audio';
         // 选区/整组批量入口：右键点在已选节点上 → 对整批选区开放；组节点 → 组内成员。
         const scopeIds = n.type === 'group' ? [n.id] : (S.sel.has(n.id) && S.sel.size >= 2 ? [...S.sel] : [n.id]);
         const batchTargets = collectBatchTargets(scopeIds);
@@ -23090,7 +23335,7 @@ const DIRECTOR_KEY_HELP = [
       const mutate = (fn) => { persist(updateSettings((b) => { const d = JSON.parse(JSON.stringify(b)); fn(d); return d; })); };
       const addProvider = () => {
         const id = uid('prov');
-        mutate((d) => { d[listKey] = (d[listKey] || []).concat([{ id, name: T(nameKey) + ' ' + ((d[listKey] || []).length + 1), [urlKey]: '', apiKey: '', ...(kind === 'tts' ? { timeoutMs: '' } : { extra: '' }), models: [], ...(kind === 'image' ? { mode: 'generations' } : {}) }]); });
+        mutate((d) => { d[listKey] = (d[listKey] || []).concat([{ id, name: T(nameKey) + ' ' + ((d[listKey] || []).length + 1), [urlKey]: '', apiKey: '', ...(kind === 'tts' ? { timeoutMs: '', protocol: 'openai' } : { extra: '' }), models: [], ...(kind === 'image' ? { mode: 'generations' } : {}) }]); });
         setOpenId(id);
       };
       const removeProvider = (id) => {
@@ -23143,6 +23388,31 @@ const DIRECTOR_KEY_HELP = [
               ) : null,
               h(Field, { key: 'u', label: T('baseUrl'), value: p[urlKey] || '', onChange: (v) => patchProvider(p.id, urlKey, v), placeholder: kind === 'video' ? ((VIDEO_VENDORS[detectVideoVendor(p)] || {}).base || urlPh) : urlPh }),
               h(Field, { key: 'k', label: T('apiKey'), value: p.apiKey || '', onChange: (v) => patchProvider(p.id, 'apiKey', v), placeholder: kind === 'video' ? ((VIDEO_VENDORS[detectVideoVendor(p)] || {}).keyPh || 'sk-…') : 'sk-…', password: true }),
+              kind === 'tts' ? h('div', { key: 'proto', className: 'dshic-field' },
+                h('div', { className: 'dshic-row' },
+                  h('span', { className: 'dshic-field-label', style: { flex: 1 } }, T('ttsProtocol')),
+                  InfoTip(T('ttsProtocolHint'))),
+                h('select', {
+                  className: 'dshic-select', value: p.protocol || 'openai',
+                  onPointerDown: (e) => e.stopPropagation(),
+                  onChange: (e) => {
+                    const v = e.target.value;
+                    patchProvider(p.id, 'protocol', v);
+                    if (v === 'lk888' && !p[urlKey]) patchProvider(p.id, urlKey, 'https://api.lk888.ai');
+                  },
+                },
+                  h('option', { value: 'openai' }, T('ttsProtocolOpenai')),
+                  h('option', { value: 'lk888' }, T('ttsProtocolLk888'))),
+                (p.protocol === 'lk888') ? h('button', {
+                  type: 'button', className: 'dshic-mini', style: { alignSelf: 'flex-start', marginTop: 4 },
+                  onPointerDown: (e) => e.stopPropagation(),
+                  onClick: () => mutate((d) => {
+                    const pr = (d[listKey] || []).find((x) => x.id === p.id); if (!pr) return;
+                    pr.baseUrl = pr.baseUrl || 'https://api.lk888.ai';
+                    pr.models = pr.models || [];
+                    if (!pr.models.some((m) => String(m.model || '').trim() === 'doubao-tts-2.0')) pr.models.push({ id: uid('m'), model: 'doubao-tts-2.0', voice: 'zh_female_vv_uranus_bigtts' });
+                  }),
+                }, T('ttsPresetLk888')) : null) : null,
               kind === 'tts' ? h(Field, {
                 key: 'to', label: T('apiTimeout'), value: p.timeoutMs || '',
                 placeholder: '留空 = 120000',
@@ -23179,7 +23449,7 @@ const DIRECTOR_KEY_HELP = [
                 }, s[starKey] === p.id + '|' + m.id ? '★' : '☆'),
                 h('input', { className: 'dshic-input', style: { flex: 1, minWidth: 0 }, value: m.model || '', placeholder: T('modelNamePh'), onChange: (e) => patchModel(p.id, m.id, 'model', e.target.value), onPointerDown: (e) => e.stopPropagation() }),
                 // TTS：voice 每模型一个（修复旧 ApiListEditor「voice 无编辑入口」的原始缺口）
-                kind === 'tts' ? h('input', { className: 'dshic-input', style: { flex: 1, minWidth: 0 }, value: m.voice || '', placeholder: 'alloy', 'aria-label': T('voice'), onChange: (e) => patchModel(p.id, m.id, 'voice', e.target.value), onPointerDown: (e) => e.stopPropagation() }) : null,
+                kind === 'tts' ? h('input', { className: 'dshic-input', style: { flex: 1, minWidth: 0 }, value: m.voice || '', placeholder: (p.protocol === 'lk888' ? 'zh_female_vv_uranus_bigtts' : 'alloy'), 'aria-label': T('voice'), onChange: (e) => patchModel(p.id, m.id, 'voice', e.target.value), onPointerDown: (e) => e.stopPropagation() }) : null,
                 h('button', { type: 'button', className: 'dshic-iconbtn', title: T('doDelete'), onPointerDown: (e) => e.stopPropagation(), onClick: () => removeModel(p.id, m.id) }, '×'),
               )),
               !(p.models || []).length ? h('div', { className: 'dshic-hint' }, T('noModelsCfg')) : null,
@@ -25862,6 +26132,8 @@ const DIRECTOR_KEY_HELP = [
           window.__DSH_IC_WORKFLOWS__ = { WorkflowsTab, saveWorkflowFromIds, insertWorkflow, loadWorkflows, upsertWorkflow, removeWorkflow };
           // 资产库 DAM：ZIP 打包纯函数（供 scripts/test-dam.mjs 直接断言字节结构）
           window.__DSH_IC_DAM__ = { buildZipStore, crc32Bytes, findDuplicateAssetGroups, remapAssetIdsDeep, mergeDuplicateAssets, undoAssetMerge };
+          // TTS 协议适配：lk888 异步任务 / 音色列表（供 scripts/test-tts-lk888.mjs 真实执行）
+          window.__DSH_IC_TTS__ = { ttsSynthesize, ttsVoiceList, ttsProtocolOf };
           // IC-04：参考图上传三件套的纯函数出口（供 scripts/test-image-upload.mjs 直接断言）
           window.__DSH_IC_IMGREF__ = { rawImageDims, sniffImageEncoding, registerReferenceAsset };
           // IC-03：视频厂商识别/前缀归一化的纯函数出口（供 scripts/test-vendor-detect.mjs 直接断言）

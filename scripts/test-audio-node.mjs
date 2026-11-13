@@ -10,15 +10,19 @@ const errs = [];
 const ok = (c, m) => { if (!c) errs.push(m); };
 
 // 客户端端口表
-ok(cli.includes("'audio': { inputs: [], outputs: [{ id: 'out', kind: 'audio' }] }"), '客户端 PORTS 缺少 audio 节点');
+ok(cli.includes("'audio': { inputs: [{ id: 'prompt', kind: 'text' }], outputs: [{ id: 'out', kind: 'audio' }] }"), '客户端 PORTS 缺少 audio 生成输入');
 ok(cli.includes("'finalcut': { inputs: [{ id: 'in', kind: 'video' }, { id: 'audio', kind: 'audio' }], outputs: [] }"), '客户端 finalcut 缺少 audio 输入');
 ok(cli.includes('function AudioNodeBody'), '客户端缺少 AudioNodeBody');
 ok(cli.includes("if (type === 'audio') return h(AudioNodeBody"), 'nodeBody 未接线 audio');
 ok(cli.includes('audioTracks') && cli.includes('startBgm') && cli.includes('stopBgm'), 'composeFinalCut 未接线 BGM/SFX 混音');
 ok(cli.includes("audioGain") && cli.includes("audioLoop") && cli.includes("audioMute"), 'AudioNodeBody 缺少增益/循环/静音控件');
+ok(cli.includes("'audioGenerate'") && cli.includes('ttsSynthesize'), 'AudioNodeBody 缺少文本生成音频接线');
+ok(cli.includes("if (type === 'audio') { await genAudioNode(n); return true; }"), 'runGenNode 未接 audio 生成');
+ok(cli.includes("'audio', 'script', 'storyboard', 'finalcut'"), 'BATCH_TYPES 未包含 audio');
+ok(cli.includes("'ttsProtocolLk888'") && cli.includes('/v1/media/generate'), '缺少星海聚合 TTS 协议');
 
 // Host 端口表 + 创建节点
-ok(host.includes("'audio': { inputs: [], outputs: [{ id: 'out', kind: 'audio' }] }"), 'Host PORT_TABLE 缺少 audio');
+ok(host.includes("'audio': { inputs: [{ id: 'prompt', kind: 'text' }], outputs: [{ id: 'out', kind: 'audio' }] }"), 'Host PORT_TABLE 缺少 audio 生成输入');
 ok(host.includes("'finalcut': { inputs: [{ id: 'in', kind: 'video' }, { id: 'audio', kind: 'audio' }], outputs: [] }"), 'Host finalcut 缺少 audio 输入');
 ok(host.includes("['script', 'text', 'image', 'video', 'audio', 'storyboard', 'finalcut']"), 'Host canvasCreateNode 不接受 audio');
 ok(host.includes("if (from.type === 'audio') return 'audio'") || host.includes("from.type === 'audio' ? 'audio'"), 'Host 默认连线未识别 audio → finalcut');

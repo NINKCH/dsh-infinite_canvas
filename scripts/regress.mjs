@@ -120,6 +120,7 @@ const SUITE = [
   { name: 'test-dam.mjs', desc: '资产库 DAM：ZIP 字节结构 / UTF-8 文件名 / CRC32 / tags+folder 落库与筛选' },
   { name: 'test-host-contract.mjs', desc: '宿主契约：最小 ctx 同步注册 34 工具 / 9 路由；增强服务缺失可降级' },
   { name: 'test-model3d.mjs', desc: '精细 3D 资产：Meshy preview→refine→rig→motion→animate→GLB 入库' },
+  { name: 'test-tts-lk888.mjs', desc: '星海聚合 TTS：音色列表 / 异步创建 / 轮询 / 音频下载' },
   { name: 'test-motion-brief-timeline.mjs', desc: '运动驱动（步频防滑步）/ 雾+景深进规格 / 一句话模板库（打斗·追逐·对话）/ 时间轴能力' },
   { name: 'test-cycle-path.mjs', desc: '循环动作（走/跑双相位闭环）+ 路径点拾取/反投影/UI 入口' },
   { name: 'test-theme-locale.mjs', desc: '深色主题跟随宿主 body[data-ds-dark-theme] / 深色变量与对比度 / 面板名中英双语 / locale 快照 active 字段' },

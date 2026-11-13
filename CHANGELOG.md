@@ -117,6 +117,14 @@ GitHub Releases carry the same notes in English; maintainer-facing runbooks live
   workflows; duplicates are hidden, and the merge can be undone in the same
   session. Source and date-range filters complete the DAM filter row; the
   canvas.db schema round-trips tags, folder and mergedInto (with migration).
+- **Audio generation node + lk888 TTS.** The `audio` node is now a
+  generator+asset: an empty node takes text (or a `prompt` input edge), a TTS
+  model, voice, emotion, rate and format, then synthesizes and plays the
+  result. TTS providers gain a protocol switch: OpenAI `/audio/speech`
+  (synchronous) or the lk888 gateway `/v1/media/generate` (async task polled
+  until `is_final`, then downloaded). Voice lists come from
+  `/v1/skills/voices`; Doubao TTS 2.0 is preconfigured. Final-cut per-segment
+  TTS uses the same adapter.
 - **Detailed 3D assets (Meshy) + 3D-to-video shots.** Settings gains a
   detailed-3D card (Meshy key/base URL). For a selected character or prop,
   the stage can run text-to-3D → textured refine → auto-rig → text-to-motion
