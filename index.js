@@ -3997,189 +3997,6 @@ export function apply(ctx) {
       'Preserve all fields the instruction does not mention. Keep cameras/shots non-empty. Use meters and seconds.',
       'Examples: "机位低一点" -> lower camera pos.y and target.y; "让 A 从左入画" -> move A pos.x negative; "加一张桌子" -> add a box prop; "手持" -> set shot.cameraMove="handheld".',
     ].join('\n');
-    // ---- 精细 3D 资产：Meshy（文生 3D → 精修贴图 → 自动绑定 → 动作）----
-    const MODEL3D_JOBS = new Map();
-    const model3dJobView = (job) => {
-      if (!job) return { ok: false, error: '3D 任务不存在' };
-      return {
-        ok: true, jobId: job.jobId, status: job.status, progress: Math.round(job.progress || 0),
-        assetId: job.assetId || null, error: job.error || null, warning: job.warning || null,
-        name: job.name || '', rig: !!job.rig, stage: job.stage || job.status,
-      };
-    };
-    function model3dSafeName(s) {
-      return (String(s || 'model').replace(/[\\/:*?"<>|\u0000-\u001f]/g, '_').replace(/\s+/g, ' ').trim().slice(0, 50) || 'model');
-    }
-    async function meshyCall(base, key, tail, opts) {
-      const b = String(base || 'https://api.meshy.ai').replace(/\/+$/, '');
-      const res = await fetch(b + tail, {
-        ...(opts || {}),
-        headers: { Authorization: 'Bearer ' + String(key || '').trim(), 'content-type': 'application/json', ...((opts && opts.headers) || {}) },
-      });
-      const raw = await res.text();
-      let json = null;
-      try { json = JSON.parse(raw); } catch { json = null; }
-      if (!res.ok) {
-        const msg = (json && (json.message || json.error || json.task_error?.message)) || raw.slice(0, 300) || ('HTTP ' + res.status);
-        throw new Error('Meshy HTTP ' + res.status + '：' + msg);
-      }
-      if (!json) throw new Error('Meshy 返回非 JSON：' + raw.slice(0, 200));
-      return json;
-    }
-    async function saveModel3dAsset(projectId, buffer, name, meta) {
-      const dir = await methods.projectDirGet({ projectId });
-      if (!dir || !dir.ok) throw new Error((dir && dir.error) || '项目目录不可用');
-      const id = 'a' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
-      const base = model3dSafeName(name) + '-' + id.slice(-4);
-      const rel = 'projects/' + String(projectId) + '/model/' + base + '.glb';
-      const physical = physicalRel(rel) || path.join('projects', dir.folder, 'model', base + '.glb');
-      const abs = path.join(dataRoot(), physical);
-      mkdirSync(path.dirname(abs), { recursive: true });
-      writeFileSync(abs, buffer);
-      const asset = {
-        id, projectId: String(projectId), kind: 'model', mime: 'model/gltf-binary',
-        name: String(name || base), rel, size: buffer.length, createdAt: Date.now(),
-        prompt: String((meta && meta.prompt) || ''), category: 'model', source: 'model3d',
-      };
-      await methods.assetCreate({ asset, projectName: dir.folder });
-      return { assetId: id, rel, bytes: buffer.length };
-    }
-    async function downloadModel3d(url) {
-      const res = await fetch(String(url || ''));
-      if (!res.ok) throw new Error('下载 GLB 失败 HTTP ' + res.status);
-      const ab = await res.arrayBuffer();
-      if (!ab || ab.byteLength < 20) throw new Error('下载的 GLB 为空');
-      return Buffer.from(ab);
-    }
-    async function model3dStart(args) {
-      const projectId = String((args && args.projectId) || '');
-      const prompt = String((args && args.prompt) || '').trim();
-      if (!projectId) return { ok: false, error: '缺少 projectId' };
-      if (!prompt) return { ok: false, error: '需要 prompt' };
-      const provider = String((args && args.provider) || 'meshy');
-      if (provider !== 'meshy') return { ok: false, error: '当前只支持 Meshy 3D 生成' };
-      const apiKey = String((args && args.apiKey) || '').trim();
-      if (!apiKey) return { ok: false, error: '缺少 Meshy API Key（画布设置 → 精细 3D 模型）' };
-      const jobId = 'm3d_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 6);
-      const job = {
-        jobId, projectId, provider, apiKey, baseUrl: String((args && args.baseUrl) || 'https://api.meshy.ai'),
-        prompt, name: String((args && args.name) || prompt).slice(0, 80),
-        rig: !!(args && args.rig), animationPrompt: String((args && args.animationPrompt) || '').trim(),
-        duration: Math.max(2, Math.min(10, Number(args && args.duration) || 4)),
-        status: 'preview', progress: 2, createdAt: Date.now(), stage: 'preview',
-      };
-      MODEL3D_JOBS.set(jobId, job);
-      try {
-        const created = await meshyCall(job.baseUrl, apiKey, '/openapi/v2/text-to-3d', {
-          method: 'POST',
-          body: JSON.stringify({ mode: 'preview', prompt, art_style: 'realistic', should_remesh: true, target_formats: ['glb'] }),
-        });
-        job.previewTaskId = String(created.result || created.id || '');
-        if (!job.previewTaskId) throw new Error('Meshy 未返回 preview task id');
-        return { ok: true, jobId };
-      } catch (e) {
-        job.status = 'FAILED'; job.error = String((e && e.message) || e); job.progress = 0;
-        return { ok: false, jobId, error: job.error };
-      }
-    }
-    async function model3dStatus(args) {
-      const job = MODEL3D_JOBS.get(String((args && args.jobId) || ''));
-      if (!job) return { ok: false, error: '3D 任务不存在（宿主可能已重启）' };
-      if (job.status === 'SUCCEEDED' || job.status === 'FAILED') return model3dJobView(job);
-      const api = (tail, opts) => meshyCall(job.baseUrl, job.apiKey, tail, opts);
-      try {
-        if (job.status === 'preview') {
-          const t = await api('/openapi/v2/text-to-3d/' + encodeURIComponent(job.previewTaskId));
-          job.progress = 2 + Math.min(38, (Number(t.progress) || 0) * 0.38);
-          if (/FAILED|CANCELED/i.test(String(t.status))) throw new Error((t.task_error && t.task_error.message) || 'Meshy preview 失败');
-          if (!/SUCCEEDED/i.test(String(t.status))) return model3dJobView(job);
-          const refined = await api('/openapi/v2/text-to-3d', {
-            method: 'POST',
-            body: JSON.stringify({ mode: 'refine', preview_task_id: job.previewTaskId, enable_pbr: true, target_formats: ['glb'] }),
-          });
-          job.refineTaskId = String(refined.result || refined.id || '');
-          if (!job.refineTaskId) throw new Error('Meshy 未返回 refine task id');
-          job.status = 'refine'; job.stage = 'refine'; job.progress = 42;
-          return model3dJobView(job);
-        }
-        if (job.status === 'refine') {
-          const t = await api('/openapi/v2/text-to-3d/' + encodeURIComponent(job.refineTaskId));
-          job.progress = 42 + Math.min(18, (Number(t.progress) || 0) * 0.18);
-          if (/FAILED|CANCELED/i.test(String(t.status))) throw new Error((t.task_error && t.task_error.message) || 'Meshy refine 失败');
-          if (!/SUCCEEDED/i.test(String(t.status))) return model3dJobView(job);
-          const glbUrl = t.model_urls && t.model_urls.glb;
-          if (!glbUrl) throw new Error('Meshy refine 成功但没有 GLB');
-          if (job.rig) {
-            const buf = await downloadModel3d(glbUrl);
-            const rig = await api('/openapi/v1/rigging', {
-              method: 'POST',
-              body: JSON.stringify({ model_url: 'data:model/gltf-binary;base64,' + buf.toString('base64'), height_meters: 1.75 }),
-            });
-            job.rigTaskId = String(rig.result || rig.id || '');
-            if (!job.rigTaskId) throw new Error('Meshy 未返回 rig task id');
-            job.status = 'rigging'; job.stage = 'rigging'; job.progress = 62;
-            return model3dJobView(job);
-          }
-          const buf = await downloadModel3d(glbUrl);
-          const saved = await saveModel3dAsset(job.projectId, buf, job.name, { prompt: job.prompt });
-          job.assetId = saved.assetId; job.status = 'SUCCEEDED'; job.progress = 100;
-          return model3dJobView(job);
-        }
-        if (job.status === 'rigging') {
-          const t = await api('/openapi/v1/rigging/' + encodeURIComponent(job.rigTaskId));
-          job.progress = 62 + Math.min(12, (Number(t.progress) || 0) * 0.12);
-          if (/FAILED|CANCELED/i.test(String(t.status))) throw new Error((t.task_error && t.task_error.message) || 'Meshy 自动绑定失败（人形结构不清晰）');
-          if (!/SUCCEEDED/i.test(String(t.status))) return model3dJobView(job);
-          if (job.animationPrompt) {
-            const motion = await api('/openapi/v1/text-to-motion', {
-              method: 'POST',
-              body: JSON.stringify({ prompt: job.animationPrompt.slice(0, 400), mode: 'swift', duration: Math.max(2, Math.min(10, Math.round(job.duration * 2) / 2)) }),
-            });
-            job.motionTaskId = String(motion.result || motion.id || '');
-            if (!job.motionTaskId) throw new Error('Meshy 未返回 motion task id');
-            job.status = 'motion'; job.stage = 'motion'; job.progress = 76;
-            return model3dJobView(job);
-          }
-          const glbUrl = (t.model_urls && t.model_urls.glb) || (t.result && t.result.model_urls && t.result.model_urls.glb);
-          if (!glbUrl) throw new Error('Meshy 绑定成功但没有 GLB');
-          const buf = await downloadModel3d(glbUrl);
-          const saved = await saveModel3dAsset(job.projectId, buf, job.name, { prompt: job.prompt });
-          job.assetId = saved.assetId; job.status = 'SUCCEEDED'; job.progress = 100;
-          return model3dJobView(job);
-        }
-        if (job.status === 'motion') {
-          const t = await api('/openapi/v1/text-to-motion/' + encodeURIComponent(job.motionTaskId));
-          job.progress = 76 + Math.min(10, (Number(t.progress) || 0) * 0.1);
-          if (/FAILED|CANCELED/i.test(String(t.status))) throw new Error((t.task_error && t.task_error.message) || 'Meshy 动作生成失败');
-          if (!/SUCCEEDED/i.test(String(t.status))) return model3dJobView(job);
-          const anim = await api('/openapi/v1/animations', {
-            method: 'POST',
-            body: JSON.stringify({ rig_task_id: job.rigTaskId, motion_task_id: job.motionTaskId }),
-          });
-          job.animationTaskId = String(anim.result || anim.id || '');
-          if (!job.animationTaskId) throw new Error('Meshy 未返回 animation task id');
-          job.status = 'animating'; job.stage = 'animating'; job.progress = 88;
-          return model3dJobView(job);
-        }
-        if (job.status === 'animating') {
-          const t = await api('/openapi/v1/animations/' + encodeURIComponent(job.animationTaskId));
-          job.progress = 88 + Math.min(10, (Number(t.progress) || 0) * 0.1);
-          if (/FAILED|CANCELED/i.test(String(t.status))) throw new Error((t.task_error && t.task_error.message) || 'Meshy 动画合成失败');
-          if (!/SUCCEEDED/i.test(String(t.status))) return model3dJobView(job);
-          const glbUrl = (t.model_urls && t.model_urls.glb) || (t.result && t.result.model_urls && t.result.model_urls.glb);
-          if (!glbUrl) throw new Error('Meshy 动画成功但没有 GLB');
-          const buf = await downloadModel3d(glbUrl);
-          const saved = await saveModel3dAsset(job.projectId, buf, job.name, { prompt: job.prompt });
-          job.assetId = saved.assetId; job.status = 'SUCCEEDED'; job.progress = 100;
-          return model3dJobView(job);
-        }
-        return model3dJobView(job);
-      } catch (e) {
-        job.status = 'FAILED'; job.error = String((e && e.message) || e);
-        return model3dJobView(job);
-      }
-    }
-
     /** 3D-BOX 一句话搭景：LLM 生成完整 spec（动作/道具/机位/分镜），本地模板只做 schema 骨架与失败兜底。 */
     const DIRECTOR_BRIEF_SYSTEM = [
       'You are a 3D previs director. Turn a one-line brief into a complete, playable previz spec.',
@@ -4191,10 +4008,12 @@ export function apply(ctx) {
       'Camera: { name, pos:[x,y,z], target:[x,y,z], fov, keys?[] } — keys are [{t,pos,target,fov,ease}] for camera movement.',
       'Shot: { camera, start, end } — shots must cover 0..duration without gaps.',
       'Prop: { name, preset, pos:[x,y,z], scale:[x,y,z], color }',
+      'Model asset: { assetId, name?, pos:[x,y,z], rotY, h, scale?, color? } — place real local GLB assets.',
       'Valid prop presets: box, sphere, cylinder, cone, plane, capsule, torus, pyramid, disc, arc, half_cylinder, ancient_house, ancient_stall, stone_step.',
       'Valid pose ids: none, stand, arms_up, punch, kick, flip, fly, crouch, fight, walk, run, jump, hit, fall, walk_a, walk_b, run_a, run_b.',
       'env.preset: studio | daylight | night. Use meters and seconds.',
-      'Rules: read the brief literally and cast 2–6 characters, 2–6 props, 2–5 cameras, 3–6 shots. Build a recognizable set (street: road + buildings/cars; room: table/chairs; fight: arena/ground).',
+      'Rules: read the brief literally and cast 2–6 characters, 2–6 props, 2–5 cameras, 3–6 shots. Build a recognizable set using models[] from AVAILABLE LOCAL ASSETS first (buildings/furniture/trees/people); use primitive props only for gaps (cars, weapons, small props).',
+      'Never invent assetId values. Street: use bld_*/tree_* plus a road plane; room: use furn_*; fight: use a ground/arena plus human models.',
       'Action words must become poseAnim/path/locomotion, not just labels. A chase needs running paths and a moving camera; a fight needs punch/kick/hit beats; dialogue needs idle poses and over-shoulder cameras.',
       'The BASE SKELETON is only a valid fallback shape; replace or extend its arrays with your own detailed staging. Never return empty cameras or shots.',
     ].join('\n');
@@ -4253,13 +4072,22 @@ export function apply(ctx) {
       if (!eng || typeof eng.buildStageFromSpec !== 'function' || typeof eng.specFromBrief !== 'function') throw new Error('引擎未就绪');
       const o = opts || {};
       const seed = eng.specFromBrief(text, o);
+      let catalog = [];
+      try {
+        const j = JSON.parse(readFileSync(new URL('./assets/director/models/index.json', import.meta.url), 'utf8'));
+        catalog = Array.isArray(j.models) ? j.models : [];
+      } catch { catalog = []; }
+      const catalogMap = new Map(catalog.map((m) => [String(m.id), m]));
+      const catalogText = catalog.map((m) => m.id + ' | ' + (m.label || '') + ' | ' + (m.category || '') + ' | h=' + (m.height || '')).join('\n');
       const call = (o && typeof o.llm === 'function') ? o.llm : roomLlm;
       const hints = [
         o.scene && o.scene !== 'auto' ? 'SCENE PRESET: ' + o.scene : '',
         o.style && o.style !== 'auto' ? 'STYLE PRESET: ' + o.style : '',
         o.cameraMove && o.cameraMove !== 'auto' ? 'CAMERA PRESET: ' + o.cameraMove : '',
       ].filter(Boolean).join('\n');
-      const baseUser = 'BRIEF:\n' + text + (hints ? '\n\n' + hints : '') + '\n\nBASE SKELETON JSON:\n' + JSON.stringify(seed);
+      const baseUser = 'BRIEF:\n' + text + (hints ? '\n\n' + hints : '')
+        + '\n\nAVAILABLE LOCAL ASSETS (use models[]; ids are exact):\n' + catalogText
+        + '\n\nBASE SKELETON JSON:\n' + JSON.stringify(seed);
       let lastErr = null;
       for (let attempt = 0; attempt < 2; attempt++) {
         const user = attempt === 0
@@ -4270,6 +4098,32 @@ export function apply(ctx) {
         if (!parsed || typeof parsed !== 'object') { lastErr = new Error('模型没有返回可解析的 JSON'); continue; }
         const ai = (parsed.spec && typeof parsed.spec === 'object') ? parsed.spec : parsed;
         const next = enrichDirectorSpec(mergeDirectorSpec(seed, ai), text);
+        // 本地资产兜底：AI/模板都漏掉 models 时，按题材补建筑/家具/树，避免只给一块地面。
+        if (!Array.isArray(next.models) || !next.models.length) {
+          const t = String(text || '').toLowerCase();
+          if (/街|城|追|警|巷|road|street|city|chase|alley/i.test(t) && catalogMap.has('bld_a')) {
+            next.models = [
+              { assetId: 'bld_a', pos: [-10, 0, -8], h: catalogMap.get('bld_a').height || 12 },
+              { assetId: 'bld_b', pos: [10, 0, -8], h: catalogMap.get('bld_b').height || 15 },
+              { assetId: 'tree_oak', pos: [6, 0, -4], h: catalogMap.get('tree_oak').height || 7 },
+            ];
+          } else if (/会|室|桌|家|office|room|meeting|indoor/i.test(t) && catalogMap.has('furn_tableCross')) {
+            next.models = [
+              { assetId: 'furn_tableCross', pos: [0, 0, 0], h: catalogMap.get('furn_tableCross').height || 0.75 },
+              { assetId: 'furn_chair', pos: [-1.2, 0, 0.8], h: catalogMap.get('furn_chair').height || 0.95 },
+              { assetId: 'furn_chair', pos: [1.2, 0, 0.8], h: catalogMap.get('furn_chair').height || 0.95 },
+            ];
+          }
+        }
+        // 资产 id 校验 + 缺省高度（模型必须来自本地目录，绝不接受编造 id）
+        if (Array.isArray(next.models)) {
+          next.models = next.models.map((m) => {
+            const id = String((m && m.assetId) || '');
+            const meta = catalogMap.get(id);
+            if (!meta) return null;
+            return { ...m, assetId: id, h: Number(m.h) > 0 ? Number(m.h) : Number(meta.height) || 1.7 };
+          }).filter(Boolean);
+        }
         const built = eng.buildStageFromSpec(next);
         if (!built || !Array.isArray(built.cameras) || !built.cameras.length || !Array.isArray(built.shots) || !built.shots.length) {
           lastErr = new Error('返回的规格缺机位/分镜，无法构建');
@@ -5080,8 +4934,6 @@ export function apply(ctx) {
         items.sort((a, b) => b.savedAt - a.savedAt);
         return { ok: true, multiStage: true, items };
       },
-      async model3dStart(args) { return model3dStart(args); },
-      async model3dStatus(args) { return model3dStatus(args); },
       async directorStageBrief(args) {
         const projectId = String((args && args.projectId) || '');
         const brief = String((args && args.brief) || '').trim();

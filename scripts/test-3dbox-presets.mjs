@@ -41,6 +41,17 @@ for (const p of (E.SCENE_PRESETS || [])) {
   ok(sc.cameras.length >= 3, '三人对话应有 3 个机位，实际 ' + sc.cameras.length);
 }
 
+// ── ③b 本地资产目录：models[] 必须落成 gltf 对象并保留高度 ──
+{
+  const spec = E.specFromScenePreset('blank');
+  spec.models = [{ assetId: 'bld_a', pos: [-5, 0, -2], h: 12, rotY: 0.3 }];
+  const sc = E.buildStageFromSpec(spec);
+  const m = sc.objects.find((o) => o.kind === 'gltf' && o.assetId === 'bld_a');
+  ok(!!m, '本地资产 bld_a 未落成 gltf 对象');
+  ok(m && Math.abs(m.h - 12) < 1e-6, '本地资产高度未保留');
+  ok(m && Math.abs(m.rotY - 0.3) < 1e-6, '本地资产旋转未保留');
+}
+
 // ── ④ 场景 + 风格 + 运镜组合 ──
 {
   const spec = E.specFromBrief('三个人在会议室开会，10秒', { scene: 'meeting', style: 'suspense', cameraMove: 'arc_left' });
@@ -168,7 +179,7 @@ for (const p of (E.SCENE_PRESETS || [])) {
   ok(cli.includes("'box-ai-cam'") && cli.includes('directorStageCamera'), '客户端缺少「AI运镜」入口或未接 RPC');
   ok(cli.includes("'box-shot-4'") && cli.includes("'box-shot-12'"), '客户端缺少四/十二方位截图入口');
   ok(cli.includes("'box-to-video'") && cli.includes('toVideoShot'), '客户端缺少 3D→视频节点入口');
-  ok(cli.includes('model3dStart') && cli.includes('Model3dDialog'), '客户端缺少精细 3D 资产生成入口');
+  ok(!cli.includes('model3dStart') && !cli.includes('Meshy'), '仍残留第三方 Meshy 3D 集成');
   ok(cli.includes('viewCamerasAround'), '客户端未接线四/十二方位截图');
   ok(cli.includes('cameraPathKeys') && cli.includes("'dir-cam-path-draw'"), '客户端未接线手绘运镜');
   ok(cli.includes("'dir-char-add'") && cli.includes('loadBible'), '客户端缺少角色库入口/设定集接线');

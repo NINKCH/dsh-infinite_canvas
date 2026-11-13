@@ -125,13 +125,12 @@ GitHub Releases carry the same notes in English; maintainer-facing runbooks live
   until `is_final`, then downloaded). Voice lists come from
   `/v1/skills/voices`; Doubao TTS 2.0 is preconfigured. Final-cut per-segment
   TTS uses the same adapter.
-- **Detailed 3D assets (Meshy) + 3D-to-video shots.** Settings gains a
-  detailed-3D card (Meshy key/base URL). For a selected character or prop,
-  the stage can run text-to-3D → textured refine → auto-rig → text-to-motion
-  → animation bake, then import the resulting GLB as a project model asset
-  and render it through the existing glTF path (props may be static GLB).
-  The same stage can export the current camera as a reference frame and
-  create a video node with a hard first frame for a detailed final shot.
+- **3D-BOX local asset composition + 3D-to-video shots.** One-line briefs now
+  receive the 39 local GLB assets (buildings, furniture, trees, people) and
+  output a `models[]` list with validated asset ids and heights; primitive
+  props fill the gaps. No external 3D generation API is used. The stage can
+  export the current camera as a reference frame and create a video node with
+  a hard first frame for a detailed final shot.
 - **Host-agnostic core contract.** A new regression proves `apply(ctx)` only
   needs `effect` + `tools.register` + `webServer.register`: 34 tools and nine
   API routes register synchronously on a minimal ctx, while llm / attachments

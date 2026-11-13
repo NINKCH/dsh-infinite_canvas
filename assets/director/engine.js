@@ -3043,6 +3043,25 @@ export function buildStageFromSpec(spec) {
     }
     objects.push(ob);
   }
+  // 本地资产目录（bld_* / furn_* / tree_* / 人形等）：真实 GLB，按 assetId 预加载与渲染。
+  for (const m of Array.isArray(sp.models) ? sp.models : []) {
+    seq += 1;
+    const id = String((m && m.assetId) || '');
+    if (!id) continue;
+    const mob = {
+      id: String(m.id || 'model' + seq), name: String(m.name || m.label || id),
+      kind: 'gltf', assetId: id,
+      pos: v3of(m.pos, 0), rotY: num(m.rotY, 0), rx: num(m.rx, 0), rz: num(m.rz, 0),
+      scale: m.scale ? v3of(m.scale, 1) : v3(1, 1, 1),
+      h: num(m.h, 1.7), visible: m.visible !== false, color: String(m.color || ''),
+      clip: String(m.clip || ''), animTime: 0,
+    };
+    if (m.material && typeof m.material === 'object') mob.material = { ...m.material };
+    if (Array.isArray(m.keys)) {
+      mob.keys = m.keys.map((k) => ({ t: num(k.t, 0), pos: v3of(k.pos, 0), rotY: num(k.rotY, 0), ease: String(k.ease || 'auto') })).sort((a, b) => a.t - b.t);
+    }
+    objects.push(mob);
+  }
   for (const p of Array.isArray(sp.props) ? sp.props : []) {
     seq += 1;
     const preset = SPEC_PRESET_IDS.includes(p.preset) ? p.preset : 'box';
