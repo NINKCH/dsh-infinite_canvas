@@ -145,6 +145,7 @@ const COVERAGE = [
   { sha: 'ba520fe', keys: [/3D-BOX now plans|configured LLM|poseAnim|AI previz/i] },
   { sha: 'b451579', keys: [/Detailed 3D assets|Meshy|auto-rig|text-to-motion|3D-to-video|reference frame/i] },
   { sha: '7f0df82', keys: [/Audio generation node|lk888|Doubao TTS|is_final|audio\/speech/i] },
+  { sha: '1436944', keys: [/no separate vision-model|multimodal model|current text model|vision-model setting/i] },
 ];
 for (const c of COVERAGE) {
   ok(c.keys.some((re) => re.test(coverageText)), '未发版提交 ' + c.sha + ' 在 CHANGELOG（Unreleased 或最新已发布段）里找不到对应记录（补记不全）');
