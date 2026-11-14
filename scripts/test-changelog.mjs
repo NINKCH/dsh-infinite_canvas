@@ -151,6 +151,7 @@ const COVERAGE = [
   { sha: '497bb8a', keys: [/Parts can repeat|array|mirror|scatter|deterministic seed/i] },
   { sha: 'da10fd4', keys: [/bone attachments|local GLB import\/export|encodeDirectorGlb|GLB 2\.0/i] },
   { sha: 'ae5099c', keys: [/prop paths survive|attachment polish|symmetry \+ GLB clip switcher|drivable car/i] },
+  { sha: 'c092d1d', keys: [/full-GLB export|model thumbnails|skeleton|inverse bind/i] },
 ];
 for (const c of COVERAGE) {
   ok(c.keys.some((re) => re.test(coverageText)), '未发版提交 ' + c.sha + ' 在 CHANGELOG（Unreleased 或最新已发布段）里找不到对应记录（补记不全）');
