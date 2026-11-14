@@ -3985,23 +3985,27 @@ export function apply(ctx) {
     }
     /** needJson 失败局部重试指令：追加在 user 尾部，测试以「只输出 JSON」识别重试轮。 */
     const AUTO_JSON_RETRY = '\n\n【格式重试】上一轮输出无法解析为 JSON。只输出 JSON 对象本身：不要任何解释文字、不要 markdown 代码围栏、不要前后缀。';
+    /** 3D-BOX 道具图元白名单：prompt、AI 输出清洗、引擎构建三处共用一份，避免拼错 preset。 */
+    const DIRECTOR_PROP_PRESETS = ['box', 'sphere', 'cylinder', 'cone', 'plane', 'capsule', 'torus', 'pyramid', 'disc', 'arc', 'half_cylinder', 'ancient_house', 'ancient_stall', 'stone_step'];
     /** 3D-BOX 自然语言改景：把当前 spec + 指令交给用户已配置的模型，返回完整可构建 spec。 */
     const DIRECTOR_EDIT_SYSTEM = [
       'You are a 3D previs scene editor. Modify the CURRENT SPEC according to the INSTRUCTION.',
       'Return ONLY one JSON object, no prose, no markdown fences.',
-      'Keep the same schema: { title, duration, env, style, characters[], props[], cameras[], shots[], shot }',
+      'Keep the same schema: { title, duration, env, style, models[], characters[], props[], cameras[], shots[], shot }',
       'Camera: { name, pos:[x,y,z], target:[x,y,z], fov, keys?[] }',
       'Shot: { camera, start, end }',
       'Character: { name, pos:[x,y,z], rotY, pose, color, path?, keys?, poseAnim? }',
+      'Model asset: { assetId, pos:[x,y,z], rotY, h } — only ids already present in the CURRENT SPEC.',
+      'Prop: { name, preset, pos, scale, color } or { name, pos, parts:[{preset,pos,scale,color,rotY?,rx?,rz?}] }.',
       'Valid pose ids: none, stand, arms_up, punch, kick, flip, fly, crouch, fight, walk, run, jump, hit, fall, walk_a, walk_b, run_a, run_b.',
       'Preserve all fields the instruction does not mention. Keep cameras/shots non-empty. Use meters and seconds.',
-      'Examples: "机位低一点" -> lower camera pos.y and target.y; "让 A 从左入画" -> move A pos.x negative; "加一张桌子" -> add a box prop; "手持" -> set shot.cameraMove="handheld".',
+      'Examples: "机位低一点" -> lower camera pos.y and target.y; "让 A 从左入画" -> move A pos.x negative; "加一张桌子" -> add a furn_* model or a parts prop; "手持" -> set shot.cameraMove="handheld".',
     ].join('\n');
     /** 3D-BOX 一句话搭景：LLM 生成完整 spec（动作/道具/机位/分镜），本地模板只做 schema 骨架与失败兜底。 */
     const DIRECTOR_BRIEF_SYSTEM = [
       'You are a 3D previs director. Turn a one-line brief into a complete, playable previz spec.',
       'Return ONLY one JSON object, no prose, no markdown fences.',
-      'Schema: { title, duration, env:{preset,grid,tonemap,bg?}, style?, characters[], props[], cameras[], shots[], shot:{duration,cameraMove}, lights[], fog?, dof? }',
+      'Schema: { title, duration, env:{preset,grid,tonemap,bg?}, style?, models[], characters[], props[], cameras[], shots[], shot:{duration,cameraMove}, lights[], fog?, dof? }',
       'Character: { name, pos:[x,y,z], rotY, color, clip, pose, path?, pathFace?, locomotion?, poseAnim? }',
       'poseAnim: [{"t":0,"pose":"idle"},{"t":1.2,"pose":"punch"},{"t":2.4,"pose":"hit"}] — use it for fights/actions.',
       'path: [[x,z],...] + locomotion:{source:"clip",clip:"run",stride:1.1,cycle:0.8,refSpeed:4} for chase/walk movement.',
@@ -4009,14 +4013,28 @@ export function apply(ctx) {
       'Shot: { camera, start, end } — shots must cover 0..duration without gaps.',
       'Prop: { name, preset, pos:[x,y,z], scale:[x,y,z], color }',
       'Model asset: { assetId, name?, pos:[x,y,z], rotY, h, scale?, color? } — place real local GLB assets.',
-      'Valid prop presets: box, sphere, cylinder, cone, plane, capsule, torus, pyramid, disc, arc, half_cylinder, ancient_house, ancient_stall, stone_step.',
+      'Parametric prop: { name, pos:[x,y,z], rotY?, parts:[{preset,pos:[x,y,z],scale:[x,y,z],color?,rotY?,rx?,rz?}] } — build cars/weapons/signs/lanterns from 2-12 primitives when no local asset fits. part.pos is the bottom-center offset; scale is [width,height,depth].',
+      'Valid prop presets: ' + DIRECTOR_PROP_PRESETS.join(', ') + '.',
       'Valid pose ids: none, stand, arms_up, punch, kick, flip, fly, crouch, fight, walk, run, jump, hit, fall, walk_a, walk_b, run_a, run_b.',
       'env.preset: studio | daylight | night. Use meters and seconds.',
-      'Rules: read the brief literally and cast 2–6 characters, 2–6 props, 2–5 cameras, 3–6 shots. Build a recognizable set using models[] from AVAILABLE LOCAL ASSETS first (buildings/furniture/trees/people); use primitive props only for gaps (cars, weapons, small props).',
+      'Rules: read the brief literally and cast 2–6 characters, 2–6 props, 2–5 cameras, 3–6 shots. Build a recognizable set using models[] from AVAILABLE LOCAL ASSETS first (buildings/furniture/trees/people); use parts props only for gaps (cars, weapons, small props).',
       'Never invent assetId values. Street: use bld_*/tree_* plus a road plane; room: use furn_*; fight: use a ground/arena plus human models.',
       'Action words must become poseAnim/path/locomotion, not just labels. A chase needs running paths and a moving camera; a fight needs punch/kick/hit beats; dialogue needs idle poses and over-shoulder cameras.',
       'The BASE SKELETON is only a valid fallback shape; replace or extend its arrays with your own detailed staging. Never return empty cameras or shots.',
     ].join('\n');
+    /** AI 输出的 props[].parts 清洗：白名单 preset + 限制数量，坏数据不写盘、不撑爆渲染。 */
+    function normalizeDirectorParts(spec) {
+      if (!spec || !Array.isArray(spec.props)) return spec;
+      spec.props = spec.props.filter((p) => p && typeof p === 'object').map((p) => {
+        if (!Array.isArray(p.parts) || !p.parts.length) return p;
+        const parts = p.parts.filter((pt) => pt && typeof pt === 'object').slice(0, 40).map((pt) => ({
+          ...pt,
+          preset: DIRECTOR_PROP_PRESETS.includes(String(pt.preset)) ? String(pt.preset) : 'box',
+        }));
+        return parts.length ? { ...p, parts } : p;
+      });
+      return spec;
+    }
     function mergeDirectorSpec(base, patch) {
       if (Array.isArray(patch)) return patch;
       if (patch && typeof patch === 'object') {
@@ -4124,6 +4142,7 @@ export function apply(ctx) {
             return { ...m, assetId: id, h: Number(m.h) > 0 ? Number(m.h) : Number(meta.height) || 1.7 };
           }).filter(Boolean);
         }
+        normalizeDirectorParts(next);
         const built = eng.buildStageFromSpec(next);
         if (!built || !Array.isArray(built.cameras) || !built.cameras.length || !Array.isArray(built.shots) || !built.shots.length) {
           lastErr = new Error('返回的规格缺机位/分镜，无法构建');
@@ -4150,6 +4169,7 @@ export function apply(ctx) {
         const parsed = roomJson(raw);
         if (!parsed || typeof parsed !== 'object') { lastErr = new Error('模型没有返回可解析的 JSON'); continue; }
         const next = (parsed.spec && typeof parsed.spec === 'object') ? parsed.spec : parsed;
+        normalizeDirectorParts(next);
         const built = eng.buildStageFromSpec(next);
         if (!built || !Array.isArray(built.cameras) || !built.cameras.length || !Array.isArray(built.shots) || !built.shots.length) {
           lastErr = new Error('返回的规格缺机位/分镜，无法构建');

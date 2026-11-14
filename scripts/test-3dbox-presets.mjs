@@ -50,6 +50,52 @@ for (const p of (E.SCENE_PRESETS || [])) {
   ok(!!m, '本地资产 bld_a 未落成 gltf 对象');
   ok(m && Math.abs(m.h - 12) < 1e-6, '本地资产高度未保留');
   ok(m && Math.abs(m.rotY - 0.3) < 1e-6, '本地资产旋转未保留');
+  // 场景 → 规格 → 场景：models[] 不能退化成道具
+  const back = E.compileStageSpec(sc);
+  ok(Array.isArray(back.models) && back.models.some((x) => x.assetId === 'bld_a' && Math.abs(x.h - 12) < 1e-6), 'models[] 往返丢失');
+  const sc2 = E.buildStageFromSpec(JSON.parse(JSON.stringify(back)));
+  ok(sc2.objects.some((o) => o.kind === 'gltf' && o.assetId === 'bld_a'), 'models[] 二次构建丢失');
+}
+
+// ── ③c 参数化组合道具：parts 拼装 + 父变换 + 颜色 + 往返 ──
+{
+  const spec = E.specFromScenePreset('blank');
+  spec.props = [{
+    id: 'police_car', name: '警车', pos: [2, 0, 1], rotY: 0.5,
+    parts: [
+      { preset: 'box', pos: [0, 0.35, 0], scale: [4, 0.7, 1.8], color: '#15181d' },
+      { preset: 'box', pos: [0, 1.05, 0.15], scale: [2, 0.7, 1.6], color: '#2f6fed' },
+      { preset: 'cylinder', pos: [-1.2, 0.35, 0.9], scale: [0.5, 0.5, 0.5], color: '#0b0b0d' },
+      { preset: 'box', pos: [0, 1.45, 0], scale: [0.8, 0.18, 0.4], color: '#ff2d2d' },
+    ],
+  }];
+  const sc = E.buildStageFromSpec(spec);
+  const car = sc.objects.find((o) => o.id === 'police_car');
+  ok(!!car && car.kind === 'compound', 'parts 道具未落成 compound');
+  ok(car && car.parts.length === 4, 'compound parts 数量不对：' + (car && car.parts.length));
+  const faces = E.directorObjectFaces(car);
+  ok(faces.length > 0, 'compound 未生成面片');
+  const colors = new Set(faces.map((f) => f.color));
+  ok(colors.has('#15181d') && colors.has('#ff2d2d'), 'compound 未保留部件颜色');
+  const top = E.directorObjectAnchor(car).top;
+  ok(top > 1.5, 'compound 锚点高度应按最高部件计算（实际 ' + top.toFixed(2) + '）');
+  // 父对象旋转/位移必须作用到所有部件：同一部件 rotY 0 vs π 应关于父对象中心对称
+  const car0 = JSON.parse(JSON.stringify(car));
+  car0.rotY = 0;
+  const carPi = JSON.parse(JSON.stringify(car));
+  carPi.rotY = Math.PI;
+  const wheelCenter = (ob) => {
+    const f = E.directorObjectFaces(ob).find((x) => x.color === '#0b0b0d');
+    return f.v.reduce((a, p) => ({ x: a.x + p.x / f.v.length, z: a.z + p.z / f.v.length }), { x: 0, z: 0 });
+  };
+  const c0 = wheelCenter(car0);
+  const c1 = wheelCenter(carPi);
+  ok(Math.abs((c1.x - 2) + (c0.x - 2)) < 0.05 && Math.abs((c1.z - 1) + (c0.z - 1)) < 0.05, 'compound 父对象旋转未作用到部件');
+  const back = E.compileStageSpec(sc);
+  const backCar = (back.props || []).find((p) => p.id === 'police_car');
+  ok(backCar && Array.isArray(backCar.parts) && backCar.parts.length === 4, 'parts 往返丢失');
+  const sc2 = E.buildStageFromSpec(JSON.parse(JSON.stringify(back)));
+  ok(sc2.objects.find((o) => o.id === 'police_car') && sc2.objects.find((o) => o.id === 'police_car').kind === 'compound', 'parts 二次构建丢失');
 }
 
 // ── ④ 场景 + 风格 + 运镜组合 ──
@@ -188,6 +234,8 @@ for (const p of (E.SCENE_PRESETS || [])) {
   ok(cli.includes("'video-canvas-ref'") && cli.includes("'video-autolink'"), '客户端缺少画布参考/AutoLink 入口');
   ok(cli.includes("'video-first-frame'") && cli.includes("'video-long-hint'"), '客户端缺少首帧/长视频快捷入口');
   ok(host.includes('specFromBrief'), 'Host 未接线一句话搭景');
+  ok(host.includes('AVAILABLE LOCAL ASSETS') && host.includes('Never invent assetId'), 'Host 未把本地资产目录注入 AI prompt');
+  ok(host.includes('Parametric prop') && host.includes('parts:[{preset'), 'Host 未把 parts 参数化建模 schema 注入 AI prompt');
   ok(cli.includes('CAMERA_MOVES') || cli.includes('DIRECTOR_MOVES'), '客户端未接线运镜清单');
 }
 

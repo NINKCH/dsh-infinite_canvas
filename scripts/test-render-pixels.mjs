@@ -74,6 +74,24 @@ const check = (name, pass, detail) => { results.push({ name, pass: !!pass, detai
     check('真实阴影（A/B 差分）', shadowDiff > W * H * 0.004, 'diff=' + shadowDiff + ' px');
     check('墙面接收阴影', darkOnWall > 100, '墙面变暗 ' + darkOnWall + ' px');
 
+    // ①b 参数化组合道具：多部件多颜色必须真的画出来（不是退化成单色方块）
+    {
+      const carScene = mkScene({
+        objects: [{
+          id: 'car', kind: 'compound', pos: { x: 0, y: 0, z: 0 }, rotY: 0, scale: { x: 1, y: 1, z: 1 }, h: 1.5, visible: true, color: '#ffffff',
+          parts: [
+            { preset: 'box', pos: { x: 0, y: 0.35, z: 0 }, scale: { x: 3, y: 0.7, z: 1.6 }, color: '#15181d' },
+            { preset: 'box', pos: { x: 0, y: 1.0, z: 0 }, scale: { x: 1.2, y: 0.5, z: 1.2 }, color: '#ff2d2d' },
+          ],
+        }],
+      });
+      glr.draw(E.applyPlayhead(carScene, 0), { selectedId: null, renderGround: true, renderOnly: true });
+      const cp = grab();
+      const red = countColor(cp, (r, g, b) => r > 140 && g < 120 && b < 120 && r > g * 1.5);
+      const dark = countColor(cp, (r, g, b) => r < 60 && g < 60 && b < 60);
+      check('组合道具多色渲染', red > 80 && dark > 400, 'red=' + red + ' dark=' + dark);
+    }
+
     // ② 路径：编辑器可见、成片不可见
     const pathScene = mkScene({
       objects: [{ id: 'man', kind: 'model', assetId: 'xbot', typeId: 'm_standard', pos: { x: 0, y: 0, z: 0 }, rotY: 0, h: 1.78, clip: 'idle', animTime: 0, visible: true, color: '#c9ced6', pathMode: 'curve', pathOrigin: { x: 0, y: 0, z: 0 }, path: [{ x: -2, y: 0, z: 1 }, { x: 0, y: 0, z: -1 }, { x: 2, y: 0, z: 1 }] }],

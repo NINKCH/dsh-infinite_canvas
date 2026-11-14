@@ -3050,7 +3050,7 @@ export function buildStageFromSpec(spec) {
     if (!id) continue;
     const mob = {
       id: String(m.id || 'model' + seq), name: String(m.name || m.label || id),
-      kind: 'gltf', assetId: id,
+      kind: 'gltf', assetId: id, catalog: true,
       pos: v3of(m.pos, 0), rotY: num(m.rotY, 0), rx: num(m.rx, 0), rz: num(m.rz, 0),
       scale: m.scale ? v3of(m.scale, 1) : v3(1, 1, 1),
       h: num(m.h, 1.7), visible: m.visible !== false, color: String(m.color || ''),
@@ -3071,7 +3071,27 @@ export function buildStageFromSpec(spec) {
       scale: p.scale ? v3of(p.scale, 1) : v3(1, 1, 1), visible: p.visible !== false,
       color: String(p.color || '#b3b8bf'),
     };
-    if (p.assetId) { pob.assetId = String(p.assetId); pob.clip = String(p.clip || ''); pob.animTime = 0; }
+    if (p.assetId) {
+      pob.assetId = String(p.assetId); pob.clip = String(p.clip || ''); pob.animTime = 0;
+    } else if (Array.isArray(p.parts) && p.parts.length) {
+      // 参数化组合道具（警车/武器/桌椅等）：一个对象由多个基础几何体组成，跟随父对象移动/旋转。
+      pob.kind = 'compound';
+      pob.parts = p.parts.slice(0, 40).map((pt, pi) => {
+        const preset2 = SPEC_PRESET_IDS.includes(pt && pt.preset) ? pt.preset : 'box';
+        const part = {
+          preset: preset2,
+          pos: v3of(pt && pt.pos, 0),
+          rotY: num(pt && pt.rotY, 0), rx: num(pt && pt.rx, 0), rz: num(pt && pt.rz, 0),
+          scale: (pt && pt.scale) ? v3of(pt.scale, 1) : v3(1, 1, 1),
+          color: String((pt && pt.color) || p.color || '#b3b8bf'),
+        };
+        if (pt && pt.material && typeof pt.material === 'object') part.material = { ...pt.material };
+        return part;
+      });
+      // 组合道具的默认高度取最高部件（车顶/灯罩），供高度参考线与 gizmo 使用。
+      const partTop = pob.parts.reduce((m, pt) => Math.max(m, (Number(pt.pos && pt.pos.y) || 0) + directorPrimitiveUnitHeight(pt.preset) * (Number(pt.scale && pt.scale.y) || 1)), 0);
+      pob.h = num(p.h, partTop || 1);
+    }
     if (p.material && typeof p.material === 'object') pob.material = { ...p.material };
     // 道具关键帧：与角色同构（t/pos/rotY/rx/rz/ease），供长枪等跟手（applyPlayhead 对所有对象统一应用）
     if (Array.isArray(p.keys)) {
@@ -3179,6 +3199,7 @@ export function compileStageSpec(scene) {
   const arr = (p) => [round3(p.x), round3(p.y), round3(p.z)];
   const characters = [];
   const props = [];
+  const models = [];
   for (const ob of sc.objects || []) {
     if (ob.kind === 'model') {
       const c = {
@@ -3208,8 +3229,22 @@ export function compileStageSpec(scene) {
       if (Array.isArray(ob.poseKeys) && ob.poseKeys.length) c.poseKeys = ob.poseKeys.map((k) => ({ t: round3(k.t), bonePose: JSON.parse(JSON.stringify(k.bonePose || {})), ease: k.ease || 'auto' }));
       if (Array.isArray(ob.keys) && ob.keys.length) c.keys = ob.keys.map((k) => ({ t: round3(k.t), pos: arr(k.pos), rotY: round3(k.rotY || 0), rx: round3(k.rx || 0), rz: round3(k.rz || 0), ease: k.ease || 'auto' }));
       characters.push(c);
+    } else if (ob.kind === 'gltf' && ob.catalog) {
+      // 来自本地资产目录的 models[]：往返时仍归入 models，避免退化成“带 assetId 的道具”
+      const m = {
+        id: ob.id, name: ob.name || ob.id, assetId: ob.assetId,
+        pos: arr(ob.pos || v3(0, 0, 0)), rotY: round3(ob.rotY || 0), rx: round3(ob.rx || 0), rz: round3(ob.rz || 0),
+        h: round3(ob.h || 1.7),
+      };
+      if (ob.scale && (Number(ob.scale.x) !== 1 || Number(ob.scale.y) !== 1 || Number(ob.scale.z) !== 1)) m.scale = arr(ob.scale);
+      if (ob.visible === false) m.visible = false;
+      if (ob.color) m.color = ob.color;
+      if (ob.clip) m.clip = ob.clip;
+      if (ob.material) m.material = { ...ob.material };
+      if (Array.isArray(ob.keys) && ob.keys.length) m.keys = ob.keys.map((k) => ({ t: round3(k.t), pos: arr(k.pos), rotY: round3(k.rotY || 0), ease: k.ease || 'auto' }));
+      models.push(m);
     } else {
-      props.push({
+      const rec = {
         id: ob.id, name: ob.name || ob.id, preset: ob.preset || 'box',
         ...(ob.kind === 'gltf' && ob.assetId ? { assetId: ob.assetId, clip: ob.clip || undefined } : {}),
         pos: arr(ob.pos || v3(0, 0, 0)), rotY: round3(ob.rotY || 0), rx: round3(ob.rx || 0), rz: round3(ob.rz || 0),
@@ -3219,7 +3254,17 @@ export function compileStageSpec(scene) {
         ...(Array.isArray(ob.keys) && ob.keys.length
           ? { keys: ob.keys.map((k) => ({ t: round3(k.t), pos: arr(k.pos), rotY: round3(k.rotY || 0), rx: round3(k.rx || 0), rz: round3(k.rz || 0), ease: k.ease || 'auto' })) }
           : {}),
-      });
+      };
+      // 参数化组合道具：parts 必须原样往返，否则二次编辑会退化成单个方块
+      if (ob.kind === 'compound' && Array.isArray(ob.parts) && ob.parts.length) {
+        rec.parts = ob.parts.map((pt) => ({
+          preset: pt.preset || 'box', pos: arr(pt.pos || v3(0, 0, 0)),
+          rotY: round3(pt.rotY || 0), rx: round3(pt.rx || 0), rz: round3(pt.rz || 0),
+          scale: arr(pt.scale || v3(1, 1, 1)), color: pt.color,
+          ...(pt.material ? { material: { ...pt.material } } : {}),
+        }));
+      }
+      props.push(rec);
     }
   }
   return {
@@ -3233,7 +3278,7 @@ export function compileStageSpec(scene) {
       note: (sc.shot && sc.shot.note) || undefined,
     },
     env: Object.assign({}, sc.env || {}),
-    characters, props,
+    characters, models, props,
     cameras: (sc.cameras || []).map((c) => ({
       id: c.id, name: c.name || c.id, pos: arr(c.pos), target: arr(c.target),
       fov: round3(c.fov || 42), roll: round3(c.roll || 0), sensorFit: c.sensorFit || 'AUTO',
@@ -4627,6 +4672,81 @@ export function actorTypeIdOf(presetId) {
   return 'm_standard';
 }
 /**
+ * 基础几何体的局部单位面（底面在 y=0，X/Z 居中，单位高度 1）。
+ * compound 与普通 geom 共用同一套图元，避免两处尺寸漂移。
+ */
+function directorPrimitiveLocalFaces(preset) {
+  const p = String(preset || 'box');
+  if (p === 'sphere') return directorSphereFaces(0, 0.5, 0, 0.5);
+  if (p === 'cylinder') return directorCylinderFaces(0, 0.5, 0, 0.5, 1);
+  if (p === 'cone') return directorConeFaces(0, 0, 0, 0.5, 1);
+  if (p === 'plane') return directorBoxFaces(0, 0.005, 0, 1, 0.01, 1);
+  if (p === 'capsule') return directorCapsuleFaces(0, 0.5, 0, 0.25, 0.5);
+  if (p === 'torus') return directorTorusFaces(0, 0.5, 0, 0.35, 0.15);
+  if (p === 'pyramid') return directorPyramidFaces(0, 0, 0, 1, 1, 1);
+  if (p === 'disc') return directorDiskFaces(0, 0.01, 0, 0.5);
+  if (p === 'arc') return directorHalfArcFaces(0, 0.5, 0, 0.5, 0.1);
+  if (p === 'half_cylinder') return directorHalfCylinderFaces(0, 0.5, 0, 0.5, 1);
+  if (p === 'ancient_house') return ancientHouseFaces(0, 0, 0, 1, 1, 1, 0.34);
+  if (p === 'ancient_stall') return ancientStallFaces(0, 0, 0, 1, 1, 1);
+  if (p === 'stone_step') return directorBoxFaces(0, 0.15, 0, 1, 0.3, 1);
+  return directorBoxFaces(0, 0.5, 0, 1, 1, 1);
+}
+
+/** 单位图元高度（锚点/包围盒用，绝不生成网格）。 */
+function directorPrimitiveUnitHeight(preset) {
+  const p = String(preset || 'box');
+  if (p === 'plane' || p === 'disc') return 0.01;
+  if (p === 'ancient_house') return 1.34;
+  if (p === 'ancient_stall') return 0.84;
+  if (p === 'stone_step') return 0.3;
+  return 1;
+}
+
+/**
+ * 参数化组合道具：一个对象由多个基础图元组成（警车/武器/路灯/桌椅）。
+ * part.pos 是相对父对象的地面偏移（底面中心），part.scale 是 [宽,高,深]；
+ * 各部件跟随父对象的 pos/rotY/scale，并保留自己的颜色供渲染分批。
+ */
+function directorCompoundFaces(ob) {
+  const sc = ob.scale || { x: 1, y: 1, z: 1 };
+  const k = Number(ob.s) || 1;
+  const psx = k * (Number(sc.x) || 1), psy = k * (Number(sc.y) || 1), psz = k * (Number(sc.z) || 1);
+  const pry = Number(ob.rotY) || 0;
+  const pc = Math.cos(pry), pn = Math.sin(pry);
+  const out = [];
+  for (const pt of ob.parts.slice(0, 40)) {
+    if (!pt) continue;
+    const psc = pt.scale || { x: 1, y: 1, z: 1 };
+    const sx = Number(psc.x) || 1, sy = Number(psc.y) || 1, sz = Number(psc.z) || 1;
+    const rx = Number(pt.rx) || 0, ry = Number(pt.rotY) || 0, rz = Number(pt.rz) || 0;
+    const cx = Math.cos(rx), snx = Math.sin(rx);
+    const cy = Math.cos(ry), sny = Math.sin(ry);
+    const cz = Math.cos(rz), snz = Math.sin(rz);
+    // 与 objectAxes 同序：R = Ry·Rx·Rz；三列即局部轴。
+    const ax = v3(cy * cz + sny * snx * snz, cx * snz, -sny * cz + cy * snx * snz);
+    const ay = v3(-cy * snz + sny * snx * cz, cx * cz, sny * snz + cy * snx * cz);
+    const az = v3(sny * cx, -snx, cy * cx);
+    const ox = Number(pt.pos && pt.pos.x) || 0;
+    const oy = Number(pt.pos && pt.pos.y) || 0;
+    const oz = Number(pt.pos && pt.pos.z) || 0;
+    const color = String(pt.color || ob.color || '');
+    for (const f of directorPrimitiveLocalFaces(pt.preset)) {
+      const vv = f.v.map((p) => {
+        const x = p.x * sx, y = p.y * sy, z = p.z * sz;
+        const xr = ax.x * x + ay.x * y + az.x * z;
+        const yr = ax.y * x + ay.y * y + az.y * z;
+        const zr = ax.z * x + ay.z * y + az.z * z;
+        const lx = (xr + ox) * psx, ly = (yr + oy) * psy, lz = (zr + oz) * psz;
+        return v3(ob.pos.x + lx * pc + lz * pn, ob.pos.y + ly, ob.pos.z - lx * pn + lz * pc);
+      });
+      out.push({ v: vv, shade: f.shade, ...(color ? { color } : {}) });
+    }
+  }
+  return out;
+}
+
+/**
  * 物体锚点（标签/构图用）：**O(1) 解析计算，绝不生成网格**。
  * 历史事故：早期版本在这里调用 directorObjectFaces()，单个模型要蒙皮 4.9 万三角形 ≈ 77ms，
  * 指针每移动一次都算 → 拖动/缩放卡死、gizmo 跟手错位（"缩放乱跳"）。性能敏感路径禁止走 face 生成。
@@ -4637,14 +4757,16 @@ export function directorObjectAnchor(ob) {
   const sc = ob.scale || { x: 1, y: 1, z: 1 };
   const sy = (Number(sc.y) || 1) * (Number(ob.s) || 1);
   let top = py + (Number(ob.h) || 1.7) * sy;   // 模型/人偶：按设定身高
-  if (ob.kind === 'geom' || ob.kind === 'obj' || !ob.kind) {
-    const preset = String(ob.preset || 'box');
-    const unitH = preset === 'plane' || preset === 'disc' ? 0.01
-      : preset === 'ancient_house' ? 1.34      // 墙身 1 + 屋顶 0.34
-      : preset === 'ancient_stall' ? 0.84      // 台面+遮棚
-      : preset === 'stone_step' ? 0.3
-      : 1;                                     // 其余单位图元高度 1
-    top = py + unitH * sy;
+  if (ob.kind === 'compound' && Array.isArray(ob.parts) && ob.parts.length) {
+    let partTop = 0;
+    for (const pt of ob.parts) {
+      const psc = pt.scale || { x: 1, y: 1, z: 1 };
+      const y = (Number(pt.pos && pt.pos.y) || 0) + directorPrimitiveUnitHeight(pt.preset) * (Number(psc.y) || 1);
+      if (y > partTop) partTop = y;
+    }
+    top = py + Math.max(0.05, Math.max(partTop, Number(ob.h) || 0)) * sy;
+  } else if (ob.kind === 'geom' || ob.kind === 'obj' || !ob.kind) {
+    top = py + directorPrimitiveUnitHeight(ob.preset) * sy;
   }
   // 朝向只影响平面轮廓，标签用轴对齐包围盒中心即可（不引入旋转误差）
   return { top, center: v3(px, top, pz) };
@@ -4678,6 +4800,9 @@ export function directorObjectFaces(ob) {
       if (out.length) return out;
     }
     return actorFaces(ob);
+  }
+  if (ob.kind === 'compound' && Array.isArray(ob.parts) && ob.parts.length) {
+    return directorCompoundFaces(ob);
   }
   const sc = ob.scale || { x: 1, y: 1, z: 1 };
   const s = Number(ob.s) || 1;
@@ -4718,21 +4843,7 @@ export function directorObjectFaces(ob) {
     return directorBoxFaces(0, hgt / 2, 0, w, hgt, w * 0.6).map((f) => ({ v: f.v.map(xf), shade: f.shade }));
   }
   const preset = String(ob.preset || 'box');
-  let local;
-  if (preset === 'sphere') local = directorSphereFaces(0, 0.5, 0, 0.5);
-  else if (preset === 'cylinder') local = directorCylinderFaces(0, 0.5, 0, 0.5, 1);
-  else if (preset === 'cone') local = directorConeFaces(0, 0, 0, 0.5, 1);
-  else if (preset === 'plane') local = directorBoxFaces(0, 0.005, 0, 1, 0.01, 1);
-  else if (preset === 'capsule') local = directorCapsuleFaces(0, 0.5, 0, 0.25, 0.5);
-  else if (preset === 'torus') local = directorTorusFaces(0, 0.5, 0, 0.35, 0.15);
-  else if (preset === 'pyramid') local = directorPyramidFaces(0, 0, 0, 1, 1, 1);
-  else if (preset === 'disc') local = directorDiskFaces(0, 0.01, 0, 0.5);
-  else if (preset === 'arc') local = directorHalfArcFaces(0, 0.5, 0, 0.5, 0.1);
-  else if (preset === 'half_cylinder') local = directorHalfCylinderFaces(0, 0.5, 0, 0.5, 1);
-  else if (preset === 'ancient_house') local = ancientHouseFaces(0, 0, 0, 1, 1, 1, 0.34);
-  else if (preset === 'ancient_stall') local = ancientStallFaces(0, 0, 0, 1, 1, 1);
-  else if (preset === 'stone_step') local = directorBoxFaces(0, 0.15, 0, 1, 0.3, 1);
-  else local = directorBoxFaces(0, 0.5, 0, 1, 1, 1);
+  const local = directorPrimitiveLocalFaces(preset);
   return local.map((f) => ({ v: f.v.map(xf), shade: f.shade }));
 }
 
@@ -5756,7 +5867,7 @@ export function createDirectorGlRenderer(canvas) {
   gl.enable(gl.BLEND);
   gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
 
-  const buildMesh = (id, faces, ob) => {
+  const buildMesh = (id, faces, ob, sigExtra) => {
     const tris = directorTriangulateFaces(faces);
     const pos = new Float32Array(tris.length * 9);
     const nrm = new Float32Array(tris.length * 9);
@@ -5773,7 +5884,7 @@ export function createDirectorGlRenderer(canvas) {
     if (!rec) { rec = { vbo: gl.createBuffer(), nbo: gl.createBuffer(), count: 0, sig: '' }; meshCache.set(id, rec); }
     const t = (ob && ob.pos) || { x: 0, y: 0, z: 0 };
     const sc = (ob && ob.scale) || { x: 1, y: 1, z: 1 };
-    const sig = tris.length + '|' + t.x + ',' + t.y + ',' + t.z + '|' + (Number(ob && ob.rotY) || 0) + '|' + sc.x + ',' + sc.y + ',' + sc.z + '|' + (Number(ob && ob.h) || 1) + '|' + String(ob && ob.preset || '');
+    const sig = tris.length + '|' + t.x + ',' + t.y + ',' + t.z + '|' + (Number(ob && ob.rotY) || 0) + '|' + sc.x + ',' + sc.y + ',' + sc.z + '|' + (Number(ob && ob.h) || 1) + '|' + String(ob && ob.preset || '') + '|' + String(sigExtra || '');
     if (rec.sig !== sig) {
       gl.bindBuffer(gl.ARRAY_BUFFER, rec.vbo); gl.bufferData(gl.ARRAY_BUFFER, pos, gl.DYNAMIC_DRAW);
       gl.bindBuffer(gl.ARRAY_BUFFER, rec.nbo); gl.bufferData(gl.ARRAY_BUFFER, nrm, gl.DYNAMIC_DRAW);
@@ -6220,20 +6331,32 @@ export function createDirectorGlRenderer(canvas) {
         const faces = directorObjectFaces(ob);
         stats.faces += faces.length;
         if (!faces.length) return;
-        const rec = buildMesh(ob.id, faces, ob);
-        stats.tris += rec.count / 3;
-        gl.bindBuffer(gl.ARRAY_BUFFER, rec.vbo);
-        gl.enableVertexAttribArray(loc.aPosition);
-        gl.vertexAttribPointer(loc.aPosition, 3, gl.FLOAT, false, 0, 0);
-        gl.bindBuffer(gl.ARRAY_BUFFER, rec.nbo);
-        gl.enableVertexAttribArray(loc.aNormal);
-        gl.vertexAttribPointer(loc.aNormal, 3, gl.FLOAT, false, 0, 0);
-        gl.uniformMatrix4fv(loc.uModel, false, directorMat4Identity());
-        gl.uniformMatrix3fv(loc.uNormalMat, false, directorMat3NormalFrom(v3(0, 0, 0), 0, v3(1, 1, 1)));
-        const cc = directorHexToRgb(ob.color || mannequinColorOf(ob.typeId) || CLAY);
-        gl.uniform3f(loc.uColor, cc[0], cc[1], cc[2]);
-        gl.uniform1f(loc.uSelected, (o.selectedId && ob.id === o.selectedId) ? 1 : 0);
-        gl.drawArrays(gl.TRIANGLES, 0, rec.count);
+        // 组合道具的每个 part 可带自己的颜色：按颜色分批绘制，避免整车被刷成同一色。
+        const faceGroups = new Map();
+        for (const f of faces) {
+          const key = f.color || '';
+          let arr = faceGroups.get(key);
+          if (!arr) { arr = []; faceGroups.set(key, arr); }
+          arr.push(f);
+        }
+        const sigExtra = ob.kind === 'compound' ? JSON.stringify(ob.parts || []) : '';
+        const isSel = (o.selectedId && ob.id === o.selectedId) ? 1 : 0;
+        for (const [colorKey, groupFaces] of faceGroups) {
+          const rec = buildMesh(colorKey ? ob.id + '|' + colorKey : ob.id, groupFaces, ob, sigExtra);
+          stats.tris += rec.count / 3;
+          gl.bindBuffer(gl.ARRAY_BUFFER, rec.vbo);
+          gl.enableVertexAttribArray(loc.aPosition);
+          gl.vertexAttribPointer(loc.aPosition, 3, gl.FLOAT, false, 0, 0);
+          gl.bindBuffer(gl.ARRAY_BUFFER, rec.nbo);
+          gl.enableVertexAttribArray(loc.aNormal);
+          gl.vertexAttribPointer(loc.aNormal, 3, gl.FLOAT, false, 0, 0);
+          gl.uniformMatrix4fv(loc.uModel, false, directorMat4Identity());
+          gl.uniformMatrix3fv(loc.uNormalMat, false, directorMat3NormalFrom(v3(0, 0, 0), 0, v3(1, 1, 1)));
+          const cc = directorHexToRgb(colorKey || ob.color || mannequinColorOf(ob.typeId) || CLAY);
+          gl.uniform3f(loc.uColor, cc[0], cc[1], cc[2]);
+          gl.uniform1f(loc.uSelected, isSel);
+          gl.drawArrays(gl.TRIANGLES, 0, rec.count);
+        }
         stats.drawn++;
       });
       // gizmo：三根轴 + 旋转环（深度测试关闭 → 永远可见；最后画）
@@ -6488,7 +6611,7 @@ export function directorRenderScene(ctx, w, h, scene, opts) {
   (scene.objects || []).forEach((ob) => {
     const fs = directorObjectFaces(ob);
     stats.faces += fs.length;
-    fs.forEach((f) => items.push({ f, color: ob.color || mannequinColorOf(ob.typeId) || CLAY, base: ob }));
+    fs.forEach((f) => items.push({ f, color: f.color || ob.color || mannequinColorOf(ob.typeId) || CLAY, base: ob }));
   });
   if (false && env.groundVisible !== false) {
     const s = 400, op = 0;   // 不画地面填充，只画网格
@@ -6640,18 +6763,23 @@ function directorObjectScreenBox(ob, project) {
   const k = Number(ob.s) || 1;
   const sx = k * (Number(sc.x) || 1), sy = k * (Number(sc.y) || 1), sz = k * (Number(sc.z) || 1);
   let hx, hy, hz;
-  if (ob.kind === 'model' || ob.kind === 'gltf' || ob.kind === 'actor') {
+  if (ob.kind === 'compound' && Array.isArray(ob.parts) && ob.parts.length) {
+    // 组合道具：按部件实际展开范围估包围盒（仍不生成网格）
+    let mx = 0, my = 0, mz = 0;
+    for (const pt of ob.parts) {
+      const psc = pt.scale || { x: 1, y: 1, z: 1 };
+      mx = Math.max(mx, Math.abs(Number(pt.pos && pt.pos.x) || 0) + 0.5 * (Number(psc.x) || 1));
+      mz = Math.max(mz, Math.abs(Number(pt.pos && pt.pos.z) || 0) + 0.5 * (Number(psc.z) || 1));
+      my = Math.max(my, (Number(pt.pos && pt.pos.y) || 0) + directorPrimitiveUnitHeight(pt.preset) * (Number(psc.y) || 1));
+    }
+    hx = mx * sx; hy = my * sy; hz = mz * sz;
+  } else if (ob.kind === 'model' || ob.kind === 'gltf' || ob.kind === 'actor') {
     const h = Number(ob.h) || 1.78;
     hx = h * 0.30 * Math.max(0.5, sx);
     hy = h * Math.max(0.5, sy);
     hz = h * 0.22 * Math.max(0.5, sz);
   } else {
-    const preset = String(ob.preset || 'box');
-    const H = preset === 'plane' || preset === 'disc' ? 0.02
-      : preset === 'ancient_house' ? 1.34
-        : preset === 'ancient_stall' ? 0.84
-          : preset === 'stone_step' ? 0.3 : 1;
-    hx = 0.5 * sx; hy = H * sy; hz = 0.5 * sz;
+    hx = 0.5 * sx; hy = directorPrimitiveUnitHeight(ob.preset) * sy; hz = 0.5 * sz;
   }
   const ry = Number(ob.rotY) || 0, c = Math.cos(ry), sn = Math.sin(ry);
   const xf = (x, y, z) => v3(ob.pos.x + x * c + z * sn, ob.pos.y + Math.max(0, y), ob.pos.z - x * sn + z * c);
