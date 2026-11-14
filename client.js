@@ -19386,15 +19386,23 @@ const DIRECTOR_KEY_HELP = [
       };
       const dupSel = () => { if (!sel) return; patch((n) => { const c = JSON.parse(JSON.stringify(sel)); c.id = 'obj_' + Date.now().toString(36); c.pos = E.v3(c.pos.x + 0.8, c.pos.y, c.pos.z); n.objects.push(c); S.directorSel = c.id; }); };
       const delSel = () => { if (!sel) return; patch((n) => { n.objects = n.objects.filter((x) => x.id !== sel.id); }); S.directorSel = null; bumpView(); };
-      /** 导出当前对象为 GLB（静态网格；按部件颜色分 primitive，坐标归一到底面中心）。 */
-      const exportGlb = () => {
+      /** 导出当前对象为 GLB：角色/导入 GLB 带骨架与全部动画；几何/组合/OBJ 导静态网格。 */
+      const exportGlb = async () => {
         if (!sel) return;
         const E2 = directorEngine();
         if (!E2 || typeof E2.encodeDirectorGlb !== 'function') { setMsg({ kind: 'err', text: T('dirObjReadFail') }); return; }
         try {
-          const faces = E2.directorObjectFaces(sel);
-          if (!faces.length) throw new Error(T('dirObjReadFail'));
-          const buf = E2.encodeDirectorGlb(faces, { name: sel.name || sel.id });
+          let buf = null;
+          if ((sel.kind === 'model' || sel.kind === 'gltf') && typeof E2.encodeGltfAssetGlb === 'function') {
+            let asset = E2.gltfAssetOf(sel.assetId);
+            if (!asset && typeof loadAssetModel === 'function') asset = await loadAssetModel(sel.assetId).catch(() => null);
+            if (asset) buf = E2.encodeGltfAssetGlb(asset, { name: sel.name || sel.id });
+          }
+          if (!buf) {
+            const faces = E2.directorObjectFaces(sel);
+            if (!faces.length) throw new Error(T('dirObjReadFail'));
+            buf = E2.encodeDirectorGlb(faces, { name: sel.name || sel.id });
+          }
           const blob = new Blob([buf], { type: 'model/gltf-binary' });
           const a = document.createElement('a');
           a.href = URL.createObjectURL(blob);
@@ -20780,9 +20788,9 @@ const DIRECTOR_KEY_HELP = [
                 ] : []),
                 sel ? h('div', null,
                   h('div', { className: 'dshic-dir-subhead' }, T('dirSelObject')),
-                  (sel.kind === 'compound' || sel.kind === 'geom' || sel.kind === 'obj' || sel.kind === 'model')
+                  (sel.kind === 'compound' || sel.kind === 'geom' || sel.kind === 'obj' || sel.kind === 'model' || sel.kind === 'gltf')
                     ? h('div', { className: 'dshic-dir-row' },
-                        h('button', { type: 'button', className: 'dshic-dir-mini', 'data-action': 'dir-export-glb', onClick: exportGlb }, T('dirExportGlb')))
+                        h('button', { type: 'button', className: 'dshic-dir-mini', 'data-action': 'dir-export-glb', onClick: exportGlb, title: T('dirExportGlb') }, T('dirExportGlb')))
                     : null,
                   // 导入 GLB 的动作切换：多 clip 资产不必停在第一条动画
                   (sel.kind === 'gltf' && ((E.gltfAssetOf(sel.assetId) || {}).animations || []).length)
@@ -22820,6 +22828,70 @@ const DIRECTOR_KEY_HELP = [
         ));
     }
 
+    /** GLB 模型资产缩略图：加载资产 → 离屏 GL 渲染一帧 → dataURL（按 assetId 缓存）。 */
+    const GLTF_THUMB_CACHE = new Map();
+    async function renderGltfThumb(assetId) {
+      try {
+        const E2 = await loadDirectorEngine();
+        if (!E2 || typeof E2.createDirectorGlRenderer !== 'function' || typeof E2.parseGlb !== 'function') return '';
+        const asset = await loadAssetModel(assetId).catch(() => null);
+        if (!asset) return '';
+        const W = 128, H = 96;
+        const cv = document.createElement('canvas');
+        cv.width = W; cv.height = H;
+        const glr = E2.createDirectorGlRenderer(cv);
+        if (!glr) return '';
+        try {
+          glr.resize(W, H);
+          const h = Number(asset.rawHeight) > 0 ? Number(asset.rawHeight) : 1.7;
+          const d = Math.max(1.1, h * 1.55);
+          const scene = {
+            version: 2,
+            objects: [{
+              id: 'thumb', name: 'thumb', kind: 'gltf', assetId: String(assetId),
+              pos: { x: 0, y: 0, z: 0 }, rotY: 0.7, h, scale: { x: 1, y: 1, z: 1 },
+              clip: (asset.animations && asset.animations[0] && asset.animations[0].name) || '', animTime: 0, visible: true, color: '',
+            }],
+            cameras: [{ id: 'c', name: 'c', pos: { x: d * 0.72, y: h * 0.78, z: d * 0.9 }, target: { x: 0, y: h * 0.48, z: 0 }, fov: 38, roll: 0 }],
+            lights: [{ id: 'k', dir: E2.vNorm({ x: 0.5, y: -0.85, z: 0.3 }), color: '#ffffff', intensity: 1.15 }],
+            env: { bg: '#26282e', ground: '#2e3138', grid: false, exposure: 1, groundInRender: true },
+            activeCameraId: 'c', shot: { duration: 1 },
+          };
+          const live = typeof E2.applyPlayhead === 'function' ? E2.applyPlayhead(scene, 0) : scene;
+          glr.draw(live, { selectedId: null, renderGround: true, renderOnly: true });
+          const gl = glr.gl || glr.glctx;
+          if (!gl || typeof gl.readPixels !== 'function') return '';
+          const px = new Uint8Array(W * H * 4);
+          gl.readPixels(0, 0, W, H, gl.RGBA, gl.UNSIGNED_BYTE, px);
+          const c2 = document.createElement('canvas');
+          c2.width = W; c2.height = H;
+          const ctx = c2.getContext('2d');
+          const img = ctx.createImageData(W, H);
+          for (let y = 0; y < H; y++) img.data.set(px.subarray((H - 1 - y) * W * 4, (H - y) * W * 4), y * W * 4);
+          ctx.putImageData(img, 0, 0);
+          return c2.toDataURL('image/png');
+        } finally {
+          try { glr.dispose(); } catch { /* 忽略 */ }
+        }
+      } catch { return ''; }
+    }
+    /** 资产库模型卡片缩略图：懒渲染 + 模块级缓存（同一资产只渲一次）。 */
+    function ModelAssetThumb({ assetId }) {
+      const [url, setUrl] = useState(() => GLTF_THUMB_CACHE.get(assetId) || '');
+      useEffect(() => {
+        if (GLTF_THUMB_CACHE.has(assetId)) return undefined;
+        let ok = true;
+        renderGltfThumb(assetId).then((u) => {
+          if (!u || !ok) return;
+          GLTF_THUMB_CACHE.set(assetId, u);
+          setUrl(u);
+        }).catch(() => { /* 缩略图失败保持占位图标 */ });
+        return () => { ok = false; };
+      }, [assetId]);
+      if (url) return h('img', { className: 'dshic-asset-thumb', src: url, draggable: false });
+      return h('div', { className: 'dshic-asset-thumb', style: { display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--dsw-alias-brand-primary)' } },
+        Ic('camera', 26));
+    }
     function AssetCard({ a, checked = false, onToggleSel = () => {}, onAdd, onDel, onCat, onRename, onMove, onMeta = () => {}, projectName }) {
       const url = useAssetUrl(a.kind === 'text' ? null : a.id);
       const [craftFor, setCraftFor] = useState(false);
@@ -22896,8 +22968,7 @@ const DIRECTOR_KEY_HELP = [
             : a.kind === 'video'
               ? h('video', { className: 'dshic-asset-thumb', src: url ? url + '#t=0.1' : '', muted: true, preload: 'metadata' })
               : a.kind === 'model'
-                ? h('div', { className: 'dshic-asset-thumb', style: { display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--dsw-alias-brand-primary)' } },
-                    Ic('camera', 26))
+                ? h(ModelAssetThumb, { assetId: a.id })
                 : h('div', { className: 'dshic-asset-thumb', style: { display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--dsw-alias-brand-primary)' } },
                     Ic('audio', 26)),
         a.kind !== 'text'

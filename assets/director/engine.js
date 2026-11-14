@@ -1547,6 +1547,153 @@ export function encodeDirectorGlb(faces, opts) {
   return out;
 }
 
+/**
+ * 已解析的 glTF 资产 → GLB 2.0（完整导出：网格 + 骨架 + 全部动画）。
+ * 与 encodeDirectorGlb（静态面片）互补：角色/导入 GLB 走这里，导出的文件
+ * 在 Blender/引擎里带骨骼与动画，而不是一尊静态雕像。不接第三方转换服务。
+ */
+export function encodeGltfAssetGlb(asset, opts) {
+  const o = opts || {};
+  if (!asset || !asset.positions || !asset.positions.length || !asset.indices || !asset.indices.length) throw new Error('没有可导出的网格');
+  const views = [];
+  let byteOffset = 0;
+  const chunks = [];
+  const addView = (typed, target) => {
+    if (byteOffset % 4) { const pad = 4 - (byteOffset % 4); chunks.push(new Uint8Array(pad)); byteOffset += pad; }
+    views.push({ buffer: 0, byteOffset, byteLength: typed.byteLength, ...(target ? { target } : {}) });
+    byteOffset += typed.byteLength;
+    chunks.push(new Uint8Array(typed.buffer, typed.byteOffset, typed.byteLength));
+    return views.length - 1;
+  };
+  const addAccessor = (viewIdx, componentType, count, type, extra) => {
+    accessors.push(Object.assign({ bufferView: viewIdx, componentType, count, type }, extra || {}));
+    return accessors.length - 1;
+  };
+  const accessors = [];
+  // 顶点/法线
+  const posAcc = addAccessor(addView(asset.positions, 34962), 5126, asset.positions.length / 3, 'VEC3', { min: positionsBounds(asset.positions).min, max: positionsBounds(asset.positions).max });
+  const nrmAcc = addAccessor(addView(asset.normals && asset.normals.length === asset.positions.length ? asset.normals : new Float32Array(asset.positions.length), 34962), 5126, asset.positions.length / 3, 'VEC3');
+  const attributes = { POSITION: posAcc, NORMAL: nrmAcc };
+  // 蒙皮：JOINTS 必须是 ubyte/ushort（glTF 规范不允许 float）
+  const hasSkin = !!(asset.bones && asset.bones.length && asset.joints && asset.weights);
+  if (hasSkin) {
+    const nb = asset.bones.length;
+    const joints = new Uint16Array(asset.joints.length);
+    for (let i = 0; i < asset.joints.length; i++) joints[i] = Math.max(0, Math.min(nb - 1, Math.round(Number(asset.joints[i]) || 0)));
+    const wgt = asset.weights instanceof Float32Array ? asset.weights : Float32Array.from(asset.weights);
+    attributes.JOINTS_0 = addAccessor(addView(joints, 34962), 5123, joints.length / 4, 'VEC4');
+    attributes.WEIGHTS_0 = addAccessor(addView(wgt, 34962), 5126, wgt.length / 4, 'VEC4');
+  }
+  const idxView = addView(asset.indices, 34963);
+  const indicesAcc = addAccessor(idxView, asset.indices instanceof Uint32Array ? 5125 : 5123, asset.indices.length, 'SCALAR');
+  const primitive = { attributes, indices: indicesAcc, material: 0 };
+  // 骨架 + 逆绑定矩阵
+  let skinIdx = null;
+  if (hasSkin) {
+    const ibm = new Float32Array(asset.bones.length * 16);
+    asset.bones.forEach((b, bi) => {
+      const src = (b && b.ibm) || [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
+      for (let i = 0; i < 16; i++) ibm[bi * 16 + i] = Number(src[i]) || 0;
+    });
+    const ibmAcc = addAccessor(addView(ibm, 0), 5126, asset.bones.length, 'MAT4');
+    skinIdx = { inverseBindMatrices: ibmAcc, joints: asset.bones.map((b) => Number(b.nodeIdx) || 0), name: (o.name || 'armature') + '-skin' };
+  }
+  // 动画：times(SCALAR) + vals(VEC3/VEC4)，节点索引沿用资产原序
+  const samplers = [];
+  const channels = [];
+  const animations = (asset.animations || []).map((an, ai) => {
+    const s0 = samplers.length;
+    const c0 = channels.length;
+    (an.tracks || []).forEach((tr) => {
+      if (!tr || (!Array.isArray(tr.times) && !(tr.times instanceof Float32Array))) return;
+      const input = addAccessor(addView(Float32Array.from(tr.times), 0), 5126, tr.times.length, 'SCALAR');
+      const vecType = tr.path === 'rotation' ? 'VEC4' : 'VEC3';
+      const output = addAccessor(addView(Float32Array.from(tr.vals), 0), 5126, tr.vals.length / (vecType === 'VEC4' ? 4 : 3), vecType);
+      samplers.push({ input, output, interpolation: 'LINEAR' });
+      channels.push({ sampler: samplers.length - 1 - s0, target: { node: Number(tr.node) || 0, path: String(tr.path || 'translation') } });
+    });
+    return { name: String(an.name || ('clip' + ai)), samplers: samplers.slice(s0), channels: channels.slice(c0) };
+  });
+  // 重建节点层级（原序保留，动画目标索引不变）；网格节点单独挂在根上
+  const nodes = (asset.nodes || []).map((n, i) => {
+    void i;
+    return {
+      name: String((n && n.name) || ''),
+      translation: (n && n.t) || [0, 0, 0],
+      rotation: (n && n.r) || [0, 0, 0, 1],
+      scale: (n && n.s) || [1, 1, 1],
+    };
+  });
+  const childrenOf = new Map();
+  (asset.parentOfAll || []).forEach((p, i) => {
+    if (p >= 0 && p !== i) {
+      if (!childrenOf.has(p)) childrenOf.set(p, []);
+      childrenOf.get(p).push(i);
+    }
+  });
+  nodes.forEach((n, i) => { const ch = childrenOf.get(i); if (ch && ch.length) n.children = ch; });
+  const meshNode = {
+    name: String(o.name || 'export'),
+    mesh: 0,
+    ...(skinIdx ? { skin: 0 } : {}),
+  };
+  const meshNodeIdx = nodes.length;
+  nodes.push(meshNode);
+  const roots = (asset.parentOfAll || []).map((p, i) => (p < 0 || p === i ? i : -1)).filter((i) => i >= 0);
+  roots.push(meshNodeIdx);
+  const gltf = {
+    asset: { version: '2.0', generator: 'dsh-infinite-canvas' },
+    scene: 0,
+    scenes: [{ name: String(o.name || 'export'), nodes: roots }],
+    nodes,
+    meshes: [{ name: String(o.name || 'export'), primitives: [primitive] }],
+    materials: [{ name: 'clay', pbrMetallicRoughness: { baseColorFactor: [...directorHexToRgb('#c9ced6'), 1], metallicFactor: 0, roughnessFactor: 0.9 } }],
+    ...(skinIdx ? { skins: [skinIdx] } : {}),
+    animations,
+    buffers: [{ byteLength: 0 }],
+    bufferViews: views,
+    accessors,
+  };
+  // 拼装二进制与 JSON 块
+  const bin = new Uint8Array(byteOffset);
+  let at = 0;
+  for (const c of chunks) { bin.set(c, at); at += c.length; }
+  gltf.buffers[0].byteLength = bin.length;
+  return assembleGlb(gltf, bin);
+}
+/** 顶点包围盒（导出 accessor 的 min/max 用；与 assetBounds（资产级）不同）。 */
+function positionsBounds(positions) {
+  const min = [Infinity, Infinity, Infinity], max = [-Infinity, -Infinity, -Infinity];
+  for (let i = 0; i < positions.length; i += 3) for (let c = 0; c < 3; c++) {
+    min[c] = Math.min(min[c], positions[i + c]);
+    max[c] = Math.max(max[c], positions[i + c]);
+  }
+  return { min, max };
+}
+/** glTF JSON + BIN → GLB 容器（encodeDirectorGlb / encodeGltfAssetGlb 共用）。 */
+function assembleGlb(gltf, bin) {
+  const jsonBytes = new TextEncoder().encode(JSON.stringify(gltf));
+  const jsonPad = (4 - (jsonBytes.length % 4)) % 4;
+  const binPad = (4 - (bin.length % 4)) % 4;
+  const total = 12 + 8 + jsonBytes.length + jsonPad + 8 + bin.length + binPad;
+  const out = new ArrayBuffer(total);
+  const dv = new DataView(out);
+  const u8 = new Uint8Array(out);
+  dv.setUint32(0, GLB_MAGIC, true);
+  dv.setUint32(4, 2, true);
+  dv.setUint32(8, total, true);
+  let off = 12;
+  dv.setUint32(off, jsonBytes.length + jsonPad, true);
+  dv.setUint32(off + 4, 0x4e4f534a, true);
+  u8.set(jsonBytes, off + 8);
+  for (let i = 0; i < jsonPad; i++) u8[off + 8 + jsonBytes.length + i] = 0x20;
+  off += 8 + jsonBytes.length + jsonPad;
+  dv.setUint32(off, bin.length + binPad, true);
+  dv.setUint32(off + 4, 0x004e4942, true);
+  u8.set(bin, off + 8);
+  return out;
+}
+
 /** 采样动画轨道（线性插值；四元数用最短弧 nlerp）。 */
 /**
  * 动画时间 → 循环时间。idle/run/walk 等骨骼动画片段都是循环动画：

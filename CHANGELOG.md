@@ -165,6 +165,13 @@ GitHub Releases carry the same notes in English; maintainer-facing runbooks live
   deterministic seeding as models) and models support `mirror`, so debris and
   opposing buildings stay one spec entry. Imported multi-clip GLB assets get a
   clip dropdown in the inspector instead of being stuck on the first animation.
+- **3D-BOX full-GLB export + model thumbnails.** Characters and imported GLB
+  assets now export through a complete glTF 2.0 encoder: original skeleton
+  (joints + inverse bind matrices), every animation clip and full mesh weights
+  survive the round-trip and reopen in Blender/engine-ready form — no more
+  static-statue exports. Imported GLB objects get the same export button, and
+  the asset library renders real 3D thumbnails for model assets (offscreen GL
+  render, cached per asset) instead of a placeholder icon.
 - **Host-agnostic core contract.** A new regression proves `apply(ctx)` only
   needs `effect` + `tools.register` + `webServer.register`: 34 tools and nine
   API routes register synchronously on a minimal ctx, while llm / attachments

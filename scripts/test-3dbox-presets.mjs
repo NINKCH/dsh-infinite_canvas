@@ -126,6 +126,16 @@ for (const p of (E.SCENE_PRESETS || [])) {
     gy0 = Math.min(gy0, parsedGlb.positions[i + 1]); gy1 = Math.max(gy1, parsedGlb.positions[i + 1]);
   }
   ok(Math.abs(gy0) < 1e-4 && Math.abs(gx0 + gx1) < 1e-3, 'GLB 导出未归一到底面中心');
+  // 完整 GLB 导出：骨架 + 全部动画可原样读回（不再是静态雕像）
+  const xbotAsset = E.gltfAssetOf('xbot');
+  const skelGlb = E.encodeGltfAssetGlb(xbotAsset, { name: 'xbot' });
+  const skelBack = E.parseGlb(skelGlb);
+  ok(skelBack.bones && skelBack.bones.length === xbotAsset.bones.length, 'GLB 骨架导出丢失（' + (skelBack.bones || []).length + ' vs ' + xbotAsset.bones.length + '）');
+  ok(skelBack.animations && skelBack.animations.length === xbotAsset.animations.length, 'GLB 动画导出丢失');
+  ok(skelBack.tris === xbotAsset.tris && skelBack.positions.length === xbotAsset.positions.length, 'GLB 网格导出不一致');
+  const wantClipName = xbotAsset.animations[0].name;
+  const skelClip = (skelBack.animations || []).find((a) => a.name === wantClipName);
+  ok(skelClip && skelClip.tracks && skelClip.tracks.length === xbotAsset.animations[0].tracks.length, 'GLB 动画轨道数不一致');
   // array 复制 + mirror 镜像：4 根栅栏柱 + 左右 2 根横梁 = 6 个部件
   const fenceSpec = E.specFromScenePreset('blank');
   fenceSpec.props = [{
@@ -328,6 +338,8 @@ for (const p of (E.SCENE_PRESETS || [])) {
   ok(cli.includes("'dir-export-glb'") && cli.includes('encodeDirectorGlb'), '客户端缺少 GLB 导出入口');
   ok(cli.includes("'dir-attach-target'") && cli.includes('directorBoneNames'), '客户端缺少骨骼附件手动绑定 UI');
   ok(cli.includes("'dir-gltf-clip'"), '客户端缺少导入 GLB 的动作切换器');
+  ok(cli.includes('encodeGltfAssetGlb') && cli.includes("sel.kind === 'model' || sel.kind === 'gltf'"), 'GLB 导出未覆盖角色/导入资产（应带骨架与动画）');
+  ok(cli.includes('ModelAssetThumb') && cli.includes('renderGltfThumb'), '资产库缺少模型 3D 缩略图');
   ok(cli.includes('viewCamerasAround'), '客户端未接线四/十二方位截图');
   ok(cli.includes('cameraPathKeys') && cli.includes("'dir-cam-path-draw'"), '客户端未接线手绘运镜');
   ok(cli.includes("'dir-char-add'") && cli.includes('loadBible'), '客户端缺少角色库入口/设定集接线');
