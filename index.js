@@ -4015,8 +4015,8 @@ export function apply(ctx) {
       'Prop: { name, preset, pos:[x,y,z], scale:[x,y,z], color }',
       'Model asset: { assetId, name?, pos:[x,y,z], rotY, h, scale?, color? } — place real local GLB assets.',
       'Parametric prop: { name, pos:[x,y,z], rotY?, parts:[{preset,pos:[x,y,z],scale:[x,y,z],color?,rotY?,rx?,rz?}] } — build cars/weapons/signs/lanterns from 2-12 primitives when no local asset fits. part.pos is the bottom-center offset; scale is [width,height,depth].',
-      'Repeat/mirror/scatter: part { array:{count,offset:[dx,dy,dz],rotY?} } or { mirror:"x"|"z"|"xz" }; model { array:{count,offset:[dx,dy,dz],rotY?} } or { scatter:{count,radius,seed?} }. Use them for fences, windows, wheels, street rows and forests instead of listing every copy. Caps: 24 per part array, 40 per model array/scatter.',
-      'Bone attachment: prop/model { attach:{ to:"character id or name", bone:"RightHand"|"LeftHand"|"Head"|"Hips"|"Spine", offset:[x,y,z], rotY?, scale? } } — weapons, hats and backpacks follow the skeleton; do not animate their position separately.',
+      'Repeat/mirror/scatter: part or model { array:{count,offset:[dx,dy,dz],rotY?} } | { mirror:"x"|"z"|"xz" } | model/part { scatter:{count,radius,seed?} }. Use them for fences, windows, wheels, street rows and forests instead of listing every copy. Caps: 24 per part array/scatter, 40 per model array/scatter.',
+      'Bone attachment: prop/model { attach:{ to:"character id or name", bone:"...", offset:[x,y,z], rotY?, rx?, rz?, scale? } } — weapons, hats and backpacks follow the skeleton with full bone rotation (incl. pitch); do not animate their position separately. Common bones: Hips, Spine, Spine1, Spine2, Neck, Head, LeftShoulder, LeftArm, LeftForeArm, LeftHand, RightShoulder, RightArm, RightForeArm, RightHand, LeftUpLeg, LeftLeg, LeftFoot, RightUpLeg, RightLeg, RightFoot.',
       'Valid prop presets: ' + DIRECTOR_PROP_PRESETS.join(', ') + '.',
       'Valid pose ids: none, stand, arms_up, punch, kick, flip, fly, crouch, fight, walk, run, jump, hit, fall, walk_a, walk_b, run_a, run_b.',
       'env.preset: studio | daylight | night. Use meters and seconds.',
@@ -4025,6 +4025,25 @@ export function apply(ctx) {
       'Action words must become poseAnim/path/locomotion, not just labels. A chase needs running paths and a moving camera; a fight needs punch/kick/hit beats; dialogue needs idle poses and over-shoulder cameras.',
       'The BASE SKELETON is only a valid fallback shape; replace or extend its arrays with your own detailed staging. Never return empty cameras or shots.',
     ].join('\n');
+    /** 本地 GLB 资产目录：brief 与 edit 共用一份。 */
+    function loadDirectorCatalog() {
+      try {
+        const j = JSON.parse(readFileSync(new URL('./assets/director/models/index.json', import.meta.url), 'utf8'));
+        return Array.isArray(j.models) ? j.models : [];
+      } catch { return []; }
+    }
+    /** models[].assetId 只接受本地目录内的 id：编造 id 直接过滤，高度按目录补齐。 */
+    function sanitizeDirectorModels(spec, catalogMap) {
+      if (!spec || !Array.isArray(spec.models)) return spec;
+      spec.models = spec.models.map((m) => {
+        if (!m || typeof m !== 'object') return null;
+        const id = String(m.assetId || '');
+        const meta = catalogMap.get(id);
+        if (!meta) return null;
+        return { ...m, assetId: id, h: Number(m.h) > 0 ? Number(m.h) : Number(meta.height) || 1.7 };
+      }).filter(Boolean);
+      return spec;
+    }
     /** AI 输出的 props[].parts 清洗：白名单 preset + 限制数量，坏数据不写盘、不撑爆渲染。 */
     function normalizeDirectorParts(spec) {
       if (!spec || !Array.isArray(spec.props)) return spec;
@@ -4056,6 +4075,21 @@ export function apply(ctx) {
       const fight = /打|斗|拳|踢|击|fight|punch|kick|combat|battle/i.test(text);
       const chars = Array.isArray(spec.characters) ? spec.characters : [];
       if (!Array.isArray(spec.props) || !spec.props.length) spec.props = [{ name: '地面', preset: 'plane', pos: [0, 0, 0], scale: [16, 1, 12], color: '#9aa3ad' }];
+      // AI 失败兜底也要有"能演"的道具：追车类 brief 至少给一台参数化警车（AI 成功时它已给 parts/车，则跳过）
+      const wantsCar = /警车|警匪|追车|追逐|car|police|chase/i.test(text);
+      const hasCarProp = spec.props.some((p) => p && (Array.isArray(p.parts) || /车|car/i.test(String(p.name || ''))));
+      if (wantsCar && !hasCarProp) {
+        spec.props.push({
+          name: '警车', pos: [2.5, 0, 1],
+          parts: [
+            { preset: 'box', pos: [0, 0.4, 0], scale: [4, 0.7, 1.8], color: '#15181d' },
+            { preset: 'box', pos: [-0.3, 1.1, 0], scale: [2, 0.6, 1.6], color: '#2f6fed' },
+            { preset: 'box', pos: [-0.3, 1.45, 0], scale: [0.7, 0.16, 0.4], color: '#ff2d2d' },
+            { preset: 'cylinder', pos: [1.3, 0.3, 0.95], scale: [0.6, 0.6, 0.6], color: '#0b0b0d', mirror: 'x' },
+            { preset: 'cylinder', pos: [-1.3, 0.3, -0.95], scale: [0.6, 0.6, 0.6], color: '#0b0b0d', mirror: 'x' },
+          ],
+        });
+      }
       const duration = Math.max(0.5, Number(spec.duration) || 6);
       if (Array.isArray(spec.shots) && spec.shots.length) {
         const shots = spec.shots.slice().sort((a, b) => (Number(a.start) || 0) - (Number(b.start) || 0));
@@ -4093,11 +4127,7 @@ export function apply(ctx) {
       if (!eng || typeof eng.buildStageFromSpec !== 'function' || typeof eng.specFromBrief !== 'function') throw new Error('引擎未就绪');
       const o = opts || {};
       const seed = eng.specFromBrief(text, o);
-      let catalog = [];
-      try {
-        const j = JSON.parse(readFileSync(new URL('./assets/director/models/index.json', import.meta.url), 'utf8'));
-        catalog = Array.isArray(j.models) ? j.models : [];
-      } catch { catalog = []; }
+      const catalog = loadDirectorCatalog();
       const catalogMap = new Map(catalog.map((m) => [String(m.id), m]));
       const catalogText = catalog.map((m) => m.id + ' | ' + (m.label || '') + ' | ' + (m.category || '') + ' | h=' + (m.height || '')).join('\n');
       const call = (o && typeof o.llm === 'function') ? o.llm : roomLlm;
@@ -4137,14 +4167,7 @@ export function apply(ctx) {
           }
         }
         // 资产 id 校验 + 缺省高度（模型必须来自本地目录，绝不接受编造 id）
-        if (Array.isArray(next.models)) {
-          next.models = next.models.map((m) => {
-            const id = String((m && m.assetId) || '');
-            const meta = catalogMap.get(id);
-            if (!meta) return null;
-            return { ...m, assetId: id, h: Number(m.h) > 0 ? Number(m.h) : Number(meta.height) || 1.7 };
-          }).filter(Boolean);
-        }
+        sanitizeDirectorModels(next, catalogMap);
         normalizeDirectorParts(next);
         const built = eng.buildStageFromSpec(next);
         if (!built || !Array.isArray(built.cameras) || !built.cameras.length || !Array.isArray(built.shots) || !built.shots.length) {
@@ -4161,6 +4184,7 @@ export function apply(ctx) {
       if (!currentSpec || typeof currentSpec !== 'object') throw new Error('缺少当前场景规格');
       const eng = await loadDirectorEngine();
       if (!eng || typeof eng.buildStageFromSpec !== 'function') throw new Error('引擎未就绪');
+      const catalogMap = new Map(loadDirectorCatalog().map((m) => [String(m.id), m]));
       const call = (opts && typeof opts.llm === 'function') ? opts.llm : roomLlm;
       const baseUser = 'CURRENT SPEC JSON:\n' + JSON.stringify(currentSpec) + '\n\nINSTRUCTION:\n' + text;
       let lastErr = null;
@@ -4172,6 +4196,7 @@ export function apply(ctx) {
         const parsed = roomJson(raw);
         if (!parsed || typeof parsed !== 'object') { lastErr = new Error('模型没有返回可解析的 JSON'); continue; }
         const next = (parsed.spec && typeof parsed.spec === 'object') ? parsed.spec : parsed;
+        sanitizeDirectorModels(next, catalogMap);
         normalizeDirectorParts(next);
         const built = eng.buildStageFromSpec(next);
         if (!built || !Array.isArray(built.cameras) || !built.cameras.length || !Array.isArray(built.shots) || !built.shots.length) {

@@ -156,6 +156,15 @@ GitHub Releases carry the same notes in English; maintainer-facing runbooks live
   primitives/materials, coordinates are normalised to a ground-centred origin —
   and the result reads back through the same `parseGlb` pipeline. No external
   conversion service is involved.
+- **3D-BOX attachment polish.** Attached props now inherit the bone's full
+  rotation (pitch and roll, not just yaw), so a raised hand tilts the weapon;
+  `attach` gains `rx`/`rz` offsets. The stage inspector can bind/unbind any
+  prop or model to a character and pick a bone from the target's real skeleton,
+  and the AI prompt carries the common MixaMo rig bone list.
+- **3D-BOX symmetry + GLB clip switcher.** Parts support `scatter` (same
+  deterministic seeding as models) and models support `mirror`, so debris and
+  opposing buildings stay one spec entry. Imported multi-clip GLB assets get a
+  clip dropdown in the inspector instead of being stuck on the first animation.
 - **Host-agnostic core contract.** A new regression proves `apply(ctx)` only
   needs `effect` + `tools.register` + `webServer.register`: 34 tools and nine
   API routes register synchronously on a minimal ctx, while llm / attachments
@@ -164,7 +173,18 @@ GitHub Releases carry the same notes in English; maintainer-facing runbooks live
   so the main npm package stays lightweight.
 
 ### Fixed
-- (nothing in this cycle yet)
+- **3D-BOX prop paths survive spec round-trips.** Drawing a path on a prop
+  (a chasing car, a rolling barrel) played correctly but was silently dropped
+  by `buildStageFromSpec` / `compileStageSpec`, so AI edits and spec exports
+  lost it. Props now parse and re-emit `path` / `pathMode` / `pathFace` like
+  characters do.
+- **Scene edits validate `models[]`.** `canvas_director_stage action=edit`
+  now applies the same local-asset whitelist and height backfill as one-line
+  briefs; an invented `assetId` from the model is filtered out instead of
+  rendering as a mystery box.
+- **Fallback briefs include a drivable car.** When the AI call fails, chase /
+  police briefs now get a parametric police car (body, cabin, light bar, four
+  mirrored wheels) instead of only ground, buildings and trees.
 
 ### Changed
 - **3D-BOX entry and workflow/character fusion.** The rail now has a single

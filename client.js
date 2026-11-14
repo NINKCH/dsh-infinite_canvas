@@ -765,12 +765,13 @@ function revealCanvasInRight() {
       'dirUploadObj': '上传模型（OBJ / GLB）',
       'dirUploadHint': '支持 Blender「导出 → Wavefront (.obj)」与 glTF 二进制（.glb）；OBJ 建议 <900KB，GLB 建议 <20MB；自动归一化高度、底面落地。',
       'dirObjOnly': '只支持 .obj / .glb 文件（Blender 导出 Wavefront 或 glTF Binary）',
-      'dirObjTooBig': 'OBJ 文件过大（>900KB）——请在 Blender 里先减面或拆分',
       'dirObjLoaded': '模型已载入',
       'dirObjReadFail': '文件读取失败',
       'dirObjTooLarge': 'OBJ 超过 900KB，请先减面或压缩后再导入',
       'dirGlbTooLarge': 'GLB 超过 20MB，请先减面或压缩后再导入',
       'dirExportGlb': '导出 GLB',
+      'dirAttach': '骨骼附件',
+      'dirAttachNone': '未绑定',
       'dirSelObject': '选中对象',
       'dirName': '名称',
       'dirPos': '位置',
@@ -2047,12 +2048,13 @@ function revealCanvasInRight() {
       'dirUploadObj': 'Upload model (OBJ / GLB)',
       'dirUploadHint': 'Accepts Blender Wavefront (.obj) and glTF Binary (.glb); OBJ under 900KB, GLB under 20MB; auto-normalised height, feet on ground.',
       'dirObjOnly': 'Only .obj / .glb files are supported (Wavefront or glTF Binary)',
-      'dirObjTooBig': 'OBJ file too large (>900KB) — decimate or split it in Blender first',
       'dirObjLoaded': 'Model loaded',
       'dirObjReadFail': 'Failed to read the file',
       'dirObjTooLarge': 'OBJ exceeds 900KB; reduce the mesh before importing',
       'dirGlbTooLarge': 'GLB exceeds 20MB; reduce or compress the mesh before importing',
       'dirExportGlb': 'Export GLB',
+      'dirAttach': 'Bone attach',
+      'dirAttachNone': 'Not bound',
       'dirSelObject': 'Selected object',
       'dirName': 'Name',
       'dirPos': 'Position',
@@ -20781,6 +20783,43 @@ const DIRECTOR_KEY_HELP = [
                   (sel.kind === 'compound' || sel.kind === 'geom' || sel.kind === 'obj' || sel.kind === 'model')
                     ? h('div', { className: 'dshic-dir-row' },
                         h('button', { type: 'button', className: 'dshic-dir-mini', 'data-action': 'dir-export-glb', onClick: exportGlb }, T('dirExportGlb')))
+                    : null,
+                  // 导入 GLB 的动作切换：多 clip 资产不必停在第一条动画
+                  (sel.kind === 'gltf' && ((E.gltfAssetOf(sel.assetId) || {}).animations || []).length)
+                    ? h('div', { className: 'dshic-dir-row' }, h('span', null, T('dirAction')), h('select', {
+                        className: 'dshic-dir-input', 'data-action': 'dir-gltf-clip',
+                        value: String(sel.clip || ((((E.gltfAssetOf(sel.assetId) || {}).animations || [])[0] || {}).name || '')),
+                        onChange: (e2) => patch((n) => { const t2 = n.objects.find((x) => x.id === sel.id); if (t2) { t2.clip = String(e2.target.value || ''); t2.animTime = 0; } }),
+                      }, ((E.gltfAssetOf(sel.assetId) || {}).animations || []).map((a2) => h('option', { key: a2.name, value: a2.name }, clipLabel(a2.name)))))
+                    : null,
+                  // 骨骼附件：道具/模型手动绑定到角色骨骼（AI 生成的 attach 也可在此改绑/解绑）
+                  (sel.kind !== 'model' && sel.kind !== 'actor')
+                    ? (() => {
+                        const chars = (scene.objects || []).filter((o) => o.kind === 'model');
+                        const bound = sel.attach || null;
+                        const boundTarget = bound ? chars.find((c) => c.id === bound.to || c.name === bound.to) : null;
+                        const boundId = boundTarget ? String(boundTarget.id) : '';
+                        const boneSource = boundTarget ? String(boundTarget.assetId || 'xbot') : (chars[0] ? String(chars[0].assetId || 'xbot') : 'xbot');
+                        const boneOpts = [...new Set(['RightHand', 'LeftHand', 'Head', 'Hips', 'Spine', 'Spine1', 'Spine2', 'RightForeArm', 'LeftForeArm', 'RightFoot'].concat(E.directorBoneNames ? E.directorBoneNames(boneSource) : []))];
+                        return h('div', { className: 'dshic-dir-row' }, h('span', null, T('dirAttach')),
+                          chars.length ? h('select', {
+                            className: 'dshic-dir-input', style: { maxWidth: 96 }, 'data-action': 'dir-attach-target',
+                            value: boundId,
+                            onChange: (e2) => patch((n) => {
+                              const t2 = n.objects.find((x) => x.id === sel.id);
+                              if (!t2) return;
+                              const v = String(e2.target.value || '');
+                              if (!v) { delete t2.attach; delete t2.attachBone; }
+                              else t2.attach = Object.assign({}, t2.attach || {}, { to: v });
+                            }),
+                          }, [h('option', { key: 'none', value: '' }, T('dirAttachNone'))].concat(chars.map((c) => h('option', { key: c.id, value: c.id }, String(c.name || c.id)))))
+                            : h('span', { className: 'dshic-dir-time' }, T('dirAttachNone')),
+                          bound ? h('select', {
+                            className: 'dshic-dir-input', style: { maxWidth: 118 }, 'data-action': 'dir-attach-bone',
+                            value: String(bound.bone || 'RightHand'),
+                            onChange: (e2) => patch((n) => { const t2 = n.objects.find((x) => x.id === sel.id); if (t2 && t2.attach) t2.attach = Object.assign({}, t2.attach, { bone: String(e2.target.value || 'RightHand') }); }),
+                          }, boneOpts.map((b) => h('option', { key: b, value: b }, b))) : null);
+                      })()
                     : null,
                   h('div', { className: 'dshic-dir-row' }, h('span', null, T('dirPos')), num3([sel.pos.x, sel.pos.y, sel.pos.z], (v, i) => patch((n) => { const t2 = n.objects.find((x) => x.id === sel.id); if (t2) t2.pos[i === 0 ? 'x' : i === 1 ? 'y' : 'z'] = i === 1 ? Math.max(0, v) : v; }))),
                   // 身高：直接改对象自己的 h（米）。体型表的 h 只在新建时写入，已有对象靠这里改。

@@ -67,6 +67,11 @@ for (const p of (E.SCENE_PRESETS || [])) {
   ok(fs.every((o) => Math.hypot(o.pos.x, o.pos.z) <= 4.0001), 'scatter 超出半径');
   const forest2 = E.buildStageFromSpec({ models: [{ assetId: 'tree_oak', scatter: { count: 5, radius: 4, seed: 9 } }] });
   ok(JSON.stringify(fs.map((o) => [o.pos.x, o.pos.z])) === JSON.stringify(forest2.objects.filter((o) => o.assetId === 'tree_oak').map((o) => [o.pos.x, o.pos.z])), 'scatter 结果不确定（同 seed 位置应一致）');
+  // mirror：单栋建筑沿原点镜像出对面一栋
+  const mirrored = E.buildStageFromSpec({ models: [{ assetId: 'bld_a', pos: [4, 0, -2], rotY: 0.5, h: 12, mirror: 'x' }] });
+  const mb = mirrored.objects.filter((o) => o.assetId === 'bld_a');
+  ok(mb.length === 2, 'models mirror 未展开（实际 ' + mb.length + '）');
+  ok(Math.abs(mb[1].pos.x + 4) < 1e-6 && Math.abs(mb[1].rotY + 0.5) < 1e-6, 'models mirror 位置/朝向不对');
 }
 
 // ── ③c 参数化组合道具：parts 拼装 + 父变换 + 颜色 + 往返 ──
@@ -133,9 +138,34 @@ for (const p of (E.SCENE_PRESETS || [])) {
   ok(fence && fence.parts.length === 6, 'parts array/mirror 未展开（实际 ' + (fence && fence.parts.length) + '）');
   const xs = fence ? fence.parts.map((p) => p.pos.x) : [];
   ok(xs.includes(3) && xs.includes(-0.5) && xs.includes(0.5), 'parts array/mirror 位置不对：' + xs.join(','));
+  // parts scatter：确定性撒点（碎石/杂物）
+  const debrisSpec = E.specFromScenePreset('blank');
+  debrisSpec.props = [{ name: '碎石', parts: [{ preset: 'box', pos: [0, 0.1, 0], scale: [0.2, 0.2, 0.2], scatter: { count: 4, radius: 3, seed: 5 } }] }];
+  const debris = E.buildStageFromSpec(debrisSpec).objects.find((o) => o.kind === 'compound');
+  ok(debris && debris.parts.length === 4, 'parts scatter 数量不对：' + (debris && debris.parts.length));
+  ok(debris && debris.parts.every((p) => Math.hypot(p.pos.x, p.pos.z) <= 3.01), 'parts scatter 超出半径');
+  const debris2 = E.buildStageFromSpec(debrisSpec).objects.find((o) => o.kind === 'compound');
+  ok(JSON.stringify(debris.parts.map((p) => [p.pos.x, p.pos.z])) === JSON.stringify(debris2.parts.map((p) => [p.pos.x, p.pos.z])), 'parts scatter 结果不确定');
 }
 
-// ── ③d 骨骼附件：武器/帽子跟随角色骨骼，坏骨骼不瞬移，往返保真 ──
+// ── ③e 道具路径：spec 解析 / 播放头生效 / 往返保真（警车追击）──
+{
+  const spec = E.specFromScenePreset('blank');
+  spec.props = [{ id: 'car', name: '警车', preset: 'box', pos: [2, 0, 1], scale: [1, 0.5, 2], path: [[2, 1], [6, 1], [10, 1]] }];
+  const sc = E.buildStageFromSpec(spec);
+  const car = sc.objects.find((o) => o.id === 'car');
+  ok(Array.isArray(car.path) && car.path.length === 3, '道具 path 未被 spec 解析');
+  const t0 = E.applyPlayhead(sc, 0).objects.find((o) => o.id === 'car');
+  const t3 = E.applyPlayhead(sc, 3).objects.find((o) => o.id === 'car');
+  ok(t3 && Math.abs(t3.pos.x - t0.pos.x) > 0.5, '道具应沿路径移动');
+  const back = E.compileStageSpec(sc);
+  const backCar = (back.props || []).find((p) => p.id === 'car');
+  ok(backCar && Array.isArray(backCar.path) && backCar.path.length === 3, '道具 path 往返丢失');
+  const sc2 = E.buildStageFromSpec(JSON.parse(JSON.stringify(back)));
+  ok(sc2.objects.find((o) => o.id === 'car') && Array.isArray(sc2.objects.find((o) => o.id === 'car').path) && sc2.objects.find((o) => o.id === 'car').path.length === 3, '道具 path 二次构建丢失');
+}
+
+// ── ③f 骨骼附件：武器/帽子跟随角色骨骼，坏骨骼不瞬移，往返保真 ──
 {
   const spec = E.specFromScenePreset('blank');
   spec.characters = [{ id: 'hero', name: 'Hero', assetId: 'xbot', pos: [1, 0, 0], clip: 'idle', pose: 'stand' }];
@@ -149,6 +179,8 @@ for (const p of (E.SCENE_PRESETS || [])) {
   const gun = live.objects.find((o) => o.id === 'gun');
   const hero = live.objects.find((o) => o.id === 'hero');
   ok(gun && gun.attachBone === 'RightHand', '骨骼附件未解析到 RightHand');
+  ok(gun && Number.isFinite(gun.rx) && Number.isFinite(gun.rz), '骨骼附件未输出完整旋转（rx/rz）');
+  ok(Array.isArray(E.directorBoneNames('xbot')) && E.directorBoneNames('xbot').includes('RightHand') && E.directorBoneNames('xbot').length > 40, 'directorBoneNames 未返回骨骼清单');
   ok(gun && Math.hypot(gun.pos.x - hero.pos.x, gun.pos.z - hero.pos.z) < 1.2, '骨骼附件离角色太远（未跟手）');
   ok(gun && gun.pos.y > 0.4, '骨骼附件高度不对（应跟随手部）');
   const moved = JSON.parse(JSON.stringify(sc));
@@ -294,6 +326,8 @@ for (const p of (E.SCENE_PRESETS || [])) {
   ok(!cli.includes('model3dStart') && !cli.includes('Meshy'), '仍残留第三方 Meshy 3D 集成');
   ok(cli.includes('importGlbFile') && cli.includes("accept: '.obj,.glb'") && cli.includes('model/gltf-binary'), '客户端缺少本地 GLB 导入');
   ok(cli.includes("'dir-export-glb'") && cli.includes('encodeDirectorGlb'), '客户端缺少 GLB 导出入口');
+  ok(cli.includes("'dir-attach-target'") && cli.includes('directorBoneNames'), '客户端缺少骨骼附件手动绑定 UI');
+  ok(cli.includes("'dir-gltf-clip'"), '客户端缺少导入 GLB 的动作切换器');
   ok(cli.includes('viewCamerasAround'), '客户端未接线四/十二方位截图');
   ok(cli.includes('cameraPathKeys') && cli.includes("'dir-cam-path-draw'"), '客户端未接线手绘运镜');
   ok(cli.includes("'dir-char-add'") && cli.includes('loadBible'), '客户端缺少角色库入口/设定集接线');
@@ -305,6 +339,7 @@ for (const p of (E.SCENE_PRESETS || [])) {
   ok(host.includes('AVAILABLE LOCAL ASSETS') && host.includes('Never invent assetId'), 'Host 未把本地资产目录注入 AI prompt');
   ok(host.includes('Parametric prop') && host.includes('parts:[{preset'), 'Host 未把 parts 参数化建模 schema 注入 AI prompt');
   ok(host.includes('Bone attachment') && host.includes('RightHand'), 'Host 未把骨骼附件 schema 注入 AI prompt');
+  ok(host.includes('Common bones') && host.includes('RightForeArm'), 'Host 未注入常用骨骼清单');
   ok(cli.includes('CAMERA_MOVES') || cli.includes('DIRECTOR_MOVES'), '客户端未接线运镜清单');
 }
 

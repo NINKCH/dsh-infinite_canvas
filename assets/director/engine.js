@@ -3170,27 +3170,40 @@ export function buildStageFromSpec(spec) {
     const stepRot = arr ? num(arr.rotY, 0) : 0;
     const radius = scat ? Math.max(0, num(scat.radius, 0)) : 0;
     const seed = scat ? num(scat.seed, 1) : 1;
+    const mirror = String(m.mirror || '').toLowerCase();
+    const mirrorAxes = [''];
+    if (mirror.includes('x')) mirrorAxes.push('x');
+    if (mirror.includes('z')) mirrorAxes.push('z');
+    if (mirror.includes('x') && mirror.includes('z')) mirrorAxes.push('xz');
     for (let i = 0; i < count; i++) {
       if (modelInstances >= 160) break;   // 防 AI 一次生成上千棵树
-      seq += 1;
-      modelInstances += 1;
       const scattered = scat ? directorScatterOffset(i, seed, radius) : { x: 0, z: 0, rotY: 0 };
-      const pos = v3(basePos.x + off.x * i + scattered.x, basePos.y + off.y * i, basePos.z + off.z * i + scattered.z);
-      const mob = {
-        id: String(m.id || 'model' + seq) + (count > 1 ? '_' + (i + 1) : ''),
-        name: String(m.name || m.label || id) + (count > 1 ? ' ' + (i + 1) : ''),
-        kind: 'gltf', assetId: id, catalog: true,
-        pos, rotY: num(m.rotY, 0) + stepRot * i + scattered.rotY, rx: num(m.rx, 0), rz: num(m.rz, 0),
-        scale: m.scale ? v3of(m.scale, 1) : v3(1, 1, 1),
-        h: num(m.h, 1.7), visible: m.visible !== false, color: String(m.color || ''),
-        clip: String(m.clip || ''), animTime: 0,
-      };
-      if (m.material && typeof m.material === 'object') mob.material = { ...m.material };
-      if (m.attach && typeof m.attach === 'object') mob.attach = JSON.parse(JSON.stringify(m.attach));
-      if (Array.isArray(m.keys)) {
-        mob.keys = m.keys.map((k) => ({ t: num(k.t, 0), pos: v3of(k.pos, 0), rotY: num(k.rotY, 0), ease: String(k.ease || 'auto') })).sort((a, b) => a.t - b.t);
+      const px = basePos.x + off.x * i + scattered.x;
+      const py = basePos.y + off.y * i;
+      const pz = basePos.z + off.z * i + scattered.z;
+      const prot = num(m.rotY, 0) + stepRot * i + scattered.rotY;
+      for (const ax of mirrorAxes) {
+        if (modelInstances >= 160) break;
+        seq += 1;
+        modelInstances += 1;
+        const suffix = (count > 1 ? '_' + (i + 1) : '') + (ax ? '_m' + ax : '');
+        const mob = {
+          id: String(m.id || 'model' + seq) + suffix,
+          name: String(m.name || m.label || id) + (count > 1 ? ' ' + (i + 1) : '') + (ax ? ' M' + ax.toUpperCase() : ''),
+          kind: 'gltf', assetId: id, catalog: true,
+          pos: v3(ax.includes('x') ? -px : px, py, ax.includes('z') ? -pz : pz),
+          rotY: ax ? -prot : prot, rx: num(m.rx, 0), rz: ax ? -num(m.rz, 0) : num(m.rz, 0),
+          scale: m.scale ? v3of(m.scale, 1) : v3(1, 1, 1),
+          h: num(m.h, 1.7), visible: m.visible !== false, color: String(m.color || ''),
+          clip: String(m.clip || ''), animTime: 0,
+        };
+        if (m.material && typeof m.material === 'object') mob.material = { ...m.material };
+        if (m.attach && typeof m.attach === 'object') mob.attach = JSON.parse(JSON.stringify(m.attach));
+        if (Array.isArray(m.keys)) {
+          mob.keys = m.keys.map((k) => ({ t: num(k.t, 0), pos: v3of(k.pos, 0), rotY: num(k.rotY, 0), ease: String(k.ease || 'auto') })).sort((a, b) => a.t - b.t);
+        }
+        objects.push(mob);
       }
-      objects.push(mob);
     }
   }
   for (const p of Array.isArray(sp.props) ? sp.props : []) {
@@ -3212,18 +3225,22 @@ export function buildStageFromSpec(spec) {
       for (const pt of p.parts) {
         if (!pt || typeof pt !== 'object') continue;
         const arr = pt.array && typeof pt.array === 'object' ? pt.array : null;
-        const count = Math.max(1, Math.min(24, Math.round(num(arr && arr.count, 1))));
+        const scat = pt.scatter && typeof pt.scatter === 'object' ? pt.scatter : null;
+        const count = Math.max(1, Math.min(24, Math.round(num((arr || scat || {}).count, 1))));
         const basePos = v3of(pt.pos, 0);
         const off = arr ? v3of(arr.offset, 0) : v3(0, 0, 0);
         const stepRot = arr ? num(arr.rotY, 0) : 0;
+        const radius = scat ? Math.max(0, num(scat.radius, 0)) : 0;
+        const seed = scat ? num(scat.seed, 1) : 1;
         const mirror = String(pt.mirror || '').toLowerCase();
         const axes = [''];
         if (mirror.includes('x')) axes.push('x');
         if (mirror.includes('z')) axes.push('z');
         if (mirror.includes('x') && mirror.includes('z')) axes.push('xz');
         for (let i = 0; i < count; i++) {
-          const x = basePos.x + off.x * i, y = basePos.y + off.y * i, z2 = basePos.z + off.z * i;
-          const rotY = num(pt.rotY, 0) + stepRot * i;
+          const sc = scat ? directorScatterOffset(i, seed, radius) : { x: 0, z: 0, rotY: 0 };
+          const x = basePos.x + off.x * i + sc.x, y = basePos.y + off.y * i, z2 = basePos.z + off.z * i + sc.z;
+          const rotY = num(pt.rotY, 0) + stepRot * i + sc.rotY;
           for (const ax of axes) {
             rawParts.push({
               ...pt,
@@ -3264,6 +3281,9 @@ export function buildStageFromSpec(spec) {
         ...(k.interp ? { interp: String(k.interp) } : {}),
       })).sort((x, y) => x.t - y.t);
     }
+    // 道具路径：与角色同构（画路径线即可让警车/道具沿线运动）
+    addPath(pob, p.path, p.pathMode);
+    if (pob.path && p.pathFace === false) pob.pathFace = false;
     objects.push(pob);
   }
   const cameras = (Array.isArray(sp.cameras) ? sp.cameras : []).map((c, i) => {
@@ -3414,6 +3434,9 @@ export function compileStageSpec(scene) {
         ...(ob.attach ? { attach: JSON.parse(JSON.stringify(ob.attach)) } : {}),
         ...(Array.isArray(ob.keys) && ob.keys.length
           ? { keys: ob.keys.map((k) => ({ t: round3(k.t), pos: arr(k.pos), rotY: round3(k.rotY || 0), rx: round3(k.rx || 0), rz: round3(k.rz || 0), ease: k.ease || 'auto' })) }
+          : {}),
+        ...(Array.isArray(ob.path) && ob.path.length
+          ? { path: ob.path.map(arr), pathMode: ob.pathMode || 'curve', ...(ob.pathFace === false ? { pathFace: false } : {}) }
           : {}),
       };
       // 参数化组合道具：parts 必须原样往返，否则二次编辑会退化成单个方块
@@ -4177,8 +4200,39 @@ export function directorBoneIndex(asset, name) {
   return i;
 }
 
+/** 欧拉角 → 局部轴（R = Ry·Rx·Rz，与 objectAxes 同序）。 */
+function directorAxesFromEuler(rx, ry, rz) {
+  const cx = Math.cos(rx), sx = Math.sin(rx);
+  const cy = Math.cos(ry), sy = Math.sin(ry);
+  const cz = Math.cos(rz), sz = Math.sin(rz);
+  return {
+    x: v3(cy * cz + sy * sx * sz, cx * sz, -sy * cz + cy * sx * sz),
+    y: v3(-cy * sz + sy * sx * cz, cx * cz, sy * sz + cy * sx * cz),
+    z: v3(sy * cx, -sx, cy * cx),
+  };
+}
+/** 局部轴相乘：返回 A·B（先作用 B 再作用 A）。 */
+function directorAxesMul(A, B) {
+  const mul = (c) => v3(A.x.x * c.x + A.y.x * c.y + A.z.x * c.z, A.x.y * c.x + A.y.y * c.y + A.z.y * c.z, A.x.z * c.x + A.y.z * c.y + A.z.z * c.z);
+  return { x: mul(B.x), y: mul(B.y), z: mul(B.z) };
+}
+/** 局部轴 → 欧拉角（R = Ry·Rx·Rz 约定）；万向锁时 rz 置 0。 */
+function directorEulerFromAxes(A) {
+  const rx = Math.asin(Math.max(-1, Math.min(1, -A.z.y)));
+  const cx = Math.cos(rx);
+  let ry, rz;
+  if (Math.abs(cx) > 1e-6) {
+    ry = Math.atan2(A.z.x, A.z.z);
+    rz = Math.atan2(A.x.y / cx, A.y.y / cx);
+  } else {
+    rz = 0;
+    ry = Math.atan2(A.x.x, -A.x.z);
+  }
+  return { rx, ry, rz };
+}
+
 /**
- * 骨骼插槽（角色局部坐标）：返回骨骼原点 + 偏航角，供武器/帽子/背包跟随。
+ * 骨骼插槽（角色局部坐标）：返回骨骼原点 + 完整局部轴 + 偏航角，供武器/帽子/背包跟随。
  * 不生成网格，只读骨骼世界矩阵；找不到骨骼时返回 null（不把道具瞬移到脚下）。
  */
 export function directorObjectBoneSocket(ob, boneName) {
@@ -4191,12 +4245,22 @@ export function directorObjectBoneSocket(ob, boneName) {
   if (!m) return null;
   const k = mats.scale * (Number(ob.s) || 1);
   const sc = ob.scale || { x: 1, y: 1, z: 1 };
+  // 骨骼旋转列归一化（蒙皮矩阵带缩放，附件只要方向）
+  const norm = (x, y, z) => { const l = Math.hypot(x, y, z) || 1; return v3(x / l, y / l, z / l); };
   return {
     x: m[12] * k * (Number(sc.x) || 1),
     y: m[13] * k * (Number(sc.y) || 1),
     z: m[14] * k * (Number(sc.z) || 1),
     yaw: Math.atan2(m[8], m[10]),
+    axes: { x: norm(m[0], m[1], m[2]), y: norm(m[4], m[5], m[6]), z: norm(m[8], m[9], m[10]) },
   };
+}
+
+/** 资产的骨骼名清单（去掉 mixamorig: 前缀），供附件 UI 与 AI prompt 使用。 */
+export function directorBoneNames(assetId) {
+  const asset = gltfAssetOf(assetId);
+  if (!asset || !Array.isArray(asset.bones)) return [];
+  return asset.bones.map((b) => String((b && b.name) || '').replace(/^mixamorig:?/i, '')).filter(Boolean);
 }
 
 export function applyPlayhead(scene, t) {
@@ -4356,17 +4420,20 @@ export function applyPlayhead(scene, t) {
     return next;
   });
 
-  // 骨骼附件：武器/帽子/背包跟随角色骨骼（在对象运动求值之后覆盖 pos/rotY）
+  // 骨骼附件：武器/帽子/背包跟随角色骨骼（在对象运动求值之后覆盖 pos/rotY/rx/rz）
   {
     const byId = new Map();
+    const byName = new Map();
     for (const o of out.objects) {
       byId.set(String(o.id), o);
-      if (o.name) byId.set(String(o.name), o);
+      if (o.name && !byName.has(String(o.name))) byName.set(String(o.name), o);
     }
     for (const ob of out.objects) {
       const at = ob.attach;
       if (!at || typeof at !== 'object') continue;
-      const target = byId.get(String(at.to || at.character || at.target || ''));
+      const key = String(at.to || at.character || at.target || '');
+      // 先按 id 精确匹配，找不到再按 name（避免角色名与道具 id 撞名时绑错）
+      const target = byId.get(key) || byName.get(key);
       if (!target || target === ob || (target.kind !== 'model' && target.kind !== 'actor')) continue;
       const sock = directorObjectBoneSocket(target, at.bone || 'RightHand');
       if (!sock) continue;
@@ -4379,10 +4446,19 @@ export function applyPlayhead(scene, t) {
       const ox = Number(oo[0] !== undefined ? oo[0] : oo.x) || 0;
       const oy = Number(oo[1] !== undefined ? oo[1] : oo.y) || 0;
       const oz = Number(oo[2] !== undefined ? oo[2] : oo.z) || 0;
-      const yaw = cry + sock.yaw + (Number(at.rotY) || 0);
-      const oc = Math.cos(cry + sock.yaw), os = Math.sin(cry + sock.yaw);
-      ob.pos = v3(bx + ox * oc + oz * os, by + oy, bz - ox * os + oz * oc);
-      ob.rotY = yaw;
+      // 朝向 = 角色偏航 · 骨骼旋转 · 附件自转（含俯仰/翻滚，不只是偏航）
+      const worldAxes = sock.axes
+        ? directorAxesMul(directorAxesMul(directorAxesFromEuler(0, cry, 0), sock.axes), directorAxesFromEuler(Number(at.rx) || 0, Number(at.rotY) || 0, Number(at.rz) || 0))
+        : null;
+      const eul = worldAxes ? directorEulerFromAxes(worldAxes) : { rx: 0, ry: cry + sock.yaw + (Number(at.rotY) || 0), rz: 0 };
+      ob.pos = worldAxes
+        ? v3(bx + ox * worldAxes.x.x + oy * worldAxes.y.x + oz * worldAxes.z.x,
+             by + ox * worldAxes.x.y + oy * worldAxes.y.y + oz * worldAxes.z.y,
+             bz + ox * worldAxes.x.z + oy * worldAxes.y.z + oz * worldAxes.z.z)
+        : (() => { const oc = Math.cos(cry + sock.yaw), os = Math.sin(cry + sock.yaw); return v3(bx + ox * oc + oz * os, by + oy, bz - ox * os + oz * oc); })();
+      ob.rotY = eul.ry;
+      ob.rx = eul.rx;
+      ob.rz = eul.rz;
       ob.attachBone = String(at.bone || 'RightHand');
       const k2 = Number(at.scale);
       if (k2 > 0) {

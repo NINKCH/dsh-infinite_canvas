@@ -410,10 +410,12 @@ try {
   const spec1 = JSON.parse(JSON.stringify(spec0));
   spec1.cameras[0].pos = [0, 1.1, 6];
   spec1.duration = 6;
+  spec1.models = [{ assetId: 'not_a_local_asset', pos: [0, 0, 0] }];
   mod._internals.__auto.setRoomLlm(async () => JSON.stringify(spec1));
   const ed = await byName.get('canvas_director_stage').execute({ action: 'edit', projectId, instruction: '机位低一点，时长改成6秒' }, {});
   if (!ed || !ed.ok) throw new Error('edit failed');
   if (!ed.spec || ed.spec.cameras[0].pos[1] !== 1.1) throw new Error('edit spec not applied');
+  if (Array.isArray(ed.spec.models) && ed.spec.models.length) throw new Error('edit accepted an invented assetId');
   const got = await byName.get('canvas_director_stage').execute({ action: 'get', projectId }, {});
   if (!got || !got.spec || got.spec.duration !== 6) throw new Error('edit not persisted');
   mod._internals.__auto.setRoomLlm(async () => 'not json');
@@ -462,6 +464,12 @@ try {
   if (carProp.parts[2].preset !== 'box') throw new Error('invalid part preset was not normalized');
   const gunProp = (briefR.spec.props || []).find((p) => p.name === '手枪');
   if (!gunProp || !gunProp.attach || gunProp.attach.bone !== 'RightHand') throw new Error('AI brief dropped bone attachment');
+  // AI 失败兜底：本地模板 + enrich，追车 brief 至少要补一台参数化警车
+  mod._internals.__auto.setRoomLlm(async () => 'not json at all');
+  const fb = await rpc.directorStageBrief({ projectId, brief: '夜晚街头警匪追车，6秒' });
+  if (!fb || !fb.ok || fb.source !== 'fallback' || !fb.warning) throw new Error('brief fallback did not degrade visibly');
+  const fbCar = ((fb.spec && fb.spec.props) || []).find((p) => p.name === '警车');
+  if (!fbCar || !Array.isArray(fbCar.parts) || fbCar.parts.length < 5) throw new Error('fallback brief did not add a parametric police car');
   mod._internals.__auto.setRoomLlm(async () => aiSpec('AI 追车 B', '匪'));
   const briefR2 = await rpc.directorStageBrief({ projectId, brief: '另一条追车，6秒' });
   if (!briefR2 || !briefR2.ok || !briefR2.stageId || briefR2.stageId === briefR.stageId) throw new Error('second brief did not create a new stage');
