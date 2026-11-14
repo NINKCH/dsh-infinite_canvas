@@ -134,10 +134,13 @@ GitHub Releases carry the same notes in English; maintainer-facing runbooks live
 - **3D-BOX: parametric compound props.** A new `props[].parts` schema builds a
   car, weapon, sign or lamp from 2–12 local primitives when no catalog asset
   fits: each part has its own preset, position, scale, rotation and colour, and
-  inherits the parent prop's transform. Parts render with per-colour batching
-  in both WebGL and Canvas2D, drive the object anchor/screen box, and survive
-  spec round-trips; AI-emitted parts are limited to 40 and bad presets fall
-  back to `box` before the spec is saved.
+  inherits the parent prop's transform. Parts can repeat (`array`) and mirror
+  (`mirror`), and catalog models can repeat or scatter (`array`/`scatter`), so
+  fences, windows, wheels, street rows and forests stay one compact spec entry.
+  Parts render with per-colour batching in both WebGL and Canvas2D, drive the
+  object anchor/screen box, and survive spec round-trips; AI-emitted parts are
+  limited to 40 and bad presets fall back to `box` before the spec is saved.
+  Scatter uses a deterministic seed, so playback and exports do not reshuffle.
 - **Host-agnostic core contract.** A new regression proves `apply(ctx)` only
   needs `effect` + `tools.register` + `webServer.register`: 34 tools and nine
   API routes register synchronously on a minimal ctx, while llm / attachments

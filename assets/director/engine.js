@@ -2966,6 +2966,18 @@ export function objectPathPos(ob, time, duration) {
 // ============================================================
 const SPEC_PRESET_IDS = ['box', 'sphere', 'cylinder', 'cone', 'plane', 'capsule', 'torus', 'pyramid', 'disc', 'arc', 'half_cylinder', 'ancient_house', 'ancient_stall', 'stone_step'];
 
+/** 确定性撒点：同一 seed + index 永远得到同一位置，避免每次播放/导出树的位置乱跳。 */
+function directorScatterOffset(i, seed, radius) {
+  let h = (Math.round(Number(seed) || 1) * 374761393 + i * 668265263) | 0;
+  h = Math.imul(h ^ (h >>> 13), 1274126177);
+  const a = ((h >>> 0) % 10000) / 10000;
+  let h2 = (h ^ 0x9e3779b9) | 0;
+  h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822519);
+  const b = ((h2 >>> 0) % 10000) / 10000;
+  const r = Math.sqrt(a) * Math.max(0, Number(radius) || 0);
+  return { x: Math.cos(b * Math.PI * 2) * r, z: Math.sin(b * Math.PI * 2) * r, rotY: b * Math.PI * 2 };
+}
+
 /**
  * 规格 → 场景。数组坐标一律简写 [x,y,z] 或 [x,z]（两维视为地面 x/z，y=0）。
  */
@@ -3044,23 +3056,40 @@ export function buildStageFromSpec(spec) {
     objects.push(ob);
   }
   // 本地资产目录（bld_* / furn_* / tree_* / 人形等）：真实 GLB，按 assetId 预加载与渲染。
+  let modelInstances = 0;
   for (const m of Array.isArray(sp.models) ? sp.models : []) {
-    seq += 1;
+    if (!m || typeof m !== 'object') continue;
     const id = String((m && m.assetId) || '');
     if (!id) continue;
-    const mob = {
-      id: String(m.id || 'model' + seq), name: String(m.name || m.label || id),
-      kind: 'gltf', assetId: id, catalog: true,
-      pos: v3of(m.pos, 0), rotY: num(m.rotY, 0), rx: num(m.rx, 0), rz: num(m.rz, 0),
-      scale: m.scale ? v3of(m.scale, 1) : v3(1, 1, 1),
-      h: num(m.h, 1.7), visible: m.visible !== false, color: String(m.color || ''),
-      clip: String(m.clip || ''), animTime: 0,
-    };
-    if (m.material && typeof m.material === 'object') mob.material = { ...m.material };
-    if (Array.isArray(m.keys)) {
-      mob.keys = m.keys.map((k) => ({ t: num(k.t, 0), pos: v3of(k.pos, 0), rotY: num(k.rotY, 0), ease: String(k.ease || 'auto') })).sort((a, b) => a.t - b.t);
+    const basePos = v3of(m.pos, 0);
+    const arr = m.array && typeof m.array === 'object' ? m.array : null;
+    const scat = m.scatter && typeof m.scatter === 'object' ? m.scatter : null;
+    const count = Math.max(1, Math.min(40, Math.round(num((arr || scat || {}).count, 1))));
+    const off = arr ? v3of(arr.offset, 0) : v3(0, 0, 0);
+    const stepRot = arr ? num(arr.rotY, 0) : 0;
+    const radius = scat ? Math.max(0, num(scat.radius, 0)) : 0;
+    const seed = scat ? num(scat.seed, 1) : 1;
+    for (let i = 0; i < count; i++) {
+      if (modelInstances >= 160) break;   // 防 AI 一次生成上千棵树
+      seq += 1;
+      modelInstances += 1;
+      const scattered = scat ? directorScatterOffset(i, seed, radius) : { x: 0, z: 0, rotY: 0 };
+      const pos = v3(basePos.x + off.x * i + scattered.x, basePos.y + off.y * i, basePos.z + off.z * i + scattered.z);
+      const mob = {
+        id: String(m.id || 'model' + seq) + (count > 1 ? '_' + (i + 1) : ''),
+        name: String(m.name || m.label || id) + (count > 1 ? ' ' + (i + 1) : ''),
+        kind: 'gltf', assetId: id, catalog: true,
+        pos, rotY: num(m.rotY, 0) + stepRot * i + scattered.rotY, rx: num(m.rx, 0), rz: num(m.rz, 0),
+        scale: m.scale ? v3of(m.scale, 1) : v3(1, 1, 1),
+        h: num(m.h, 1.7), visible: m.visible !== false, color: String(m.color || ''),
+        clip: String(m.clip || ''), animTime: 0,
+      };
+      if (m.material && typeof m.material === 'object') mob.material = { ...m.material };
+      if (Array.isArray(m.keys)) {
+        mob.keys = m.keys.map((k) => ({ t: num(k.t, 0), pos: v3of(k.pos, 0), rotY: num(k.rotY, 0), ease: String(k.ease || 'auto') })).sort((a, b) => a.t - b.t);
+      }
+      objects.push(mob);
     }
-    objects.push(mob);
   }
   for (const p of Array.isArray(sp.props) ? sp.props : []) {
     seq += 1;
@@ -3075,8 +3104,35 @@ export function buildStageFromSpec(spec) {
       pob.assetId = String(p.assetId); pob.clip = String(p.clip || ''); pob.animTime = 0;
     } else if (Array.isArray(p.parts) && p.parts.length) {
       // 参数化组合道具（警车/武器/桌椅等）：一个对象由多个基础几何体组成，跟随父对象移动/旋转。
+      // array 复制成排（栅栏/窗格），mirror 沿父对象原点镜像（左右车轮）；展开后统一归一化。
       pob.kind = 'compound';
-      pob.parts = p.parts.slice(0, 40).map((pt, pi) => {
+      const rawParts = [];
+      for (const pt of p.parts) {
+        if (!pt || typeof pt !== 'object') continue;
+        const arr = pt.array && typeof pt.array === 'object' ? pt.array : null;
+        const count = Math.max(1, Math.min(24, Math.round(num(arr && arr.count, 1))));
+        const basePos = v3of(pt.pos, 0);
+        const off = arr ? v3of(arr.offset, 0) : v3(0, 0, 0);
+        const stepRot = arr ? num(arr.rotY, 0) : 0;
+        const mirror = String(pt.mirror || '').toLowerCase();
+        const axes = [''];
+        if (mirror.includes('x')) axes.push('x');
+        if (mirror.includes('z')) axes.push('z');
+        if (mirror.includes('x') && mirror.includes('z')) axes.push('xz');
+        for (let i = 0; i < count; i++) {
+          const x = basePos.x + off.x * i, y = basePos.y + off.y * i, z2 = basePos.z + off.z * i;
+          const rotY = num(pt.rotY, 0) + stepRot * i;
+          for (const ax of axes) {
+            rawParts.push({
+              ...pt,
+              pos: [ax.includes('x') ? -x : x, y, ax.includes('z') ? -z2 : z2],
+              rotY: ax ? -rotY : rotY,
+              rz: ax ? -num(pt.rz, 0) : num(pt.rz, 0),
+            });
+          }
+        }
+      }
+      pob.parts = rawParts.slice(0, 64).map((pt) => {
         const preset2 = SPEC_PRESET_IDS.includes(pt && pt.preset) ? pt.preset : 'box';
         const part = {
           preset: preset2,
@@ -4715,7 +4771,7 @@ function directorCompoundFaces(ob) {
   const pry = Number(ob.rotY) || 0;
   const pc = Math.cos(pry), pn = Math.sin(pry);
   const out = [];
-  for (const pt of ob.parts.slice(0, 40)) {
+  for (const pt of ob.parts.slice(0, 64)) {
     if (!pt) continue;
     const psc = pt.scale || { x: 1, y: 1, z: 1 };
     const sx = Number(psc.x) || 1, sy = Number(psc.y) || 1, sz = Number(psc.z) || 1;

@@ -4014,6 +4014,7 @@ export function apply(ctx) {
       'Prop: { name, preset, pos:[x,y,z], scale:[x,y,z], color }',
       'Model asset: { assetId, name?, pos:[x,y,z], rotY, h, scale?, color? } — place real local GLB assets.',
       'Parametric prop: { name, pos:[x,y,z], rotY?, parts:[{preset,pos:[x,y,z],scale:[x,y,z],color?,rotY?,rx?,rz?}] } — build cars/weapons/signs/lanterns from 2-12 primitives when no local asset fits. part.pos is the bottom-center offset; scale is [width,height,depth].',
+      'Repeat/mirror/scatter: part { array:{count,offset:[dx,dy,dz],rotY?} } or { mirror:"x"|"z"|"xz" }; model { array:{count,offset:[dx,dy,dz],rotY?} } or { scatter:{count,radius,seed?} }. Use them for fences, windows, wheels, street rows and forests instead of listing every copy. Caps: 24 per part array, 40 per model array/scatter.',
       'Valid prop presets: ' + DIRECTOR_PROP_PRESETS.join(', ') + '.',
       'Valid pose ids: none, stand, arms_up, punch, kick, flip, fly, crouch, fight, walk, run, jump, hit, fall, walk_a, walk_b, run_a, run_b.',
       'env.preset: studio | daylight | night. Use meters and seconds.',

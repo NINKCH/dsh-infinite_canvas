@@ -55,6 +55,16 @@ for (const p of (E.SCENE_PRESETS || [])) {
   ok(Array.isArray(back.models) && back.models.some((x) => x.assetId === 'bld_a' && Math.abs(x.h - 12) < 1e-6), 'models[] 往返丢失');
   const sc2 = E.buildStageFromSpec(JSON.parse(JSON.stringify(back)));
   ok(sc2.objects.some((o) => o.kind === 'gltf' && o.assetId === 'bld_a'), 'models[] 二次构建丢失');
+  // array / scatter：成排建筑与树林必须真的展开成多个实例
+  const row = E.buildStageFromSpec({ models: [{ assetId: 'tree_oak', pos: [0, 0, -6], h: 7, array: { count: 3, offset: [3, 0, 0] } }] });
+  const trees = row.objects.filter((o) => o.kind === 'gltf' && o.assetId === 'tree_oak');
+  ok(trees.length === 3 && Math.abs(trees[2].pos.x - 6) < 1e-6, 'models array 未展开');
+  const forest = E.buildStageFromSpec({ models: [{ assetId: 'tree_oak', scatter: { count: 5, radius: 4, seed: 9 } }] });
+  const fs = forest.objects.filter((o) => o.assetId === 'tree_oak');
+  ok(fs.length === 5, 'models scatter 数量不对：' + fs.length);
+  ok(fs.every((o) => Math.hypot(o.pos.x, o.pos.z) <= 4.0001), 'scatter 超出半径');
+  const forest2 = E.buildStageFromSpec({ models: [{ assetId: 'tree_oak', scatter: { count: 5, radius: 4, seed: 9 } }] });
+  ok(JSON.stringify(fs.map((o) => [o.pos.x, o.pos.z])) === JSON.stringify(forest2.objects.filter((o) => o.assetId === 'tree_oak').map((o) => [o.pos.x, o.pos.z])), 'scatter 结果不确定（同 seed 位置应一致）');
 }
 
 // ── ③c 参数化组合道具：parts 拼装 + 父变换 + 颜色 + 往返 ──
@@ -96,6 +106,18 @@ for (const p of (E.SCENE_PRESETS || [])) {
   ok(backCar && Array.isArray(backCar.parts) && backCar.parts.length === 4, 'parts 往返丢失');
   const sc2 = E.buildStageFromSpec(JSON.parse(JSON.stringify(back)));
   ok(sc2.objects.find((o) => o.id === 'police_car') && sc2.objects.find((o) => o.id === 'police_car').kind === 'compound', 'parts 二次构建丢失');
+  // array 复制 + mirror 镜像：4 根栅栏柱 + 左右 2 根横梁 = 6 个部件
+  const fenceSpec = E.specFromScenePreset('blank');
+  fenceSpec.props = [{
+    name: '栅栏', parts: [
+      { preset: 'box', pos: [0, 0.5, 0], scale: [0.08, 1, 0.08], array: { count: 4, offset: [1, 0, 0] } },
+      { preset: 'box', pos: [0.5, 1.05, 0], scale: [2, 0.1, 0.1], mirror: 'x' },
+    ],
+  }];
+  const fence = E.buildStageFromSpec(fenceSpec).objects.find((o) => o.kind === 'compound');
+  ok(fence && fence.parts.length === 6, 'parts array/mirror 未展开（实际 ' + (fence && fence.parts.length) + '）');
+  const xs = fence ? fence.parts.map((p) => p.pos.x) : [];
+  ok(xs.includes(3) && xs.includes(-0.5) && xs.includes(0.5), 'parts array/mirror 位置不对：' + xs.join(','));
 }
 
 // ── ④ 场景 + 风格 + 运镜组合 ──
