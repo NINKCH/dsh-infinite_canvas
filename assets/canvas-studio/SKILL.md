@@ -34,6 +34,7 @@ brief → bible → assets → script → storyboard → shots_ready → generat
 - **逃生舱**：用户明确要求时传 `override: { by: 'user-explicit', quote: '用户原话' }` 放行（写入审计）；
   绝不用 override 绕过用户没同意的事。
 - **显式推进/回退**：`canvas_production_advance`（必须带 reason）；日常推进自动，不需要调它。
+- **视频单价**：`canvas_production_set_price`（用户说"设置视频单价 X 元/秒"时调用）；自动创作预算单与批量执行估算共用，0 = 清除。单价不进预算指纹——改价不影响已批准的预算单。
 
 ## 零、自动创作与引导式工作坊（先判后做）
 

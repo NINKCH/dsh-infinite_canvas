@@ -67,7 +67,7 @@ Help & feedback:
 
 Every canvas (one episode) carries a host-enforced **production stage** — `brief → bible → assets → script → storyboard → shots_ready → generating → qc → post → delivered` — with six code gates (bible-first, storyboard quality, one video per storyboard, no per-shot nodes, destructive-op confirmation, stage order). Gates refuse with the exact missing items and always accept an explicit-user override (audited). `canvas_production_status` is the only basis for claiming "done".
 
-With the **Auto creation (experimental)** switch on (Settings → 自动创作), the agent runs a writers room from one sentence — research → two independent pitches → cross-critique → producer decision → bible → script → per-scene storyboards (quality-gated) → **budget sheet** — with zero paid calls; approve once and it generates videos per storyboard and builds a final-cut node. The transcript lands on the canvas as a 编剧室会议 node; questions are forbidden in this mode.
+With the **Auto creation (experimental)** switch on (Settings → 自动创作), the agent runs a writers room from one sentence — research → two independent pitches → cross-critique → producer decision → bible → script → per-scene storyboards (quality-gated) → **budget sheet** — with zero paid calls; approve once and it generates videos per storyboard and builds a final-cut node. The transcript lands on the canvas as a 编剧室会议 node; questions are forbidden in this mode. Settings only keeps the switch: the brief input, live phase/budget sheet, per-scene selection and approve/generate/abort controls live in the **Production console** (left icon rail), and the video unit price is set in chat ("set video price to X yuan/second" → `canvas_production_set_price`).
 
 ## Image models via `dsh-image-gen`
 

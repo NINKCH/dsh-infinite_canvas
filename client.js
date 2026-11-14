@@ -480,7 +480,8 @@ function revealCanvasInRight() {
       'batchSkipped': '已跳过',
       'batchSummary': '共 {n} 项 · 视频 {v} 条 / {s} 秒',
       'batchCost': '预估 ¥{cost}（单价 {price}/秒）',
-      'batchNoPrice': '未配置视频单价，无法估算金额（画布设置 → 制作）',
+      'batchNoPrice': '未设置视频单价——在对话里说「设置视频单价 X 元/秒」后显示金额',
+      'batchEmptyHint': '暂无批量任务：选中节点或分组后用「批量生成」打开。',
       'batchNoTargets': '选中内容里没有可生成的节点',
       'batchMenu': '批量生成（{n}）',
       'batchGroupRun': '整组执行（{n}）',
@@ -1504,12 +1505,42 @@ function revealCanvasInRight() {
       'autoNeedQuote': '先刷新预算',
       'autoQuoteSummary': '{s} 场 / {sh} 镜 / {sec} 秒 / 待调用 {calls} 次',
       'autoQuoteCost': '估算 ¥{cost}',
-      'autoQuoteNoPrice': '未配置视频每秒单价（设置→制作 填入后显示估算金额）',
+      'autoQuoteNoPrice': '未设置视频单价——在对话里说「设置视频单价 X 元/秒」后显示估算金额',
       'autoApproveNeedConfirm': '请输入确认原话（批准付费必须留痕）',
       'autoApproved': '已批准付费（待调用 {calls} 次）',
       'autoAborted': '已中止（保留已产出内容）',
       'autoDone': '完成',
       'autoFail': '操作失败',
+      'autoEntryHint': '动作与预算在左侧图标栏「创作台」；对话仍是主入口。',
+      'autoNoProject': '先打开/创建一个项目，再使用自动创作',
+      'autoClosedHint': '自动创作已关闭——在设置页打开开关后使用',
+      'autoIdle': '空闲：输入一句话创意开始',
+      'autoStRunning': '运行中',
+      'autoApprovalValid': '批准有效',
+      'autoStale': '预算已变化，请重新刷新后再批准',
+      'autoScopeHint': '批准覆盖全量预算；生成可只跑选中的场。',
+      'autoSelScenes': '已选 {n} 场',
+      'autoAllScenes': '全部场',
+      'autoHasVideo': '已有视频',
+      'autoNoQuoteHint': '还没有预算单：免费段生成分镜后自动出现；也可先点「刷新预算」。',
+      'autoPhResearch': '调研',
+      'autoPhPitch': '提案',
+      'autoPhCritique': '互评',
+      'autoPhDecide': '决策',
+      'autoPhWriteback': '落盘',
+      'autoPhScript': '剧本',
+      'autoPhBoards': '分镜',
+      'autoPhBudget': '预算单',
+      'autoPhVideo': '生成视频',
+      'autoPhRefs': '参考图',
+      'autoPhDone': '完成',
+      'autoPhAborted': '已中止',
+      'autoPhFailed': '失败',
+      'consoleTitle': '创作台',
+      'consoleTabAuto': '自动创作',
+      'consoleTabBatch': '批量执行',
+      'consolePriceSet': '视频单价 ¥{price}/秒（在对话里说「设置视频单价 X 元/秒」可修改）',
+      'consolePriceNone': '未设置视频单价——在对话里说「设置视频单价 X 元/秒」后显示金额',
       'stageCurrent': '制作阶段',
       'stageReadyYes': '可交付',
       'stageReadyNo': '未就绪',
@@ -1767,7 +1798,8 @@ function revealCanvasInRight() {
       'batchSkipped': 'Skipped',
       'batchSummary': '{n} items · {v} videos / {s}s',
       'batchCost': 'Est. ¥{cost} (unit {price}/s)',
-      'batchNoPrice': 'No video unit price configured (Settings → Production)',
+      'batchNoPrice': 'No video unit price set — say "set video price to X yuan/second" in the chat',
+      'batchEmptyHint': 'No batch task — select nodes or a group and use "Batch generate".',
       'batchNoTargets': 'Nothing runnable in the selection',
       'batchMenu': 'Batch generate ({n})',
       'batchGroupRun': 'Run group ({n})',
@@ -2792,12 +2824,42 @@ function revealCanvasInRight() {
       'autoNeedQuote': 'Refresh the budget first',
       'autoQuoteSummary': '{s} scenes / {sh} shots / {sec}s / {calls} video calls pending',
       'autoQuoteCost': 'Est. ¥{cost}',
-      'autoQuoteNoPrice': 'No per-second video price configured (set it in Settings → Production to show an estimate)',
+      'autoQuoteNoPrice': 'No video unit price set — say "set video price to X yuan/second" in the chat to show an estimate',
       'autoApproveNeedConfirm': 'Type your confirmation words first (paid approval must leave a trace)',
       'autoApproved': 'Approved ({calls} video calls pending)',
       'autoAborted': 'Aborted (produced content kept)',
       'autoDone': 'Done',
       'autoFail': 'Action failed',
+      'autoEntryHint': 'Actions & budget live in the Production console (left icon rail); chat remains the main entry.',
+      'autoNoProject': 'Open or create a project first',
+      'autoClosedHint': 'Auto creation is off — enable it in Settings',
+      'autoIdle': 'Idle: type a one-line idea to start',
+      'autoStRunning': 'Running',
+      'autoApprovalValid': 'Approval valid',
+      'autoStale': 'Budget changed — refresh before approving',
+      'autoScopeHint': 'Approval covers the full budget; generation may run selected scenes only.',
+      'autoSelScenes': '{n} scenes selected',
+      'autoAllScenes': 'All scenes',
+      'autoHasVideo': 'has video',
+      'autoNoQuoteHint': 'No budget yet: it appears after the free stage builds storyboards, or click Refresh.',
+      'autoPhResearch': 'Research',
+      'autoPhPitch': 'Pitch',
+      'autoPhCritique': 'Critique',
+      'autoPhDecide': 'Decide',
+      'autoPhWriteback': 'Write-back',
+      'autoPhScript': 'Script',
+      'autoPhBoards': 'Boards',
+      'autoPhBudget': 'Budget',
+      'autoPhVideo': 'Video',
+      'autoPhRefs': 'Refs',
+      'autoPhDone': 'Done',
+      'autoPhAborted': 'Aborted',
+      'autoPhFailed': 'Failed',
+      'consoleTitle': 'Production console',
+      'consoleTabAuto': 'Auto creation',
+      'consoleTabBatch': 'Batch run',
+      'consolePriceSet': 'Video price ¥{price}/s (say "set video price to X yuan/second" in chat to change)',
+      'consolePriceNone': 'No video price set — say "set video price to X yuan/second" in the chat',
       'stageCurrent': 'Stage',
       'stageReadyYes': 'deliverable',
       'stageReadyNo': 'not ready',
@@ -3070,6 +3132,7 @@ function revealCanvasInRight() {
 .dshic-rail-btn:hover{background:color-mix(in srgb,var(--dsw-alias-label-primary) 8%,transparent);color:var(--dsw-alias-label-primary);}
 .dshic-rail-btn.is-active{background:color-mix(in srgb,var(--dsw-alias-brand-primary) 16%,transparent);color:var(--dsw-alias-brand-primary);}
 .dshic-rail-btn.is-danger{color:var(--dsw-alias-state-error-primary);}
+.dshic-rail-btn.is-run{color:var(--dsw-alias-state-warning-primary);animation:dshic-pulse 1.2s infinite;}
 .dshic-rail-btn:disabled{opacity:.45;cursor:default;}
 .dshic-rail-sep{width:24px;height:1px;flex:none;background:var(--dsw-alias-border-l1);margin:4px 0;}
 /* ── 顶部工具栏：返回图标 → 项目切换（双击/铅笔改名）→ 右侧纯图标按钮 ── */
@@ -3637,9 +3700,21 @@ body[data-ds-dark-theme] .dshic-inline-input{border-color:var(--dsw-alias-border
 .dshic-audio-title{display:flex;align-items:center;gap:6px;font-size:12px;font-weight:600;color:var(--dsw-alias-label-primary);}
 .dshic-audio-ctl{display:flex;align-items:center;gap:8px;font-size:11px;color:var(--dsw-alias-label-secondary);}
 .dshic-audio-ctl input[type="range"]{flex:1;min-width:40px;}
-/* 批量执行台：右下角固定浮层，预检 → 队列 → 进度/停止 */
-.dshic-batch{position:fixed;right:16px;bottom:16px;z-index:210;width:348px;max-height:min(64vh,560px);display:flex;flex-direction:column;
+/* 创作台：右下角固定浮层（自动创作 + 批量执行 两页签；单价在对话里设置，面板只读展示） */
+.dshic-console{position:fixed;right:16px;bottom:16px;z-index:210;width:412px;max-height:min(74vh,620px);display:flex;flex-direction:column;
   background:var(--dsw-alias-bg-layer-1);border:1px solid var(--dsw-alias-border-l1);border-radius:14px;box-shadow:var(--dshic-shadow-lg);overflow:hidden;}
+.dshic-console-tabs{display:flex;gap:4px;padding:8px 10px 0;}
+.dshic-console-tab{flex:1;height:28px;display:flex;align-items:center;justify-content:center;gap:4px;border:none;border-radius:8px;cursor:pointer;
+  background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:12px;}
+.dshic-console-tab.is-active{background:color-mix(in srgb,var(--dsw-alias-brand-primary) 14%,transparent);color:var(--dsw-alias-brand-primary);font-weight:600;}
+.dshic-console-body{flex:1;min-height:0;display:flex;flex-direction:column;overflow:auto;padding-bottom:4px;}
+.dshic-console-price{display:flex;align-items:center;gap:6px;padding:8px 12px;border-top:1px solid var(--dsw-alias-border-l1);
+  font-size:11px;color:var(--dsw-alias-label-tertiary);}
+.dshic-console-price span{flex:1;min-width:0;}
+.dshic-console-loading,.dshic-console-hint{padding:14px 12px;font-size:12px;color:var(--dsw-alias-label-secondary);}
+body[data-ds-dark-theme] .dshic-console{border-color:var(--dsw-alias-border-l2);}
+/* 批量执行页（创作台页签内容）：队列 → 进度/停止 */
+.dshic-batch{display:flex;flex-direction:column;min-height:0;}
 .dshic-batch-head{display:flex;align-items:center;gap:6px;padding:10px 12px;border-bottom:1px solid var(--dsw-alias-border-l1);font-size:13px;font-weight:600;}
 .dshic-batch-head .dshic-flex{flex:1;}
 .dshic-batch-summary{padding:10px 12px 6px;display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--dsw-alias-label-secondary);}
@@ -3661,6 +3736,17 @@ body[data-ds-dark-theme] .dshic-inline-input{border-color:var(--dsw-alias-border
 .dshic-batch-foot{display:flex;align-items:center;gap:8px;padding:9px 12px;border-top:1px solid var(--dsw-alias-border-l1);}
 .dshic-batch-foot .dshic-flex{flex:1;}
 .dshic-batch-hint{padding:0 12px 9px;font-size:11px;color:var(--dsw-alias-label-tertiary);}
+/* 自动创作页（创作台页签内容）：brief/状态/分场预算/动作 */
+.dshic-autostudio{display:flex;flex-direction:column;padding:10px 12px;gap:6px;}
+.dshic-auto-status{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--dsw-alias-label-primary);}
+.dshic-auto-dot{flex:none;width:8px;height:8px;border-radius:50%;background:var(--dsw-alias-label-tertiary);}
+.dshic-auto-dot.is-run{background:var(--dsw-alias-brand-primary);animation:dshic-pulse 1.2s infinite;}
+.dshic-quote{display:flex;flex-direction:column;gap:2px;padding:8px 9px;border:1px solid var(--dsw-alias-border-l1);border-radius:10px;}
+.dshic-quote-row{display:flex;align-items:center;gap:7px;padding:3px 2px;border-radius:6px;font-size:11px;color:var(--dsw-alias-label-primary);cursor:pointer;}
+.dshic-quote-row:hover{background:var(--dsw-alias-interactive-bg-hover,color-mix(in srgb,var(--dsw-alias-label-primary) 7%,transparent));}
+.dshic-quote-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.dshic-quote-meta{flex:none;color:var(--dsw-alias-label-secondary);}
+.dshic-quote-cost{flex:none;min-width:44px;text-align:right;color:var(--dsw-alias-label-primary);}
 body[data-ds-dark-theme] .dshic-batch{border-color:var(--dsw-alias-border-l2);}
 .dshic-node-row{display:flex;align-items:center;gap:6px;min-width:0;flex-wrap:wrap;}
 .dshic-node-row .dshic-flex{flex:1;min-width:0;}
@@ -11367,6 +11453,9 @@ function queueThumb(assetId) {
       canvasCollapsed: false,
       menu: null,          // {x, y, kind:'add'}
       batch: null,         // 批量执行台：{ items, running, stopped, concurrency, price, videoSecs, source } | null（纯 UI）
+      // 创作台（自动创作 + 批量执行统一面板）：consoleOpen 开关；consoleTab 'auto' | 'batch'（纯 UI）
+      consoleOpen: false,
+      consoleTab: 'auto',
       damUndo: null,       // 资产合并撤销快照：{ pairs, nodeSnapshots, subjects, workflows, at } | null（本次会话）
       composerId: null,    // 生成面板当前挂靠的节点 id（单例；纯 UI 状态，不持久化）
       assetsTick: 0,
@@ -12994,6 +13083,9 @@ function queueThumb(assetId) {
           concurrency: 1, price: 0, videoSecs, startedAt: 0, finishedAt: 0,
         };
         s.sel = new Set(targets.map((n) => n.id));
+        // 批量菜单直达创作台的批量页（面板统一，不再另开旧浮层）
+        s.consoleOpen = true;
+        s.consoleTab = 'batch';
       });
       hostRpc('productionPrice', {}).then((r) => {
         update((s) => { if (s.batch) s.batch.price = Number(r && r.price) || 0; });
@@ -13005,6 +13097,14 @@ function queueThumb(assetId) {
         stopBatchQueue();
       }
       update((s) => { s.batch = null; });
+    }
+    /** 创作台：打开（'auto' | 'batch'）/ 关闭。关闭时批量在跑先停（原语义）；自动创作 Host 侧继续。 */
+    function openProdConsole(tab) {
+      update((s) => { s.consoleOpen = true; s.consoleTab = tab === 'batch' ? 'batch' : 'auto'; });
+    }
+    function closeProdConsole() {
+      if (S.batch && S.batch.running) stopBatchQueue();
+      update((s) => { s.consoleOpen = false; });
     }
     function focusBatchItem(id) {
       const n = S.graph.nodes[id];
@@ -21297,6 +21397,13 @@ const DIRECTOR_KEY_HELP = [
           onClick: () => openStudioModal('memory'),
         }, Ic('memory', 16)),
         h('div', { key: 'sep-actions', className: 'dshic-rail-sep' }),
+        // 创作台：自动创作 + 批量执行 统一面板（自动任务在跑时图标带运行点；重开面板继续查看/中止）
+        h('button', {
+          key: 'console', type: 'button',
+          className: cls('dshic-rail-btn', S.consoleOpen && 'is-active', AUTO_LIVE.running && 'is-run'),
+          'data-action': 'open-console', title: T('consoleTitle'),
+          onClick: () => openProdConsole('auto'),
+        }, Ic('spark', 16)),
         // 3D-BOX：单入口 → 库首页（新建/我的 3D-BOX）；舞台由库打开。
         h('button', {
           key: 'boxhome', type: 'button',
@@ -23769,16 +23876,12 @@ const DIRECTOR_KEY_HELP = [
       );
     }
     /** 图片模型桥接卡（0.20.0）：检测 dsh-image-gen 并直接选用它的服务商/模型（密钥留在它宿主侧）。 */
-    /** 自动创作卡（实验）：开关 + 状态 + 快捷动作区。对话仍是主入口（canvas_auto_* 工具带完整上下文），
-     *  此卡提供与对话同 RPC 的快捷操作，不切对话也能：启动创作（brief）→ 刷新预算（autoQuote）→
-     *  批准付费（行内确认，quoteId+confirm）→ 开始生成（全量；部分选场是 T9 对话侧能力，卡片不放）→ 中止。
-     *  批准令牌语义：quoteId 用卡片最近一次 autoQuote 返回值（不自动重刷——预算指纹绑定，卡片刷新的即当前指纹）。
-     *  纪律：不新增轮询、不新增 RPC；单一 busy 防重入（动作互斥，避免并发计费操作）；错误 catch 接住显示卡内。 */
+    /** 自动创作卡（设置页）：只有开关与状态。动作/预算/进度统一在「创作台」——
+     *  左侧图标栏进入（ProductionConsole），对话工具 canvas_auto_* 仍是主入口；
+     *  设置页按产品要求不放任何动作（不新增 RPC、不轮询）。 */
+    const AUTO_LIVE = { running: false };   // 供图标栏运行点（尽力而为：随最近一次 autoStatus 刷新/动作更新）
     function AutoModeCard() {
       const [st, setSt] = useState(null);
-      // 动作区状态（一个对象收口）：brief 输入 / 最近预算单 quote（quoteId+摘要）/ 行内确认开合与文本 /
-      // busy（在跑的动作名，防重入）/ msg 成功小字 / err 错误小字
-      const [act, setAct] = useState(() => ({ brief: '', confirm: '', quote: null, confirmOpen: false, busy: null, msg: '', err: '' }));
       const refresh = async () => {
         try {
           const r = await hostRpc('autoModeGet');
@@ -23798,54 +23901,6 @@ const DIRECTOR_KEY_HELP = [
           setSt({ ...st, busy: false });
         }
       };
-      const pid = S.activeId || '';
-      const multiAgent = !!(st && st.caps && st.caps.multiAgent);
-      const actionsOn = !!(st && !st.oldHost && st.enabled && multiAgent);
-      // 动作通用壳：结果 {ok:false,error} 视为业务失败，与网络异常同样接住显示在卡内
-      const runAction = async (key, fn, okMsgOf) => {
-        if (!pid || act.busy) return;
-        setAct((a) => ({ ...a, busy: key, err: '', msg: '' }));
-        try {
-          const r = await fn();
-          if (r && r.ok === false) throw new Error(r.error || T('autoFail'));
-          setAct((a) => ({ ...a, busy: null, msg: okMsgOf ? okMsgOf(r) : T('autoDone'), err: '' }));
-          refresh();
-        } catch (e) {
-          setAct((a) => ({ ...a, busy: null, err: String((e && e.message) || e) || T('autoFail') }));
-        }
-      };
-      // 预算小字：场/镜/秒/待调用次数 + 估算金额或单价引导（T9 锚点「视频每秒单价」）
-      const quoteLine = (r) => T('autoQuoteSummary').replace('{s}', String(r.sceneCount || 0)).replace('{sh}', String(r.shotCount || 0))
-        .replace('{sec}', String(r.totalSeconds || 0)).replace('{calls}', String(r.videoCalls || 0))
-        + ' · ' + (r.estimatedCost != null
-          ? T('autoQuoteCost').replace('{cost}', String(r.estimatedCost))
-          : T('autoQuoteNoPrice'));
-      const doQuote = () => runAction('quote', async () => {
-        const r = await hostRpc('autoQuote', { projectId: pid });
-        if (r && r.ok !== false && r.quoteId) {
-          // 批准令牌只信这次刷新返回的 quoteId（指纹绑定）；旧的行内确认随之作废收起
-          setAct((a) => ({ ...a, quote: { quoteId: r.quoteId, summary: quoteLine(r) }, confirmOpen: false, confirm: '' }));
-        }
-        return r;
-      });
-      const doStart = () => {
-        const brief = act.brief.trim();
-        if (!brief) return;
-        runAction('start', () => hostRpc('autoStart', { projectId: pid, brief }), (r) => (r && r.note) || T('autoDone'));
-      };
-      const doApprove = () => {
-        if (!act.quote) return;
-        const words = act.confirm.trim();
-        if (!words) { setAct((a) => ({ ...a, err: T('autoApproveNeedConfirm') })); return; }
-        runAction('approve', () => hostRpc('autoApprove', { projectId: pid, quoteId: act.quote.quoteId, confirm: words }),
-          (r) => T('autoApproved').replace('{calls}', String((r && r.videoCalls) || '')));
-      };
-      const doGenerate = () => runAction('generate', () => hostRpc('autoGenerate', { projectId: pid }), (r) => (r && r.note) || T('autoDone'));
-      const doAbort = () => runAction('abort', () => hostRpc('autoAbort', { projectId: pid }), () => T('autoAborted'));
-      const miniBtn = (role, label, onClick, disabled, extra) => h('button', Object.assign({
-        type: 'button', className: 'dshic-mini', 'data-role': role, disabled: !!disabled || !!act.busy,
-        onPointerDown: (e) => e.stopPropagation(), onClick,
-      }, extra || {}), label);
       const lines = [];
       if (!st) lines.push(T('storageLoading'));
       else if (st.oldHost) lines.push(T('autoOldHost'));
@@ -23865,37 +23920,232 @@ const DIRECTOR_KEY_HELP = [
             : null,
         ),
         h('div', { className: 'dshic-hint', style: { marginTop: 4 }, 'data-role': 'auto-mode-status' }, lines.join(' · ')),
-        actionsOn ? h('div', { 'data-role': 'auto-actions', style: { marginTop: 6 } },
-          // 启动创作：brief 输入（为空禁用）+ 按钮
-          h('textarea', {
-            className: 'dshic-input', 'data-role': 'auto-brief-input', rows: 1, value: act.brief,
-            placeholder: T('autoBriefPh'), style: { width: '100%', fontSize: 11, resize: 'vertical', marginBottom: 4 },
-            onPointerDown: (e) => e.stopPropagation(), onChange: (e) => setAct((a) => ({ ...a, brief: e.target.value })),
+        h('div', { className: 'dshic-hint', style: { marginTop: 4 } }, T('autoEntryHint')),
+      );
+    }
+
+    // ============================================================
+    // 创作台：自动创作 + 批量执行 统一面板（左侧图标栏进入；批量菜单直达批量页）
+    //   纪律沿用 T12：批准令牌只信显式「刷新预算」返回的 quoteId（不自动重刷）；
+    //   单一 busy 防重入；确认原话必填。轮询只在面板打开且自动任务在跑时进行。
+    //   预算单价在对话里设置（canvas_production_set_price）；面板只读展示。
+    // ============================================================
+    /** 运行阶段文案：boards 2/3、video 1/4、参考图 1/3 等保留后缀，只翻译前缀。 */
+    function autoPhaseLabel(p) {
+      if (!p) return '';
+      const head = String(p).split(/\s+/)[0];
+      const rest = String(p).slice(head.length);
+      const zh = { research: '调研', pitch: '提案', critique: '互评', decide: '决策', writeback: '落盘', script: '剧本', boards: '分镜', budget: '预算单', video: '生成视频', '参考图': '参考图', done: '完成', aborted: '已中止', failed: '失败' };
+      const en = { research: 'Research', pitch: 'Pitch', critique: 'Critique', decide: 'Decide', writeback: 'Write-back', script: 'Script', boards: 'Boards', budget: 'Budget', video: 'Video', '参考图': 'Refs', done: 'Done', aborted: 'Aborted', failed: 'Failed' };
+      const dict = effLang() === 'en' ? en : zh;
+      const label = dict[head] || dict[head.toLowerCase()] || head;
+      return rest ? label + rest : label;
+    }
+    /** 自动创作页：brief/状态/预算单（分场勾选）/批准/生成/中止。 */
+    function AutoStudioPanel(props) {
+      const onPrice = props && typeof props.onPrice === 'function' ? props.onPrice : null;
+      const pid = S.activeId || '';
+      const [st, setSt] = useState(null);
+      const stRef = useRef(null);
+      stRef.current = st;   // 与 actRef 同步：动作闭包始终读到最新状态（测试注入态也生效）
+      const [act, setAct] = useState(() => ({ brief: '', confirm: '', pin: null, sel: null, confirmOpen: false, busy: null, msg: '', err: '' }));
+      const actRef = useRef(act);
+      actRef.current = act;
+      const aliveRef = useRef(true);
+      useEffect(() => () => { aliveRef.current = false; }, []);
+      const applyStatus = (r) => {
+        if (!aliveRef.current) return;
+        stRef.current = r;
+        setSt(r);
+        AUTO_LIVE.running = !!(r && r.run && (r.run.status === 'running' || r.run.paid === 'running' || r.run.paid === 'aborting'));
+      };
+      const refresh = async () => {
+        if (!pid) { applyStatus({ ok: true, enabled: false, caps: null, noProject: true }); return; }
+        try {
+          const r = await hostRpc('autoStatus', { projectId: pid });
+          applyStatus(r);
+        } catch {
+          applyStatus({ ok: true, enabled: false, caps: null, oldHost: true });
+        }
+      };
+      useEffect(() => { refresh(); }, [pid]);
+      // 轮询：仅自动任务在跑 / 动作在飞时每 2s 一次；面板卸载即停
+      useEffect(() => {
+        const timer = setInterval(() => {
+          const r = stRef.current;
+          const running = !!(r && r.run && (r.run.status === 'running' || r.run.paid === 'running' || r.run.paid === 'aborting'));
+          if (running || actRef.current.busy) refresh();
+        }, 2000);
+        return () => clearInterval(timer);
+      }, []);
+      const runAction = async (key, fn, okMsgOf) => {
+        if (!pid || actRef.current.busy) return;
+        setAct((a) => ({ ...a, busy: key, err: '', msg: '' }));
+        try {
+          const r = await fn();
+          if (r && r.ok === false) throw new Error(r.error || T('autoFail'));
+          setAct((a) => ({ ...a, busy: null, msg: okMsgOf ? okMsgOf(r) : T('autoDone'), err: '' }));
+          refresh();
+        } catch (e) {
+          setAct((a) => ({ ...a, busy: null, err: String((e && e.message) || e) || T('autoFail') }));
+        }
+      };
+      const quoteLine = (r) => T('autoQuoteSummary').replace('{s}', String(r.sceneCount || 0)).replace('{sh}', String(r.shotCount || 0))
+        .replace('{sec}', String(r.totalSeconds || 0)).replace('{calls}', String(r.videoCalls || 0))
+        + ' · ' + (r.estimatedCost != null
+          ? T('autoQuoteCost').replace('{cost}', String(r.estimatedCost))
+          : T('autoQuoteNoPrice'));
+      const doStart = () => {
+        const brief = act.brief.trim();
+        if (!brief) return;
+        runAction('start', () => hostRpc('autoStart', { projectId: pid, brief }), (r) => (r && r.note) || T('autoDone'));
+      };
+      const doQuote = () => runAction('quote', async () => {
+        const r = await hostRpc('autoQuote', { projectId: pid });
+        if (r && r.ok !== false && r.quoteId) {
+          // 批准令牌只信这次刷新返回的 quoteId（指纹绑定）；选场与行内确认随之重置
+          setAct((a) => ({ ...a, pin: { quoteId: r.quoteId }, sel: null, confirmOpen: false, confirm: '' }));
+          if (typeof onPrice === 'function' && r.unitPricePerSecond != null) onPrice(Number(r.unitPricePerSecond) || 0);
+        }
+        return r;
+      });
+      const doApprove = () => {
+        if (!act.pin) return;
+        const words = act.confirm.trim();
+        if (!words) { setAct((a) => ({ ...a, err: T('autoApproveNeedConfirm') })); return; }
+        runAction('approve', () => hostRpc('autoApprove', { projectId: pid, quoteId: act.pin.quoteId, confirm: words }),
+          (r) => T('autoApproved').replace('{calls}', String((r && r.videoCalls) || '')));
+      };
+      const doGenerate = () => runAction('generate', () => {
+        const args = { projectId: pid };
+        const q = stRef.current && stRef.current.quote;
+        // 选场执行：部分选中才传 scenes（Host 校验 1-based 场号）；全量不传（行为与旧卡片一致）
+        if (act.sel && q && act.sel.length && act.sel.length < q.sceneCount) args.scenes = act.sel.slice().sort((x, y) => x - y);
+        return hostRpc('autoGenerate', args);
+      }, (r) => (r && r.note) || T('autoDone'));
+      const doAbort = () => runAction('abort', () => hostRpc('autoAbort', { projectId: pid }), () => T('autoAborted'));
+      const miniBtn = (role, label, onClick, disabled, extra) => h('button', Object.assign({
+        type: 'button', className: 'dshic-mini', 'data-role': role, disabled: !!disabled || !!act.busy,
+        onPointerDown: (e) => e.stopPropagation(), onClick,
+      }, extra || {}), label);
+      // —— 渲染态 ——
+      if (!st) return h('div', { className: 'dshic-console-loading', 'data-role': 'auto-loading' }, T('storageLoading'));
+      if (st.oldHost) return h('div', { className: 'dshic-console-hint' }, T('autoOldHost'));
+      if (st.noProject) return h('div', { className: 'dshic-console-hint' }, T('autoNoProject'));
+      if (!st.enabled) return h('div', { className: 'dshic-console-hint' }, T('autoClosedHint'));
+      if (!(st.caps && st.caps.multiAgent)) return h('div', { className: 'dshic-console-hint' }, T('autoCapsNo'));
+      const run = st.run || null;
+      const quote = st.quote || null;
+      const price = quote ? quote.unitPricePerSecond : null;
+      const approval = st.approval || null;
+      const running = !!(run && (run.status === 'running' || run.paid === 'running' || run.paid === 'aborting'));
+      const stale = !!(act.pin && quote && quote.quoteId !== act.pin.quoteId);
+      const selHas = (no) => !act.sel || act.sel.includes(no);
+      const selSeconds = quote
+        ? Math.round((quote.scenes || []).filter((s) => selHas(s.scene)).reduce((a, s) => a + (Number(s.seconds) || 0), 0) * 10) / 10
+        : 0;
+      const selCost = price != null && price > 0 ? Math.round(price * selSeconds * 100) / 100 : null;
+      const sceneRow = (s) => h('label', { key: s.scene, className: 'dshic-quote-row' },
+        h('input', { type: 'checkbox', checked: selHas(s.scene), disabled: !!act.busy,
+          onChange: () => setAct((a) => {
+            const all = ((stRef.current && stRef.current.quote && stRef.current.quote.scenes) || []).map((x) => x.scene);
+            const cur = a.sel ? a.sel.slice() : all.slice();
+            const i = cur.indexOf(s.scene);
+            if (i >= 0) cur.splice(i, 1); else cur.push(s.scene);
+            cur.sort((x, y) => x - y);
+            return { ...a, sel: cur.length === all.length ? null : cur };
           }),
-          h('div', { className: 'dshic-row', style: { gap: 6, flexWrap: 'wrap' } },
-            miniBtn('auto-start-btn', T('autoStartBtn'), doStart, !act.brief.trim() || !pid),
-            miniBtn('auto-quote-btn', T('autoQuoteBtn'), doQuote, !pid),
-            miniBtn('auto-approve-btn', T('autoApproveBtn'),
-              () => setAct((a) => ({ ...a, confirmOpen: !a.confirmOpen, err: '', msg: '' })),
-              !act.quote || !pid, { title: act.quote ? '' : T('autoNeedQuote') }),
-            miniBtn('auto-generate-btn', T('autoGenerateBtn'), doGenerate, !pid),
-            miniBtn('auto-abort-btn', T('autoAbortBtn'), doAbort, !pid),
-          ),
-          // 最近一次刷新的预算单（批准令牌来源）+ 行内确认输入（confirm 用户原话）
-          act.quote ? h('div', { className: 'dshic-hint', 'data-role': 'auto-quote-line', style: { marginTop: 4 } }, act.quote.summary) : null,
-          act.quote && act.confirmOpen ? h('div', { className: 'dshic-row', style: { gap: 6, marginTop: 4 } },
-            h('input', {
-              className: 'dshic-input', 'data-role': 'auto-confirm-input', value: act.confirm,
-              placeholder: T('autoApprovePh'), style: { flex: 1, minWidth: 0, fontSize: 11 },
-              onPointerDown: (e) => e.stopPropagation(),
-              onChange: (e) => setAct((a) => ({ ...a, confirm: e.target.value })),
-              onKeyDown: (e) => { if (e.key === 'Enter') { e.preventDefault(); doApprove(); } },
-            }),
-            miniBtn('auto-confirm-submit', T('autoApproveSubmit'), doApprove, !act.confirm.trim()),
-          ) : null,
-          act.msg ? h('div', { className: 'dshic-hint', 'data-role': 'auto-act-msg', style: { marginTop: 4 } }, act.msg) : null,
-          act.err ? h('div', { className: 'dshic-err', 'data-role': 'auto-act-err', style: { marginTop: 4 } }, act.err) : null,
+          onPointerDown: (e) => e.stopPropagation() }),
+        h('span', { className: 'dshic-quote-name', title: String(s.name || '') }, '场' + s.scene + ' ' + String(s.name || '')),
+        h('span', { className: 'dshic-quote-meta' }, s.hasVideo ? T('autoHasVideo') : (s.shots + '镜 ' + s.seconds + 's · ' + s.videoCalls + '次')),
+        h('span', { className: 'dshic-quote-cost' }, price != null && price > 0 && !s.hasVideo ? '¥' + (Math.round(price * s.seconds * 100) / 100) : '—'));
+      const runStateText = run
+        ? (run.status === 'running' ? T('autoStRunning') : autoPhaseLabel(run.status))
+          + (run.phase ? ' · ' + autoPhaseLabel(run.phase) : '')
+        : T('autoIdle');
+      return h('div', { className: 'dshic-autostudio', 'data-role': 'auto-studio' },
+        // 一句话创意 + 启动
+        h('textarea', {
+          className: 'dshic-input', 'data-role': 'auto-brief-input', rows: 1, value: act.brief,
+          placeholder: T('autoBriefPh'), style: { width: '100%', fontSize: 11, resize: 'vertical' },
+          onPointerDown: (e) => e.stopPropagation(), onChange: (e) => setAct((a) => ({ ...a, brief: e.target.value })),
+        }),
+        // 状态条：运行状态 + 阶段 + 最近日志
+        h('div', { className: 'dshic-auto-status', 'data-role': 'auto-status' },
+          h('span', { className: cls('dshic-auto-dot', running && 'is-run') }),
+          h('span', { style: { flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, runStateText),
+          approval && approval.valid ? h('span', { className: 'dshic-tag st', 'data-role': 'auto-approval-ok' }, T('autoApprovalValid')) : null,
+        ),
+        run && (run.log || []).length
+          ? h('div', { className: 'dshic-hint', 'data-role': 'auto-log', style: { marginTop: 3 } }, run.log.slice(-2).map((l) => l.summary).join(' / '))
+          : null,
+        run && run.error ? h('div', { className: 'dshic-err', style: { marginTop: 3 } }, run.error) : null,
+        // 预算单：摘要 + 分场勾选 + 选中合计 + 过期警告
+        quote ? h('div', { className: 'dshic-quote', 'data-role': 'auto-quote' },
+          h('div', { className: 'dshic-hint', 'data-role': 'auto-quote-line' }, quoteLine(quote)),
+          (quote.scenes || []).map(sceneRow),
+          h('div', { className: 'dshic-hint', 'data-role': 'auto-quote-sel' },
+            (act.sel ? T('autoSelScenes').replace('{n}', String(act.sel.length)) : T('autoAllScenes'))
+            + ' · ' + (selCost != null ? T('autoQuoteCost').replace('{cost}', String(selCost)) : T('autoQuoteNoPrice'))),
+          stale ? h('div', { className: 'dshic-err', 'data-role': 'auto-quote-stale' }, T('autoStale')) : null,
+          h('div', { className: 'dshic-hint' }, T('autoScopeHint')),
+        ) : h('div', { className: 'dshic-console-hint', 'data-role': 'auto-no-quote' }, T('autoNoQuoteHint')),
+        // 动作区：预算/批准/生成/中止（批准令牌绑定 pin；过期禁用）
+        h('div', { className: 'dshic-row', style: { gap: 6, flexWrap: 'wrap', marginTop: 6 }, 'data-role': 'auto-actions' },
+          miniBtn('auto-start-btn', T('autoStartBtn'), doStart, !act.brief.trim() || !pid),
+          miniBtn('auto-quote-btn', T('autoQuoteBtn'), doQuote, !pid),
+          miniBtn('auto-approve-btn', T('autoApproveBtn'),
+            () => setAct((a) => ({ ...a, confirmOpen: !a.confirmOpen, err: '', msg: '' })),
+            !act.pin || stale || !pid, { title: stale ? T('autoStale') : (act.pin ? '' : T('autoNeedQuote')) }),
+          miniBtn('auto-generate-btn', T('autoGenerateBtn'), doGenerate, !pid || (!!act.sel && !act.sel.length)),
+          miniBtn('auto-abort-btn', T('autoAbortBtn'), doAbort, !pid || !running),
+        ),
+        act.pin && act.confirmOpen ? h('div', { className: 'dshic-row', style: { gap: 6, marginTop: 4 } },
+          h('input', {
+            className: 'dshic-input', 'data-role': 'auto-confirm-input', value: act.confirm,
+            placeholder: T('autoApprovePh'), style: { flex: 1, minWidth: 0, fontSize: 11 },
+            onPointerDown: (e) => e.stopPropagation(),
+            onChange: (e) => setAct((a) => ({ ...a, confirm: e.target.value })),
+            onKeyDown: (e) => { if (e.key === 'Enter') { e.preventDefault(); doApprove(); } },
+          }),
+          miniBtn('auto-confirm-submit', T('autoApproveSubmit'), doApprove, !act.confirm.trim()),
         ) : null,
+        act.msg ? h('div', { className: 'dshic-hint', 'data-role': 'auto-act-msg', style: { marginTop: 4 } }, act.msg) : null,
+        act.err ? h('div', { className: 'dshic-err', 'data-role': 'auto-act-err', style: { marginTop: 4 } }, act.err) : null,
+      );
+    }
+    /** 创作台外壳：页签（自动创作/批量执行）+ 关闭；单价只读（对话里设置）。 */
+    function ProductionConsole() {
+      const open = S.consoleOpen;
+      const [price, setPrice] = useState(null);
+      useEffect(() => {
+        if (!open) return undefined;
+        let ok = true;
+        hostRpc('productionPrice', {}).then((r) => { if (ok) setPrice(Number(r && r.price) || 0); }).catch(() => { /* 读不到就不显示 */ });
+        return () => { ok = false; };
+      }, [open]);
+      if (!open) return null;
+      const tab = S.consoleTab === 'batch' ? 'batch' : 'auto';
+      const tabBtn = (key, label, icon) => h('button', {
+        type: 'button', className: cls('dshic-console-tab', tab === key && 'is-active'), 'data-action': 'console-tab-' + key,
+        onClick: () => update((s) => { s.consoleTab = key; }), onPointerDown: (e) => e.stopPropagation(),
+      }, Ic(icon, 12), ' ' + label);
+      return h('div', { className: 'dshic-console', 'data-role': 'prod-console' },
+        h('div', { className: 'dshic-batch-head' },
+          Ic('spark', 14),
+          h('span', null, T('consoleTitle')),
+          h('div', { className: 'dshic-flex' }),
+          h('button', { type: 'button', className: 'dshic-node-x', title: T('batchClose'), 'data-action': 'console-close', onClick: closeProdConsole }, '✕')),
+        h('div', { className: 'dshic-console-tabs', 'data-role': 'console-tabs' },
+          tabBtn('auto', T('consoleTabAuto'), 'spark'),
+          tabBtn('batch', T('consoleTabBatch'), 'play')),
+        h('div', { className: 'dshic-console-body' },
+          tab === 'auto' ? h(AutoStudioPanel, { onPrice: setPrice }) : h(BatchRunPanel)),
+        h('div', { className: 'dshic-console-price', 'data-role': 'console-price' },
+          Ic('spark', 12),
+          h('span', null, price > 0
+            ? T('consolePriceSet').replace('{price}', String(price))
+            : T('consolePriceNone'))),
       );
     }
 
@@ -24878,9 +25128,10 @@ const DIRECTOR_KEY_HELP = [
     }
 
     /** 批量执行台：数量/秒数/金额预检 → 队列进度 → 停止/重试。 */
+    /** 批量执行页（创作台页签）：队列/并发/估算。外壳（标题/页签/关闭）由 ProductionConsole 提供。 */
     function BatchRunPanel() {
       const b = S.batch;
-      if (!b) return null;
+      if (!b) return h('div', { className: 'dshic-console-hint', 'data-role': 'batch-empty' }, T('batchEmptyHint'));
       const price = Number(b.price) || 0;
       const videoN = b.items.filter((it) => it.secs > 0).length;
       const cost = price > 0 && b.videoSecs > 0 ? Math.round(price * b.videoSecs * 100) / 100 : null;
@@ -24896,11 +25147,6 @@ const DIRECTOR_KEY_HELP = [
       const summary = T('batchSummary')
         .replace('{n}', String(b.items.length)).replace('{v}', String(videoN)).replace('{s}', String(Math.round(b.videoSecs)));
       return h('div', { className: 'dshic-batch', 'data-role': 'batch-console' },
-        h('div', { className: 'dshic-batch-head' },
-          Ic('play', 14),
-          h('span', {}, T('batchTitle')),
-          h('div', { className: 'dshic-flex' }),
-          h('button', { type: 'button', className: 'dshic-node-x', title: T('batchClose'), onClick: closeBatchConsole }, '✕')),
         h('div', { className: 'dshic-batch-summary' },
           h('div', {}, summary),
           b.videoSecs > 0
@@ -25049,8 +25295,7 @@ const DIRECTOR_KEY_HELP = [
           : null,
         h(Toolbar),
         h('div', { className: 'dshic-main' },
-          h(IconRail),
-          h('div', {
+          h(IconRail),          h('div', {
             ref: rootRef,
             className: 'dshic-canvas',
             onPointerDown: onCanvasPointerDown,
@@ -25098,7 +25343,7 @@ const DIRECTOR_KEY_HELP = [
         h(DirectorStage),        // 3D 导演台（全屏浮层；左侧图标列入口，S.directorOpen 控制）
         h(ProjectNameDialog),    // 新建 / 重命名项目（空名校验）
         S.menu ? h(ContextMenu, { menu: S.menu }) : null,
-        S.batch ? h(BatchRunPanel) : null,
+        h(ProductionConsole),
         S.lightbox ? h(Lightbox) : null,
         S.supportOpen ? h(SupportDialog) : null,
         S.skillPalette ? h(SkillPalette) : null,
@@ -25929,8 +26174,10 @@ const DIRECTOR_KEY_HELP = [
         if (typeof window !== 'undefined' && window.__DSH_IC_SMOKE__) {
           window.__DSH_IC_TABS__ = {
             ProjectsTab, AssetsTab, BibleTab, SettingsTab, DataRootCard, CanvasPage, ShortcutsPanel, CanvasHostedApp, SkillPalette,
-            // 自动创作卡（0.20.2 T12）：快捷动作区（启动/预算/批准/生成/中止）——供 test-panel-layout 直渲染与断言
+            // 自动创作卡（0.20.2 T12）：设置页只剩开关；动作区已迁入创作台（ProductionConsole/AutoStudioPanel）
             AutoModeCard,
+            // 创作台（自动创作 + 批量执行统一面板）：供 test-panel-layout 直渲染与断言
+            ProductionConsole, AutoStudioPanel, BatchRunPanel,
             // 面板结构重构（左侧图标列 / 顶部工具栏 / 右侧面板 / 统一弹窗）
             Toolbar, Rightbar, IconRail, StudioModal, ProjectNameDialog, BoxHome,
             // 技能页（四层图标瓦片）：组件 + 图标表 + 配置读写 + 切片入口
@@ -26087,6 +26334,9 @@ const DIRECTOR_KEY_HELP = [
             setProjectMenuPageInput, commitProjectMenuPageInput, cancelProjectMenuPageInput,
             setDbStats, toggleStorageInfo,
             setStorageInfoOpen: (v) => { S.storageInfoOpen = !!v; notify(); },
+            // 创作台（自动创作 + 批量执行）：开合/页签状态供 test-panel-layout 断言
+            openProdConsole, closeProdConsole,
+            setConsoleTab: (t) => { S.consoleTab = t === 'batch' ? 'batch' : 'auto'; notify(); },
             createCanvasNamed, renameCanvasNamed, deleteCanvasNamed, listCanvases, canvasNameFor,
             setProjectDialogValue: (v) => { if (S.projectDialog) S.projectDialog.value = String(v == null ? '' : v); },
             setInlineValue: (v) => setInlineEditValue(v),
@@ -26110,6 +26360,10 @@ const DIRECTOR_KEY_HELP = [
               projects: S.projects.map((p) => ({ id: p.id, name: p.name, canvases: Array.isArray(p.canvases) ? p.canvases.map((c) => ({ ...c })) : [] })),
               keysOpen: S.keysOpen,
               supportOpen: !!S.supportOpen,
+              consoleOpen: !!S.consoleOpen,
+              consoleTab: S.consoleTab === 'batch' ? 'batch' : 'auto',
+              batchRunning: !!(S.batch && S.batch.running),
+              batchItems: S.batch ? S.batch.items.length : 0,
             }),
           };
           // 多画布：文档 key 抽象 + 画布清单/切换/增删改（canvasId=null → key 就是 projectId，旧数据零迁移）

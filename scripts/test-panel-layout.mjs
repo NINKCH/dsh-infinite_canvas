@@ -255,7 +255,7 @@ function cssRulesMatchingClass(name) {
   const acts = els.filter((e) => e.props && e.props['data-action']).map((e) => e.props['data-action']);
   // 导演台（open-director）与 3D-BOX 库（open-3dbox-home）放在动作分区：它们是工具，不是节点类型
   // 记忆查看器（open-memory，0.20.x 会话绑定/项目记忆）：跟在设定集之后，属「项目资料」分组
-  eq(acts.join(','), 'add-text,add-script,add-storyboard,add-image,add-video,add-audio,add-finalcut,open-assets,open-bible,open-subjects,open-workflows,open-memory,open-3dbox-home,run-workflow',
+  eq(acts.join(','), 'add-text,add-script,add-storyboard,add-image,add-video,add-audio,add-finalcut,open-assets,open-bible,open-subjects,open-workflows,open-memory,open-console,open-3dbox-home,run-workflow',
     '左侧图标列顺序/动作不符合要求');
   ok(/\.dshic-rail\{[^}]*position:absolute/.test((LAYOUT.CSS || '')), '图标列不再是绝对定位悬浮层');
   // 第 2 条：图标列整列垂直居中（内层绝对定位居中，不是贴左上角/撑满整列）
@@ -1260,17 +1260,31 @@ function cssRulesMatchingClass(name) {
   ok(/white-space:nowrap/.test(cssRule('.dshic-storage-summary')), '精简状态不是单行（缺少 nowrap）');
 }
 
-// ---------------- 自动创作卡片（0.20.0 实验开关） ----------------
+// ---------------- 自动创作卡片（0.20.0 实验开关；0.21 设置页只剩开关） ----------------
 {
   ok(/function AutoModeCard\(/.test(src), '缺 AutoModeCard（设置页自动创作开关卡片）');
   ok(/SettingsTab[\s\S]{0,2400}?h\(AutoModeCard, \{ key: 'automode' \}\)/.test(src), 'AutoModeCard 未挂进设置页（应在 CraftCard 之后）');
   ok(/hostRpc\('autoModeGet'\)/.test(src) && /hostRpc\('autoModeSet'/.test(src), '自动创作卡片未接 autoModeGet/autoModeSet RPC');
   ok(/data-role': 'auto-mode-status'/.test(src), '自动创作状态行缺 data-role（回归定位锚点）');
   ok(src.includes("'autoOldHost'"), '缺旧宿主提示文案（autoModeGet 失败时必须提示重启，不得静默）');
-  // 0.20.2 T12：设置卡快捷动作区（全部走现有 RPC，零新增 RPC / 零轮询）
-  ok(/对话仍是主入口|对话为主入口/.test(src.slice(Math.max(0, src.indexOf('function AutoModeCard(') - 400), src.indexOf('function AutoModeCard('))), 'AutoModeCard 注释未更新（对话为主入口语义）');
-  for (const m of ['autoStart', 'autoQuote', 'autoApprove', 'autoGenerate', 'autoAbort']) {
-    ok(new RegExp("hostRpc\\('" + m + "'").test(fnBody('AutoModeCard')), 'AutoModeCard 动作区未接 ' + m + ' RPC');
+  // 0.21：动作区已迁入创作台——设置卡必须只有开关与状态，不得再出现 brief/动作按钮
+  {
+    const body = fnBody('AutoModeCard');
+    for (const m of ['autoStart', 'autoQuote', 'autoApprove', 'autoGenerate', 'autoAbort']) {
+      ok(!new RegExp("hostRpc\\('" + m + "'").test(body), '设置卡仍残留动作 RPC ' + m + '（应只在创作台）');
+    }
+    ok(!body.includes("'auto-actions'"), '设置卡仍渲染动作区（应只在创作台）');
+    ok(!body.includes("'auto-brief-input'"), '设置卡仍渲染 brief 输入（应只在创作台）');
+    ok(src.includes("'autoEntryHint'"), '设置卡缺「入口在创作台」提示词条');
+  }
+  // 创作台：动作 RPC 全部在 ProductionConsole/AutoStudioPanel；单价只读（productionSetPrice 只在 Host/工具）
+  ok(/function ProductionConsole\(/.test(src) && /function AutoStudioPanel\(/.test(src), '缺创作台组件（ProductionConsole/AutoStudioPanel）');
+  {
+    const consoleBody = fnBody('AutoStudioPanel');
+    for (const m of ['autoStart', 'autoQuote', 'autoApprove', 'autoGenerate', 'autoAbort', 'autoStatus']) {
+      ok(new RegExp("hostRpc\\('" + m + "'").test(consoleBody), '创作台自动页未接 ' + m + ' RPC');
+    }
+    ok(/hostRpc\('productionPrice'/.test(fnBody('ProductionConsole')), '创作台外壳未接 productionPrice（单价只读展示）');
   }
   for (const k of ['autoStartBtn', 'autoBriefPh', 'autoQuoteBtn', 'autoApproveBtn', 'autoApprovePh', 'autoGenerateBtn', 'autoAbortBtn', 'autoNeedQuote', 'autoDone', 'autoFail']) {
     ok(src.includes("'" + k + "'"), '缺自动创作动作区词条键：' + k);
@@ -1351,137 +1365,164 @@ function cssRulesMatchingClass(name) {
 }
 
 // ============================================================
-// 0.20.2 T12：AutoModeCard 快捷动作区（行为级）
-//   假 React useState 不保存状态 → 渲染树在「注入态」下断言结构，
-//   动作点击的参数/防重入用 rpcCalls 断言；hook 序号注入（stateOverrides）直渲染。
+// 0.21：创作台（ProductionConsole / AutoStudioPanel）行为级
+//   设置卡只剩开关（上一段已断言）；动作/预算/选场全部在创作台。
+//   假 React useState 不保存状态 → 结构断言用注入态；点击参数用 rpcCalls 断言。
+//   钉住语义：批准令牌只信显式「刷新预算」返回的 quoteId（不自动重刷）。
 // ============================================================
 {
-  const AMC = TABS.AutoModeCard;
-  ok(typeof AMC === 'function', '缺少 AutoModeCard 测试缝隙（__DSH_IC_TABS__.AutoModeCard）');
-  if (typeof AMC === 'function') {
+  const ASP = TABS.AutoStudioPanel;
+  const PC = TABS.ProductionConsole;
+  ok(typeof ASP === 'function' && typeof PC === 'function', '缺创作台测试缝隙（__DSH_IC_TABS__.AutoStudioPanel/ProductionConsole）');
+  if (typeof ASP === 'function') {
     const rolesOf = (els) => els.map((e) => e.props && e.props['data-role']).filter(Boolean);
-    // AutoModeCard 的 hook 顺序：0=st（null 初始）、1=act。注入后 hookIndex 必须复位。
+    // hook 顺序：0=st、1=act（useRef 不占 useState 序号）
+    const baseAct = { brief: '', confirm: '', pin: null, sel: null, confirmOpen: false, busy: null, msg: '', err: '' };
+    const enabledSt = { ok: true, enabled: true, caps: { multiAgent: true }, oldHost: false, noProject: false,
+      stage: null, ready: false, blockers: [], approval: null,
+      quote: { quoteId: 'q_live', sceneCount: 2, shotCount: 6, totalSeconds: 30, videoCalls: 4, estimatedCost: 1.2, unitPricePerSecond: 0.5,
+        scenes: [ { scene: 1, name: '夜色街头', shots: 3, seconds: 18, hasVideo: false, videoCalls: 2 },
+                  { scene: 2, name: '天台对峙', shots: 3, seconds: 12, hasVideo: false, videoCalls: 2 } ] },
+      run: null };
     const renderWith = (stVal, actVal) => {
-      stateOverrides = [stVal, Object.assign({ brief: '', confirm: '', quote: null, confirmOpen: false, busy: null, msg: '', err: '' }, actVal || {})];
+      stateOverrides = [stVal, Object.assign({}, baseAct, actVal || {})];
       hookIndex = 0;
-      const tree = AMC();
+      const tree = ASP();
       hookIndex = 0;
       stateOverrides = [];
       return all(tree);
     };
-    const enabledSt = { enabled: true, caps: { multiAgent: true }, oldHost: false, busy: false };
-    // —— enabled + multiAgent：动作区五入口齐全 ——
+    const btn = (els, role) => els.find((e) => e.props && e.props['data-role'] === role);
     const elsOn = renderWith(enabledSt);
-    ok(rolesOf(elsOn).includes('auto-actions'), 'enabled+multiAgent 时动作区未渲染（data-role auto-actions 缺失）');
-    ok(rolesOf(elsOn).includes('auto-brief-input'), '动作区缺 brief 输入框');
-    ok(rolesOf(elsOn).includes('auto-start-btn') && rolesOf(elsOn).includes('auto-quote-btn')
-      && rolesOf(elsOn).includes('auto-approve-btn') && rolesOf(elsOn).includes('auto-generate-btn')
-      && rolesOf(elsOn).includes('auto-abort-btn'), '动作区五按钮不齐（启动/预算/批准/生成/中止）');
-    // 关闭态 / 旧宿主 / 非多智能体：一律无动作区
-    ok(!rolesOf(renderWith({ enabled: false, caps: { multiAgent: true }, oldHost: false, busy: false })).includes('auto-actions'),
-      '关闭态仍渲染了动作区（应只有开关+状态）');
-    ok(!rolesOf(renderWith({ enabled: true, caps: null, oldHost: true, busy: false })).includes('auto-actions'),
-      '旧宿主仍渲染了动作区');
-    ok(!rolesOf(renderWith({ enabled: true, caps: { multiAgent: false }, oldHost: false, busy: false })).includes('auto-actions'),
-      '非多智能体仍渲染了动作区');
-    // brief 为空 → 启动按钮禁用
-    const startBtn0 = elsOn.find((e) => e.props && e.props['data-role'] === 'auto-start-btn');
-    ok(startBtn0 && startBtn0.props.disabled === true, 'brief 为空时启动创作按钮未禁用');
-    // 无最近预算单时批准按钮禁用（批准令牌绑定最近一次 autoQuote）
-    const approveBtn0 = elsOn.find((e) => e.props && e.props['data-role'] === 'auto-approve-btn');
-    ok(approveBtn0 && approveBtn0.props.disabled === true, '无最近预算单时批准按钮未禁用');
-    // 行内确认输入只在打开后渲染
-    ok(!rolesOf(elsOn).includes('auto-confirm-input'), '未打开批准时不应渲染行内确认输入框');
-    const elsConfirm = renderWith(enabledSt, { quote: { quoteId: 'qz1', summary: 'x' }, confirmOpen: true, confirm: '批准' });
-    ok(rolesOf(elsConfirm).includes('auto-confirm-input'), '打开批准后行内确认输入框缺失');
-    // busy 态：全部动作按钮禁用（防重入）——含确认提交（data-role 无 -btn 后缀，regex 须两头都匹配）
-    const elsBusy = renderWith(enabledSt, { busy: 'generate', quote: { quoteId: 'qz1', summary: 'x' }, confirmOpen: true, confirm: '批准' });
+    ok(rolesOf(elsOn).includes('auto-studio'), 'enabled+multiAgent 时自动页未渲染（data-role auto-studio 缺失）');
+    ok(rolesOf(elsOn).includes('auto-brief-input'), '自动页缺 brief 输入框');
+    ok(rolesOf(elsOn).includes('auto-status'), '自动页缺状态条');
+    ok(rolesOf(elsOn).includes('auto-quote'), '有预算时未渲染预算卡');
+    ok(rolesOf(elsOn).includes('auto-actions'), '自动页缺动作区');
+    ok(rolesOf(elsOn).includes('auto-quote-line'), '预算摘要行缺失');
+    // 分场行：两场 + 默认全选（sel=null）
+    const sceneChecks = elsOn.filter((e) => e.type === 'input' && e.props.type === 'checkbox');
+    ok(sceneChecks.length === 2, '分场预算行缺失（应 2 场，实际 ' + sceneChecks.length + '）');
+    ok(sceneChecks.every((c) => c.props.checked === true), '分场默认应全选（sel=null）');
+    for (const role of ['auto-start-btn', 'auto-quote-btn', 'auto-approve-btn', 'auto-generate-btn', 'auto-abort-btn']) {
+      ok(!!btn(elsOn, role), '自动页缺按钮 ' + role);
+    }
+    ok(btn(elsOn, 'auto-start-btn').props.disabled === true, 'brief 为空时启动创作未禁用');
+    ok(btn(elsOn, 'auto-approve-btn').props.disabled === true, '未钉住预算单时批准未禁用');
+    ok(btn(elsOn, 'auto-abort-btn').props.disabled === true, '无运行中任务时中止未禁用');
+    ok(!rolesOf(elsOn).includes('auto-confirm-input'), '未打开批准时不应渲染确认输入');
+    // pin + confirmOpen → 确认输入出现
+    const elsConfirm = renderWith(enabledSt, { pin: { quoteId: 'q_live' }, confirmOpen: true, confirm: '批准' });
+    ok(rolesOf(elsConfirm).includes('auto-confirm-input'), '钉住预算后确认输入缺失');
+    // 预算过期：pin 与当前指纹不一致 → stale 警告 + 批准禁用
+    const elsStale = renderWith(enabledSt, { pin: { quoteId: 'q_old' } });
+    ok(rolesOf(elsStale).includes('auto-quote-stale'), '预算指纹变化时未显示过期警告');
+    ok(btn(elsStale, 'auto-approve-btn').props.disabled === true, '预算过期时批准按钮未禁用');
+    // 选场：sel=[1] → 合计行“已选 1 场”，未选场复选框不选中
+    const elsSel = renderWith(enabledSt, { pin: { quoteId: 'q_live' }, sel: [1] });
+    const selLine = elsSel.find((e) => e.props && e.props['data-role'] === 'auto-quote-sel');
+    ok(!!selLine && stringsOf(selLine).join('').includes('已选 1 场'), '选场合计行缺失/文案不对');
+    const check2 = elsSel.filter((e) => e.type === 'input' && e.props.type === 'checkbox')[1];
+    ok(check2 && check2.props.checked === false, '选场后未选中的场复选框状态不对');
+    // busy：全部动作按钮禁用（防重入）
+    const elsBusy = renderWith(enabledSt, { busy: 'generate', pin: { quoteId: 'q_live' }, confirmOpen: true, confirm: '批准' });
     const actionRoles = ['auto-start-btn', 'auto-quote-btn', 'auto-approve-btn', 'auto-generate-btn', 'auto-abort-btn', 'auto-confirm-submit'];
-    ok(actionRoles.every((role) => {
-      const b = elsBusy.find((e) => e.props && e.props['data-role'] === role);
-      return b && b.props.disabled === true;
-    }), '动作执行中（busy）仍有按钮可点（防重入失效）');
-    // —— RPC 参数（源码级）：动作调用必须带 projectId（S.activeId），approve 必须 quoteId+confirm 齐全 ——
-    const body = fnBody('AutoModeCard');
+    ok(actionRoles.every((role) => { const b = elsBusy.find((e) => e.props && e.props['data-role'] === role); return b && b.props.disabled === true; }),
+      '动作执行中仍有按钮可点（防重入失效）');
+    // 关闭态/旧宿主/无项目/非多智能体：只出提示，无动作区
+    for (const [stBad, desc] of [
+      [{ ...enabledSt, enabled: false }, '关闭态'],
+      [{ ...enabledSt, oldHost: true }, '旧宿主'],
+      [{ ...enabledSt, noProject: true }, '无项目'],
+      [{ ...enabledSt, caps: { multiAgent: false } }, '非多智能体'],
+    ]) {
+      ok(!rolesOf(renderWith(stBad)).includes('auto-actions'), desc + '仍渲染了动作区');
+    }
+    // —— RPC 参数（源码级） ——
+    const body = fnBody('AutoStudioPanel');
     ok(/hostRpc\('autoStart', \{ projectId: pid, brief \}/.test(body), 'autoStart 未带 projectId+brief');
     ok(/hostRpc\('autoQuote', \{ projectId: pid \}\)/.test(body), 'autoQuote 未带 projectId');
-    ok(/hostRpc\('autoApprove', \{ projectId: pid, quoteId: act\.quote\.quoteId, confirm: words \}\)/.test(body), 'autoApprove 未带 projectId+quoteId+confirm');
-    ok(/hostRpc\('autoGenerate', \{ projectId: pid \}\)/.test(body), 'autoGenerate 未带 projectId');
+    ok(/hostRpc\('autoApprove', \{ projectId: pid, quoteId: act\.pin\.quoteId, confirm: words \}\)/.test(body), 'autoApprove 未带 projectId+quoteId+confirm');
     ok(/hostRpc\('autoAbort', \{ projectId: pid \}\)/.test(body), 'autoAbort 未带 projectId');
     ok(/S\.activeId \|\| ''/.test(body), 'projectId 未取 S.activeId');
-    // quoteId 只信卡片内存的最近一次 autoQuote 返回值（不自动重刷）：批准路径不得主动调 autoQuote
-    ok(!/doApprove[\s\S]{0,400}autoQuote/.test(body), '批准前自动重刷了预算（quoteId 应只取卡片内存值——批准令牌绑指纹）');
-    // —— RPC 参数（行为级）：真实点击 → fetch 桩记录（活动项目以前序用例可能已切换，读实时状态） ——
+    ok(!/doApprove[\s\S]{0,400}autoQuote/.test(body), '批准前自动重刷了预算（quoteId 应只取 pin——批准令牌绑指纹）');
+    ok(/args\.scenes = act\.sel\.slice\(\)/.test(body), '选场执行未把 scenes 传给 autoGenerate');
+    // —— RPC 参数（行为级）：真实点击 → fetch 桩记录 ——
     const pidNow = PANEL.state().activeId;
+    const clickAct = (actVal) => { hookIndex = 0; stateOverrides = [enabledSt, Object.assign({}, baseAct, actVal || {})]; const tree = all(ASP()); hookIndex = 0; stateOverrides = []; return tree; };
     rpcCalls.length = 0;
     rpcResponder = (method) => (method === 'autoQuote'
-      ? { ok: true, quoteId: 'qz_abc', sceneCount: 2, shotCount: 6, totalSeconds: 30, videoCalls: 4, estimatedCost: 1.2, note: '' }
+      ? { ok: true, quoteId: 'qz_abc', sceneCount: 2, shotCount: 6, totalSeconds: 30, videoCalls: 4, estimatedCost: 1.2, unitPricePerSecond: 0.5, scenes: [] }
       : { ok: true });
-    hookIndex = 0;
-    stateOverrides = [enabledSt, { brief: '', confirm: '', quote: null, confirmOpen: false, busy: null, msg: '', err: '' }];
-    const live = all(AMC());
-    const btn = (role) => live.find((e) => e.props && e.props['data-role'] === role);
-    btn('auto-quote-btn').props.onClick();
+    btn(clickAct(), 'auto-quote-btn').props.onClick();
     await new Promise((r) => setTimeout(r, 10));
     const qCall = rpcCalls.find((c) => c.method === 'autoQuote');
     ok(!!qCall, '点「刷新预算」没有发出 autoQuote RPC');
     eq(qCall && qCall.args.projectId, pidNow, 'autoQuote 的 projectId 不是当前活动项目');
-    ok(!!rpcCalls.find((c) => c.method === 'autoModeGet'), '动作执行后未回拉一次 autoModeGet（沿用手动 refresh 模式）');
     rpcCalls.length = 0;
-    hookIndex = 0;
-    stateOverrides = [enabledSt, { brief: '', confirm: '', quote: null, confirmOpen: false, busy: null, msg: '', err: '' }];
-    const live2 = all(AMC());
-    live2.find((e) => e.props && e.props['data-role'] === 'auto-generate-btn').props.onClick();
+    btn(clickAct(), 'auto-generate-btn').props.onClick();
     await new Promise((r) => setTimeout(r, 10));
     const gCall = rpcCalls.find((c) => c.method === 'autoGenerate');
     ok(!!gCall, '点「开始生成」没有发出 autoGenerate RPC');
-    eq(gCall && gCall.args.projectId, pidNow, 'autoGenerate 的 projectId 不是当前活动项目');
-    eq(gCall && gCall.args.scenes, undefined, '卡片生成不应带 scenes（部分选场是对话侧能力，卡片保持全量）');
+    eq(gCall && gCall.args.scenes, undefined, '全量生成不应带 scenes');
     rpcCalls.length = 0;
-    hookIndex = 0;
-    stateOverrides = [enabledSt, { brief: '', confirm: '', quote: null, confirmOpen: false, busy: null, msg: '', err: '' }];
-    const live3 = all(AMC());
-    live3.find((e) => e.props && e.props['data-role'] === 'auto-abort-btn').props.onClick();
+    btn(clickAct({ sel: [2] }), 'auto-generate-btn').props.onClick();
     await new Promise((r) => setTimeout(r, 10));
-    const aCall = rpcCalls.find((c) => c.method === 'autoAbort');
-    ok(!!aCall, '点「中止」没有发出 autoAbort RPC');
-    eq(aCall && aCall.args.projectId, pidNow, 'autoAbort 的 projectId 不是当前活动项目');
-    // 启动：注入 brief（假 React 的 setState 是 noop，无法驱动 onChange 持久化——评审允许 state override）
+    const gCall2 = rpcCalls.find((c) => c.method === 'autoGenerate');
+    ok(!!gCall2 && JSON.stringify(gCall2.args.scenes) === '[2]', '选场生成未把场号传给 autoGenerate');
     rpcCalls.length = 0;
-    hookIndex = 0;
-    stateOverrides = [enabledSt, { brief: '一个赛博武侠短剧', confirm: '', quote: null, confirmOpen: false, busy: null, msg: '', err: '' }];
-    const live4 = all(AMC());
-    const sBtn = live4.find((e) => e.props && e.props['data-role'] === 'auto-start-btn');
-    ok(sBtn && sBtn.props.disabled !== true, '填了 brief 后启动创作按钮仍被禁用');
-    sBtn.props.onClick();
+    btn(clickAct(), 'auto-abort-btn').props.onClick();
+    await new Promise((r) => setTimeout(r, 10));
+    ok(!!rpcCalls.find((c) => c.method === 'autoAbort'), '点「中止」没有发出 autoAbort RPC');
+    rpcCalls.length = 0;
+    btn(clickAct({ brief: '一个赛博武侠短剧' }), 'auto-start-btn').props.onClick();
     await new Promise((r) => setTimeout(r, 10));
     const stCall = rpcCalls.find((c) => c.method === 'autoStart');
-    ok(!!stCall, '点「启动创作」没有发出 autoStart RPC');
-    eq(stCall && stCall.args.projectId, pidNow, 'autoStart 的 projectId 不是当前活动项目');
-    eq(stCall && stCall.args.brief, '一个赛博武侠短剧', 'autoStart 的 brief 与输入不一致');
-    // 确认批准：注入最近预算单 + 打开行内确认 → 点确认提交 → autoApprove 带 quoteId+confirm
+    ok(!!stCall && stCall.args.brief === '一个赛博武侠短剧', 'autoStart 未带输入的 brief');
     rpcCalls.length = 0;
-    hookIndex = 0;
-    stateOverrides = [enabledSt, { brief: '', confirm: '批准', quote: { quoteId: 'qz1', summary: 'x' }, confirmOpen: true, busy: null, msg: '', err: '' }];
-    const live5 = all(AMC());
-    live5.find((e) => e.props && e.props['data-role'] === 'auto-confirm-submit').props.onClick();
+    btn(clickAct({ pin: { quoteId: 'qz1' }, confirmOpen: true, confirm: '批准' }), 'auto-confirm-submit').props.onClick();
     await new Promise((r) => setTimeout(r, 10));
     const apCall = rpcCalls.find((c) => c.method === 'autoApprove');
     ok(!!apCall, '点「确认批准」没有发出 autoApprove RPC');
-    eq(apCall && apCall.args.quoteId, 'qz1', 'autoApprove 的 quoteId 不是卡片内存的最近预算单');
+    eq(apCall && apCall.args.quoteId, 'qz1', 'autoApprove 的 quoteId 不是钉住的预算单');
     eq(apCall && apCall.args.confirm, '批准', 'autoApprove 的 confirm 不是输入的确认原话');
     eq(apCall && apCall.args.projectId, pidNow, 'autoApprove 的 projectId 不是当前活动项目');
     rpcResponder = null;
-    // —— 卡内显示：错误行 / 成功小字 / 预算摘要（渲染态注入断言） ——
+    // —— 显示：错误行 / 成功小字 / 预算摘要 ——
     const elsErr = renderWith(enabledSt, { err: '预算单已过期' });
-    ok(rolesOf(elsErr).includes('auto-act-err'), '错误未显示在卡内（缺 data-role auto-act-err 行）');
+    ok(rolesOf(elsErr).includes('auto-act-err'), '错误未显示在面板内（缺 data-role auto-act-err）');
     ok((elsErr.find((e) => e.props && e.props['data-role'] === 'auto-act-err').props.className || '').includes('dshic-err'),
       '错误行未复用 dshic-err 样式类');
     const elsMsg = renderWith(enabledSt, { msg: '已批准付费（待调用 4 次）' });
-    ok(rolesOf(elsMsg).includes('auto-act-msg'), '成功结果未以小字显示在卡内（缺 data-role auto-act-msg）');
-    const elsQuote = renderWith(enabledSt, { quote: { quoteId: 'qz_abc', summary: '2 场 / 6 镜 / 30 秒 / 待调用 4 次 · 估算 ¥1.2' } });
+    ok(rolesOf(elsMsg).includes('auto-act-msg'), '成功结果未以小字显示在面板内');
+    const elsQuote = renderWith(enabledSt, {});
     const qLine = elsQuote.find((e) => e.props && e.props['data-role'] === 'auto-quote-line');
-    ok(!!qLine && stringsOf(qLine).join('').includes('待调用 4 次'), '预算小字未展示场/镜/秒/待调用摘要');
+    ok(!!qLine && stringsOf(qLine).join('').includes('待调用 4 次'), '预算摘要未展示场/镜/秒/待调用');
+  }
+  // —— 外壳：开关/页签/关闭语义/单价只读 ——
+  if (typeof PC === 'function') {
+    const rolesOfShell = (els) => els.map((e) => e.props && e.props['data-role']).filter(Boolean);
+    PANEL.closeProdConsole();
+    eq(all(PC()).length, 0, '创作台未打开时仍渲染了外壳');
+    PANEL.openProdConsole('auto');
+    ok(PANEL.state().consoleOpen === true && PANEL.state().consoleTab === 'auto', 'openProdConsole(auto) 状态不对');
+    let shell = all(PC());
+    ok(rolesOfShell(shell).includes('prod-console'), '创作台外壳未渲染（缺 data-role prod-console）');
+    ok(rolesOfShell(shell).includes('console-tabs'), '创作台缺页签行');
+    ok(rolesOfShell(shell).includes('console-price'), '创作台缺单价只读行');
+    PANEL.setConsoleTab('batch');
+    ok(PANEL.state().consoleTab === 'batch', '页签切换失败');
+    // 组件元素在测试沙箱里不会被渲染展开：页签内容直接渲染对应组件断言
+    ok(!!all(TABS.BatchRunPanel()).find((e) => e.props && (e.props['data-role'] === 'batch-empty' || e.props['data-role'] === 'batch-console')),
+      '批量页未渲染（空态或队列）');
+    PANEL.setConsoleTab('auto');
+    hookIndex = 0;
+    ok(!!all(TABS.AutoStudioPanel()).find((e) => e.props && (e.props['data-role'] === 'auto-studio' || e.props['data-role'] === 'auto-loading')),
+      '自动页未渲染（loading 或 studio）');
+    // 关闭：批量在跑 → 先停再关（batchRunning 归 false）
+    PANEL.closeProdConsole();
+    ok(PANEL.state().consoleOpen === false, 'closeProdConsole 未关闭面板');
+    ok(PANEL.state().batchRunning === false, '关闭时未停止运行中的批量（应先停再关）');
   }
 }
 

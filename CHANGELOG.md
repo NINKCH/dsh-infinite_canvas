@@ -141,6 +141,15 @@ GitHub Releases carry the same notes in English; maintainer-facing runbooks live
   object anchor/screen box, and survive spec round-trips; AI-emitted parts are
   limited to 40 and bad presets fall back to `box` before the spec is saved.
   Scatter uses a deterministic seed, so playback and exports do not reshuffle.
+- **Production console: auto creation + batch run in one panel.** A new
+  「创作台」 opens from the left icon rail (and directly from the batch menu)
+  with two tabs: Auto creation (one-line brief, live phase & log polling while
+  running, budget sheet with per-scene checkboxes, approve-with-confirmation,
+  partial-scene generation, abort) and Batch run (the existing queue with
+  concurrency and estimates). The video unit price is shown read-only at the
+  bottom and set via `canvas_production_set_price` in chat; closing the console
+  stops a running batch (unchanged) but leaves the writers room running with a
+  pulsing rail icon as the indicator.
 - **3D-BOX: bone attachments.** Props and catalog models can set
   `attach:{to,bone,offset,rotY,scale}` to follow a character's skeleton
   (`RightHand`, `Head`, `Hips`…). The stage resolves the live bone world
@@ -180,6 +189,16 @@ GitHub Releases carry the same notes in English; maintainer-facing runbooks live
   so the main npm package stays lightweight.
 
 ### Fixed
+- **Budget price is finally configurable — in chat.** Auto-creation budget
+  sheets and batch estimates both read `production.videoUnitPricePerSecond`,
+  but nothing could ever set it and the hint pointed at a
+  Settings → Production page that does not exist. A new
+  `canvas_production_set_price` agent tool (validated 0–10000, 0 = clear)
+  persists the price; the console shows it read-only and the price hints now
+  point to the chat phrase.
+- **Auto-creation controls moved out of Settings.** The settings card kept a
+  cramped brief textarea plus five action buttons; Settings now only keeps the
+  on/off switch, and all controls moved into the new Production console.
 - **3D-BOX prop paths survive spec round-trips.** Drawing a path on a prop
   (a chasing car, a rolling barrel) played correctly but was silently dropped
   by `buildStageFromSpec` / `compileStageSpec`, so AI edits and spec exports

@@ -15,8 +15,9 @@
 ## 1. 当前实现（进程内执行器）
 
 **入口**（三处，同一引擎）：
-- 设置卡「自动创作（实验）」：开关 + 一句话创意 + 启动/中止 + 预算单/批准/生成；
-- 对话工具：`canvas_auto_status` / `canvas_auto_start` / `canvas_auto_budget` / `canvas_auto_generate` / `canvas_auto_abort`；
+- 设置卡「自动创作（实验）」：**只有开关**（0.21 起动作区迁出）；
+- 创作台（左栏图标，`ProductionConsole`）：brief/启动、实时阶段与预算单、分场勾选生成、批准/生成/中止；批量执行同面板页签；
+- 对话工具：`canvas_auto_status` / `canvas_auto_start` / `canvas_auto_budget` / `canvas_auto_generate` / `canvas_auto_abort`，单价设置 `canvas_production_set_price`；
 - 人格分支：`canvas_auto_status.enabled=true` 时禁止提问，必须同一轮 `canvas_auto_start`。
 
 **免费段**（`autoRoom`，五轮角色提示词 + 落盘 + 生成编排）：
@@ -46,7 +47,7 @@
 | 编剧室/付费段 | `index.js`（`autoRoom`/`autoPaid`/`AUTO_RUNS`） | 轮次编排、讨论落盘、生成编排 |
 | RPC | `autoModeGet/Set`、`autoStart/Status/Abort`、`autoQuote/Approve/Generate` | 设置卡与工具共用 |
 | 工具 | `canvas_auto_*` 五个 | 对话智能体的入口 |
-| 客户端 | `AutoModeCard`（设置卡）+ `ProjectsTab` 阶段行 | 开关/创意/预算/批准/进度 |
+| 客户端 | `AutoModeCard`（设置卡，只有开关）+ `ProductionConsole`/`AutoStudioPanel`（左栏创作台）+ `ProjectsTab` 阶段行 | 开关；brief/预算/批准/生成/中止（创作台） |
 
 ## 3. 测试
 

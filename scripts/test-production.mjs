@@ -1406,6 +1406,28 @@ let sbNodeId = '';
   ok(qWithPrice && qWithPrice.estimatedCost != null, 'T9④: 传价后应有估算金额');
   ok(!String(qWithPrice.note).includes('视频每秒单价'), 'T9④: 配了单价不应再出现引导（实际：' + qWithPrice.note + '）');
 
+  // ④b 视频单价设置（canvas_production_set_price 背后的 RPC）：持久化 + 边界 + 金额生效；改价不破坏预算指纹
+  {
+    const setP = await M.productionSetPrice({ price: 0.5 });
+    ok(setP && setP.ok === true && setP.price === 0.5, 'T9④b: 设置单价 0.5 失败');
+    const qP = await M.autoQuote({ projectId: pid9 });
+    ok(qP && qP.estimatedCost != null && Math.abs(qP.estimatedCost - Math.round(qP.totalSeconds * 0.5 * 100) / 100) < 1e-6,
+      'T9④b: 设置单价后估算金额未按新价计算（' + qP.estimatedCost + ' vs ' + qP.totalSeconds + 's×0.5）');
+    const qPinBefore = qP.quoteId;
+    await M.productionSetPrice({ price: 2 });
+    const qPinAfter = await M.autoQuote({ projectId: pid9 });
+    ok(qPinAfter.quoteId === qPinBefore, 'T9④b: 改价不应改变预算指纹（批准不应失效）');
+    ok(qPinAfter.estimatedCost === Math.round(qP.totalSeconds * 2 * 100) / 100, 'T9④b: 改价后金额未更新');
+    for (const badP of [-1, 10001, 'abc', NaN]) {
+      const rBad = await M.productionSetPrice({ price: badP });
+      ok(rBad && rBad.ok === false, 'T9④b: 非法单价 ' + JSON.stringify(badP) + ' 应拒绝');
+    }
+    const cleared = await M.productionSetPrice({ price: 0 });
+    ok(cleared && cleared.ok === true && cleared.price === 0, 'T9④b: 单价清零失败');
+    const qCleared = await M.autoQuote({ projectId: pid9 });
+    ok(qCleared && qCleared.estimatedCost == null, 'T9④b: 清零后估算金额应回到 null');
+  }
+
   // ③ 参数校验：非法 scenes 一律 ok:false，且错误必须来自参数校验本身（文案锚点锁定）而非下游批准闸；付费段不启动
   const bad9 = [
     { scenes: [0], word: '非法场号' },

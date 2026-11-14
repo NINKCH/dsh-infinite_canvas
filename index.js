@@ -5315,6 +5315,17 @@ export function apply(ctx) {
         const price = Number(cfg.production && cfg.production.videoUnitPricePerSecond);
         return { ok: true, price: Number.isFinite(price) && price > 0 ? price : 0, currency: 'CNY' };
       },
+      /** 设置视频每秒单价（自动预算/批量估算共用）：0 = 未设置。入口是对话工具 canvas_production_set_price。 */
+      async productionSetPrice(args) {
+        const price = Number(args && args.price);
+        if (!Number.isFinite(price) || price < 0 || price > 10000) {
+          return { ok: false, error: '单价必须是 0–10000 的数字（0 = 清除，不显示估算金额）' };
+        }
+        const cfg = readIcConfig();
+        cfg.production = { ...(cfg.production || {}), videoUnitPricePerSecond: Math.round(price * 100) / 100 };
+        writeIcConfig(cfg);
+        return { ok: true, price: cfg.production.videoUnitPricePerSecond, currency: 'CNY' };
+      },
       async productionStatus(args) {
         const pid = String((args && args.projectId) || '');
         if (!pid) return { ok: false, error: '缺少 projectId' };
@@ -5355,7 +5366,8 @@ export function apply(ctx) {
         const configured = Number(cfg.production && cfg.production.videoUnitPricePerSecond);
         const q = PROD.quote(pid, toolCanvasId(args), Number.isFinite(price) && price > 0 ? price : configured);
         if (q && q.ok && q.estimatedCost == null) {
-          q.note = (q.note ? q.note + '；' : '') + '未配置视频单价——在画布设置 → 制作 → 视频每秒单价 填入后可显示估算金额';
+          // 锚点词「视频每秒单价」被 test-production 断言（T9）：改措辞必须保留这四个字
+          q.note = (q.note ? q.note + '；' : '') + '未设置视频每秒单价——在对话里说「设置视频单价 X 元/秒」后可显示估算金额';
         }
         return q;
       },
@@ -6474,6 +6486,27 @@ export function apply(ctx) {
             const r = await methods.productionAdvance(args);
             if (!r.ok) return { ok: false, text: '❌ ' + (r.error || '推进失败') };
             return { ok: true, projectId: args.projectId, stage: r.to, text: '✅ 阶段 ' + r.from + ' → ' + r.to + '（已记入审计）。' };
+          },
+        });
+        reg({
+          name: 'canvas_production_set_price',
+          description: '设置视频每秒单价（人民币）：自动创作预算单与批量执行的估算金额都按它计算。用户说"设置视频单价 X 元/秒 / 每秒 X 块"时调用；0 = 清除（不显示金额）。单价不进预算指纹——改价不影响已批准的预算单，只改变金额显示。',
+          parameters: {
+            type: 'object',
+            properties: {
+              price: { type: 'number', description: '每秒单价（人民币元），0–10000；0 = 清除' },
+            },
+            required: ['price'],
+            additionalProperties: false,
+          },
+          output: textOutput,
+          timeoutMs: 15000,
+          async execute(args) {
+            const r = await methods.productionSetPrice(args);
+            if (!r.ok) return { ok: false, text: '❌ ' + (r.error || '单价设置失败') };
+            return { ok: true, price: r.price, text: r.price > 0
+              ? '✅ 视频单价已设为 ' + r.price + ' 元/秒：自动创作预算单与批量执行估算将按此计算。'
+              : '✅ 已清除视频单价（估算金额不再显示；批准付费不受影响）。' };
           },
         });
         reg({

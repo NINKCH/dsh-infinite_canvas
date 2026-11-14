@@ -32,12 +32,17 @@ has('genAbort.batchAbort = true;', '停止未中断批量队列');
 has('genAbort.batchControllers.add(ctl)', 'runGenNode 未登记批量 AbortController');
 has('genAbort.batchAbort ||', 'genAborted 未识别批量停止');
 
-// 面板接线
+// 面板接线（0.21：批量页并入创作台 ProductionConsole，外壳由它提供）
 has('function BatchRunPanel()', '缺少批量执行台组件');
 has('\'data-role\': \'batch-console\'', '面板缺少 data-role');
 has('\'data-action\': \'batch-start\'', '面板缺少开始按钮');
 has('\'data-action\': \'batch-stop\'', '面板缺少停止按钮');
-has('S.batch ? h(BatchRunPanel) : null', '根组件未渲染批量执行台');
+has('function ProductionConsole()', '缺少创作台外壳（自动创作+批量执行统一面板）');
+has('h(ProductionConsole),', '根组件未渲染创作台（批量页在其内）');
+has('function openProdConsole(', '缺少创作台打开入口');
+has('function closeProdConsole(', '缺少创作台关闭入口');
+has("s.consoleOpen = true;\n        s.consoleTab = 'batch';", '批量菜单未直达创作台批量页');
+has('.dshic-console{', '缺少创作台外壳样式');
 
 // 右键入口 + 组动作
 has("T(n.type === 'group' ? 'batchGroupRun' : 'batchMenu')", '右键菜单缺少批量生成入口');
