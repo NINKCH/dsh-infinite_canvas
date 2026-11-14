@@ -1446,6 +1446,107 @@ export function parseGlb(buf) {
   };
 }
 
+/**
+ * 面片 → GLB 2.0 静态网格（本地导出，不接第三方）。
+ * 同一个对象的部件颜色拆成多个 primitive/material；坐标以包围盒中心为原点、底面落地。
+ */
+export function encodeDirectorGlb(faces, opts) {
+  const o = opts || {};
+  const src = Array.isArray(faces) ? faces : [];
+  const tris = [];
+  for (const f of src) {
+    const v = (f && f.v) || [];
+    for (let i = 1; i + 1 < v.length; i++) tris.push({ v: [v[0], v[i], v[i + 1]], color: f.color });
+  }
+  if (!tris.length) throw new Error('没有可导出的三角面');
+  let minX = Infinity, minY = Infinity, minZ = Infinity, maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
+  for (const tr of tris) for (const p of tr.v) {
+    minX = Math.min(minX, p.x); maxX = Math.max(maxX, p.x);
+    minY = Math.min(minY, p.y); maxY = Math.max(maxY, p.y);
+    minZ = Math.min(minZ, p.z); maxZ = Math.max(maxZ, p.z);
+  }
+  const cx = (minX + maxX) / 2, cy = minY, cz = (minZ + maxZ) / 2;
+  const positions = [], normals = [];
+  const groupMap = new Map();
+  for (const tr of tris) {
+    const n = directorFaceNormal(tr.v);
+    const color = String(tr.color || o.color || '#b3b8bf');
+    let g = groupMap.get(color);
+    if (!g) { g = { color, start: positions.length / 3, count: 0 }; groupMap.set(color, g); }
+    for (const p of tr.v) {
+      positions.push(p.x - cx, p.y - cy, p.z - cz);
+      normals.push(n.x, n.y, n.z);
+      g.count++;
+    }
+  }
+  const groups = [...groupMap.values()];
+  const posF = new Float32Array(positions);
+  const nrmF = new Float32Array(normals);
+  const idx = groups.map((g) => {
+    const a = new Uint32Array(g.count);
+    for (let i = 0; i < g.count; i++) a[i] = g.start + i;
+    return a;
+  });
+  // 二进制缓冲：POSITION / NORMAL / 每组索引（全部 4 字节对齐）
+  const views = [];
+  let byteOffset = 0;
+  const addView = (len, target) => { views.push({ buffer: 0, byteOffset, byteLength: len, ...(target ? { target } : {}) }); byteOffset += len; };
+  addView(posF.byteLength, 34962);
+  addView(nrmF.byteLength, 34962);
+  for (const a of idx) addView(a.byteLength, 34963);
+  const bin = new Uint8Array(byteOffset);
+  let at = 0;
+  const put = (a) => { bin.set(new Uint8Array(a.buffer, a.byteOffset, a.byteLength), at); at += a.byteLength; };
+  put(posF); put(nrmF); for (const a of idx) put(a);
+  const pmin = [Infinity, Infinity, Infinity], pmax = [-Infinity, -Infinity, -Infinity];
+  for (let i = 0; i < posF.length; i += 3) for (let c = 0; c < 3; c++) {
+    pmin[c] = Math.min(pmin[c], posF[i + c]);
+    pmax[c] = Math.max(pmax[c], posF[i + c]);
+  }
+  const accessors = [
+    { bufferView: 0, componentType: 5126, count: posF.length / 3, type: 'VEC3', min: pmin, max: pmax },
+    { bufferView: 1, componentType: 5126, count: nrmF.length / 3, type: 'VEC3' },
+  ];
+  groups.forEach((g, i) => accessors.push({ bufferView: 2 + i, componentType: 5125, count: g.count, type: 'SCALAR' }));
+  const gltf = {
+    asset: { version: '2.0', generator: 'dsh-infinite-canvas' },
+    scene: 0,
+    scenes: [{ name: String(o.name || 'director-export'), nodes: [0] }],
+    nodes: [{ name: String(o.name || 'director-export'), mesh: 0 }],
+    meshes: [{
+      name: String(o.name || 'director-export'),
+      primitives: groups.map((g, i) => ({ attributes: { POSITION: 0, NORMAL: 1 }, indices: 2 + i, material: i })),
+    }],
+    materials: groups.map((g) => ({
+      name: g.color,
+      pbrMetallicRoughness: { baseColorFactor: [...directorHexToRgb(g.color), 1], metallicFactor: 0, roughnessFactor: 0.9 },
+    })),
+    buffers: [{ byteLength: bin.length }],
+    bufferViews: views,
+    accessors,
+  };
+  const jsonBytes = new TextEncoder().encode(JSON.stringify(gltf));
+  const jsonPad = (4 - (jsonBytes.length % 4)) % 4;
+  const binPad = (4 - (bin.length % 4)) % 4;
+  const total = 12 + 8 + jsonBytes.length + jsonPad + 8 + bin.length + binPad;
+  const out = new ArrayBuffer(total);
+  const dv = new DataView(out);
+  const u8 = new Uint8Array(out);
+  dv.setUint32(0, GLB_MAGIC, true);
+  dv.setUint32(4, 2, true);
+  dv.setUint32(8, total, true);
+  let off = 12;
+  dv.setUint32(off, jsonBytes.length + jsonPad, true);
+  dv.setUint32(off + 4, 0x4e4f534a, true);
+  u8.set(jsonBytes, off + 8);
+  for (let i = 0; i < jsonPad; i++) u8[off + 8 + jsonBytes.length + i] = 0x20;
+  off += 8 + jsonBytes.length + jsonPad;
+  dv.setUint32(off, bin.length + binPad, true);
+  dv.setUint32(off + 4, 0x004e4942, true);
+  u8.set(bin, off + 8);
+  return out;
+}
+
 /** 采样动画轨道（线性插值；四元数用最短弧 nlerp）。 */
 /**
  * 动画时间 → 循环时间。idle/run/walk 等骨骼动画片段都是循环动画：
@@ -1519,7 +1620,7 @@ export function boneMatrices(asset, time) {
     const skin = directorMat4Multiply(w, new Float32Array(b.ibm));
     out.set(skin, bi * 16);
   });
-  return { mats: out, count: asset.bones.length };
+  return { mats: out, count: asset.bones.length, world: worldM };
 }
 
 /** TRS → 4x4（列主序）。 */
@@ -2266,7 +2367,7 @@ export function boneMatricesWithPose(asset, time, poseMap, dirs, baseEuler, root
       out.set(jw, o);
     }
   });
-  return { mats: out };
+  return { mats: out, world: worldM };
 }
 
 /**
@@ -2401,7 +2502,7 @@ export function boneMatricesWithPoseMix(asset, time, list) {
       }
     } else out.set(jw, o);
   });
-  return { mats: out };
+  return { mats: out, world: worldM };
 }
 
 /* ============================================================
@@ -3085,6 +3186,7 @@ export function buildStageFromSpec(spec) {
         clip: String(m.clip || ''), animTime: 0,
       };
       if (m.material && typeof m.material === 'object') mob.material = { ...m.material };
+      if (m.attach && typeof m.attach === 'object') mob.attach = JSON.parse(JSON.stringify(m.attach));
       if (Array.isArray(m.keys)) {
         mob.keys = m.keys.map((k) => ({ t: num(k.t, 0), pos: v3of(k.pos, 0), rotY: num(k.rotY, 0), ease: String(k.ease || 'auto') })).sort((a, b) => a.t - b.t);
       }
@@ -3149,6 +3251,7 @@ export function buildStageFromSpec(spec) {
       pob.h = num(p.h, partTop || 1);
     }
     if (p.material && typeof p.material === 'object') pob.material = { ...p.material };
+    if (p.attach && typeof p.attach === 'object') pob.attach = JSON.parse(JSON.stringify(p.attach));
     // 道具关键帧：与角色同构（t/pos/rotY/rx/rz/ease），供长枪等跟手（applyPlayhead 对所有对象统一应用）
     if (Array.isArray(p.keys)) {
       pob.keys = p.keys.map((k) => ({
@@ -3297,6 +3400,7 @@ export function compileStageSpec(scene) {
       if (ob.color) m.color = ob.color;
       if (ob.clip) m.clip = ob.clip;
       if (ob.material) m.material = { ...ob.material };
+      if (ob.attach) m.attach = JSON.parse(JSON.stringify(ob.attach));
       if (Array.isArray(ob.keys) && ob.keys.length) m.keys = ob.keys.map((k) => ({ t: round3(k.t), pos: arr(k.pos), rotY: round3(k.rotY || 0), ease: k.ease || 'auto' }));
       models.push(m);
     } else {
@@ -3307,6 +3411,7 @@ export function compileStageSpec(scene) {
         scale: arr(ob.scale || v3(1, 1, 1)), color: ob.color,
         visible: ob.visible === false ? false : undefined,
         material: ob.material ? { ...ob.material } : undefined,
+        ...(ob.attach ? { attach: JSON.parse(JSON.stringify(ob.attach)) } : {}),
         ...(Array.isArray(ob.keys) && ob.keys.length
           ? { keys: ob.keys.map((k) => ({ t: round3(k.t), pos: arr(k.pos), rotY: round3(k.rotY || 0), rx: round3(k.rx || 0), rz: round3(k.rz || 0), ease: k.ease || 'auto' })) }
           : {}),
@@ -4021,6 +4126,79 @@ export function dopeSheetInfo(scene) {
   out.markers = Array.isArray(scene && scene.markers) ? scene.markers.slice() : [];
   return out;
 }
+/**
+ * 角色某时刻的骨骼世界矩阵（与 skinModel 使用同一套姿态/IK/约束管线）。
+ * 只给「骨骼附件」用；返回 asset/世界矩阵/身高缩放。
+ */
+function directorCharacterBoneMats(ob) {
+  const asset = gltfAssetOf(ob && ob.assetId);
+  if (!asset || !asset.bones || !asset.nodes) return null;
+  const clipName = ob.clip || (asset.animations && asset.animations[0] && asset.animations[0].name) || '';
+  const clip = clipName && typeof asset.clipByName === 'function' ? asset.clipByName(clipName) : null;
+  asset._anim = clip;
+  const shape = Object.assign({},
+    ob.typeId ? bodyShapeOf(ob.typeId) : {},
+    ob.bonePose ? { bonePose: ob.bonePose } : {},
+    ob.poseId ? { poseId: ob.poseId } : {},
+    ob.poseBlend ? { poseBlend: ob.poseBlend } : {},
+    ob.skinning ? { skinning: ob.skinning } : {},
+    ob.ik ? { ik: ob.ik } : {},
+    ob.constraints ? { constraints: ob.constraints } : {},
+    ob.clips ? { clips: ob.clips } : {});
+  const time = Number(ob.animTime) || 0;
+  const poseMap = shape.bonePose && Object.keys(shape.bonePose).length ? shape.bonePose : null;
+  const poseId = shape.poseId || null;
+  const spec = poseId ? (BONE_POSES.find((p) => p.id === poseId) || null) : null;
+  const poseDirs = spec ? (spec.dirs || []) : (shape.poseDirs || null);
+  const poseBase = spec ? (spec.base || null) : null;
+  const poseRootY = spec ? (Number(spec.rootY) || 0) : (Number(shape.rootY) || 0);
+  const poseBlend = shape.poseBlend && shape.poseBlend.length ? shape.poseBlend : null;
+  const wantPose = !!(poseMap || (poseDirs && poseDirs.length) || poseBase || poseBlend || shape.ik || shape.constraints || shape.clips);
+  const bm = poseBlend
+    ? boneMatricesWithPoseMix(asset, time, poseBlend)
+    : (wantPose
+      ? boneMatricesWithPose(asset, time, poseMap, poseDirs, poseBase, poseRootY,
+        (shape.ik || shape.constraints || shape.clips) ? { ik: shape.ik, constraints: shape.constraints, clips: shape.clips } : null)
+      : boneMatrices(asset, time));
+  if (!bm || !bm.world) return null;
+  const ms = Number(asset.rawHeight) > 0 ? (Number(ob.h) || 1.78) / asset.rawHeight : 1;
+  return { asset, world: bm.world, scale: ms };
+}
+
+const directorNormBone = (s) => String(s || '').toLowerCase().replace(/^mixamorig:?/, '').replace(/[^a-z0-9]/g, '');
+
+/** 骨骼名容错：RightHand / right_hand / mixamorig:RightHand 都能命中；找不到返回 -1。 */
+export function directorBoneIndex(asset, name) {
+  if (!asset || !Array.isArray(asset.bones)) return -1;
+  const want = directorNormBone(name);
+  if (!want) return -1;
+  let i = asset.bones.findIndex((b) => directorNormBone(b && b.name) === want);
+  if (i < 0) i = asset.bones.findIndex((b) => directorNormBone(b && b.name).includes(want));
+  return i;
+}
+
+/**
+ * 骨骼插槽（角色局部坐标）：返回骨骼原点 + 偏航角，供武器/帽子/背包跟随。
+ * 不生成网格，只读骨骼世界矩阵；找不到骨骼时返回 null（不把道具瞬移到脚下）。
+ */
+export function directorObjectBoneSocket(ob, boneName) {
+  const mats = directorCharacterBoneMats(ob);
+  if (!mats) return null;
+  const bi = directorBoneIndex(mats.asset, boneName);
+  if (bi < 0) return null;
+  const bone = mats.asset.bones[bi];
+  const m = mats.world[bone.nodeIdx];
+  if (!m) return null;
+  const k = mats.scale * (Number(ob.s) || 1);
+  const sc = ob.scale || { x: 1, y: 1, z: 1 };
+  return {
+    x: m[12] * k * (Number(sc.x) || 1),
+    y: m[13] * k * (Number(sc.y) || 1),
+    z: m[14] * k * (Number(sc.z) || 1),
+    yaw: Math.atan2(m[8], m[10]),
+  };
+}
+
 export function applyPlayhead(scene, t) {
   if (!scene) return scene;
   const time = Math.max(0, Number(t) || 0);
@@ -4177,6 +4355,42 @@ export function applyPlayhead(scene, t) {
     }
     return next;
   });
+
+  // 骨骼附件：武器/帽子/背包跟随角色骨骼（在对象运动求值之后覆盖 pos/rotY）
+  {
+    const byId = new Map();
+    for (const o of out.objects) {
+      byId.set(String(o.id), o);
+      if (o.name) byId.set(String(o.name), o);
+    }
+    for (const ob of out.objects) {
+      const at = ob.attach;
+      if (!at || typeof at !== 'object') continue;
+      const target = byId.get(String(at.to || at.character || at.target || ''));
+      if (!target || target === ob || (target.kind !== 'model' && target.kind !== 'actor')) continue;
+      const sock = directorObjectBoneSocket(target, at.bone || 'RightHand');
+      if (!sock) continue;
+      const cry = Number(target.rotY) || 0;
+      const cc = Math.cos(cry), cs = Math.sin(cry);
+      const bx = target.pos.x + sock.x * cc + sock.z * cs;
+      const by = target.pos.y + sock.y;
+      const bz = target.pos.z - sock.x * cs + sock.z * cc;
+      const oo = Array.isArray(at.offset) ? at.offset : (at.offset || []);
+      const ox = Number(oo[0] !== undefined ? oo[0] : oo.x) || 0;
+      const oy = Number(oo[1] !== undefined ? oo[1] : oo.y) || 0;
+      const oz = Number(oo[2] !== undefined ? oo[2] : oo.z) || 0;
+      const yaw = cry + sock.yaw + (Number(at.rotY) || 0);
+      const oc = Math.cos(cry + sock.yaw), os = Math.sin(cry + sock.yaw);
+      ob.pos = v3(bx + ox * oc + oz * os, by + oy, bz - ox * os + oz * oc);
+      ob.rotY = yaw;
+      ob.attachBone = String(at.bone || 'RightHand');
+      const k2 = Number(at.scale);
+      if (k2 > 0) {
+        const bs = ob.scale || { x: 1, y: 1, z: 1 };
+        ob.scale = v3((Number(bs.x) || 1) * k2, (Number(bs.y) || 1) * k2, (Number(bs.z) || 1) * k2);
+      }
+    }
+  }
 
   // 分镜串联：当前时间的活动相机（覆盖 activeCameraId）
   const liveCamId = activeCameraAt(scene, time);

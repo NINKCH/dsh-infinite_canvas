@@ -762,13 +762,15 @@ function revealCanvasInRight() {
       'dirClickToPlace': '点视口放置',
       'dirFullscreen': '全屏',
       'dirUpload': '上传资源',
-      'dirUploadObj': '上传模型（OBJ）',
-      'dirUploadHint': '支持 Blender「导出 → Wavefront (.obj)」；自动归一化到人高、底面落地。建议先减面（<2 万三角形）。',
-      'dirObjOnly': '只支持 .obj 文件（Blender 导出 Wavefront）',
+      'dirUploadObj': '上传模型（OBJ / GLB）',
+      'dirUploadHint': '支持 Blender「导出 → Wavefront (.obj)」与 glTF 二进制（.glb）；OBJ 建议 <900KB，GLB 建议 <20MB；自动归一化高度、底面落地。',
+      'dirObjOnly': '只支持 .obj / .glb 文件（Blender 导出 Wavefront 或 glTF Binary）',
       'dirObjTooBig': 'OBJ 文件过大（>900KB）——请在 Blender 里先减面或拆分',
       'dirObjLoaded': '模型已载入',
       'dirObjReadFail': '文件读取失败',
       'dirObjTooLarge': 'OBJ 超过 900KB，请先减面或压缩后再导入',
+      'dirGlbTooLarge': 'GLB 超过 20MB，请先减面或压缩后再导入',
+      'dirExportGlb': '导出 GLB',
       'dirSelObject': '选中对象',
       'dirName': '名称',
       'dirPos': '位置',
@@ -2042,13 +2044,15 @@ function revealCanvasInRight() {
       'dirClickToPlace': 'Click the viewport to place',
       'dirFullscreen': 'Fullscreen',
       'dirUpload': 'Upload',
-      'dirUploadObj': 'Upload model (OBJ)',
-      'dirUploadHint': 'Accepts Blender "Export → Wavefront (.obj)"; auto-normalised to human height, feet on ground. Decimate first (<20k tris).',
-      'dirObjOnly': 'Only .obj files are supported (Blender Wavefront export)',
+      'dirUploadObj': 'Upload model (OBJ / GLB)',
+      'dirUploadHint': 'Accepts Blender Wavefront (.obj) and glTF Binary (.glb); OBJ under 900KB, GLB under 20MB; auto-normalised height, feet on ground.',
+      'dirObjOnly': 'Only .obj / .glb files are supported (Wavefront or glTF Binary)',
       'dirObjTooBig': 'OBJ file too large (>900KB) — decimate or split it in Blender first',
       'dirObjLoaded': 'Model loaded',
       'dirObjReadFail': 'Failed to read the file',
       'dirObjTooLarge': 'OBJ exceeds 900KB; reduce the mesh before importing',
+      'dirGlbTooLarge': 'GLB exceeds 20MB; reduce or compress the mesh before importing',
+      'dirExportGlb': 'Export GLB',
       'dirSelObject': 'Selected object',
       'dirName': 'Name',
       'dirPos': 'Position',
@@ -6417,6 +6421,7 @@ body[data-ds-dark-theme] .dshic-pick-item.is-on{background:color-mix(in srgb,var
      *  （mp4-first 录制 / png 编码），不存在"从文件名猜"的场景——这里没有任何名字兜底。 */
     function extFromMime(mime) {
       const sub = String(mime || '').split(';')[0].split('/')[1] || 'bin';
+      if (sub === 'gltf-binary') return 'glb';
       return /^[a-z0-9]{1,8}$/i.test(sub) ? sub : 'bin';
     }
     /** 资产内容 URL：CAS 对象（sha）→ /api/object（immutable，远程可拉）；旧落盘（rel）→ /api/file；本地 blob → objectURL。 */
@@ -19328,11 +19333,41 @@ const DIRECTOR_KEY_HELP = [
 
         bumpView();
       };
+      /** 本地 GLB 导入：校验 → 落项目资产库 → 注册引擎 → 建 gltf 对象（不接第三方）。 */
+      const importGlbFile = async (f) => {
+        if (Number(f.size) > 20 * 1024 * 1024) { setMsg({ kind: 'err', text: T('dirGlbTooLarge') }); return; }
+        const ab = await f.arrayBuffer();
+        const E2 = directorEngine();
+        if (!E2 || typeof E2.parseGlb !== 'function') throw new Error(T('dirObjReadFail'));
+        E2.parseGlb(ab);   // 先验证，坏文件不落库
+        const blob = new Blob([ab], { type: 'model/gltf-binary' });
+        const rec = await saveAssetRecord(S.activeId, 'model', blob, {
+          name: f.name.replace(/\.glb$/i, ''), source: 'import', category: 'model',
+        });
+        const asset = await loadAssetModel(rec.id);
+        if (!asset) throw new Error(T('dirObjReadFail'));
+        const clip = asset.animations && asset.animations[0] ? String(asset.animations[0].name || '') : '';
+        patch((n) => {
+          const id = 'glb_' + Date.now().toString(36);
+          n.objects.push({
+            id, kind: 'gltf', assetId: rec.id, name: rec.name || f.name.replace(/\.glb$/i, ''),
+            pos: E.v3(0, 0, 0), rotY: 0, h: Number(asset.rawHeight) > 0 ? Number(asset.rawHeight) : 1.7,
+            scale: E.v3(1, 1, 1), visible: true, color: '', clip, animTime: 0,
+          });
+          S.directorSel = id;
+        });
+        setMsg({ kind: 'ok', text: T('dirObjLoaded') + ' (GLB)' });
+      };
       const onUpload = (ev) => {
         const f = ev && ev.target && ev.target.files && ev.target.files[0];
         if (!f) return;
+        ev.target.value = '';
+        if (/\.glb$/i.test(f.name)) {
+          importGlbFile(f).catch((err) => setMsg({ kind: 'err', text: String((err && err.message) || err) }));
+          return;
+        }
         if (!/\.obj$/i.test(f.name)) { setMsg({ kind: 'err', text: T('dirObjOnly') }); return; }
-        if (Number(f.size) > 900000) { setMsg({ kind: 'err', text: T('dirObjTooLarge') }); ev.target.value = ''; return; }
+        if (Number(f.size) > 900000) { setMsg({ kind: 'err', text: T('dirObjTooLarge') }); return; }
         const rd = new FileReader();
         rd.onload = () => {
           try {
@@ -19346,10 +19381,29 @@ const DIRECTOR_KEY_HELP = [
           } catch (err) { setMsg({ kind: 'err', text: String((err && err.message) || err) }); }
         };
         rd.readAsText(f);
-        ev.target.value = '';
       };
       const dupSel = () => { if (!sel) return; patch((n) => { const c = JSON.parse(JSON.stringify(sel)); c.id = 'obj_' + Date.now().toString(36); c.pos = E.v3(c.pos.x + 0.8, c.pos.y, c.pos.z); n.objects.push(c); S.directorSel = c.id; }); };
       const delSel = () => { if (!sel) return; patch((n) => { n.objects = n.objects.filter((x) => x.id !== sel.id); }); S.directorSel = null; bumpView(); };
+      /** 导出当前对象为 GLB（静态网格；按部件颜色分 primitive，坐标归一到底面中心）。 */
+      const exportGlb = () => {
+        if (!sel) return;
+        const E2 = directorEngine();
+        if (!E2 || typeof E2.encodeDirectorGlb !== 'function') { setMsg({ kind: 'err', text: T('dirObjReadFail') }); return; }
+        try {
+          const faces = E2.directorObjectFaces(sel);
+          if (!faces.length) throw new Error(T('dirObjReadFail'));
+          const buf = E2.encodeDirectorGlb(faces, { name: sel.name || sel.id });
+          const blob = new Blob([buf], { type: 'model/gltf-binary' });
+          const a = document.createElement('a');
+          a.href = URL.createObjectURL(blob);
+          a.download = String(sel.name || 'model').replace(/[\\/:*?"<>|]/g, '_') + '.glb';
+          document.body.appendChild(a);
+          a.click();
+          a.remove();
+          setTimeout(() => { try { URL.revokeObjectURL(a.href); } catch { /* 忽略 */ } }, 30000);
+          setMsg({ kind: 'ok', text: T('dirExportGlb') + ' ✓' });
+        } catch (err) { setMsg({ kind: 'err', text: String((err && err.message) || err) }); }
+      };
 
       // 机位 / 关键帧
       const addCamera = () => patch((n) => {
@@ -20301,7 +20355,7 @@ const DIRECTOR_KEY_HELP = [
                   return cardBtn('g-' + p.id, '\u25c7', p.label, () => addPreset('geom', p), url);
                 }),
                 tab === 'cams' && fil(lists.cams).map((p) => cardBtn('c-' + p.id, '\u2317', p.label, () => applyCamPreset(p.id)))),
-              h('input', { ref: fileRef, type: 'file', style: { display: 'none' }, onChange: onUpload })),
+              h('input', { ref: fileRef, type: 'file', accept: '.obj,.glb', style: { display: 'none' }, onChange: onUpload })),
             h('main', { className: 'dshic-dir-stage' },
               staleEngine && h('div', { className: 'dshic-dir-stalebar', 'data-role': 'dir-stalebar' },
                 h('span', null, T('dirEngineUpdated')),
@@ -20724,6 +20778,10 @@ const DIRECTOR_KEY_HELP = [
                 ] : []),
                 sel ? h('div', null,
                   h('div', { className: 'dshic-dir-subhead' }, T('dirSelObject')),
+                  (sel.kind === 'compound' || sel.kind === 'geom' || sel.kind === 'obj' || sel.kind === 'model')
+                    ? h('div', { className: 'dshic-dir-row' },
+                        h('button', { type: 'button', className: 'dshic-dir-mini', 'data-action': 'dir-export-glb', onClick: exportGlb }, T('dirExportGlb')))
+                    : null,
                   h('div', { className: 'dshic-dir-row' }, h('span', null, T('dirPos')), num3([sel.pos.x, sel.pos.y, sel.pos.z], (v, i) => patch((n) => { const t2 = n.objects.find((x) => x.id === sel.id); if (t2) t2.pos[i === 0 ? 'x' : i === 1 ? 'y' : 'z'] = i === 1 ? Math.max(0, v) : v; }))),
                   // 身高：直接改对象自己的 h（米）。体型表的 h 只在新建时写入，已有对象靠这里改。
                   (sel.kind === 'model')

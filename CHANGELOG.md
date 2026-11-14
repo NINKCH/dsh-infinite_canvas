@@ -141,6 +141,21 @@ GitHub Releases carry the same notes in English; maintainer-facing runbooks live
   object anchor/screen box, and survive spec round-trips; AI-emitted parts are
   limited to 40 and bad presets fall back to `box` before the spec is saved.
   Scatter uses a deterministic seed, so playback and exports do not reshuffle.
+- **3D-BOX: bone attachments.** Props and catalog models can set
+  `attach:{to,bone,offset,rotY,scale}` to follow a character's skeleton
+  (`RightHand`, `Head`, `Hips`…). The stage resolves the live bone world
+  transform with the same pose/IK pipeline as the skinned mesh, so guns, hats
+  and backpacks stay in the hand or on the head during animation instead of
+  being manually keyed; unknown bone names leave the prop at its authored spot
+  instead of teleporting it.
+- **3D-BOX: local GLB import/export.** The model upload now accepts `.glb`
+  as well as `.obj`: the file is validated, stored as a project model asset and
+  registered as a `gltf` object (clip name and measured height included). Any
+  geometry, compound prop or posed character can be exported from the inspector
+  as GLB 2.0 through a local encoder — per-part colours become separate
+  primitives/materials, coordinates are normalised to a ground-centred origin —
+  and the result reads back through the same `parseGlb` pipeline. No external
+  conversion service is involved.
 - **Host-agnostic core contract.** A new regression proves `apply(ctx)` only
   needs `effect` + `tools.register` + `webServer.register`: 34 tools and nine
   API routes register synchronously on a minimal ctx, while llm / attachments

@@ -446,6 +446,7 @@ try {
         { preset: 'box', pos: [0, 1.05, 0], scale: [2, 0.7, 1.6], color: '#2f6fed' },
         { preset: 'not_a_preset', pos: [0, 1.4, 0], scale: [0.8, 0.2, 0.4], color: '#ff2d2d' },
       ] },
+      { name: '手枪', preset: 'box', pos: [0, 1, 0], scale: [0.08, 0.12, 0.3], attach: { to: '警', bone: 'RightHand', offset: [0, 0, 0.12] } },
     ],
     cameras: [{ name: '跟拍', pos: [0, 1.6, 6], target: [0, 1, 0], fov: 40 }],
     shots: [{ camera: '跟拍', start: 0, end: 6 }],
@@ -459,6 +460,8 @@ try {
   const carProp = (briefR.spec.props || []).find((p) => p.name === '警车');
   if (!carProp || !Array.isArray(carProp.parts) || carProp.parts.length !== 3) throw new Error('AI brief did not keep parametric parts');
   if (carProp.parts[2].preset !== 'box') throw new Error('invalid part preset was not normalized');
+  const gunProp = (briefR.spec.props || []).find((p) => p.name === '手枪');
+  if (!gunProp || !gunProp.attach || gunProp.attach.bone !== 'RightHand') throw new Error('AI brief dropped bone attachment');
   mod._internals.__auto.setRoomLlm(async () => aiSpec('AI 追车 B', '匪'));
   const briefR2 = await rpc.directorStageBrief({ projectId, brief: '另一条追车，6秒' });
   if (!briefR2 || !briefR2.ok || !briefR2.stageId || briefR2.stageId === briefR.stageId) throw new Error('second brief did not create a new stage');
