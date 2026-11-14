@@ -147,6 +147,7 @@ const COVERAGE = [
   { sha: '7f0df82', keys: [/Audio generation node|lk888|Doubao TTS|is_final|audio\/speech/i] },
   { sha: '1436944', keys: [/no separate vision-model|multimodal model|current text model|vision-model setting/i] },
   { sha: 'aead956', keys: [/3D-BOX local asset composition|local GLB assets|models\[\]|No external 3D generation API/i] },
+  { sha: '1efeb68', keys: [/parametric compound props|props\[\]\.parts|per-colour batching|spec round-trips/i] },
 ];
 for (const c of COVERAGE) {
   ok(c.keys.some((re) => re.test(coverageText)), '未发版提交 ' + c.sha + ' 在 CHANGELOG（Unreleased 或最新已发布段）里找不到对应记录（补记不全）');
