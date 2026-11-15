@@ -41,7 +41,9 @@ has('function ProductionConsole()', '缺少创作台外壳（自动创作+批量
 has('h(ProductionConsole),', '根组件未渲染创作台（批量页在其内）');
 has('function openProdConsole(', '缺少创作台打开入口');
 has('function closeProdConsole(', '缺少创作台关闭入口');
-has("s.consoleOpen = true;\n        s.consoleTab = 'batch';", '批量菜单未直达创作台批量页');
+// 行尾无关断言（0.21.0 发版实测：main 工作树 CRLF 会打断跨行字面量）
+has('s.consoleOpen = true;', '批量菜单未写 consoleOpen');
+has("s.consoleTab = 'batch';", '批量菜单未写批量页签');
 has('.dshic-console{', '缺少创作台外壳样式');
 
 // 右键入口 + 组动作
