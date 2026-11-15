@@ -6,6 +6,8 @@ GitHub Releases carry the same notes in English; maintainer-facing runbooks live
 
 ## [Unreleased]
 
+## [0.21.0] — 2026-11-15
+
 ### Added
 - **3D-BOX: one-line previz.** The 3D director stage now opens as a
   agent-first 3D-BOX workspace. A single prompt plus optional scene preset,
