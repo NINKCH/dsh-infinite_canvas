@@ -45,7 +45,7 @@ function grab(name) {
   }
   throw new Error('配平失败 ' + name);
 }
-const fnSrc = ['shotVisualText', 'shotContinuityPlan', 'shotContinuityBlock', 'storyboardContinuityNote',
+const fnSrc = ['dlgList', 'shotVisualText', 'shotContinuityPlan', 'shotContinuityBlock', 'storyboardContinuityNote',
   'frameAnchorText', 'subjectInfoFromRef', 'condenseDesc', 'voiceFromDesc', 'entityBibleBlock',
   'buildStructuredVideoPrompt', 'matchBibleEntity', 'entityLabelOf', 'bibleStyleAnchor'].map(grab).join('\n\n');
 
