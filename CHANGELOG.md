@@ -6,6 +6,24 @@ GitHub Releases carry the same notes in English; maintainer-facing runbooks live
 
 ## [Unreleased]
 
+## [0.21.2] — 2026-11-18
+
+### Added
+- **Custom media providers as AI-generated single-file adapters.** A provider
+  is now one `.js` file with literal `id/label/fields/models` metadata plus
+  `generateImage(ctx, req)` / `generateVideo(ctx, req)` implementations; it can
+  describe arbitrary submit/poll/upload protocols that the built-in
+  OpenAI/Seedance/MiniMax paths cannot. Adapters are validated and executed in
+  a Host `node:vm` sandbox (no imports, no `require`/`process`/`fs`, network via
+  `ctx.fetch`), stored under `~/.dsh/infinite-canvas/providers/`, and can be
+  installed directly by the native chat through the new
+  `canvas_provider_guide/list/validate/save/get/delete` tools plus the bundled
+  `canvas-provider` skill — no separate AI dialog. Models declare capabilities
+  (ratios/sizes/durations/resolutions/reference limits) and per-model config
+  fields; the settings page lists adapters, edits their source, collects
+  provider config (API keys) and exposes model refs as
+  `ext:<providerId>|<modelId>` in image/video nodes.
+
 ## [0.21.1] — 2026-11-17
 
 ### Added
