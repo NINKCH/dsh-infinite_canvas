@@ -253,6 +253,36 @@ function writeDataRootMeta(meta) {
     renameSync(tmp, f);
   } catch { /* 清单写失败不影响主存储 */ }
 }
+// ============================================================
+// 台词归一（Host 侧唯一入口，与 client.js dlgList 字面同构）
+//   shots[].dialogue 在历史数据/模型输出里可能是：
+//   ① [{role,line}] ② "角色：台词" 字符串 ③ 字符串数组 ④ null
+//   直接当数组用会崩渲染/崩提示词拼接，所以任何读取都必须过这里。
+// ============================================================
+function dlgListHost(sh) {
+  const raw = sh && typeof sh === 'object' ? sh.dialogue : sh;
+  if (raw == null || raw === '') return [];
+  const one = (x) => {
+    if (x == null) return null;
+    if (typeof x === 'string') {
+      const s2 = String(x).trim();
+      if (!s2) return null;
+      const m = /^([^：:]{1,24})[：:]\s*([\s\S]*)$/.exec(s2);
+      return m ? { role: m[1].trim(), line: m[2].trim() } : { role: '', line: s2 };
+    }
+    if (typeof x === 'object') {
+      const role = String(x.role == null ? '' : x.role).trim();
+      const line = String(x.line == null ? (x.text == null ? '' : x.text) : x.line).trim();
+      return (role || line) ? { role, line } : null;
+    }
+    return null;
+  };
+  const arr = Array.isArray(raw) ? raw : String(raw).split(/[；;\n]+/);
+  const out = [];
+  for (const x of arr) { const it = one(x); if (it) out.push(it); }
+  return out;
+}
+
 function sanitizeFolderName(name) {
   const s = String(name || '').replace(/[\\/:*?"<>|\u0000-\u001f]/g, '_').replace(/\s+/g, ' ').trim().slice(0, 60)
     .replace(/[.\s]+$/, ''); // Windows 尾随点/空格会被文件系统吞掉；纯 ".." 会让 path.join 上跳一级
@@ -2285,9 +2315,7 @@ function canvasWriteNode(args) {
           scene: String((s && s.scene) || ''),
           props: Array.isArray(s && s.props) ? s.props.map(String) : [],
           duration: Number(s && s.duration) || 5,
-          dialogue: Array.isArray(s && s.dialogue)
-            ? s.dialogue.slice(0, 6).map((d) => ({ role: String(d && d.role || '').trim().slice(0, 24), line: String(d && d.line || '').trim().slice(0, 200) })).filter((d) => d.role && d.line)
-            : [],
+          dialogue: dlgListHost(s).slice(0, 6).map((d) => ({ role: String(d.role || '').trim().slice(0, 24), line: String(d.line || '').trim().slice(0, 200) })).filter((d) => d.role && d.line),
           sfx: String((s && s.sfx) || '').trim().slice(0, 120),
           // 分镜新四字段（动作节拍/机位三件套/特效/负向词）必须透传：对话侧改 shots 时
           // 不带这些字段才允许被默认清空；带了就保留——否则特效演绎镜落库即退化为纯 visual/motion。
@@ -3066,7 +3094,7 @@ function storyboardConsistencyWarnings(bible, shots, extraNames) {
   // 拼接同 shots 数组内全部对白文本；shots 无 dialogue 字段（旧数据）时按「无对白可查」自然不跳过。
   let dialogueAll = '';
   for (const sh of shots || []) {
-    for (const d of ((sh && sh.dialogue) || [])) dialogueAll += ' ' + String((d && d.line) || '');
+    for (const d of dlgListHost(sh)) dialogueAll += ' ' + String((d && d.line) || '');
   }
   const check = (title, kind, name, entity) => {
     const q = String(name || '').trim().toLowerCase();
@@ -3135,9 +3163,7 @@ async function canvasNodeStatus(args) {
       scene: String((s && s.scene) || '').slice(0, 100),
       props: Array.isArray(s && s.props) ? s.props.map(String) : [],
       // 台词标注：声音参考提取/对话侧对白定位的数据源
-      dialogue: Array.isArray(s && s.dialogue)
-        ? s.dialogue.slice(0, 6).map((d) => ({ role: String(d && d.role || '').slice(0, 24), line: String(d && d.line || '').slice(0, 200) }))
-        : [],
+      dialogue: dlgListHost(s).slice(0, 6).map((d) => ({ role: String(d.role || '').slice(0, 24), line: String(d.line || '').slice(0, 200) })),
       // 音效/环境音：声音设计提示，随镜头透出给对话侧与视频提示词
       sfx: String((s && s.sfx) || '').slice(0, 120),
       // 分镜衔接（分段生成的接戏依据）：接点尾态/运镜延续/起始态/段落类型——对话侧改写 shots 时必须一起带回
@@ -3292,6 +3318,8 @@ function canvasUpdateNode(args) {
     arr = arr.map((sh, i) => {
       if (!sh || typeof sh !== 'object') return sh;
       const out = { ...sh };
+      // 台词落库即归一：外部写入（MCP/旧版本/模型输出）传字符串也不再让渲染层 `.map` 崩
+      out.dialogue = dlgListHost(out);
       const segRaw = String(out.seg || '').trim().toLowerCase();
       out.seg = SEG_NORM[segRaw] || (SEG_OK.has(segRaw) ? segRaw : '');
       const old = oldShots[i] || {};
@@ -5948,7 +5976,7 @@ export function apply(ctx) {
             if (shots.length) {
               lines.push('镜头清单（' + shots.length + ' 镜，总时长 ' + shots.reduce((a, x) => a + (Number(x.duration) || 0), 0) + 's）——视频提示词的镜头序列以此为准:');
               shots.forEach((sh) => {
-                const dl = (sh.dialogue || []).map((d) => d.role + '：' + d.line).join('；');
+                const dl = dlgListHost(sh).map((d) => (d.role ? d.role + '：' : '') + d.line).join('；');
                 lines.push(sh.index + '. ' + sh.title + '（' + sh.duration + 's）' + (sh.seg ? '[' + sh.seg + '] ' : '') + '角色:' + (sh.characters.join('/') || '-') + '｜场景:' + (sh.scene || '-') + '｜道具:' + (sh.props.join('/') || '-')
                   + '\n   画面: ' + sh.visual + '\n   动作: ' + sh.motion
                   + (sh.tail ? '\n   接点尾态(应写进下一镜起始态): ' + sh.tail : '')
