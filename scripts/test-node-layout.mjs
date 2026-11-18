@@ -17,6 +17,7 @@ import { fileURLToPath } from 'node:url';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const src = readFileSync(path.join(ROOT, 'client.js'), 'utf8');
+const hostSrc = readFileSync(path.join(ROOT, 'index.js'), 'utf8');
 const errs = [];
 const ok = (c, m) => { if (!c) errs.push(m); };
 const eq = (a, b, m) => ok(JSON.stringify(a) === JSON.stringify(b), m + '（实际：' + JSON.stringify(a) + '，期望：' + JSON.stringify(b) + '）');
@@ -343,12 +344,21 @@ const barsOn = () => HDR() + FOOT();
   ok(wide.w <= LAYOUT.MEDIA_MAX_LONG, '21:9 节点宽（= 预览宽）必须 ≤ 800（实际 ' + wide.w + '）');
   ok(wide.h === LAYOUT.sizeForRatio('21:9').h + barsOn(), '21:9 节点高必须 = 预览高 + 固定栏高');
   // 每个比例：预览盒宽高比误差 ≤1%（盒比 == 媒体比）
-  for (const r of ['16:9', '9:16', '1:1', '4:3', '3:4', '21:9']) {
-    const sz = LAYOUT.nodeSizeForRatio(r, { hasFooter: true });
-    const pvAspect = sz.w / (sz.h - barsOn());
-    const want = LAYOUT.ratioAspect(r);
-    ok(Math.abs(pvAspect - want) / want <= 0.01, r + ' 的预览区盒比失真：' + pvAspect + ' vs ' + want);
+  const IMG_RATIOS = LAYOUT.IMAGE_RATIOS;
+  ok(Array.isArray(IMG_RATIOS), '缺少 IMAGE_RATIOS 测试缝隙（图片比例档无法回归）');
+  if (Array.isArray(IMG_RATIOS)) {
+    eq(IMG_RATIOS.length, 15, '图片比例应为 15 个');
+    for (const r of ['3:2', '2:3', '5:4', '4:5', '16:10', '10:16', '2:1', '1:2', '9:21']) {
+      ok(IMG_RATIOS.includes(r), '图片比例缺少 ' + r);
+    }
+    for (const r of IMG_RATIOS) {
+      const sz = LAYOUT.nodeSizeForRatio(r, { hasFooter: true });
+      const pvAspect = sz.w / (sz.h - barsOn());
+      const want = LAYOUT.ratioAspect(r);
+      ok(Math.abs(pvAspect - want) / want <= 0.01, r + ' 的预览区盒比失真：' + pvAspect + ' vs ' + want);
+    }
   }
+  eq(LAYOUT.VIDEO_RATIOS, ['16:9', '9:16', '1:1', '4:3', '3:4', '21:9'], '视频/成片比例应保持原 6 个');
 }
 
 // ============================================================
@@ -395,6 +405,31 @@ const barsOn = () => HDR() + FOOT();
   ok(JSON.stringify(doc) === once, '第三次归一仍必须一致（幂等）');
   eq(LAYOUT.ratioFromDims(1080, 1920), '9:16', '1080×1920 → 9:16');
   eq(LAYOUT.ratioFromDims(1024, 576), '16:9', '1024×576 → 16:9（吸附到 16:9 档）');
+  eq(LAYOUT.ratioFromDims(1600, 1000), '16:10', '1600×1000 → 16:10（新增档）');
+  eq(LAYOUT.ratioFromDims(1500, 1000), '3:2', '1500×1000 → 3:2（新增档）');
+
+  // 自定义比例：归一化 / 大尺寸约分 / 全角冒号 / x 分隔 / 合法性边界
+  const norm = LAYOUT.normalizeRatioInput;
+  ok(typeof norm === 'function', '缺少 normalizeRatioInput 测试缝隙（自定义比例无法回归）');
+  if (typeof norm === 'function') {
+    eq(norm('3:2'), { ok: true, value: '3:2' }, '自定义 3:2');
+    eq(norm(' 16：10 '), { ok: true, value: '16:10' }, '全角冒号 + 空格归一为 16:10');
+    eq(norm('16x9'), { ok: true, value: '16:9' }, 'x 分隔归一为 16:9');
+    eq(norm('1920x1080'), { ok: true, value: '16:9' }, '大尺寸自动约分为 16:9');
+    eq(norm('1.5:1'), { ok: true, value: '3:2' }, '小数吸附到 3:2');
+    eq(norm('2.35:1'), { ok: true, value: '2.35:1' }, '宽银幕小数保留 2.35:1');
+    for (const bad of ['', 'abc', '0:1', '1:0', '-1:2', '100:1', '1:100']) {
+      ok(norm(bad).ok === false, '非法比例 ' + JSON.stringify(bad) + ' 必须拒绝');
+    }
+  }
+
+  // 宿主与客户端的已知比例表必须逐字同步（否则旧资产尺寸/自定义比例两端推断分叉）
+  const hostRatiosM = /const RATIOS = (\[[^\]]*\]);/.exec(hostSrc);
+  ok(!!hostRatiosM, 'host index.js 缺少 RATIOS 常量');
+  if (hostRatiosM) {
+    const hostRatios = JSON.parse(hostRatiosM[1].replace(/'/g, '"'));
+    eq(hostRatios, LAYOUT.IMAGE_RATIOS, 'host RATIOS 与 client IMAGE_RATIOS 必须同步');
+  }
 }
 
 // ============================================================
@@ -472,6 +507,10 @@ const barsOn = () => HDR() + FOOT();
   ok(/function commitGenResult[\s\S]*?nodeSizeForRatio\(mediaRatioOf\(nd\), \{ hasFooter: true \}\)/.test(src), '生成完成后没有按「预览 + 标题栏 + 操作栏」设置节点外框');
   ok(/function normalizeMediaNodeSize[\s\S]*?nodeSizeForRatio\(ratio, \{ hasFooter \}\)/.test(src), '加载旧文档时没有按记录比例重算媒体外框');
   ok(/const sz = nodeSizeForRatio\(v, \{ hasFooter: mediaHasFooter\(nd\) \}\)/.test(src), '改比例时没有按「预览 + 固定栏」重排媒体外框');
+  // 图片比例：完整档 + 自定义输入；视频/成片仍走原 6 档
+  ok(/const ratioOpts = \(isImage \? IMAGE_RATIOS : VIDEO_RATIOS\)\.map/.test(src), '比例选项没有按节点类型分流（图片完整档 / 视频成片原档）');
+  ok(/parseCustom: isImage \? normalizeRatioInput : undefined/.test(src), '图片比例下拉未接自定义解析器');
+  ok(/customPlaceholder: T\('customRatioPh'\)/.test(src), '图片比例下拉缺少自定义输入占位提示');
 }
 
 // ============================================================

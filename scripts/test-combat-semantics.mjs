@@ -195,6 +195,18 @@ const lex = SEG.COMBAT_ACTION_LEXICON;
 ok(/combat\.hit \? \[combatContractAddendum\(zh\)\]/.test(src), '源码契约：分镜契约按检测命中注入战斗块');
 ok(/combatCausalityText\(s, zh\)/.test(src), '源码契约：视频提示词编译注入打斗因果');
 ok(/validateCombatGeometry\(sh, zh\)/.test(src), '源码契约：生成后几何校验进 warnings');
+// 生成函数是独立作用域：validateCombatGeometry 的 zh 必须在函数内声明，否则
+// 模型返回镜头后、保存前抛 ReferenceError（0.20.5 起的 zh is not defined 事故）。
+{
+  const i = src.indexOf('async function genStoryboardNode(');
+  const j = i >= 0 ? src.indexOf('\n    async function ', i + 10) : -1;
+  const fnSrc = i >= 0 ? src.slice(i, j > 0 ? j : src.length) : '';
+  const declAt = fnSrc.indexOf("const zh = effLang() !== 'en';");
+  const useAt = fnSrc.indexOf('validateCombatGeometry(sh, zh)');
+  ok(fnSrc.length > 0, '源码契约：未找到 genStoryboardNode（生成入口被改名？）');
+  ok(declAt >= 0, '源码契约：genStoryboardNode 未声明 zh（生成末尾 ReferenceError，镜头全丢）');
+  ok(declAt >= 0 && useAt > declAt, '源码契约：genStoryboardNode 的 zh 必须在 validateCombatGeometry 之前声明');
+}
 ok(/combatMode: String\(n\.data\.combatMode \|\| 'auto'\)/.test(src), '源码契约：分镜生成传 combatMode 三态');
 ok(!/FIGHT_RHYTHM_GENRES/.test(src), '源码契约：题材清单已移除（按场检测取代）');
 ok(/if \(kind === 'storyboard' && o\.combatMode !== undefined\)/.test(readFileSync(path.join(ROOT, 'skill-pack.js'), 'utf8')), '源码契约：skill-pack 按场检测判定 fight-rhythm');

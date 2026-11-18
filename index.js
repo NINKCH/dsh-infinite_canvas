@@ -1979,7 +1979,8 @@ const NODE_HDR_H = 32;
 const NODE_FOOT_H = 32;
 const MEDIA_PREVIEW_SHORT = 360;
 const MEDIA_MAX_LONG = 800;
-const RATIOS = ['16:9', '9:16', '1:1', '4:3', '3:4', '21:9'];
+// 与 client.js 的 IMAGE_RATIOS 逐字同步：客户端图片比例档 + 旧资产尺寸反推共用同一套已知比例。
+const RATIOS = ['21:9', '2:1', '16:9', '16:10', '3:2', '4:3', '5:4', '1:1', '4:5', '3:4', '2:3', '10:16', '9:16', '9:21', '1:2'];
 const ratioIsValid = (r) => {
   const [rw, rh] = String(r || '').split(':').map(Number);
   return rw > 0 && rh > 0;
@@ -5943,7 +5944,7 @@ export function apply(ctx) {
                   script: { type: 'string', description: '分镜表的剧本来源' },
                   requirement: { type: 'string', description: '分镜表的额外要求' },
                   label: { type: 'string', description: '节点名（≤40 字）' },
-                  ratio: { type: 'string', description: '比例，如 16:9 / 9:16 / 1:1' },
+                  ratio: { type: 'string', description: '比例，如 16:9 / 9:16 / 3:2 / 16:10 / 1:1（也接受自定义 宽:高，如图片节点支持 2.35:1）' },
                   size: { type: 'string', description: '图片清晰度：1K / 2K / 4K' },
                   duration: { type: 'number', description: '视频时长（秒，正数）' },
                   resolution: { type: 'string', description: '视频分辨率，如 720P / 1080P / 2K' },
@@ -6617,7 +6618,7 @@ export function apply(ctx) {
               assetId: { type: 'string', description: '可选：已有资产 id（canvas_import_asset / canvas_list_assets 返回）。有 assetId 时图片/视频节点直接呈现该素材，不再需要生成 prompt' },
               prompt: { type: 'string', description: '提示词（图片/视频用画面提示词；剧本用创作意图；文本用正文）' },
               size: { type: 'string', description: '可选：图片清晰度 1K/2K/4K' },
-              ratio: { type: 'string', description: '可选：比例，如 16:9 / 9:16 / 1:1' },
+              ratio: { type: 'string', description: '可选：比例，如 16:9 / 9:16 / 3:2 / 16:10 / 1:1（图片节点支持自定义 宽:高，如 2.35:1）' },
               connectFrom: { type: 'string', description: '可选：创建后立即从该节点连一条线到新节点（如剧本节点→分镜表）' },
               connectFromPort: { type: 'string', description: '可选：连线源端口，默认源节点第一个输出端口' },
               connectToPort: { type: 'string', description: '可选：连线目标端口，默认新节点第一个输入端口' },

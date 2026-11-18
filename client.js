@@ -145,7 +145,36 @@ function revealCanvasInRight() {
       const [rw, rh] = String(r || '').split(':').map(Number);
       return rw > 0 && rh > 0;
     };
-    /** 像素尺寸 → 画面比例：先吸附到 RATIOS 里最接近的档（3% 容差，兼容 API 的 1024×576、1080×1920），
+    /** 规范化用户输入的自定义比例：接受 16:9 / 16：10 / 16x9 / 1920x1080 / 2.35:1。
+     *  能吸附到已知图片比例档就返回该档（1920x1080 → 16:9）；否则约分为最简整数比或保留两位小数。
+     *  宽高比限制 1:10–10:1，拒绝 0/负数/乱码/极端比例。 */
+    function normalizeRatioInput(raw) {
+      const s = String(raw == null ? '' : raw).trim().replace(/：/g, ':');
+      const m = /^([0-9]+(?:\.[0-9]+)?)\s*[:/xX×*]\s*([0-9]+(?:\.[0-9]+)?)$/.exec(s);
+      if (!m) return { ok: false, value: '' };
+      const rw = Number(m[1]);
+      const rh = Number(m[2]);
+      if (!Number.isFinite(rw) || !Number.isFinite(rh) || !(rw > 0) || !(rh > 0)) return { ok: false, value: '' };
+      const aspect = rw / rh;
+      if (aspect < 0.1 || aspect > 10) return { ok: false, value: '' };
+      let best = null;
+      for (const r of IMAGE_RATIOS) {
+        const [kw, kh] = r.split(':').map(Number);
+        const diff = Math.abs(kw / kh - aspect) / aspect;
+        if (!best || diff < best.diff) best = { ratio: r, diff };
+      }
+      if (best && best.diff <= 0.005) return { ok: true, value: best.ratio };
+      const iw = Math.round(rw);
+      const ih = Math.round(rh);
+      if (Math.abs(rw - iw) < 1e-9 && Math.abs(rh - ih) < 1e-9) {
+        const gcd = (a, b) => (b ? gcd(b, a % b) : a);
+        const k = gcd(iw, ih) || 1;
+        return { ok: true, value: (iw / k) + ':' + (ih / k) };
+      }
+      const fmt = (n) => String(Math.round(n * 100) / 100);
+      return { ok: true, value: fmt(rw) + ':' + fmt(rh) };
+    }
+    /** 像素尺寸 → 画面比例：先吸附到 IMAGE_RATIOS 里最接近的档（3% 容差，兼容 API 的 1024×576、1080×1920），
      *  否则约分为最简整数比。用于旧资产节点"没有记录 ratio"时从图片/视频真实尺寸反推。 */
     function ratioFromDims(w, h) {
       const aw = Number(w) || 0;
@@ -153,7 +182,7 @@ function revealCanvasInRight() {
       if (!(aw > 0 && ah > 0)) return '16:9';
       const want = aw / ah;
       let best = null;
-      for (const r of RATIOS) {
+      for (const r of IMAGE_RATIOS) {
         const [rw, rh] = r.split(':').map(Number);
         const diff = Math.abs(rw / rh - want) / want;
         if (!best || diff < best.diff) best = { ratio: r, diff };
@@ -299,7 +328,13 @@ function revealCanvasInRight() {
     // 分镜端口期望的资产分类（仅用于连接时的非阻断提示）
     const PORT_CATEGORY = { char: 'character', scene: 'scene', prop: 'prop' };
     const CATEGORIES = ['character', 'scene', 'prop', 'script', 'storyboard', 'audio', 'finalcut', 'general'];
-    const RATIOS = ['16:9', '9:16', '1:1', '4:3', '3:4', '21:9'];
+    // 视频/成片比例：保持厂商友好的原 6 档（自定义比例只对图片节点开放）
+    const VIDEO_RATIOS = ['16:9', '9:16', '1:1', '4:3', '3:4', '21:9'];
+    // 图片比例：常见摄影/社媒/宽银幕档位（从宽到高）；ratioFromDims 也用它做旧资产吸附。
+    const IMAGE_RATIOS = [
+      '21:9', '2:1', '16:9', '16:10', '3:2', '4:3', '5:4', '1:1',
+      '4:5', '3:4', '2:3', '10:16', '9:16', '9:21', '1:2',
+    ];
     const IMAGE_SIZES = ['1K', '2K', '4K'];
     // 时长选项放宽到 30s（万相 3.0 等支持长视频）；各厂商上限不同——超限由接口报错，系统不做静默截断
     const VIDEO_DURATIONS = [4, 5, 6, 8, 10, 12, 15, 20, 25, 30];
@@ -526,6 +561,8 @@ function revealCanvasInRight() {
       'customValuePh': '自定义后回车',
       'customCountPh': '自定义 1–100 镜',
       'customSegMaxPh': '自定义 1–300 秒',
+      'customRatioPh': '自定义，如 3:2 / 16:10',
+      'ratioInvalid': '比例需为 宽:高（如 3:2、16:10 或 2.35:1），宽高比限 1:10–10:1',
       'durationByStoryboard': '分镜时长',
       'durationByStoryboardTip': '已连接分镜：时长由本段镜头的节拍决定，节点秒数不参与请求',
       'segClean': '切点整齐：每一段都从换镜头处开始',
@@ -1844,6 +1881,8 @@ function revealCanvasInRight() {
       'customValuePh': 'Custom, press Enter',
       'customCountPh': 'Custom 1-100 shots',
       'customSegMaxPh': 'Custom 1-300 seconds',
+      'customRatioPh': 'Custom, e.g. 3:2 / 16:10',
+      'ratioInvalid': 'Ratio must be width:height (e.g. 3:2, 16:10 or 2.35:1); aspect must stay within 1:10-10:1',
       'durationByStoryboard': 'Storyboard duration',
       'durationByStoryboardTip': 'Storyboard connected: duration follows this segment\'s shot beats; the node duration is not sent',
       'segClean': 'Clean cuts: every segment starts on a new shot',
@@ -12479,6 +12518,7 @@ function queueThumb(assetId) {
 
     /** 分镜节点：剧本 → 镜头列表（含一致性检查）。 */
     async function genStoryboardNode(n) {
+      const zh = effLang() !== 'en';
       const st = storyboardScriptText(n);
       if (!st) throw new Error(T('aiNeedScript'));
       update((s) => { const nd = s.graph.nodes[n.id]; if (nd) { nd.data.aiStatus = 'running'; nd.data.aiError = null; nd.data.warnings = []; } });
@@ -14642,8 +14682,9 @@ function queueThumb(assetId) {
     /** 通用下拉：固定宽度触发按钮 + 可搜索浮层列表（几十个模型也能快速定位）。
      *  shrink=true 时宽度作为 flex 基准：控件行空间不足可以先收缩（模型名走省略号），
      *  保证发送按钮永远留在同一行。
-     *  editable=true 时浮层底部带自定义输入：用于分镜数（1–100 整数）和单段上限（1–300s 一位小数）。 */
-    function PopupSelect({ value, options, onChange, width, title, className, searchable, shrink, editable, min, max, integer, decimals, customLabel, customPlaceholder, disabled, disabledLabel, disabledTitle }) {
+     *  editable=true 时浮层底部带自定义输入：用于分镜数（1–100 整数）、单段上限（1–300s 一位小数）
+     *  和图片比例（parseCustom 接管 宽:高 归一，非法值交给 onInvalidCustom 提示）。 */
+    function PopupSelect({ value, options, onChange, width, title, className, searchable, shrink, editable, min, max, integer, decimals, customLabel, customPlaceholder, parseCustom, onInvalidCustom, disabled, disabledLabel, disabledTitle }) {
       const [open, setOpen] = useState(false);
       const [q, setQ] = useState('');
       const [custom, setCustom] = useState('');
@@ -14686,10 +14727,22 @@ function queueThumb(assetId) {
         setCustom('');
         setOpen(true);
       };
-      /** 提交自定义值：Enter/失焦都走这里；非法输入只清空草稿，不改当前值。 */
+      /** 提交自定义值：Enter/失焦都走这里；非法输入不改当前值。
+       *  parseCustom 用于非数字口径（如比例 3:2）：非法时保留草稿并交给调用方提示。 */
       const submitCustom = () => {
         if (!editable) return;
         if (!String(custom).trim()) return;
+        if (parseCustom) {
+          const r = parseCustom(custom);
+          if (!r || !r.ok) {
+            if (onInvalidCustom) { try { onInvalidCustom(custom); } catch { /* 提示失败不影响输入 */ } }
+            return;
+          }
+          setCustom('');
+          if (String(value) !== String(r.value)) onChange(r.value);
+          setOpen(false);
+          return;
+        }
         const r = clampCustomNumber(custom, { min, max, integer, decimals, fallback: value });
         setCustom('');
         if (!r.ok) return;
@@ -14807,7 +14860,7 @@ function queueThumb(assetId) {
                 ? h('div', { className: 'dshic-pick-custom is-flipped' },
                     h('input', {
                       className: 'dshic-input', type: 'text',
-                      inputMode: integer ? 'numeric' : 'decimal',
+                      inputMode: parseCustom ? 'text' : (integer ? 'numeric' : 'decimal'),
                       placeholder: customPlaceholder || T('customValuePh'),
                       title: customPlaceholder || T('customValuePh'),
                       value: custom,
@@ -14821,7 +14874,7 @@ function queueThumb(assetId) {
                 ? h('div', { className: 'dshic-pick-custom' },
                     h('input', {
                       className: 'dshic-input', type: 'text',
-                      inputMode: integer ? 'numeric' : 'decimal',
+                      inputMode: parseCustom ? 'text' : (integer ? 'numeric' : 'decimal'),
                       placeholder: customPlaceholder || T('customValuePh'),
                       title: customPlaceholder || T('customValuePh'),
                       value: custom,
@@ -15082,7 +15135,7 @@ function queueThumb(assetId) {
           try { if (ta) { ta.focus(); ta.selectionStart = ta.selectionEnd = caretAt; } } catch { /* 忽略 */ }
         }, 0);
       };
-      const ratioOpts = RATIOS.map((x) => ({ value: x, label: x }));
+      const ratioOpts = (isImage ? IMAGE_RATIOS : VIDEO_RATIOS).map((x) => ({ value: x, label: x }));
       const sizeOpts = IMAGE_SIZES.map((x) => ({ value: x, label: x }));
       const countOpts = [1, 2, 3, 4].map((x) => ({ value: String(x), label: String(x) }));
       // 视频分辨率：H3（V2 协议）扩展档位 480P/768P/1080P/2K/4K（大小写敏感），其余用标准三档；
@@ -15387,7 +15440,14 @@ function queueThumb(assetId) {
               })
             : null,
           (isImage || isVideo || isFinalCut)
-            ? h(PopupSelect, { value: n.data.ratio || '16:9', options: ratioOpts, onChange: onRatio, width: 74, title: T('ratioLabel') })
+            ? h(PopupSelect, {
+                value: n.data.ratio || '16:9', options: ratioOpts, onChange: onRatio, width: 74, title: T('ratioLabel'),
+                editable: isImage,
+                parseCustom: isImage ? normalizeRatioInput : undefined,
+                onInvalidCustom: isImage ? () => toast(T('ratioInvalid')) : undefined,
+                customLabel: (v) => String(v),
+                customPlaceholder: T('customRatioPh'),
+              })
             : null,
           isImage
             ? h(PopupSelect, { value: n.data.size || '2K', options: sizeOpts, onChange: (v) => setData('size', v), width: 64, title: T('sizeLabel') })
@@ -17010,7 +17070,7 @@ function queueThumb(assetId) {
             }),
             h(MiniSelect, {
               value: n.data.ratio || '16:9', title: T('ratioLabel'), width: 64,
-              options: RATIOS.map((r) => ({ value: r, label: r })),
+              options: VIDEO_RATIOS.map((r) => ({ value: r, label: r })),
               onChange: (v) => update((s) => { const nd = s.graph.nodes[n.id]; if (nd) nd.data.ratio = v; }),
             }),
             h(MiniSelect, {
@@ -26230,6 +26290,7 @@ const DIRECTOR_KEY_HELP = [
             NODE_W, NODE_H, NODE_HDR_H, NODE_FOOT_H, MEDIA_PREVIEW_SHORT, MEDIA_MAX_LONG,
             COMPOSER_MIN_W, COMPOSER_MAX_W, COMPOSER_VIEWPORT_GAP,
             sizeForRatio, nodeSizeForRatio, mediaBarsHeight, mediaHasFooter,
+            IMAGE_RATIOS, VIDEO_RATIOS, normalizeRatioInput,
             ratioIsValid, ratioAspect, ratioFromDims, mediaRatioOf, mediaAspectOf, mediaRatioForDims,
             normalizeMediaNodeSize, normalizeGraphDoc, resizeBoxFor, composerWidthFor,
             wheelScrollTarget,
