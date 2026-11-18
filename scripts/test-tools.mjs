@@ -162,13 +162,14 @@ try {
   const p = providers[0];
   if (!p || p.name !== 'dsh-infinite-canvas') errs.push('技能提供方 name 不正确');
   const list = await p.list();
-  if (!Array.isArray(list) || list.length !== 5) errs.push(`技能列表应包含 5 个内置技能（四件套 + 导演工作坊），实际 ${Array.isArray(list) ? list.length : '非数组'}`);
+  if (!Array.isArray(list) || list.length !== 6) errs.push(`技能列表应包含 6 个内置技能（四件套 + 导演工作坊 + 供应商适配器），实际 ${Array.isArray(list) ? list.length : '非数组'}`);
   const names = (list || []).map((c) => c && c.name).sort();
-  if (names.join(',') !== 'canvas-craft,canvas-director,canvas-layout,canvas-studio,director-workshop') errs.push('内置技能名应为 canvas-craft/canvas-director/canvas-layout/canvas-studio/director-workshop，实际 ' + names.join(','));
+  if (names.join(',') !== 'canvas-craft,canvas-director,canvas-layout,canvas-provider,canvas-studio,director-workshop') errs.push('内置技能名应为 canvas-craft/canvas-director/canvas-layout/canvas-provider/canvas-studio/director-workshop，实际 ' + names.join(','));
   const needBySkill = {
     'canvas-studio': ['canvas_list_projects', 'canvas_write_node', 'canvas_create_project', 'canvas_get_bible', 'canvas_update_bible', 'canvas_create_node', '设定集先行', 'output'],
     'canvas-craft': ['景别', '运镜', '分镜', '提示词', '设定集'],
     'canvas-layout': ['一类型一列', 'canvas_relayout', '绝不重叠'],
+    'canvas-provider': ['module.exports', 'generateImage', 'generateVideo', 'canvas_provider_validate', 'canvas_provider_save'],
     'director-workshop': ['导演', '启动仪式'],
   };
   for (const cand of list || []) {
@@ -185,6 +186,31 @@ try {
   }
 } catch (e) {
   errs.push('技能提供方校验失败 → ' + ((e && e.message) || e));
+}
+
+// ---------- 自定义供应商工具：validate → save → list → get → delete ----------
+try {
+  const providerSource = `module.exports = {
+    id: "toolProvider",
+    label: "工具供应商",
+    fields: [{ key: "apiKey", label: "API Key", type: "password" }],
+    models: [{ id: "img", label: "图片", type: "image" }],
+    async generateImage(ctx, req) {
+      return [{ mediaType: "image", type: "url", url: "https://example.com/a.png" }];
+    },
+  };`;
+  const v = await byName.get('canvas_provider_validate').execute({ source: providerSource }, {});
+  if (!v || !v.ok) errs.push('canvas_provider_validate 未通过：' + ((v && (v.error || v.text)) || '未知'));
+  const saved = await byName.get('canvas_provider_save').execute({ source: providerSource }, {});
+  if (!saved || !saved.ok) errs.push('canvas_provider_save 未通过：' + ((saved && (saved.error || saved.text)) || '未知'));
+  const listed = await byName.get('canvas_provider_list').execute({}, {});
+  if (!listed || !listed.providers || !listed.providers.some((p) => p.id === 'toolProvider')) errs.push('canvas_provider_list 未列出新适配器');
+  const got = await byName.get('canvas_provider_get').execute({ id: 'toolProvider' }, {});
+  if (!got || !got.ok || !String(got.source || '').includes('toolProvider')) errs.push('canvas_provider_get 未返回源码');
+  const deleted = await byName.get('canvas_provider_delete').execute({ id: 'toolProvider', confirm: '删除 toolProvider' }, {});
+  if (!deleted || !deleted.ok) errs.push('canvas_provider_delete 未通过');
+} catch (e) {
+  errs.push('自定义供应商工具链失败 → ' + ((e && e.message) || e));
 }
 
 console.log('执行契约测试（临时目录隔离）：');

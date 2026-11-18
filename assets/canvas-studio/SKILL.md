@@ -164,7 +164,18 @@ brief → bible → assets → script → storyboard → shots_ready → generat
 **边界如实告知**：后期执行按钮在画布 UI 上，对话侧负责准备节点/提示词/触发生成并引导用户点击；
 先 `artcraft_status` 探活，链 id 以 `artcraft_recipes` 返回为准（不背名单）；QC PASS 前不宣告完成。
 
-## 七、必须避免的错误
+## 七、自定义媒体供应商（AI 适配器）
+
+用户要接入现有内置协议之外的图片/视频平台时，不要改插件源码：用原生对话生成单文件适配器。
+- `canvas_provider_guide`：先读完整开发规范/示例（字段、模型能力、ctx.fetch/asset、沙箱限制）；
+- `canvas_provider_list`：列出已安装适配器与模型 ref（`ext:<providerId>|<modelId>`）；
+- `canvas_provider_validate`：校验完整源码（不写盘、不生成）；
+- `canvas_provider_save`：校验通过后安装/更新到 Host（新增默认不覆盖，更新需 overwrite + revision）；
+- `canvas_provider_get`：读取已安装源码供修改；
+- `canvas_provider_delete`：按 id + confirm 删除；
+安装后让用户到画布设置 →「自定义适配器」填写 API Key 等配置字段，再在图片/视频节点选择 `ext:` 模型。
+
+## 八、必须避免的错误
 
 - ❌ 一次请求建多个项目 / 每个节点建项目 → 查重复用 + `canvas_write_node`
 - ❌ 只写提示词不给成稿落点 / 节点不留名字

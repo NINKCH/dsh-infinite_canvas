@@ -423,11 +423,12 @@ try {
   ok(p.name === 'dsh-infinite-canvas', '技能提供方 name 应为 dsh-infinite-canvas');
   const list = await p.list();
   const names = (list || []).map((c) => c.name).sort();
-  ok(names.join(',') === 'canvas-craft,canvas-director,canvas-layout,canvas-studio,director-workshop', `技能目录应可枚举出五份内置技能（四件套 + 导演工作坊），实际 ${names.join(',')}`);
+  ok(names.join(',') === 'canvas-craft,canvas-director,canvas-layout,canvas-provider,canvas-studio,director-workshop', `技能目录应可枚举出六份内置技能（四件套 + 导演工作坊 + 供应商适配器），实际 ${names.join(',')}`);
   const need = {
     'canvas-craft': ['六要素', '大特写', '冲撞点', '起点', '调度'],
     'canvas-studio': ['大特写', '调度', '六要素', 'canvas_update_bible', '禁止调用 ask_user_question', 'canvas_auto_start'],
     'canvas-layout': ['一类型一列', '绝不重叠'],
+    'canvas-provider': ['module.exports', 'generateImage', 'generateVideo', 'canvas_provider_validate'],
     'director-workshop': ['导演', '启动仪式'],
   };
   for (const cand of list || []) {

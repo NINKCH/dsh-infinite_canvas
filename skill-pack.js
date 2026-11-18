@@ -140,6 +140,7 @@ export const SKILL_CATALOG = [
   { name: 'canvas-craft', when: '写剧本或拆分镜前：剧本四要素、分镜六要素、提示词规范' },
   { name: 'canvas-layout', when: '批量建节点前：一类型一列、绝不重叠' },
   { name: 'canvas-director', when: '写任何提示词前：导演透镜 / 题材 / 规格 / 影调 / 运镜，先用 canvas_skill_pack 取切片' },
+  { name: 'canvas-provider', when: '接入/修改自定义图片·视频供应商时：用 canvas_provider_guide 读适配器规范，原生对话生成单文件 JS 适配器' },
 ];
 
 /** 层清单的可读渲染（canvas_list_skills 的正文）。 */

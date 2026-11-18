@@ -1376,6 +1376,27 @@ function revealCanvasInRight() {
       'defaultImageCfg': '默认图片模型',
       'defaultVideoCfg': '默认视频模型',
       'imageApisLabel': '图片模型（可配多个）',
+      'customProvidersLabel': '自定义适配器（AI 生成）',
+      'customProvidersHint': '在对话里让 AI 读接口文档并生成适配器，或粘贴/导入 .js；安装后在下方填写 API Key。',
+      'customProviderTrust': '适配器代码将在宿主 node:vm 中执行；只导入你信任的代码。',
+      'customProviderPastePh': '粘贴 AI 生成的适配器源码：module.exports = {...}',
+      'customProviderReadFail': '读取文件失败',
+      'customProviderValidate': '校验',
+      'customProviderInstall': '安装',
+      'customProviderRefresh': '刷新',
+      'customProviderModels': '模型',
+      'customProviderDelete': '删除',
+      'customProviderConfig': '连接配置',
+      'customProviderNoConfig': '该适配器没有配置字段',
+      'customProviderSource': '适配器源码',
+      'customProviderSave': '保存',
+      'customProviderNone': '尚未安装自定义适配器',
+      'customProviderLoadFail': '读取适配器失败：',
+      'customProviderInvalid': '校验失败：',
+      'customProviderValid': '校验通过：',
+      'customProviderInstalled': '已安装：',
+      'customProviderOverwrite': '同名适配器已存在，覆盖？',
+      'customProviderDeleted': '已删除：',
       'videoApisLabel': '视频模型（可配多个）',
       'cfgName': '名称',
       'noCfgHint': '尚未配置；生成节点将使用演示模式',
@@ -2696,6 +2717,27 @@ function revealCanvasInRight() {
       'defaultImageCfg': 'Default image model',
       'defaultVideoCfg': 'Default video model',
       'imageApisLabel': 'Image models (multiple)',
+      'customProvidersLabel': 'Custom adapters (AI-generated)',
+      'customProvidersHint': 'Ask the chat AI to read the API docs and generate an adapter, or paste/import a .js file; fill in the API key below after install.',
+      'customProviderTrust': 'Adapter code runs in a host node:vm sandbox; only import code you trust.',
+      'customProviderPastePh': 'Paste the generated adapter source: module.exports = {...}',
+      'customProviderReadFail': 'Failed to read the file',
+      'customProviderValidate': 'Validate',
+      'customProviderInstall': 'Install',
+      'customProviderRefresh': 'Refresh',
+      'customProviderModels': 'models',
+      'customProviderDelete': 'Delete',
+      'customProviderConfig': 'Connection config',
+      'customProviderNoConfig': 'No config fields',
+      'customProviderSource': 'Adapter source',
+      'customProviderSave': 'Save',
+      'customProviderNone': 'No custom adapters installed',
+      'customProviderLoadFail': 'Failed to load adapters: ',
+      'customProviderInvalid': 'Validation failed: ',
+      'customProviderValid': 'Validation passed: ',
+      'customProviderInstalled': 'Installed: ',
+      'customProviderOverwrite': 'An adapter with this id exists. Overwrite?',
+      'customProviderDeleted': 'Deleted: ',
       'videoApisLabel': 'Video models (multiple)',
       'cfgName': 'Name',
       'noCfgHint': 'Nothing configured yet; generation nodes will use demo mode',
@@ -4430,6 +4472,8 @@ body[data-ds-dark-theme] .dshic-pick-item.is-on{background:color-mix(in srgb,var
       videoProviders: [],  // [{id, name, url, apiKey, extra, outputFormat?, generateAudio?, protocol?, watermark?, models: [{id, model}]}]
       imageStar: '',       // 'providerId|modelId'
       videoStar: '',
+      // 自定义供应商（AI 适配器）的配置字段值：{ [providerId]: { apiKey, baseUrl, ... } }
+      customProviderConfigs: {},
       ttsProviders: [],  // [{id, name, baseUrl, apiKey, timeoutMs?, models: [{id, model, voice}]}] —— voice 每模型一个，timeoutMs 供应商级
       ttsStar: '',       // 'providerId|modelId'
       lang: '',        // '' = 跟随 Harness
@@ -4442,6 +4486,7 @@ body[data-ds-dark-theme] .dshic-pick-item.is-on{background:color-mix(in srgb,var
         videoProviders: Array.isArray(s.videoProviders) ? s.videoProviders : [],
         imageStar: s.imageStar || '',
         videoStar: s.videoStar || '',
+        customProviderConfigs: (s.customProviderConfigs && typeof s.customProviderConfigs === 'object' && !Array.isArray(s.customProviderConfigs)) ? s.customProviderConfigs : {},
         // dsh-image-gen 桥接：启用后画布不自配图片 API，直接走它的 /studio（密钥留在它宿主侧）
         imageGen: { enabled: !!(s.imageGen && s.imageGen.enabled), provider: (s.imageGen && s.imageGen.provider) || '', model: (s.imageGen && s.imageGen.model) || '' },
         ttsProviders: Array.isArray(s.ttsProviders) ? s.ttsProviders : [],
@@ -4524,6 +4569,50 @@ body[data-ds-dark-theme] .dshic-pick-item.is-on{background:color-mix(in srgb,var
     // ---------- 供应商 + 模型（图片/视频）：扁平视图与解析 ----------
     let legacyImageApiRefMap = {}; // 旧扁平配置 id → 'providerId|modelId'（节点字段懒迁移用）
     let legacyVideoApiRefMap = {};
+    /** 自定义供应商（AI 单文件适配器）的 Host 元数据缓存。Host providerList 异步读取，
+     *  loadSettings 保持同步——缓存为空时只显示内置供应商，刷新后自动补入模型下拉。 */
+    let customProviderCache = { providers: [], image: [], video: [] };
+    let customProviderLoadedAt = 0;
+    async function refreshCustomProviders(opts) {
+      try {
+        const r = await hostRpc('providerList');
+        const providers = (r && Array.isArray(r.providers)) ? r.providers : [];
+        const image = [];
+        const video = [];
+        for (const p of providers) {
+          if (!p || p.error || !p.id) continue;
+          for (const m of (p.models || [])) {
+            if (!m || !m.id) continue;
+            const item = {
+              ref: 'ext:' + p.id + '|' + m.id,
+              providerId: 'ext:' + p.id,
+              providerName: p.label || p.id,
+              providerLabel: p.label || p.id,
+              modelId: m.id,
+              model: m.id,
+              modelLabel: m.label || m.id,
+              adapterId: p.id,
+              adapterModelId: m.id,
+              adapterRevision: p.revision || '',
+              capabilities: m,
+              fields: m.fields || [],
+              providerFields: p.fields || [],
+              baseUrl: '', apiKey: '', extra: '', size: '', responseFormat: '', mode: 'generations',
+            };
+            if (m.type === 'image') image.push(item);
+            else if (m.type === 'video') video.push(item);
+          }
+        }
+        const nextCache = { providers, image, video };
+        const changed = JSON.stringify(nextCache) !== JSON.stringify(customProviderCache);
+        customProviderCache = nextCache;
+        customProviderLoadedAt = Date.now();
+        if (changed && opts && opts.notify) notify();
+        return providers;
+      } catch {
+        return [];
+      }
+    }
     /** 供应商列表 → 扁平模型视图（ref = 'providerId|modelId'）；未填模型名的条目不进下拉。 */
     function flattenImageModels(settings) {
       const out = [];
@@ -4536,6 +4625,7 @@ body[data-ds-dark-theme] .dshic-pick-item.is-on{background:color-mix(in srgb,var
           out.push({ ref: p.id + '|' + m.id, providerId: p.id, providerName: p.name || p.id, modelId: m.id, model: String(m.model).trim(), baseUrl: p.baseUrl || '', apiKey: p.apiKey || '', extra: p.extra || '', size: p.size || '', responseFormat: p.responseFormat || '', mode: p.mode || 'generations', ...(via ? { viaImageGen: true, imageGenProvider: m.viaImageGen || p.imageGenProvider || '' } : {}) });
         }
       }
+      for (const item of (customProviderCache.image || [])) out.push(item);
       return out;
     }
     function flattenVideoModels(settings) {
@@ -4547,6 +4637,7 @@ body[data-ds-dark-theme] .dshic-pick-item.is-on{background:color-mix(in srgb,var
           out.push({ ref: p.id + '|' + m.id, providerId: p.id, providerName: p.name || p.id, modelId: m.id, model: String(m.model).trim(), url: p.url || '', apiKey: p.apiKey || '', extra: p.extra || '', outputFormat: p.outputFormat || '', generateAudio: p.generateAudio, protocol: p.protocol || 'generic', watermark: p.watermark, vendor: p.vendor || '' });
         }
       }
+      for (const item of (customProviderCache.video || [])) out.push(item);
       return out;
     }
     /** 供应商列表 → 扁平 TTS 模型视图（ref = 'providerId|modelId'）；未填模型名的条目不进下拉（与 image/video 同规）。 */
@@ -7142,6 +7233,32 @@ function queueThumb(assetId) {
       let text = '';
       if (!ct || /json|text|plain/.test(ct)) { try { text = new TextDecoder().decode(buf); } catch { text = ''; } }
       return { ok: res.ok, status: res.status, contentType: ct, text, blob };
+    }
+
+    /** 自定义供应商（Host 适配器）执行：请求交给宿主 node:vm，结果按 URL/base64 取回 Blob。 */
+    async function customProviderRun(kind, mcfg, request, opts) {
+      const settings = loadSettings();
+      const providerConfig = (settings.customProviderConfigs || {})[mcfg.adapterId] || {};
+      const timeoutMs = Number(opts && opts.timeoutMs) || (kind === 'video' ? 10 * 60 * 1000 : 3 * 60 * 1000);
+      const r = await hostRpc('providerGenerate', {
+        id: mcfg.adapterId, kind, request: request || {}, config: providerConfig, timeoutMs,
+      });
+      const media = (r && Array.isArray(r.media)) ? r.media : [];
+      if (!media.length) throw new Error('自定义适配器没有返回媒体');
+      const out = [];
+      for (const m of media) {
+        let blob = null;
+        if (m && m.type === 'url') {
+          const got = await fetchViaProxy(String(m.url || ''), { method: 'GET', timeoutMs: 180000, label: '自定义适配器结果' });
+          if (!got.ok) throw new Error('下载自定义适配器结果失败 HTTP ' + got.status);
+          blob = got.blob;
+        } else if (m && m.type === 'base64') {
+          blob = base64ToBlob(String(m.data || ''), String(m.mimeType || (kind === 'image' ? 'image/png' : 'video/mp4')));
+        }
+        if (!blob || !blob.size) throw new Error('自定义适配器返回了空媒体');
+        out.push({ blob, mimeType: m.mimeType || blob.type || '', mediaType: m.mediaType || kind });
+      }
+      return out;
     }
     // ---- TTS 统一适配：OpenAI /audio/speech（同步）与星海聚合 /v1/media/generate（异步）----
     const TTS_VOICE_CACHE = new Map();
@@ -12779,24 +12896,43 @@ function queueThumb(assetId) {
             if (lock) p = p + '\n' + lock;
           } catch { /* 技能包不可用时不影响生成 */ }
           // 模型解析：节点下拉里的「桥接dsh-image-gen」条目走 studio 生成（无需画布自配）；其余照旧
-          const mcfg = resolveImageModelCfg(settings, nodeImageModelRef(n));
+          let mcfg = resolveImageModelCfg(settings, nodeImageModelRef(n));
+          if (!mcfg && String(nodeImageModelRef(n) || '').startsWith('ext:')) {
+            await refreshCustomProviders({ notify: true });
+            mcfg = resolveImageModelCfg(settings, nodeImageModelRef(n));
+          }
           const useBridge = !!(mcfg && mcfg.viaImageGen);
+          const isCustom = !!(mcfg && mcfg.adapterId);
           if (!mcfg) throw new Error(T('errNoImageModel'));
           // 张数（1–4）：同一提示词一次生成多张；历史条保留全部结果，节点显示最后一张
           const want = clamp(Number(n.data.imageCount) || 1, 1, 4);
           const cases = [];
           for (let i = 0; i < want; i++) {
             if (want > 1) update((s) => { const nd = s.graph.nodes[n.id]; if (nd) nd.data.progress = (i + 1) + '/' + want; });
-            const blob = useBridge
-              ? await apiGenBridge(p, metas, { provider: mcfg.imageGenProvider, model: mcfg.model }, { ratio: n.data.ratio })
-              : await apiImage(p, metas, mcfg, {
-              size: n.data.size, ratio: n.data.ratio, nodeExtra: n.data.imgExtra, warn: addWarn,
-              // 任务式厂商（三宝图片）：任务 id 就是凭证——代理超时/页面关闭后仍可凭 id 回查（与视频同口径）
-              onTask: (tid, qurl) => {
-                update((s) => { const nd = s.graph.nodes[n.id]; if (nd) { nd.data.taskId = String(tid || ''); nd.data.taskQueryUrl = String(qurl || ''); } });
-                flushSave();
-              },
-            });
+            let blob = null;
+            if (isCustom) {
+              let extra = {};
+              try { extra = Object.assign({}, parseExtraParams(n.data.imgExtra) || {}, n.data.providerParams || {}); } catch { extra = Object.assign({}, n.data.providerParams || {}); }
+              const got = await customProviderRun('image', mcfg, {
+                model: mcfg.adapterModelId,
+                prompt: p,
+                refs: metas.map((r) => ({ assetId: r.assetId, name: r.name, mimeType: (r.blob && r.blob.type) || '' })),
+                ratio: n.data.ratio, size: n.data.size, n: 1, extra,
+              });
+              blob = got[0] && got[0].blob;
+            } else {
+              blob = useBridge
+                ? await apiGenBridge(p, metas, { provider: mcfg.imageGenProvider, model: mcfg.model }, { ratio: n.data.ratio })
+                : await apiImage(p, metas, mcfg, {
+                size: n.data.size, ratio: n.data.ratio, nodeExtra: n.data.imgExtra, warn: addWarn,
+                // 任务式厂商（三宝图片）：任务 id 就是凭证——代理超时/页面关闭后仍可凭 id 回查（与视频同口径）
+                onTask: (tid, qurl) => {
+                  update((s) => { const nd = s.graph.nodes[n.id]; if (nd) { nd.data.taskId = String(tid || ''); nd.data.taskQueryUrl = String(qurl || ''); } });
+                  flushSave();
+                },
+              });
+            }
+            if (!blob) throw new Error(T('noResult'));
             const rec = await saveAssetRecord(S.activeId, 'image', blob, {
               name: assetNameFor(n, entities, 'image'),
               prompt: stripMentionMarks(prompt), effectivePrompt: p,
@@ -12856,7 +12992,11 @@ function queueThumb(assetId) {
           const frameMode = params.frameMode;
           const hardFrame = params.hardFrame;
           const useFrame = frameMode !== 'off' && !!frameBlob;
-          const mcfg = resolveVideoModelCfg(settings, nodeVideoModelRef(n));
+          let mcfg = resolveVideoModelCfg(settings, nodeVideoModelRef(n));
+          if (!mcfg && String(nodeVideoModelRef(n) || '').startsWith('ext:')) {
+            await refreshCustomProviders({ notify: true });
+            mcfg = resolveVideoModelCfg(settings, nodeVideoModelRef(n));
+          }
           if (!mcfg) throw new Error(T('errNoVideoModel'));
           // 提交前校验门（能力①）：warnings 单一事实源来自 assembleVideoRequest，生成时逐条显式提示
           // （含旧有的「已连接分镜但暂无镜头时长」原文）——绝不静默修改请求
@@ -12875,23 +13015,48 @@ function queueThumb(assetId) {
           let subTid = ''; // onTask 回传的任务 id（失败留痕要能对上已提交的任务）
           let blob = null;
           try {
-            blob = await apiVideo(p, useFrame ? frameBlob : null, mcfg, {
-              duration: autoDuration, resolution: n.data.resolution, ratio: n.data.ratio,
-              frameMode, // auto=尾帧降级为参考图（保留实体参考图）/ hard=硬首帧（放弃参考图）/ off=忽略首帧
-              hardFrame,
-              refs: refs.map((r) => r.blob),
-              refNames: refs.map((r) => r.entity || r.name || ''), // 跨镜衔接标注用（图2..N 的实体名）
-              nodeExtra: n.data.vidExtra, // 节点级扩展参数（手动参数框，如 {"use_context_ir":true}）
-              warn: addWarn, // 参考素材超限等告警回传（节点上可见）
-              // 任务提交成功即持久化 task id：轮询中断/页面关闭后仍可凭 id 回查结果（钱花了就必须能找回）
-              onTask: (tid, qurl) => {
-                update((s) => { const nd = s.graph.nodes[n.id]; if (nd) { nd.data.taskId = String(tid || ''); nd.data.taskQueryUrl = String(qurl || ''); } });
-                flushSave();
-                subTid = String(tid || '');
-                logVideoSubmission({ ...logBase(), taskId: subTid, status: 'submitted' }); // 提交留痕（自动、无感）
-              },
-              audioRefs: audioBlobs.map((a) => a.blob), // 角色声音参考（@引用实体名下的音频资产）
-            });
+            if (mcfg.adapterId) {
+              let extra = {};
+              try { extra = Object.assign({}, parseExtraParams(n.data.vidExtra) || {}, n.data.providerParams || {}); } catch { extra = Object.assign({}, n.data.providerParams || {}); }
+              let firstFrame = null;
+              if (useFrame && frameBlob) {
+                try {
+                  const durl = await blobToDataUrl(frameBlob);
+                  const m = /^data:([^;]+);base64,(.*)$/.exec(String(durl || ''));
+                  if (m && durl.length <= 7 * 1024 * 1024) firstFrame = { mimeType: m[1], data: m[2] };
+                  else if (m) addWarn('首帧超过 7MB，自定义适配器本次未收到首帧（请先把首帧压小）');
+                } catch { /* 首帧转换失败按无首帧提交 */ }
+              }
+              const got = await customProviderRun('video', mcfg, {
+                model: mcfg.adapterModelId,
+                prompt: p,
+                refs: refs.map((r) => ({ assetId: r.assetId, name: r.name, mimeType: (r.blob && r.blob.type) || '' })),
+                audioRefs: audioBlobs.map((a) => ({ assetId: a.assetId, name: a.name, mimeType: (a.blob && a.blob.type) || '' })),
+                firstFrame,
+                duration: autoDuration, resolution: n.data.resolution, ratio: n.data.ratio,
+                frameMode, hardFrame, extra,
+              });
+              blob = got[0] && got[0].blob;
+              if (!blob) throw new Error(T('noResult'));
+            } else {
+              blob = await apiVideo(p, useFrame ? frameBlob : null, mcfg, {
+                duration: autoDuration, resolution: n.data.resolution, ratio: n.data.ratio,
+                frameMode, // auto=尾帧降级为参考图（保留实体参考图）/ hard=硬首帧（放弃参考图）/ off=忽略首帧
+                hardFrame,
+                refs: refs.map((r) => r.blob),
+                refNames: refs.map((r) => r.entity || r.name || ''), // 跨镜衔接标注用（图2..N 的实体名）
+                nodeExtra: n.data.vidExtra, // 节点级扩展参数（手动参数框，如 {"use_context_ir":true}）
+                warn: addWarn, // 参考素材超限等告警回传（节点上可见）
+                // 任务提交成功即持久化 task id：轮询中断/页面关闭后仍可凭 id 回查结果（钱花了就必须能找回）
+                onTask: (tid, qurl) => {
+                  update((s) => { const nd = s.graph.nodes[n.id]; if (nd) { nd.data.taskId = String(tid || ''); nd.data.taskQueryUrl = String(qurl || ''); } });
+                  flushSave();
+                  subTid = String(tid || '');
+                  logVideoSubmission({ ...logBase(), taskId: subTid, status: 'submitted' }); // 提交留痕（自动、无感）
+                },
+                audioRefs: audioBlobs.map((a) => a.blob), // 角色声音参考（@引用实体名下的音频资产）
+              });
+            }
           } catch (eSub) {
             // 失败留痕（本能力的主要价值）：throw 前先落一条 failed，再原样抛出（异常时序与旧实现一致）
             logVideoSubmission({ ...logBase(), taskId: subTid, status: 'failed', error: String((eSub && eSub.message) || eSub) });
@@ -14985,6 +15150,9 @@ function queueThumb(assetId) {
       const isVideo = kind === 'video';
       const isStoryboard = kind === 'storyboard';
       const isFinalCut = kind === 'finalcut';
+      // 自定义适配器模型的能力声明（比例/尺寸/时长/分辨率/参考数）；为空时回退全局控件。
+      const modelCfg = isImage ? resolveImageModelCfg(settings, nodeImageModelRef(n)) : isVideo ? resolveVideoModelCfg(settings, nodeVideoModelRef(n)) : null;
+      const customCaps = (modelCfg && modelCfg.adapterId) ? (modelCfg.capabilities || {}) : null;
       const isTextLike = kind === 'text' || kind === 'script' || kind === 'storyboard';
       const running = isTextLike ? n.data.aiStatus === 'running' : n.data.status === 'running';
       // 视频已连分镜表 = 时长由分镜节拍决定：UI 禁用手动秒数，请求也不再传节点 duration
@@ -15001,9 +15169,9 @@ function queueThumb(assetId) {
           }
         } else if (isImage) {
           // 图片/视频无「跟随设置」：设置页有真实默认（★ 星标），节点不选 = 直接用 ★（resolveImageModelCfg 同语义）。
-          for (const m of flattenImageModels(settings)) opts.push({ value: m.ref, label: m.model, sub: m.providerName, title: m.providerName + ' · ' + m.model + (m.ref === settings.imageStar ? ' ★' : '') });
+          for (const m of flattenImageModels(settings)) opts.push({ value: m.ref, label: m.modelLabel || m.model, sub: m.providerName, title: m.providerName + ' · ' + (m.modelLabel || m.model) + (m.ref === settings.imageStar ? ' ★' : '') });
         } else if (isVideo) {
-          for (const m of flattenVideoModels(settings)) opts.push({ value: m.ref, label: m.model, sub: m.providerName, title: m.providerName + ' · ' + m.model + (m.ref === settings.videoStar ? ' ★' : '') });
+          for (const m of flattenVideoModels(settings)) opts.push({ value: m.ref, label: m.modelLabel || m.model, sub: m.providerName, title: m.providerName + ' · ' + (m.modelLabel || m.model) + (m.ref === settings.videoStar ? ' ★' : '') });
         }
         return opts;
       })();
@@ -15135,8 +15303,14 @@ function queueThumb(assetId) {
           try { if (ta) { ta.focus(); ta.selectionStart = ta.selectionEnd = caretAt; } } catch { /* 忽略 */ }
         }, 0);
       };
-      const ratioOpts = (isImage ? IMAGE_RATIOS : VIDEO_RATIOS).map((x) => ({ value: x, label: x }));
-      const sizeOpts = IMAGE_SIZES.map((x) => ({ value: x, label: x }));
+      const ratioBase = (customCaps && Array.isArray(customCaps.ratios) && customCaps.ratios.length) ? customCaps.ratios : (isImage ? IMAGE_RATIOS : VIDEO_RATIOS);
+      const ratioCur = String(n.data.ratio || '16:9');
+      const ratioList = ratioBase.includes(ratioCur) ? ratioBase : ratioBase.concat([ratioCur]);
+      const ratioOpts = ratioList.map((x) => ({ value: x, label: x }));
+      const sizeBase = (customCaps && Array.isArray(customCaps.sizes) && customCaps.sizes.length) ? customCaps.sizes : IMAGE_SIZES;
+      const sizeCur = String(n.data.size || '2K');
+      const sizeList = sizeBase.includes(sizeCur) ? sizeBase : sizeBase.concat([sizeCur]);
+      const sizeOpts = sizeList.map((x) => ({ value: x, label: x }));
       const countOpts = [1, 2, 3, 4].map((x) => ({ value: String(x), label: String(x) }));
       // 视频分辨率：H3（V2 协议）扩展档位 480P/768P/1080P/2K/4K（大小写敏感），其余用标准三档；
       // 当前值不在列表里（历史数据/厂商自定义）也要能显示与保留。
@@ -15148,14 +15322,18 @@ function queueThumb(assetId) {
         return (m && m.model) || '';
       })();
       const isH3 = isVideo && /minimax-?h3|hailuo-?03/i.test(videoModelName);
-      const baseRes = isH3 ? ['480P', '768P', '1080P', '2K', '4K'] : VIDEO_RESOLUTIONS;
+      const customRes = (customCaps && Array.isArray(customCaps.resolutions) && customCaps.resolutions.length) ? customCaps.resolutions : null;
+      const baseRes = customRes || (isH3 ? ['480P', '768P', '1080P', '2K', '4K'] : VIDEO_RESOLUTIONS);
       const resList = baseRes.includes(String(n.data.resolution))
         ? baseRes
         : baseRes.concat([String(n.data.resolution || '720P')]);
       const resOpts = resList.map((x) => ({ value: x, label: x }));
       // 视频时长预设；未连分镜时还能自定义（1–300s，一位小数）。自定义值不在预设里也由
       // PopupSelect 的 customLabel 正常显示；已连分镜时控件禁用，时长改由镜头节拍决定。
-      const durOpts = VIDEO_DURATIONS.map((x) => ({ value: String(x), label: x + 's' }));
+      const durBase = (customCaps && Array.isArray(customCaps.durations) && customCaps.durations.length) ? customCaps.durations : VIDEO_DURATIONS;
+      const durCur = Number(n.data.duration) || 5;
+      const durList = durBase.map((x) => Number(x)).includes(durCur) ? durBase : durBase.concat([durCur]);
+      const durOpts = durList.map((x) => ({ value: String(x), label: x + 's' }));
       const canRun = kind !== 'text';
       // 是否还有高级项可折叠：没有就不渲染「更多」开关（文本类节点默认只剩提示词 + 控件行）
       const hasAdvanced = isImage || isVideo || !!(
@@ -15504,6 +15682,11 @@ function queueThumb(assetId) {
      *  功能与旧版逐项对应：生成告警/停止/错误、衔接模式（参考图融合/硬首帧）、
      *  重绘 / 蒙版重绘 / PhotoCraft、接续下一镜、提取声音参考、扩展参数 JSON、@引用预览、历史版本。 */
     function ComposerAdvanced({ n, isImage, isVideo, running, setData, onMask, onCraft, onVoice }) {
+      const advCfg = isImage ? resolveImageModelCfg(loadSettings(), nodeImageModelRef(n)) : isVideo ? resolveVideoModelCfg(loadSettings(), nodeVideoModelRef(n)) : null;
+      const advFields = (advCfg && advCfg.adapterId && Array.isArray(advCfg.fields)) ? advCfg.fields : [];
+      const params = (n.data.providerParams && typeof n.data.providerParams === 'object') ? n.data.providerParams : {};
+      const patchParam = (key, value) => setData('providerParams', { ...params, [key]: value });
+      const fieldValue = (f) => (params[f.key] !== undefined ? params[f.key] : f.default);
       return h('div', { className: 'dshic-composer-extra', 'data-advanced': '1' },
         n.data.genWarn ? h('div', { className: 'dshic-hint', style: { color: 'var(--dsw-alias-state-warning-primary, #d08700)' } }, '⚠ ' + n.data.genWarn) : null,
         n.data.stopNote ? h('div', { className: 'dshic-hint' }, '⏹ ' + n.data.stopNote) : null,
@@ -15601,6 +15784,38 @@ function queueThumb(assetId) {
               onChange: (e) => setData(isVideo ? 'vidExtra' : 'imgExtra', e.target.value),
               onPointerDown: (e) => e.stopPropagation(),
             })
+          : null,
+        advFields.length
+          ? h('div', { className: 'dshic-field' },
+              h('div', { className: 'dshic-field-label', title: '由自定义供应商适配器的模型字段生成；值会作为 req.extra 传给适配器' }, '自定义模型参数'),
+              advFields.map((f) => {
+                const v = fieldValue(f);
+                const common = { key: f.key, title: f.help || f.placeholder || f.label, onPointerDown: (e) => e.stopPropagation() };
+                if (f.type === 'boolean') {
+                  return h('label', { key: f.key, className: 'dshic-node-row', title: f.help || '' },
+                    h('span', { className: 'dshic-shot-label', style: { flex: 1 } }, f.label),
+                    h('input', { ...common, type: 'checkbox', checked: !!v, onChange: (e) => patchParam(f.key, !!e.target.checked) }));
+                }
+                if (f.type === 'select') {
+                  return h('label', { key: f.key, className: 'dshic-node-row', title: f.help || '' },
+                    h('span', { className: 'dshic-shot-label', style: { flex: 'none' } }, f.label),
+                    h('select', {
+                      className: 'dshic-select', style: { flex: 1, minWidth: 0 }, value: String(v ?? ''),
+                      onPointerDown: (e) => e.stopPropagation(),
+                      onChange: (e) => patchParam(f.key, e.target.value),
+                    }, (f.options || []).map((o) => h('option', { key: o, value: o }, o))));
+                }
+                return h('label', { key: f.key, className: 'dshic-node-row', title: f.help || '' },
+                  h('span', { className: 'dshic-shot-label', style: { flex: 'none' } }, f.label),
+                  h('input', {
+                    ...common, className: 'dshic-input', style: { flex: 1, minWidth: 0 },
+                    type: f.type === 'number' ? 'number' : 'text',
+                    value: v === undefined || v === null ? '' : String(v),
+                    min: f.min, max: f.max,
+                    placeholder: f.placeholder || '',
+                    onChange: (e) => patchParam(f.key, f.type === 'number' ? Number(e.target.value) : e.target.value),
+                  }));
+              }))
           : null,
         (isImage || isVideo) ? h(MentionInfo, { n }) : null,
         isVideo ? h(RequestPreview, { n }) : null, // 请求预览（0.20.2）：只读折叠区，打开才计算，零新增点击
@@ -24346,6 +24561,174 @@ const DIRECTOR_KEY_HELP = [
         h('div', { className: 'dshic-hint', style: { marginTop: 4 }, 'data-role': 'image-gen-status' }, statusText),
       );
     }
+    /** 自定义供应商适配器（AI 单文件）：Host 是权威存储，原生对话通过 canvas_provider_* 工具安装；
+     *  本卡负责人工粘贴/校验/编辑/删除，以及填写供应商配置字段（API Key 等）。 */
+    function CustomProviderEditor() {
+      const [list, setList] = useState([]);
+      const [openId, setOpenId] = useState(null);
+      const [source, setSource] = useState('');
+      const [draft, setDraft] = useState('');
+      const [msg, setMsg] = useState('');
+      const [busy, setBusy] = useState(false);
+      const [s, setS] = useState(loadSettings);
+      const refresh = async () => {
+        try {
+          const r = await hostRpc('providerList');
+          setList((r && Array.isArray(r.providers)) ? r.providers : []);
+          await refreshCustomProviders({ notify: true });
+          setS(loadSettings());
+        } catch (e) { setMsg(T('customProviderLoadFail') + String((e && e.message) || e)); }
+      };
+      useEffect(() => { refresh(); }, []);
+      const open = async (p) => {
+        setOpenId(p.id); setMsg('');
+        try { const r = await hostRpc('providerGet', { id: p.id }); setSource(String((r && r.source) || '')); }
+        catch (e) { setSource(''); setMsg(String((e && e.message) || e)); }
+      };
+      const validate = async (src) => {
+        setBusy(true); setMsg('');
+        try {
+          const v = await hostRpc('providerValidate', { source: src });
+          if (!v || !v.ok) { setMsg(T('customProviderInvalid') + (v && v.error ? v.error : '')); return null; }
+          setMsg(T('customProviderValid') + v.provider.id + ' · ' + v.provider.models.length + ' ' + T('customProviderModels'));
+          return v.provider;
+        } catch (e) { setMsg(String((e && e.message) || e)); return null; }
+        finally { setBusy(false); }
+      };
+      const install = async (src, overwrite, revision) => {
+        if (!String(src || '').trim()) return;
+        setBusy(true); setMsg('');
+        try {
+          const v = await hostRpc('providerValidate', { source: src });
+          if (!v || !v.ok) { setMsg(T('customProviderInvalid') + (v && v.error ? v.error : '')); return; }
+          const save = (ow, rev) => hostRpc('providerSave', { source: src, overwrite: !!ow, revision: rev || '' });
+          try {
+            const r = await save(overwrite, revision);
+            setMsg(T('customProviderInstalled') + r.provider.id);
+            setDraft(''); setOpenId(r.provider.id); setSource(src);
+            await refresh();
+          } catch (e) {
+            const m = String((e && e.message) || e);
+            if (!overwrite && /已存在/.test(m) && typeof confirm === 'function' && confirm(T('customProviderOverwrite'))) {
+              const old = list.find((x) => x.id === v.provider.id);
+              const r = await save(true, (old && old.revision) || '');
+              setMsg(T('customProviderInstalled') + r.provider.id);
+              setDraft(''); setOpenId(r.provider.id); setSource(src);
+              await refresh();
+            } else setMsg(m);
+          }
+        } catch (e) { setMsg(String((e && e.message) || e)); }
+        finally { setBusy(false); }
+      };
+      const remove = async (p) => {
+        if (typeof confirm === 'function' && !confirm(T('customProviderDelete') + ' ' + p.id + ' ?')) return;
+        setBusy(true); setMsg('');
+        try {
+          await hostRpc('providerDelete', { id: p.id, revision: p.revision || '' });
+          const next = updateSettings((b) => {
+            const d = JSON.parse(JSON.stringify(b));
+            if (d.customProviderConfigs) delete d.customProviderConfigs[p.id];
+            return d;
+          });
+          setS(next);
+          setMsg(T('customProviderDeleted') + p.id);
+          if (openId === p.id) setOpenId(null);
+          await refresh();
+        } catch (e) { setMsg(String((e && e.message) || e)); }
+        finally { setBusy(false); }
+      };
+      const patchCfg = (pid, key, value) => {
+        const next = updateSettings((b) => {
+          const d = JSON.parse(JSON.stringify(b));
+          d.customProviderConfigs = d.customProviderConfigs || {};
+          d.customProviderConfigs[pid] = { ...(d.customProviderConfigs[pid] || {}), [key]: value };
+          return d;
+        });
+        setS(next);
+      };
+      const cfgOf = (pid) => (s.customProviderConfigs || {})[pid] || {};
+      const fieldInput = (pid, f) => {
+        const cfg = cfgOf(pid);
+        const value = cfg[f.key] !== undefined ? cfg[f.key] : f.default;
+        const title = f.help || f.placeholder || '';
+        if (f.type === 'boolean') {
+          return h('label', { key: f.key, className: 'dshic-node-row', title },
+            h('span', { className: 'dshic-field-label', style: { flex: 1 } }, f.label),
+            h('input', { type: 'checkbox', checked: !!value, onChange: (e) => patchCfg(pid, f.key, !!e.target.checked), onPointerDown: (e) => e.stopPropagation() }));
+        }
+        if (f.type === 'select') {
+          return h('label', { key: f.key, className: 'dshic-field', title },
+            h('span', { className: 'dshic-field-label' }, f.label),
+            h('select', {
+              className: 'dshic-select', value: String(value ?? ''), onPointerDown: (e) => e.stopPropagation(),
+              onChange: (e) => patchCfg(pid, f.key, e.target.value),
+            }, (f.options || []).map((o) => h('option', { key: o, value: o }, o))));
+        }
+        return h('label', { key: f.key, className: 'dshic-field', title },
+          h('span', { className: 'dshic-field-label' }, f.label),
+          h('input', {
+            className: 'dshic-input', type: f.type === 'password' ? 'password' : (f.type === 'number' ? 'number' : 'text'),
+            value: value === undefined || value === null ? '' : String(value), placeholder: f.placeholder || '',
+            min: f.min, max: f.max,
+            onChange: (e) => patchCfg(pid, f.key, f.type === 'number' ? Number(e.target.value) : e.target.value),
+            onPointerDown: (e) => e.stopPropagation(),
+          }));
+      };
+      return h('div', { className: 'dshic-card' },
+        h('div', { className: 'dshic-row' },
+          Ic('spark', 12),
+          h('strong', { style: { fontSize: 12, flex: 1, minWidth: 0 } }, T('customProvidersLabel')),
+          h('span', { className: 'dshic-tag st' }, String(list.length)),
+          h('button', { type: 'button', className: 'dshic-mini is-ghost', disabled: busy, onPointerDown: (e) => e.stopPropagation(), onClick: refresh }, T('customProviderRefresh'))),
+        h('div', { className: 'dshic-hint' }, T('customProvidersHint')),
+        h('div', { className: 'dshic-hint', style: { color: 'var(--dsw-alias-state-warning-primary, #d08700)' } }, T('customProviderTrust')),
+        h('textarea', {
+          className: 'dshic-input', style: { minHeight: 64, fontFamily: 'monospace', fontSize: 11 }, value: draft,
+          placeholder: T('customProviderPastePh'),
+          onChange: (e) => setDraft(e.target.value), onPointerDown: (e) => e.stopPropagation(),
+        }),
+        h('div', { className: 'dshic-node-row' },
+          h('input', {
+            type: 'file', accept: '.js,text/javascript,application/javascript',
+            onChange: async (e) => {
+              const f = e.target.files && e.target.files[0];
+              if (!f) return;
+              try { setDraft(await f.text()); } catch { setMsg(T('customProviderReadFail')); }
+            },
+          }),
+          h('div', { className: 'dshic-flex' }),
+          h('button', { type: 'button', className: 'dshic-mini', disabled: busy || !draft.trim(), onPointerDown: (e) => e.stopPropagation(), onClick: () => validate(draft) }, T('customProviderValidate')),
+          h('button', { type: 'button', className: 'dshic-mini', disabled: busy || !draft.trim(), onPointerDown: (e) => e.stopPropagation(), onClick: () => install(draft, false, '') }, T('customProviderInstall'))),
+        msg ? h('div', { className: 'dshic-hint' }, msg) : null,
+        list.length ? list.map((p) => {
+          const isOpen = openId === p.id;
+          const fields = Array.isArray(p.fields) ? p.fields : [];
+          return h('div', { key: p.id, className: 'dshic-card', style: { padding: isOpen ? 8 : 5, gap: 6, background: 'var(--dsw-alias-bg-layer-1)' } },
+            h('div', { className: 'dshic-row' },
+              h('button', { type: 'button', className: 'dshic-iconbtn', title: isOpen ? T('collapse') : T('unfold'), onPointerDown: (e) => e.stopPropagation(), onClick: () => { if (isOpen) setOpenId(null); else open(p); } }, isOpen ? '▾' : '▸'),
+              h('span', { style: { flex: 1, minWidth: 0, fontSize: 12, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }, title: p.id }, (p.label || p.id) + (p.version ? ' · v' + p.version : '')),
+              h('span', { className: 'dshic-tag st' }, T('customProviderModels') + ' ' + ((p.models || []).length)),
+              h('button', { type: 'button', className: 'dshic-iconbtn', title: T('customProviderDelete'), disabled: busy, onPointerDown: (e) => e.stopPropagation(), onClick: () => remove(p) }, '×')),
+            p.error ? h('div', { className: 'dshic-err' }, p.error) : null,
+            isOpen ? [
+              fields.length
+                ? h('div', { key: 'cfg', className: 'dshic-field' }, h('span', { className: 'dshic-field-label' }, T('customProviderConfig')), fields.map((f) => fieldInput(p.id, f)))
+                : h('div', { key: 'nocfg', className: 'dshic-hint' }, T('customProviderNoConfig')),
+              h('div', { key: 'models', className: 'dshic-hint' }, (p.models || []).map((m) => m.id + ' · ' + m.label + ' [' + m.type + ']').join('\n')),
+              h('div', { key: 'src', className: 'dshic-field' },
+                h('span', { className: 'dshic-field-label' }, T('customProviderSource')),
+                h('textarea', {
+                  className: 'dshic-input', style: { minHeight: 180, fontFamily: 'monospace', fontSize: 11 }, value: source,
+                  onChange: (e) => setSource(e.target.value), onPointerDown: (e) => e.stopPropagation(),
+                })),
+              h('div', { key: 'acts', className: 'dshic-node-row' },
+                h('div', { className: 'dshic-flex' }),
+                h('button', { type: 'button', className: 'dshic-mini', disabled: busy || !source.trim(), onPointerDown: (e) => e.stopPropagation(), onClick: () => validate(source) }, T('customProviderValidate')),
+                h('button', { type: 'button', className: 'dshic-mini', disabled: busy || !source.trim(), onPointerDown: (e) => e.stopPropagation(), onClick: () => install(source, true, p.revision || '') }, T('customProviderSave'))),
+            ] : null);
+        }) : h('div', { className: 'dshic-hint' }, T('customProviderNone')));
+    }
+
     function SettingsTab() {
       const [s, setS] = useState(loadSettings);
       const apply = (fn) => {
@@ -24386,6 +24769,7 @@ const DIRECTOR_KEY_HELP = [
         h(ModelProviderEditor, { key: 'imglist', kind: 'image' }),
         h(ModelProviderEditor, { key: 'vidlist', kind: 'video' }),
         h(ModelProviderEditor, { key: 'ttslist', kind: 'tts' }),
+        h(CustomProviderEditor, { key: 'customproviders' }),
         // 帮助与反馈：一行入口（点开弹窗看二维码与提 Issue）
         h('div', {
           key: 'support', className: 'dshic-card', style: { cursor: 'pointer' },
@@ -26105,6 +26489,7 @@ const DIRECTOR_KEY_HELP = [
         ctx.effect(() => {
           initStore();
           pushHistory();
+          refreshCustomProviders({ notify: true }).catch(() => { /* Host 旧版无 providerList：静默降级 */ });
           LANG_OVERRIDE = loadSettings().lang || '';
           const unsub = ctx.locale.subscribe(() => notify());
           // ArtCraft 后期工具链状态探测（失败静默，Craft 功能各自降级）
@@ -26122,13 +26507,15 @@ const DIRECTOR_KEY_HELP = [
           // 对话 ↔ 画布同步（启动一次 + 3s 轮询；旧 Host 自动停轮询）
           hostSyncTick().then(() => pushAllProjectsToHost());
           const hostSyncTimer = setInterval(() => hostSyncTick(), 3000);
+          // 自定义适配器可能由原生对话在后台安装/更新：低频刷新模型下拉（失败静默）。
+          const providerTimer = setInterval(() => { refreshCustomProviders({ notify: true }).catch(() => { /* 静默 */ }); }, 20000);
           // 后台路由探活：失败时在画布顶部给出可操作的提示
           hostRpc('ping').then(() => { S.hostOk = true; S.hostError = null; notify(); }).catch((e) => {
             S.hostOk = false;
             S.hostError = String((e && e.message) || e);
             notify();
           });
-          return () => { unsub(); clearInterval(hostSyncTimer); };
+          return () => { unsub(); clearInterval(hostSyncTimer); clearInterval(providerTimer); };
         }, 'infinite-canvas: store & locale');
         ctx.slots.inject('sidebar.panellist', () => ctx.slots.register({
           name: 'sidebar.panellist',
@@ -26371,6 +26758,12 @@ const DIRECTOR_KEY_HELP = [
           // 按镜头切段（分段生成本身就是最容易出错的地方）：规划器 + 强弱模型分流 + 节点段区间解析
           // 供 scripts/test-segment-plan.mjs 直接断言
           window.__DSH_IC_SEGMENT__ = { planShotSegments, isCutPoint, segmentNeedsHardFrame, videoSegmentOf, shotContinuityPlan, detectCombatScene, shotIsCombat, combatContractAddendum, combatCausalityText, validateCombatGeometry, COMBAT_ACTION_LEXICON };
+          // 自定义供应商（AI 适配器）客户端接线：模型扁平化/解析/缓存注入（回归测试用）
+          window.__DSH_IC_PROVIDERS__ = {
+            refreshCustomProviders, flattenImageModels, flattenVideoModels, resolveImageModelCfg, resolveVideoModelCfg,
+            setCacheForTest: (v) => { customProviderCache = v || { providers: [], image: [], video: [] }; },
+            getCache: () => customProviderCache,
+          };
           window.__DSH_IC_STORYBOARD_PROMPT__ = { buildStoryboardVideoPrompt };
           // 视频请求组装（0.20.2）：run 与「请求预览」的单一事实源——
           // assembleVideoRequest（组装+校验门）/ previewVideoInputs（预览轻量 inputs）/ videoRequestContext（决策基座）

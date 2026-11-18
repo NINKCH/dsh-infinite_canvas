@@ -93,7 +93,7 @@ let skillList = [];
   const p = hostProviders.find((x) => x && x.name === 'dsh-infinite-canvas') || hostProviders[0] || {};
   skillList = (await p.list()) || [];
   const names = skillList.map((c) => c.name).sort();
-  eq(names.join(','), 'canvas-craft,canvas-director,canvas-layout,canvas-studio,director-workshop', '内置技能清单不对');
+  eq(names.join(','), 'canvas-craft,canvas-director,canvas-layout,canvas-provider,canvas-studio,director-workshop', '内置技能清单不对');
   const dir = skillList.find((c) => c.name === 'canvas-director');
   ok(!!dir, '缺少 canvas-director 技能');
   if (dir) {
@@ -137,7 +137,7 @@ let pid = null;
   const ls = await run('canvas_list_skills', { projectId: pid });
   ok(ls && ls.ok, 'canvas_list_skills 未返回 ok');
   const text = String(ls.text || '');
-  for (const k of ['canvas-studio', 'canvas-craft', 'canvas-layout', 'canvas-director']) {
+  for (const k of ['canvas-studio', 'canvas-craft', 'canvas-layout', 'canvas-director', 'canvas-provider']) {
     ok(text.includes(k), 'canvas_list_skills 未列出技能 ' + k);
   }
   for (const k of ['导演透镜', '叙事题材', '行业题材', '规格', '影调质感', '运镜与节奏']) {
@@ -303,7 +303,7 @@ console.log('✓ 技能包 Host 侧回归通过：');
 console.log('  · 技能注册：4 份（含 canvas-director），可枚举 / 可加载 / 正文含四层关键词 / rank 与 locator 已剥离');
 console.log('  · canvas-studio 正文已列出「本插件技能清单」并指向 canvas_list_skills 与 canvas_skill_pack');
 console.log('  · 路径边界：readCard / readMove 拦住 ../、非法层名、不存在的文件');
-console.log('  · canvas_list_skills：4 份技能 + 五层清单（45/37/10/8/15）+ 运镜两条 + 项目配置 + 下一步指引');
+console.log('  · canvas_list_skills：5 份技能目录 + 五层清单（45/37/10/8/15）+ 运镜两条 + 项目配置 + 下一步指引');
 console.log('  · canvas_skill_pack：未配置不注入；set 写项目并可读回；四档切片均有效；运镜只随分镜与提示词；非法 id 回落；临时覆盖不污染项目');
 console.log('  · 行业题材可作为题材 id 参与切片');
 process.exit(0);

@@ -125,8 +125,13 @@ plugin.apply({ effect(fn) { fn(); }, locale: { register: noop, subscribe: () => 
 const NODES = sandbox.window.__DSH_IC_NODES__;
 const LAYOUT = sandbox.window.__DSH_IC_LAYOUT__;
 const SYNC = sandbox.window.__DSH_IC_SYNC__;
+const PROVIDERS = sandbox.window.__DSH_IC_PROVIDERS__;
 if (!NODES || !LAYOUT || !SYNC) {
   console.error('✗ 未暴露 __DSH_IC_NODES__ / __DSH_IC_LAYOUT__ / __DSH_IC_SYNC__（冒烟缝隙被移除？）');
+  process.exit(1);
+}
+if (!PROVIDERS) {
+  console.error('✗ 未暴露 __DSH_IC_PROVIDERS__（自定义供应商接线缝隙被移除？）');
   process.exit(1);
 }
 
@@ -433,6 +438,36 @@ const barsOn = () => HDR() + FOOT();
 }
 
 // ============================================================
+// 2b) 自定义供应商（AI 适配器）客户端接线：扁平化/解析/缓存
+// ============================================================
+{
+  const image = {
+    ref: 'ext:demo|img', providerId: 'ext:demo', providerName: 'Demo', providerLabel: 'Demo',
+    modelId: 'img', model: 'img', modelLabel: '图片模型', adapterId: 'demo', adapterModelId: 'img',
+    adapterRevision: 'r1', capabilities: { type: 'image', ratios: ['1:1'] },
+    fields: [{ key: 'style', label: '风格', type: 'select', options: ['a'] }], providerFields: [],
+  };
+  const video = {
+    ref: 'ext:demo|vid', providerId: 'ext:demo', providerName: 'Demo', providerLabel: 'Demo',
+    modelId: 'vid', model: 'vid', modelLabel: '视频模型', adapterId: 'demo', adapterModelId: 'vid',
+    adapterRevision: 'r1', capabilities: { type: 'video', durations: [5] },
+    fields: [], providerFields: [],
+  };
+  PROVIDERS.setCacheForTest({ providers: [{ id: 'demo', label: 'Demo' }], image: [image], video: [video] });
+  const s = { imageProviders: [], videoProviders: [] };
+  const imgs = PROVIDERS.flattenImageModels(s);
+  const vids = PROVIDERS.flattenVideoModels(s);
+  eq(imgs.length, 1, '自定义图片模型应进入图片模型下拉');
+  eq(imgs[0].ref, 'ext:demo|img', '自定义图片模型 ref');
+  eq(imgs[0].adapterId, 'demo', '自定义图片模型 adapterId');
+  eq(vids[0].ref, 'ext:demo|vid', '自定义视频模型 ref');
+  const cfg = PROVIDERS.resolveImageModelCfg({ imageProviders: [], imageStar: '' }, 'ext:demo|img');
+  ok(cfg && cfg.adapterId === 'demo', 'resolveImageModelCfg 应解析自定义模型');
+  ok(/function CustomProviderEditor/.test(src) && /customProviderConfigs/.test(src), '设置页缺少自定义适配器编辑器/配置存储');
+  PROVIDERS.setCacheForTest(null);
+}
+
+// ============================================================
 // 3) 渲染结构：媒体 body 内「标题栏 / 预览区 / 操作栏」三段，固定栏 flex:none，预览不裁切
 // ============================================================
 {
@@ -508,9 +543,11 @@ const barsOn = () => HDR() + FOOT();
   ok(/function normalizeMediaNodeSize[\s\S]*?nodeSizeForRatio\(ratio, \{ hasFooter \}\)/.test(src), '加载旧文档时没有按记录比例重算媒体外框');
   ok(/const sz = nodeSizeForRatio\(v, \{ hasFooter: mediaHasFooter\(nd\) \}\)/.test(src), '改比例时没有按「预览 + 固定栏」重排媒体外框');
   // 图片比例：完整档 + 自定义输入；视频/成片仍走原 6 档
-  ok(/const ratioOpts = \(isImage \? IMAGE_RATIOS : VIDEO_RATIOS\)\.map/.test(src), '比例选项没有按节点类型分流（图片完整档 / 视频成片原档）');
+  ok(/const ratioBase = \(customCaps && Array\.isArray\(customCaps\.ratios\)/.test(src) && /const ratioOpts = ratioList\.map/.test(src), '比例选项没有按节点类型/自定义模型能力分流');
   ok(/parseCustom: isImage \? normalizeRatioInput : undefined/.test(src), '图片比例下拉未接自定义解析器');
   ok(/customPlaceholder: T\('customRatioPh'\)/.test(src), '图片比例下拉缺少自定义输入占位提示');
+  ok(/const customCaps = \(modelCfg && modelCfg\.adapterId\)/.test(src), '生成面板未读取自定义适配器能力声明');
+  ok(/customProviderRun\('image'/.test(src) && /customProviderRun\('video'/.test(src), '图片/视频生成未接入自定义供应商分支');
 }
 
 // ============================================================
