@@ -102,6 +102,9 @@ function revealCanvasInRight() {
       if (!doc || typeof doc !== 'object') return doc;
       for (const n of Object.values(doc.nodes || {})) {
         normalizeNode(n);
+        // 旧文档/外部写入可能把 shots[].dialogue 存成字符串：载入即归一成 [{role,line}]，渲染与提示词只认这一种形状
+        const shs = n && n.data && n.data.shots;
+        if (Array.isArray(shs)) for (const sh of shs) if (sh && typeof sh === 'object') sh.dialogue = dlgList(sh);
         // 旧文档里 360×360 的图片/视频盒子会在预览上下/左右留白：按记录比例（或资产尺寸）校正
         normalizeMediaNodeSize(n);
       }
@@ -1428,7 +1431,7 @@ function revealCanvasInRight() {
       'assetCategoriesFixed': '已按命名规范纠正 {n} 个资产的分类',
       'cfgExtra': '扩展参数（JSON，可选）',
       'cfgExtraHint': 'JSON 对象，逐键合并进请求体（留空不发送）——厂商专属参数如 watermark、prompt_extend、output_format、seed 等在此填写，换厂商无需改代码',
-      'vidProtocolHint': '通用 = OpenAI 风格任务接口（JUAI 等聚合平台，URL 填完整 /v1/video/generations）；Seedance 官方 = 火山方舟 contents/generations/tasks',
+      'vidProtocolHint': '通用 = 标准 OpenAI 视频接口（URL 填裸域、/v1 或 /v1/videos 均可，代码自动归一到 /v1/videos）；Seedance 官方 = 火山方舟 contents/generations/tasks',
       'vidAudioOpt': '生成同步音频（勾选才发送 generate_audio）',
       'vidOutFormat': '输出格式 output_format（留空不发送）',
       'voiceExtractBtn': '提取声音参考',
@@ -2770,7 +2773,7 @@ function revealCanvasInRight() {
       'assetCategoriesFixed': 'Re-categorized {n} assets by naming convention',
       'cfgExtra': 'Extra params (JSON, optional)',
       'cfgExtraHint': 'A JSON object merged into the request body (empty = not sent) — vendor-specific params like watermark, prompt_extend, output_format, seed go here; switching vendors needs no code changes',
-      'vidProtocolHint': 'Generic = OpenAI-style task API (JUAI etc., URL = full /v1/video/generations); Seedance official = Volcano Ark contents/generations/tasks',
+      'vidProtocolHint': 'Generic = standard OpenAI video API (URL = bare domain, /v1 or /v1/videos; normalized to /v1/videos automatically); Seedance official = Volcano Ark contents/generations/tasks',
       'vidAudioOpt': 'Generate synced audio (only sent when checked)',
       'vidOutFormat': 'Output format output_format (empty = not sent)',
       'voiceExtractBtn': 'Extract voice reference',
@@ -5363,6 +5366,32 @@ body[data-ds-dark-theme] .dshic-pick-item.is-on{background:color-mix(in srgb,var
     // 资产库里该实体的其它图（设定集绑定/历史生成/多视图）绝不自动追加——否则会出现"只连 6 张却报 9 张超限"。
     // 以下为纯函数（无副作用），供 scripts/test-mentions.mjs 抽取单测
     // <<<MENTION_PURE_BEGIN>>>
+    /** 台词归一（幂等，唯一入口）：dialogue 在任何历史数据/模型输出里都可能是
+     *  ① [{role,line}] ② "角色：台词" 字符串 ③ 字符串数组 ④ null/undefined。
+     *  所有渲染、提示词拼接、声音参考提取都必须走这里——直接 `.map` 会崩画布。 */
+    function dlgList(sh) {
+      const raw = sh && typeof sh === 'object' ? sh.dialogue : sh;
+      if (raw == null || raw === '') return [];
+      const one = (x) => {
+        if (x == null) return null;
+        if (typeof x === 'string') {
+          const s = String(x).trim();
+          if (!s) return null;
+          const m = /^([^：:]{1,24})[：:]\s*([\s\S]*)$/.exec(s);
+          return m ? { role: m[1].trim(), line: m[2].trim() } : { role: '', line: s };
+        }
+        if (typeof x === 'object') {
+          const role = String(x.role == null ? '' : x.role).trim();
+          const line = String(x.line == null ? (x.text == null ? '' : x.text) : x.line).trim();
+          return (role || line) ? { role, line } : null;
+        }
+        return null;
+      };
+      const arr = Array.isArray(raw) ? raw : String(raw).split(/[；;\n]+/);
+      const out = [];
+      for (const x of arr) { const it = one(x); if (it) out.push(it); }
+      return out;
+    }
     /** @资产名@ 的词法（双 @ 精确包裹）：终止符是闭合 @，绝不可能把后文吞进名称；
      *  名称内禁止 @、空白与常见标点。前端渲染时隐藏两个 @，名称显示为蓝色加粗。 */
     const MENTION_RE = /@([^@\s，。；：、,.;:!?！？()（）\[\]【】"'“”<>《》/\\|]{1,64}?)@/g;
@@ -5595,7 +5624,7 @@ body[data-ds-dark-theme] .dshic-pick-item.is-on{background:color-mix(in srgb,var
         if (!prevShot) seg = 'opening';
         else if (/换场|场景切换|转场|另一处|另一场景|切至|切到|次日|翌日|与此同时|数日后|[Cc]ut to/.test(shotVisualText(s))) seg = 'scene_change';
         else if (/新角色|首次出场|走进来|入镜|入场|冒出|推门进|[Ee]nters?/.test(shotVisualText(s))) seg = 'new_character';
-        else if (Number(s.duration) > 0 && Number(s.duration) < 1.5 && !(s.dialogue || []).length) seg = 'closeup';
+        else if (Number(s.duration) > 0 && Number(s.duration) < 1.5 && !dlgList(s).length) seg = 'closeup';
         else seg = 'continuation';
       }
       if (seg === 'opening' && prevShot) seg = 'continuation'; // 首段只能在第 1 镜；后面标"开场"视为续帧
@@ -5765,7 +5794,7 @@ body[data-ds-dark-theme] .dshic-pick-item.is-on{background:color-mix(in srgb,var
      */
     function planShotSegments(shots, opts) {
       const o = opts || {};
-      const list = (Array.isArray(shots) ? shots : []).filter((s) => s && (String(s.visual || '').trim() || String(s.motion || '').trim() || (Array.isArray(s.dialogue) && s.dialogue.length)));
+      const list = (Array.isArray(shots) ? shots : []).filter((s) => s && (String(s.visual || '').trim() || String(s.motion || '').trim() || dlgList(s).length));
       const maxSeconds = Math.max(1, Number(o.maxSeconds) || 15);
       const minSeconds = Math.max(0, Math.min(Number(o.minSeconds) || 2, maxSeconds));
       const warnings = [];
@@ -6042,7 +6071,7 @@ body[data-ds-dark-theme] .dshic-pick-item.is-on{background:color-mix(in srgb,var
     function buildStructuredVideoPrompt(shots, refs, bible, opts) {
       const o = opts || {};
       const zh = o.zh !== false;
-      const list = (shots || []).filter((s) => s && (String(s.visual || '').trim() || String(s.motion || '').trim() || (s.dialogue || []).length));
+      const list = (shots || []).filter((s) => s && (String(s.visual || '').trim() || String(s.motion || '').trim() || dlgList(s).length));
       if (!list.length) return '';
       // 主体分配：一个实体一个 Subject，可对应多张 Picture；顺序 = 参考图中首次出现
       const subjects = [];
@@ -6112,7 +6141,7 @@ body[data-ds-dark-theme] .dshic-pick-item.is-on{background:color-mix(in srgb,var
       };
       const appearsIn = (sub) => list.map((_, i) => i + 1).filter((idx) => {
         const s = list[idx - 1];
-        const hay = [s.visual, s.motion, s.title, (s.characters || []).join(' '), s.scene, (s.props || []).join(' '), (s.dialogue || []).map((d) => d && d.role).join(' ')].join(' ');
+        const hay = [s.visual, s.motion, s.title, (s.characters || []).join(' '), s.scene, (s.props || []).join(' '), dlgList(s).map((d) => d && d.role).join(' ')].join(' ');
         return hay.includes(sub.name);
       });
       const outs = [];
@@ -6146,7 +6175,7 @@ body[data-ds-dark-theme] .dshic-pick-item.is-on{background:color-mix(in srgb,var
       outs.push('detailed_description:');
       const style = bibleStyleAnchor(bible);
       if (style) outs.push((zh ? '风格：' : 'Style: ') + style);
-      const hasDialogue = list.some((s) => (s.dialogue || []).some((d) => String((d && d.line) || '').trim()));
+      const hasDialogue = list.some((s) => dlgList(s).some((d) => String((d && d.line) || '').trim()));
       if (hasDialogue) {
         outs.push(zh
           ? '台词必须由画面内对应的主体当场开口说出（口型与台词同步、语气贴合情绪）；严禁画外音/旁白。'
@@ -6169,7 +6198,7 @@ body[data-ds-dark-theme] .dshic-pick-item.is-on{background:color-mix(in srgb,var
         if (visual) parts.push(visual);
         const motion = rewrite(String(s.motion || '').trim());
         if (motion) parts.push((zh ? '运镜/动作：' : 'Camera/Action: ') + motion);
-        const dls = (s.dialogue || [])
+        const dls = dlgList(s)
           .map((d) => ({ role: String((d && d.role) || '').trim(), line: String((d && d.line) || '').trim() }))
           .filter((d) => d.line);
         if (dls.length) {
@@ -7859,6 +7888,40 @@ function queueThumb(assetId) {
         }
       }
     }
+    /** 分辨率档位 + 画幅 → 标准 OpenAI 视频接口的 size 像素。
+     *  官方文档只接受 1280x720 / 1920x1080 / 720x1280 / 1080x1920 / 640x480 / 480x640。 */
+    function openaiVideoSize(resolution, ratio) {
+      const r = String(ratio || '16:9');
+      const vertical = /^(9:16|3:4|4:5|2:3)$/.test(r);
+      const res = String(resolution || '720P').toUpperCase();
+      if (res.includes('1080')) return vertical ? '1080x1920' : '1920x1080';
+      // 480 档白名单只有 4:3 的 640x480 / 480x640；16:9 等宽画幅没有精确像素，
+      // 硬塞 640x480 会把画幅改成 4:3。改用档位别名（网关接受 480p/720p/1080p 作别名）。
+      if (res.includes('480')) return /^4:3$/.test(r) || /^3:4$/.test(r) ? (vertical ? '480x640' : '640x480') : '480p';
+      return vertical ? '720x1280' : '1280x720';
+    }
+    /** TD 公共协议请求体（官方文档方式二）：POST 同一 /v1/videos，但必须带 X-TD-Contract: td.video.v1。
+     *  字段 duration / ratio / resolution / mode / input.media[]，支持 reference_image 多图与 480p。 */
+    async function buildTdVideoBody(m) {
+      const o = m || {};
+      const media = Array.isArray(o.media) ? o.media : [];
+      const urls = await Promise.all(media.map((b) => blobToDataUrlScaled(b)));
+      const items = urls.filter(Boolean).map((url) => ({ type: 'reference_image', url }));
+      const out = {
+        ...(o.model ? { model: o.model } : {}),
+        prompt: String(o.prompt || ''),
+        duration: Math.max(2, Math.min(30, Math.round(Number(o.seconds) || 5))),
+        resolution: String(o.resolution || '720P').toLowerCase(),
+        ratio: String(o.ratio || '16:9'),
+        mode: items.length ? 'multi_ref' : 'text_to_video',
+      };
+      if (items.length) out.input = { media: items };
+      const params = {};
+      if (o.generateAudio === true) params.generate_audio = true;
+      if (String(o.outputFormat || '').trim()) params.output_format = String(o.outputFormat).trim();
+      if (Object.keys(params).length) out.parameters = params;
+      return out;
+    }
     /** 跨镜衔接标注（短剧分镜链式生成的行业标准做法）：图1=上一镜尾帧（仅用于衔接），
      *  图2..N=实体参考图（名称与 o.refNames 对齐）。Seedance 的 first_frame 与 reference_image 互斥，
      *  尾帧+参考图同连时尾帧降级为第一张衔接参考图，靠顺序+标注控制用途。 */
@@ -8001,7 +8064,9 @@ function queueThumb(assetId) {
      *  完成后优先取响应里的地址，否则经 /content 端点（带鉴权）下载。
      *  注意：该格式暂不支持首帧注入——跨段连贯由提示词承接。 */
     async function soraVideosFallback(base, prompt, o, s, headers) {
-      const root = base.replace(/\/v1\/video\/generations$/i, '').replace(/\/+$/, '');
+      // base 现在已是标准端点 /v1/videos（旧写法 /v1/video/generations 也兼容），
+      // 归一化到站点根再拼 /v1/videos，避免出现 /v1/videos/v1/videos。
+      const root = base.replace(/\/v1\/video\/generations$/i, '').replace(/\/v1\/videos$/i, '').replace(/\/v1$/i, '').replace(/\/+$/, '');
       const ep = root + '/v1/videos';
       const secs = String(Math.round(Number(o.duration)) || 5);
       const vertical = (o.ratio || '16:9') === '9:16';
@@ -8039,7 +8104,7 @@ function queueThumb(assetId) {
     // 端点路径/鉴权方式/参数格式/轮询语义全部由代码按各家官方 API 适配。
     // ============================================================
     const VIDEO_VENDORS = {
-      openai:    { label: 'OpenAI 兼容格式（通用/中转站）', note: '适配 /v1/video/generations、Seedance content[]、/v1/videos 三段自动降级' },
+      openai:    { label: 'OpenAI 兼容格式（通用/中转站）', note: '标准字段 model/prompt/seconds/size/input_reference 提交到 /v1/videos；被拒时依次降级 TD 契约（X-TD-Contract，多参考图）、Seedance content[]、Sora /v1/videos' },
       seedance:  { label: '火山方舟 · Seedance（豆包视频）', base: 'https://ark.cn-beijing.volces.com/api/v3/contents/generations/tasks', keyPh: 'ARK API Key', note: 'Base URL 填方舟提交端点或 /api/v3 均可；模型 id 如 doubao-seedance-2-0-260128' },
       kling:     { label: '快手可灵 Kling', base: 'https://api.klingai.com', keyPh: 'AK:SK（冒号分隔）', note: 'Key 填 AK:SK，代码自动签 JWT；国际站把 Base URL 改为 api-singapore.klingai.com；时长按官方 5/10s 取整' },
       wan:       { label: '阿里通义万相 Wan（DashScope）', base: 'https://dashscope.aliyuncs.com', note: '异步任务制；国际站把 Base URL 改为 dashscope-intl.aliyuncs.com；图生视频走 img_url' },
@@ -9112,23 +9177,26 @@ function queueThumb(assetId) {
         if (!run) {
           // IC-03：识别到的厂商没有官方适配器 → 不再硬失败（历史：`暂未适配的视频厂商格式：X` 直接炸），
           // 降级走下方 OpenAI 兼容通用链，并把降级事实放节点上（绝不静默换协议）。
-          if (o.warn) o.warn('未识别到「' + vendor + '」的官方适配器，本次按 OpenAI 兼容格式发送（/v1/video/generations，失败自动降级 Seedance content[] / Sora /videos）——若该厂商协议不同，请在供应商设置里显式选择厂商');
+          if (o.warn) o.warn('未识别到「' + vendor + '」的官方适配器，本次按标准 OpenAI 视频格式发送（/v1/videos，失败自动降级 TD 契约 / Seedance content[] / Sora /videos）——若该厂商协议不同，请在供应商设置里显式选择厂商');
           vendorDowngraded = true; // 源码级契约锚点（test-vendor-detect 断言）：降级必须留痕
         } else {
           return await run(prompt, frameBlob, s, o);
         }
       }
-      // OpenAI 风格视频接口（JUAI 等：/v1/video/generations）优先识别——
+      // 标准 OpenAI 视频接口（/v1/videos）优先识别——
       // 即使误把协议设成 seedance 也不走火山官方协议（两者状态/结果字段不同）
       if (vendor === 'seedance' && ((s.protocol === 'seedance' || (s.url || '').includes('contents/generations/tasks')) && !(s.url || '').includes('/video/generations'))) {
         return await seedanceVideo(prompt, frameBlob, o.hardFrame ? [] : (o.refs || []), s, o);
       }
       if (!s.url) throw new Error('未配置视频 API');
-      // URL 归一化：裸域 → /v1/video/generations；/v1 → /video/generations；完整端点原样使用
-      let base = s.url.replace(/\/+$/, '').replace(/\/video\/generations$/, '');
-      if (!base.replace(/^https?:\/\//i, '').includes('/')) base = base + '/v1';
-      else if (/\/v1$/.test(base)) base = base + '/video/generations';
-      const isOpenaiVideo = /\/video\/generations$/.test(base);
+      // URL 归一化（标准 OpenAI 视频接口）：裸域 → /v1/videos；/v1 → /v1/videos；
+      // 旧写法 …/video/generations 自动纠正为 …/videos；已是 /videos 端点原样使用。
+      // base 同时是任务查询前缀：查询 GET {base}/{id}、取件 GET {base}/{id}/content。
+      let base = s.url.replace(/\/+$/, '').replace(/\/video\/generations$/, '/videos');
+      if (!base.replace(/^https?:\/\//i, '').includes('/')) base = base + '/v1/videos';
+      else if (/\/v1$/.test(base)) base = base + '/videos';
+      const isOpenaiVideo = /\/videos$/.test(base);
+      const apiRoot = base.replace(/\/v1\/videos$/i, '');
       // moyu 类中转站：OpenAI 风格但图片字段用 input_reference / images:string[]（dataURL 直接放），
       // 不收 [{url,role}] 对象数组；resolution 用大写枚举；无 generate_audio/output_format 参数。
             const headers = { 'Content-Type': 'application/json', ...(s.apiKey ? { Authorization: 'Bearer ' + s.apiKey } : {}) };
@@ -9136,22 +9204,25 @@ function queueThumb(assetId) {
       const vRefs = o.hardFrame ? [] : (o.refs || []).slice(0, 8);
       const downgrade = Boolean(frameBlob && vRefs.length);
       if (downgrade) prompt = videoRefNote(o.refNames) + '\n' + prompt; // 前置硬约束
+      // ===== 标准 OpenAI 视频字段：model / prompt / seconds / size / input_reference =====
+      // 官方文档方式一（OpenAI 兼容，不带 X-TD-Contract）：POST /v1/videos
+      //   { model, prompt, seconds: "2", size: "1280x720", input_reference }
+      // size 只能取 1280x720 / 1920x1080 / 720x1280 / 1080x1920 / 640x480 / 480x640。
+      const secs = Math.max(2, Math.min(30, Math.round(Number(o.duration) || 5)));
+      const size = openaiVideoSize(o.resolution, o.ratio);
+      // 参考素材顺序：衔接尾帧优先，其次首帧/参考图。标准字段只承载单张 input_reference；
+      // 多图（全能参考）在标准字段里没有对应位 → 由下方 TD 契约补发承载。
+      const mediaList = (frameBlob ? [frameBlob] : []).concat(vRefs);
       const body = {
         ...(s.model ? { model: s.model } : {}),
         prompt,
-        duration: Number(o.duration) || 5,
-        // 分辨率一律小写（Seedance 系为 '720p'/'1080p'；'720P' 会被部分网关判为不支持）
-        resolution: (o.resolution || '720p').toLowerCase(),
-        ratio: o.ratio || '16:9',
+        seconds: String(secs),
+        size,
       };
-      // 首帧图生视频：构图以首帧为准——Seedance 系要求首帧模式必须 ratio=adaptive（仅纯首帧模式）
-      if (frameBlob && !downgrade) {
-        body.ratio = 'adaptive';
-        try { body.image = await blobToDataUrlScaled(frameBlob); } catch { /* 忽略首帧编码失败 */ }
-      } else if (vRefs.length) {
-        const imgs = downgrade ? [frameBlob].concat(vRefs) : vRefs;
-        body.images = await Promise.all(imgs.map(async (b) => ({ url: await blobToDataUrlScaled(b), role: 'reference_image' })));
+      if (mediaList.length) {
+        try { body.input_reference = await blobToDataUrlScaled(mediaList[0]); } catch { /* 忽略素材编码失败 */ }
       }
+      let tdMode = false;
       // 可选参数：勾选才发送 generate_audio；output_format 留空不发送
       if (s.generateAudio === true) body.generate_audio = true;
       if (String(s.outputFormat || '').trim()) body.output_format = String(s.outputFormat).trim();
@@ -9168,6 +9239,16 @@ function queueThumb(assetId) {
       } catch (e) { throw new Error('视频 API 扩展参数配置有误：' + ((e && e.message) || e)); }
       const res0 = await fetchViaProxy(base, { headers, body, timeoutMs: Number(s.timeoutMs) > 0 ? Number(s.timeoutMs) : 120000, label: '视频 API' });
       let res = res0;
+      // 兜底①：标准字段被拒（多参考图 / 480P 等 size 白名单外组合）→ 同一 POST /v1/videos
+      // 改用 TD 公共协议（X-TD-Contract: td.video.v1，duration/ratio/resolution + input.media[]），
+      // 该协议支持 reference_image 多图与 480p。仅在标准请求失败后补发，不改变标准路径。
+      if (!res.ok && mediaList.length) {
+        try {
+          const tdBody = await buildTdVideoBody({ model: s.model || '', prompt, seconds: secs, resolution: o.resolution, ratio: o.ratio, media: mediaList, generateAudio: s.generateAudio, outputFormat: s.outputFormat });
+          const rTd = await fetchViaProxy(base, { headers: { ...headers, 'X-TD-Contract': 'td.video.v1' }, body: tdBody, timeoutMs: Number(s.timeoutMs) > 0 ? Number(s.timeoutMs) : 120000, label: '视频 API（TD 契约）' });
+          if (rTd.ok) { res = rTd; tdMode = true; }
+        } catch { /* TD 补发失败不掩盖原始错误 */ }
+      }
       // 通用兜底：不新增厂商。首帧/image/images 对象被中转站内部图片代理拒绝时，
       // 只把参考素材改成文档支持的简单字段再试一次：首帧→input_reference，
       // 参考图→images 字符串数组（带音频时→media[]）。
@@ -9228,18 +9309,43 @@ function queueThumb(assetId) {
         await sleep(3000);
         if (genAborted()) throw new Error(T('stoppedNote'));
         let r2 = null;
-        try { r2 = await fetchViaProxy(base + '/' + taskId, { method: 'GET', headers, timeoutMs: 60000, label: '查询视频任务' }); } catch { /* 网络抖动重试 */ }
+        const pollUrl = tdMode ? (apiRoot + '/v1/tasks/' + taskId) : (base + '/' + taskId);
+        const pollHeaders = tdMode ? { ...headers, 'X-TD-Contract': 'td.video.v1' } : headers;
+        try { r2 = await fetchViaProxy(pollUrl, { method: 'GET', headers: pollHeaders, timeoutMs: 60000, label: '查询视频任务' }); } catch { /* 网络抖动重试 */ }
         if (!r2 || !r2.ok) continue; // 查询层失败 ≠ 任务失败，只等生成任务自身的终态
         let st = null;
         try { st = JSON.parse(r2.text); } catch { /* 忽略 */ }
-        const u = extractVideoUrl(st);
+        let u = extractVideoUrl(st);
+        if (!u && tdMode) {
+          // TD 契约：产物在 artifacts[].content_url（旧任务 legacy_content_url）
+          if (Array.isArray(st.artifacts)) {
+            const hit = st.artifacts.find((x) => x && (x.content_url || x.legacy_content_url));
+            if (hit) u = hit.content_url || hit.legacy_content_url;
+          }
+          if (!u && st.content) u = st.content.video_url || st.content.url || null;
+        }
         if (u) return await downloadVideo(u, dlHeaders(u), headers);
         // 失败判定必须看状态字段，不能拿整串 JSON 做子串匹配：
         // 很多网关在 processing 阶段返回 {"status":"processing","error":null}，子串匹配会误判失败
         const failed = taskFailureOf(st);
         if (failed) throw new Error('视频任务失败：' + failed);
         // 已完成却没有可提取的地址：明确报错并附响应原文，绝不无限轮询
-        if (taskDoneOf(st)) throw new Error('任务已完成但响应中没有视频地址：' + JSON.stringify(st).slice(0, 300));
+        if (taskDoneOf(st)) {
+          if (tdMode) {
+            try {
+              const ra = await fetchViaProxy(apiRoot + '/v1/tasks/' + taskId + '/artifacts', { headers: { ...headers, 'X-TD-Contract': 'td.video.v1' }, timeoutMs: 60000, label: '取视频产物' });
+              if (ra.ok) {
+                const ja = JSON.parse(ra.text);
+                const arr = Array.isArray(ja) ? ja : ((ja && ja.artifacts) || (ja && ja.data && ja.data.artifacts) || []);
+                const hit = arr.find((x) => x && (x.content_url || x.legacy_content_url));
+                if (hit) return await downloadVideo(hit.content_url || hit.legacy_content_url, {}, headers);
+              }
+            } catch { /* 落到下方明确报错 */ }
+            throw new Error('任务已完成但响应中没有视频地址：' + JSON.stringify(st).slice(0, 300));
+          }
+          // 标准 OpenAI：任务 completed 后从 /videos/{id}/content 取件（可能 302 到签名直链）
+          return await downloadVideo(base + '/' + taskId + '/content', {}, headers);
+        }
       }
       throw new Error('视频生成超过 2 小时未返回（任务 id 已保存在节点上，可凭 id 回查结果）');
     }
@@ -9326,12 +9432,12 @@ function queueThumb(assetId) {
       let t = 0;
       for (const s of shots) {
         const d = Number(s.duration) || 0;
-        const lines = (s.dialogue || []).filter((l) => String(l.role || '').trim().toLowerCase() === rl);
+        const lines = dlgList(s).filter((l) => String(l.role || '').trim().toLowerCase() === rl);
         if (lines.length) windows.push({ title: s.title, from: t, to: t + d, lines });
         t += d;
       }
       if (!windows.length) {
-        const roles = [...new Set((shots || []).flatMap((s) => (s.dialogue || []).map((l) => String(l.role || '').trim()).filter(Boolean)))];
+        const roles = [...new Set((shots || []).flatMap((s) => dlgList(s).map((l) => String(l.role || '').trim()).filter(Boolean)))];
         throw new Error(T('voiceRoleNotFound').replace('{roles}', roles.join('、') || '—'));
       }
       const ac = new (window.AudioContext || window.webkitAudioContext)();
@@ -11218,7 +11324,7 @@ function queueThumb(assetId) {
         }
         const sh = prevTail.shot;
         if (!sh) return null;
-        const dl = (sh.dialogue || []).map((d) => d.role + (zh ? '：' : ': ') + d.line).join(zh ? '；' : '; ');
+        const dl = dlgList(sh).map((d) => d.role + (zh ? '：' : ': ') + d.line).join(zh ? '；' : '; ');
         const tailState = String(sh.tail || '').trim();
         const camState = String(sh.cam || '').trim();
         return zh
@@ -11306,9 +11412,7 @@ function queueThumb(assetId) {
         scene: String(s.scene || ''),
         props: Array.isArray(s.props) ? s.props.map(String).slice(0, 6) : [],
         duration: Number.isFinite(Number(s.duration)) ? Math.max(0.3, Math.round(Number(s.duration) * 10) / 10) : 3,
-        dialogue: Array.isArray(s.dialogue)
-          ? s.dialogue.slice(0, 6).map((d) => ({ role: String(d && d.role || '').trim().slice(0, 24), line: String(d && d.line || '').trim().slice(0, 200) })).filter((d) => d.role && d.line)
-          : [],
+        dialogue: dlgList(s).slice(0, 6).map((d) => ({ role: String(d.role || '').trim().slice(0, 24), line: String(d.line || '').trim().slice(0, 200) })).filter((d) => d.role && d.line),
         sfx: String(s.sfx || '').trim().slice(0, 120),
       }));
     }
@@ -11359,9 +11463,7 @@ function queueThumb(assetId) {
           camera: String((s && s.camera) || '').slice(0, 160),
           timeBeats: Array.isArray(s && s.timeBeats) ? s.timeBeats.map(String).map((x) => x.trim()).filter(Boolean).slice(0, 4) : [],
           duration: Math.max(0.3, Math.round((en - st) * 10) / 10),
-          dialogue: Array.isArray(s && s.dialogue)
-            ? s.dialogue.slice(0, 6).map((d) => ({ role: String((d && d.role) || '').trim().slice(0, 24), line: String((d && d.line) || '').trim().slice(0, 200) })).filter((d) => d.role && d.line)
-            : [],
+          dialogue: dlgList(s).slice(0, 6).map((d) => ({ role: String(d.role || '').trim().slice(0, 24), line: String(d.line || '').trim().slice(0, 200) })).filter((d) => d.role && d.line),
           sfx: String((s && s.sfx) || '').trim().slice(0, 120),
           characters: Array.isArray(s && s.characters) ? s.characters.map(String).slice(0, 6) : [],
           scene: String((s && s.scene) || '').slice(0, 120),
@@ -11482,7 +11584,7 @@ function queueThumb(assetId) {
       // 拼接同 shots 数组内全部对白文本；shots 无 dialogue 字段（旧数据）时按「无对白可查」自然不跳过。
       let dialogueAll = '';
       for (const sh of shots || []) {
-        for (const d of ((sh && sh.dialogue) || [])) dialogueAll += ' ' + String((d && d.line) || '');
+        for (const d of dlgList(sh)) dialogueAll += ' ' + String((d && d.line) || '');
       }
       const check = (title, kind, name, entity) => {
         const q = String(name || '').trim().toLowerCase();
@@ -12372,7 +12474,7 @@ function queueThumb(assetId) {
       const zh = effLang() !== 'en';
       const durOf = (s) => Math.max(0.3, Number(s.duration) || 3);
       const total = Math.round(shots.reduce((a, s) => a + durOf(s), 0) * 10) / 10;
-      const hasDialogue = shots.some((s) => (s.dialogue || []).length);
+      const hasDialogue = shots.some((s) => dlgList(s).length);
       const head = seg && seg.count > 1
         ? (zh
           ? `【按镜头切段 · 第 ${seg.index + 1}/${seg.count} 段】本段只生成 ${shots.length} 镜、总时长 ${total} 秒（全表第 ${seg.from + 1}–${seg.to + 1} 镜）。严格按下列顺序与时长切镜（每镜时长不可变），镜头之间直接硬切，不要叠加转场。`
@@ -12424,11 +12526,11 @@ function queueThumb(assetId) {
         // 提示词——分段生成时模型看不到别的段，因果只能靠写在提示词里。空字段不注入。
         const cct = combatCausalityText(s, zh);
         if (cct) parts.push(cct);
-        const dls = (s.dialogue || []).map((d) => String(d && d.role || '').trim() + '：' + String(d && d.line || '').trim()).filter((x) => x.replace('：', '').trim());
+        const dls = dlgList(s).map((d) => String(d && d.role || '').trim() + '：' + String(d && d.line || '').trim()).filter((x) => x.replace('：', '').trim());
         if (dls.length) {
           parts.push(zh
-            ? '台词（由' + (s.dialogue || []).map((d) => String(d && d.role || '').trim()).filter(Boolean).join('、') + '在画面内开口说出，口型与台词同步）：' + dls.join('；')
-            : 'Dialogue (spoken on screen by ' + (s.dialogue || []).map((d) => String(d && d.role || '').trim()).filter(Boolean).join(', ') + ', lip-synced): ' + dls.join('; '));
+            ? '台词（由' + dlgList(s).map((d) => String(d && d.role || '').trim()).filter(Boolean).join('、') + '在画面内开口说出，口型与台词同步）：' + dls.join('；')
+            : 'Dialogue (spoken on screen by ' + dlgList(s).map((d) => String(d && d.role || '').trim()).filter(Boolean).join(', ') + ', lip-synced): ' + dls.join('; '));
         }
         if (String(s.sfx || '').trim()) parts.push((zh ? '音效：' : 'SFX: ') + String(s.sfx).trim());
         lines.push((zh ? `镜头${i + 1}（${dur}s）：` : `Shot ${i + 1} (${dur}s): `) + parts.join(zh ? '；' : '; '));
@@ -12624,7 +12726,7 @@ function queueThumb(assetId) {
     /** 分镜节点的资产文本（自动入库与手动"存为资产"共用，避免两处格式漂移）。 */
     function storyboardAssetText(shots) {
       return (shots || []).map((x) => {
-        const dls = (x.dialogue || []).map((d) => `${d.role}：${d.line}`).join('\n');
+        const dls = dlgList(x).map((d) => `${d.role}：${d.line}`).join('\n');
         const sfx = String(x.sfx || '').trim();
         return `【${x.title}】${x.duration}s\n画面：${x.visual}\n动作：${x.motion}`
           + (dls ? `\n${dls}` : '')
@@ -14403,7 +14505,7 @@ function queueThumb(assetId) {
         }
         return out;
       })();
-      const roles = [...new Set(shots.flatMap((s) => (s.dialogue || []).map((l) => String(l.role || '').trim()).filter(Boolean)))];
+      const roles = [...new Set(shots.flatMap((s) => dlgList(s).map((l) => String(l.role || '').trim()).filter(Boolean)))];
       const [role, setRole] = useState('');
       const [manual, setManual] = useState(false);
       const [startS, setStartS] = useState('0');
@@ -14418,7 +14520,7 @@ function queueThumb(assetId) {
         let t = 0;
         for (const s of shots) {
           const d = Number(s.duration) || 0;
-          const lines = (s.dialogue || []).filter((l) => String(l.role || '').trim().toLowerCase() === rl);
+          const lines = dlgList(s).filter((l) => String(l.role || '').trim().toLowerCase() === rl);
           if (lines.length) out.push({ title: s.title, from: t, to: t + d, lines: lines.map((l) => l.role + '：' + l.line) });
           t += d;
         }
@@ -16969,8 +17071,8 @@ function queueThumb(assetId) {
                   String(sh.cam || '').trim()
                     ? h('div', { className: 'dshic-shot-label', style: { marginTop: 2, opacity: 0.85 } }, '🎥 ' + String(sh.cam).trim())
                     : null,
-                  (sh.dialogue || []).length
-                    ? h('div', { className: 'dshic-shot-label', style: { marginTop: 3 } }, '台词 ' + sh.dialogue.map((d) => `${d.role}：${d.line}`).join('；'))
+                  dlgList(sh).length
+                    ? h('div', { className: 'dshic-shot-label', style: { marginTop: 3 } }, '台词 ' + dlgList(sh).map((d) => `${d.role ? d.role + '：' : ''}${d.line}`).join('；'))
                     : null,
                   String(sh.sfx || '').trim()
                     ? h('div', { className: 'dshic-shot-label', style: { marginTop: 2, opacity: 0.85 } }, '音效 ' + String(sh.sfx).trim())
@@ -23678,7 +23780,7 @@ const DIRECTOR_KEY_HELP = [
       const urlPh = kind === 'image'
         ? 'https://api.example.com/v1（或完整 /images/generations 端点）'
         : kind === 'video'
-          ? 'https://api.example.com/v1/video/generations（或裸域 / /v1）'
+          ? 'https://api.example.com/v1/videos（或裸域 / /v1，代码自动补全）'
           : 'https://api.example.com/v1';
       // issue #6：写回基底 = updateSettings 现取磁盘最新（不再是挂载时快照）；persist 只负责把返回的新值同步进本地快照
       const persist = (next) => setS(next);

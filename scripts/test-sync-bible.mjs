@@ -217,17 +217,21 @@ ok(loaded.worldview === '测试世界观' && loaded.characters.length === 1, 'lo
   const hostSrc = readFileSync(path.join(ROOT, 'index.js'), 'utf8');
   const hostLines = new Set(hostSrc.split('\n').map((l) => l.trim()));
   // 同构规则行（trim 后逐行比对，防止两实现漂移——漂移一次就修一次，太贵了）
-  const canonLines = [
+  // 台词遍历两侧各走自己的归一入口（client: dlgList / host: dlgListHost），其余逐字同构。
+  const canonCommon = [
     "let dialogueAll = '';",
     'for (const sh of shots || []) {',
-    "for (const d of ((sh && sh.dialogue) || [])) dialogueAll += ' ' + String((d && d.line) || '');",
     'const check = (title, kind, name, entity) => {',
     "if (entity && String(name || '').trim().endsWith('的') && dialogueAll.includes(String(name || '').trim())) return;",
   ];
-  for (const cl of canonLines) {
-    ok(clientLines.has(cl), 'client.js checkShotConsistency 缺少同构规则行: ' + cl);
-    ok(hostLines.has(cl), 'index.js storyboardConsistencyWarnings 缺少同构规则行: ' + cl);
-  }
+  const canonClient = canonCommon.concat([
+    "for (const d of dlgList(sh)) dialogueAll += ' ' + String((d && d.line) || '');",
+  ]);
+  const canonHost = canonCommon.concat([
+    "for (const d of dlgListHost(sh)) dialogueAll += ' ' + String((d && d.line) || '');",
+  ]);
+  for (const cl of canonClient) ok(clientLines.has(cl), 'client.js checkShotConsistency 缺少同构规则行: ' + cl);
+  for (const cl of canonHost) ok(hostLines.has(cl), 'index.js storyboardConsistencyWarnings 缺少同构规则行: ' + cl);
   // 三类实体走 entity=true，@提及 通道走 entity=false（提及绝不跳过的实现锚点）
   ok(src.includes("check(title, T('catCharacter'), nm, true)") && src.includes("check(title, T('catScene'), sh.scene, true)")
     && src.includes("check(title, T('catProp'), nm, true)") && src.includes("check(title, T('catMention'), mm.name, false)"),
@@ -282,12 +286,16 @@ ok(loaded.worldview === '测试世界观' && loaded.characters.length === 1, 'lo
     errs.push('client.js 抽取锚点丢失（checkShotConsistency / MENTION_PURE 结构被改动？）');
   } else {
     const catLabel = (c) => ({ character: '角色', scene: '场景', prop: '道具', general: '通用' }[c] || '通用');
-    const parseMentions = new Function('catLabel', 'effLang', mentionPure[1] + '\nreturn { parseMentions };')(catLabel, () => 'zh').parseMentions;
+    const pure = new Function('catLabel', 'effLang', mentionPure[1] + '\nreturn { parseMentions, dlgList: (typeof dlgList === "function" ? dlgList : null) };')(catLabel, () => 'zh');
+    const parseMentions = pure.parseMentions;
+    // checkShotConsistency 内的台词遍历统一走 dlgList（台词可能是 [{role,line}] / 字符串 / null）。
+    // dlgList 也在 MENTION_PURE 块里，随 pure 一起取出；老版本没有该 helper 时退回数组式读取。
+    const dlgList = pure.dlgList || ((sh) => (Array.isArray(sh && sh.dialogue) ? sh.dialogue : []));
     let clientBible = { characters: [], scenes: [], props: [] };
     let clientAssets = []; // 资产名清单；stub 按 idbByProject 真实形状包成 { name } 记录
-    const checkShotConsistency = new Function('loadBible', 'S', 'T', 'parseMentions', 'idbByProject', 'GENERAL_PID',
+    const checkShotConsistency = new Function('loadBible', 'S', 'T', 'parseMentions', 'idbByProject', 'GENERAL_PID', 'dlgList',
       'return (' + src.slice(aCsc, bCsc) + ');')(
-      () => clientBible, { activeId: 'p_warn' }, (k) => k, parseMentions, async () => (clientAssets || []).map((n) => ({ name: n })), 'general');
+      () => clientBible, { activeId: 'p_warn' }, (k) => k, parseMentions, async () => (clientAssets || []).map((n) => ({ name: n })), 'general', dlgList);
     const shot = (o) => Object.assign({ title: '镜1', visual: '中景', motion: '推进', characters: [], scene: '', props: [], dialogue: [], duration: 3 }, o);
     const hasWarn = (ws, name) => ws.some((w) => w.includes('「' + name + '」'));
     const run = async (bible, shots, assets) => { clientBible = bible; clientAssets = assets || []; return await checkShotConsistency(shots); };
