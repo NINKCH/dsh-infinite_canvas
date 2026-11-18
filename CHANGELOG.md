@@ -6,6 +6,29 @@ GitHub Releases carry the same notes in English; maintainer-facing runbooks live
 
 ## [Unreleased]
 
+## [0.21.1] — 2026-11-17
+
+### Added
+- **Image nodes: a full ratio picker plus custom ratios.** The image-node
+  ratio menu now offers 15 canonical ratios (wide to tall: 21:9, 2:1, 16:9,
+  16:10, 3:2, 4:3, 5:4, 1:1, 4:5, 3:4, 2:3, 10:16, 9:16, 9:21, 1:2) and a
+  custom input that accepts `3:2`, `16:10`, `16x9`, `1920x1080` or `2.35:1`,
+  snapping large inputs to a canonical ratio (`1920x1080` becomes `16:9`)
+  and limiting the aspect to 1:10-10:1. Video and final-cut nodes keep the
+  original six vendor-friendly ratios. The host's asset-size inference uses
+  the same 15-ratio catalogue, so old 3:2 / 16:10 assets keep their exact
+  node geometry.
+
+### Fixed
+- **Storyboard generation no longer dies with `zh is not defined`.** The
+  combat geometry check referenced a locale flag that was never declared in
+  `genStoryboardNode`. Every storyboard run (default combat mode `auto`)
+  therefore failed after the model returned and before the shots were saved,
+  discarding the generated storyboard and leaving the node on "No shots yet"
+  with the raw ReferenceError in red. The flag is now declared in scope, and
+  the combat regression suite pins the declaration order so the check cannot
+  be re-added without it.
+
 ## [0.21.0] — 2026-11-15
 
 ### Added
