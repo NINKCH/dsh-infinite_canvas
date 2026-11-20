@@ -31,7 +31,7 @@ ok(parsed.ok, 'manifest 校验失败：' + parsed.errors.join('；'));
 const M = parsed.manifest || { lenses: [], genres: [], industries: [], forms: [], looks: [] };
 
 eq(M.lenses.length, 45, '导演透镜数量不对');
-eq(M.genres.length, 37, '叙事题材数量不对');
+eq(M.genres.length, 38, '叙事题材数量不对');
 eq(M.industries.length, 10, '行业题材数量不对');
 eq(M.forms.length, 8, '规格数量不对');
 eq(M.looks.length, 15, '影调数量不对');
@@ -143,7 +143,7 @@ for (const it of M.genres) {
 }
 // 特效演绎开关（fx_motion）：奇幻向题材/影调卡必须标记，写实卡不得误标——
 // 分镜契约按这个标记追加特效演绎扩展块（动作承担者中立 / 画面状态节拍 / state_jump / 速度铁律）。
-const FX_GENRES = new Set(['fantasy', 'xianxia-cultivation', 'wuxia', 'smalltown-uncanny', 'shanhaijing-myth']);
+const FX_GENRES = new Set(['fantasy', 'xianxia-cultivation', 'wuxia', 'high-martial', 'smalltown-uncanny', 'shanhaijing-myth']);
 const REALISTIC_GENRES = new Set(['modern-urban', 'slice-of-life', 'family-melodrama', 'crime-police', 'county-drift']);
 const FX_LOOKS = new Set(['dark-myth-cg', 'guoman-3d-xianxia', 'east-epic-3d', 'saturated-epic']);
 const REALISTIC_LOOKS = new Set(['realistic-cinema', 'minimal-grey', 'cold-noir']);
@@ -393,7 +393,7 @@ if (TABS && CRAFT) {
     }
     const ids = new Set(allIds.map(([, it]) => it.id));
     for (const k of Object.keys(GLYPHS)) ok(ids.has(k), 'GLYPHS 有孤儿键（没有对应卡）：' + k);
-    eq(Object.keys(GLYPHS).length, 45 + 37 + 10 + 8 + 15, '图标总数应等于四层卡数之和');
+    eq(Object.keys(GLYPHS).length, 45 + 38 + 10 + 8 + 15, '图标总数应等于四层卡数之和');
   }
   for (const layer of ['lenses', 'genres', 'industries', 'forms', 'looks']) {
     for (const it of M[layer]) ok(!!it.oneliner, layer + '/' + it.id + ': manifest 缺 oneliner（会显示成空标题）');
@@ -474,6 +474,23 @@ if (TABS && CRAFT) {
     ok(!lock.includes('影调与材质'), '视频锁注入了影调材质长文');
     ok(!lock.includes('全局负向词'), '视频锁负向词应为 ≤6 条内联（旧 2400B 预算已废）');
     ok(P.utf8Bytes(lock) <= 1600, '视频总控锁超预算（' + P.utf8Bytes(lock) + 'B > 1.6KB）');
+
+    // P1 导演镜头锁：视频请求必须带透镜的可执行参数，否则切换导演只剩分镜文本差别。
+    // 只抽参数（焦段/机位/运动预算/主色），绝不倒透镜反例或教材长文。
+    CRAFT.saveSkillProfile('pLensWong', { lens: 'wong_jing', genres: ['action-mission'], form: 'cinematic', look: '' });
+    const lockWong = await CRAFT.buildShotLockText('prompt', { pid: 'pLensWong' });
+    ok(lockWong.includes('导演镜头锁'), '视频锁缺「导演镜头锁」：透镜焦段/机位/运动预算未进最后一公里');
+    ok(/25\s*\/\s*35\s*\/\s*50/.test(lockWong), 'wong_jing 的焦段 25/35/50 未进视频锁');
+    ok(lockWong.includes('平视'), 'wong_jing 的平视机位未进视频锁');
+    ok(/运动预算[\s：:]+\s*low/i.test(lockWong), 'wong_jing 的 motion_budget=low 未进视频锁');
+    ok(/金/.test(lockWong), 'wong_jing 的主色未进视频锁');
+    CRAFT.saveSkillProfile('pLensTsui', { lens: 'tsui_hark', genres: ['action-mission'], form: 'cinematic', look: '' });
+    const lockTsui = await CRAFT.buildShotLockText('prompt', { pid: 'pLensTsui' });
+    ok(/21\s*\/\s*28/.test(lockTsui), 'tsui_hark 的焦段 21/28 未进视频锁');
+    ok(/膝盖|膝到腰|knee/i.test(lockTsui), 'tsui_hark 的低机位未进视频锁');
+    ok(/运动预算[\s：:]+\s*high/i.test(lockTsui), 'tsui_hark 的 motion_budget=high 未进视频锁');
+    ok(lockWong !== lockTsui, '切换 wong_jing / tsui_hark 后视频锁完全相同（导演差异被吞）');
+    ok(!lockWong.includes('不是袁和平'), '视频锁倒入了透镜反例长文（应只抽参数）');
 
     // 图片锁功能回归：medium='image' 必须产出完整紧凑锁——此前 buildImageLockText 返回语句引用
     // 未定义的 EOL 抛 ReferenceError，被调用点 try/catch 静默吞掉：图片生成从未真正拿到风格锁且零测试覆盖

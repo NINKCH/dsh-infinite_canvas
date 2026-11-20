@@ -665,6 +665,23 @@
    "oneliner": "观众看的是在一套可以学习的力量规则里，人怎样用规则解决人的问题"
   },
   {
+   "id": "high-martial",
+   "aliases": [
+    "高武",
+    "异能",
+    "武者",
+    "内力",
+    "真气",
+    "灵气复苏",
+    "都市异能",
+    "觉醒者"
+   ],
+   "name": "高武异能",
+   "file": "high-martial.md",
+   "glyph": "high-martial",
+   "oneliner": "观众看的是一个力量被日常化的世界：轻功是默认移动，怪物有质量，特殊技能必须砸得出结果"
+  },
+  {
    "id": "gambling-den",
    "aliases": [
     "赌片",
@@ -1157,6 +1174,12 @@
    "name": "打斗节奏",
    "file": "fight-rhythm.md",
    "oneliner": "实测节奏基线 + 五条可迁移手法 + 生成边界"
+  },
+  {
+   "id": "movement-rhythm",
+   "name": "身法与追逐节奏",
+   "file": "movement-rhythm.md",
+   "oneliner": "连续位移按接触点切；一步 3–5 阶；墙跑/怪物质量/追逐空间"
   }
  ]
 }

@@ -9,6 +9,7 @@ import {
 } from './skill-pack-loader.js';
 import { normalizeSkillProfile } from './index-core-skill-profile.js';
 import { detectCombatScene } from './combat-semantics.js';
+import { detectMovementScene } from './movement-semantics.js';
 
 /** moves 永远随 storyboard/prompt 走（运镜是这两类生成的必需品）。 */
 const MOVES_FOR_KIND = {
@@ -82,6 +83,15 @@ export async function buildSkillPack(opts) {
       const c = detectCombatScene(String(o.sceneText || ''), { mode: o.combatMode });
       if (c.hit) moves.push('fight-rhythm');
     }
+    // 移动/追逐：传了 sceneText 就默认 auto 检测（与打斗同口径），也可用 movementMode
+    // on/off 显式覆盖；没有 sceneText 不猜测（老调用方零变化）。
+    const movementMode = o.movementMode !== undefined
+      ? String(o.movementMode)
+      : (o.sceneText ? 'auto' : undefined);
+    if ((kind === 'storyboard' || kind === 'prompt') && movementMode !== undefined) {
+      const m = detectMovementScene(String(o.sceneText || ''), { mode: movementMode });
+      if (m.hit) moves.push('movement-rhythm');
+    }
     for (const mid of moves) {
       const mv = (inv.moves || []).find((x) => x.id === mid);
       if (!mv) continue;
@@ -116,14 +126,14 @@ function headLine(kind, profile, inv, zh) {
       '【画布技能包 · ' + kindLabel(kind) + '】',
       '导演透镜：' + nameOf('lenses', profile.lens) + '　题材：' + (genreNames.join('、') || '—')
         + '　规格：' + nameOf('forms', profile.form) + '　影调：' + (profile.look ? nameOf('looks', profile.look) : '跟随导演'),
-      '优先级：用户显式指令 > 导演透镜 > 规格（仅单镜时长与结构上压过透镜；画幅由视频节点生成时决定，不在此列）> 题材 > 影调 > 技能默认。以下为对应切片，写提示词时必须遵守；与本块冲突的通则让位于本块。',
+      '优先级：用户显式指令 > 导演透镜（机位/焦段/光色/剪辑） > 规格（仅单镜时长与结构上压过透镜；画幅由视频节点生成时决定，不在此列）> 题材 > 影调 > 技能默认。连续位移的物理规则（接触点/重量/轨迹）优先于透镜的 motion_budget，但"怎么拍"仍由透镜决定。以下为对应切片，写提示词时必须遵守；与本块冲突的通则让位于本块。',
     ].join('\n');
   }
   return [
     '[Canvas skill pack · ' + kindLabel(kind, false) + ']',
     'Director lens: ' + nameOf('lenses', profile.lens) + '  Genre: ' + (genreNames.join(', ') || '-')
       + '  Spec: ' + nameOf('forms', profile.form) + '  Look: ' + (profile.look ? nameOf('looks', profile.look) : 'follow the lens'),
-    'Precedence: explicit user instruction > director lens > spec (only clip length and structure; aspect is chosen on the video node at generation time) > genre > look > skill defaults. The slices below are binding; where a generic rule disagrees, this block wins.',
+    'Precedence: explicit user instruction > director lens (camera position / focal length / colour / editing) > spec (only clip length and structure; aspect is chosen on the video node at generation time) > genre > look > skill defaults. Continuous-traversal physics (contact points / weight / trajectory) outrank the lens motion budget, while the lens still decides how it is shot. The slices below are binding; where a generic rule disagrees, this block wins.',
   ].join('\n');
 }
 

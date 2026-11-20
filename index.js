@@ -6890,8 +6890,9 @@ export function apply(ctx) {
               genres: { type: 'array', items: { type: 'string' }, description: '可选：临时覆盖题材 id 数组（叙事题材与行业题材都可）' },
               form: { type: 'string', description: '可选：临时覆盖规格 id' },
               look: { type: 'string', description: '可选：临时覆盖影调 id；传空串表示跟随导演' },
-              sceneText: { type: 'string', description: '可选（仅 kind=storyboard 有意义）：本场剧本文本——战斗注入按场检测用，命中打斗才带「打斗节奏」卡；不传则不判定、绝不由题材猜测' },
+              sceneText: { type: 'string', description: '可选（仅 kind=storyboard/prompt 有意义）：本场剧本文本——战斗/移动注入按场检测用，命中打斗才带「打斗节奏」卡、命中轻功/墙跑/追逐才带「身法与追逐节奏」卡；不传则不判定、绝不由题材猜测' },
               combatMode: { type: 'string', enum: ['auto', 'on', 'off'], description: '可选：打斗判定覆盖——auto=按 sceneText 检测（缺省），on=本场强制按打斗注入，off=强制不注入' },
+              movementMode: { type: 'string', enum: ['auto', 'on', 'off'], description: '可选：移动/追逐判定覆盖——auto=按 sceneText 检测（缺省），on=本场强制按移动注入，off=强制不注入' },
               set: { type: 'boolean', description: '可选：true = 把本次生效的配置写进项目（之后画布自生成也用同一套）' },
             },
             required: ['projectId'],
@@ -6918,7 +6919,13 @@ export function apply(ctx) {
             }
             const built = await buildSkillPack({
               kind, profile: merged, hereDir: HERE, zh: true,
-              ...(kind === 'storyboard' && args.combatMode !== undefined ? { sceneText: String(args.sceneText || ''), combatMode: String(args.combatMode || 'auto') } : {}),
+              ...(kind === 'storyboard' && (args.combatMode !== undefined || args.movementMode !== undefined)
+                ? {
+                    sceneText: String(args.sceneText || ''),
+                    combatMode: String(args.combatMode || 'auto'),
+                    movementMode: String(args.movementMode || 'auto'),
+                  }
+                : {}),
             });
             if (args.set) {
               doc.skillProfile = merged;

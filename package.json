@@ -59,6 +59,7 @@
     "skill-pack-loader.js",
     "index-core-skill-profile.js",
     "combat-semantics.js",
+    "movement-semantics.js",
     "assets/canvas-director/**",
     "skills.js",
     "skills/**"

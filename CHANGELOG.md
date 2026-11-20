@@ -6,6 +6,57 @@ GitHub Releases carry the same notes in English; maintainer-facing runbooks live
 
 ## [Unreleased]
 
+### Added
+- **High-martial / ability genre and traversal direction.** A new
+  `high-martial` narrative genre treats qinggong as the default way skilled
+  characters move, and a new `movement-rhythm` card defines the physics of
+  traversal: one stride covers 3-5 stairs, one shot carries 2-4 contact
+  points, wall-runs need foot/claw contact and debris, monsters carry mass
+  and turning radius, and chase distance must be countable. Movement scenes
+  are detected per scene (never injected from the genre alone) and the card
+  is added to `canvas_skill_pack` when the script actually contains
+  qinggong / wall-running / climbing / chase action.
+- **Compact director-lens lock in video prompts.** The final video request
+  now carries the lens's executable parameters (focal lengths, camera
+  height, motion budget, preferred moves, palette, ASL, cuts), capped at a
+  few hundred bytes. Switching lenses no longer changes only the storyboard
+  text while the video request stays identical.
+
+### Changed
+- **The video style lock is now v3.** It still avoids dumping lens teaching
+  text into the request, but it now includes a compact lens parameter
+  signature; the old assumption that the lens was fully digested into
+  per-shot `camera` fields no longer holds once the structured path is used.
+- **The FX `vfx` requirement is scoped.** Action / ability / spectacle
+  shots still need at least one visible effect; pure dialogue shots may
+  leave `vfx` empty instead of adding unrelated glow just to fill a field.
+
+### Fixed
+- **Structured video prompts no longer drop `camera`, `timeBeats`, `vfx`
+  and combat-causality fields.** When a video node was connected to a
+  storyboard and had reference images, it used the structured
+  `subject_definitions` path, which only emitted `visual` / `motion` /
+  dialogue / SFX. The director's camera language, the action beats that
+  prevent pan-only motion, the visible effects that carry special skills,
+  and the attack/response/impact chain never reached the video model. Both
+  prompt compilers now share one `shotActionDetailParts` source, and the
+  regression suite asserts the fields survive on both paths.
+- **Continuous traversal is no longer split into per-step cuts.** The
+  craft rules "one primary action per shot" and "split displacements over
+  1/4 frame" now explicitly yield to the movement card: a continuous
+  qinggong / flight / climb / wall-run is one action, and shots split only
+  at contact points. The FX speed rule now distinguishes instantaneous
+  events (still cut-only) from continuous traversal (must happen inside the
+  shot, with contact-point beats and camera follow).
+
+### Internal
+- New host/client parity module `movement-semantics.js` (detection,
+  contract block, visible-action lexicon) with a drift guard that loads the
+  real `client.js` in a VM and compares both implementations.
+- New regressions: `test-video-prompt-fields`, `test-movement-semantics`,
+  `test-movement-injection`; the pack audit now includes the new host
+  module and the genre/move counts are updated to 38 / 3.
+
 ## [0.21.2] — 2026-11-18
 
 ### Added

@@ -174,8 +174,7 @@ export function frontmatterList(md, key) {
 }
 
 /** 从 frontmatter 读 spec 子块的键（`spec:\n  aspect: [...]` 这类两层缩进）。 */
-export function frontmatterSpec(md) {
-  const fm = /^---\r?\n([\s\S]*?)\r?\n---/.exec(String(md || ''));
+export function frontmatterSpec(md) {  const fm = /^---\r?\n([\s\S]*?)\r?\n---/.exec(String(md || ''));
   if (!fm) return {};
   const out = {};
   let inSpec = false;
@@ -192,6 +191,60 @@ export function frontmatterSpec(md) {
     }
   }
   return out;
+}
+
+/**
+ * 透镜「可执行参数」摘要（视频提示词最后一公里用）。
+ *
+ * 只抽视频模型能执行的六类量：焦段、机位高度、运动预算、运镜偏好、主色/点缀、平均镜长。
+ * 绝不倒「反例/叙事方法/提示词模板」等教材长文——视频编码器有效窗口只有几百 token，
+ * 长锁会稀释正文；但完全不给透镜参数，切换导演就只剩分镜文本差别（用户实测）。
+ *
+ * @param {string} md 透镜卡 Markdown
+ * @param {{zh?:boolean, maxCamera?:number}} [opts]
+ * @returns {string} 一段紧凑参数文本；无 YAML 时返回 ''
+ */
+export function lensSignature(md, opts) {
+  const o = opts || {};
+  const zh = o.zh !== false;
+  const y = yamlBlock(md);
+  if (!y) return '';
+  const clean = (s) => String(s || '')
+    .replace(/\s+#.*$/, '')
+    .replace(/\s+/g, ' ')
+    .replace(/^["']|["']$/g, '')
+    .trim();
+  const inlineList = (key, max) => {
+    const m = new RegExp('^\\s*' + key + ':\\s*\\[([^\\]]+)\\]', 'm').exec(y);
+    if (!m) return [];
+    return m[1].split(',').map(clean).filter(Boolean).slice(0, max || 3);
+  };
+  const scalar = (key) => {
+    const m = new RegExp('^\\s*' + key + ':\\s*(.+)$', 'm').exec(y);
+    return m ? clean(m[1]) : '';
+  };
+  const mm = (() => {
+    const m = /lens_kit_mm:\s*\[([^\]]+)\]/.exec(y);
+    if (!m) return '';
+    return m[1].split(',').map(clean).filter(Boolean).join('/');
+  })();
+  const prefer = inlineList('prefer', 2);
+  const cuts = inlineList('transition_bias', 2);
+  const bits = [];
+  if (mm) bits.push((zh ? '焦段 ' : 'Lens ') + mm + 'mm');
+  const height = scalar('height');
+  if (height) bits.push((zh ? '机位 ' : 'Height ') + height);
+  const budget = scalar('motion_budget');
+  if (budget) bits.push((zh ? '运动预算 ' : 'Motion budget ') + budget);
+  if (prefer.length) bits.push((zh ? '运镜 ' : 'Camera ') + prefer.join('、'));
+  const dominant = scalar('dominant');
+  const accent = scalar('accent');
+  if (dominant) bits.push((zh ? '主色 ' : 'Palette ') + dominant);
+  if (accent) bits.push((zh ? '点缀 ' : 'Accent ') + accent);
+  const asl = scalar('avg_shot_length_s');
+  if (asl) bits.push((zh ? '平均镜长 ' : 'ASL ') + asl + 's');
+  if (cuts.length) bits.push((zh ? '转场 ' : 'Cuts ') + cuts.join('、'));
+  return bits.join(zh ? '；' : '; ');
 }
 
 /** 拼装一段可注入的文本块：标题 + 分区，并返回字节数（UTF-8）。 */
