@@ -129,7 +129,7 @@ The third tab of the right sidebar decides **how the whole piece is shot**. It i
 | Layer | Count | Decides | Why it needs its own layer |
 |---|---|---|---|
 | **Director** | 45 | Camera language, lighting, cutting rhythm, style parameters | It constrains the shot's camera fields, the keyframe, and the video's camera move at once — the least replaceable decision in the whole piece |
-| **Genre** | 36 narrative / 10 sector | Pressure mechanics, audience payoff, scene granules, episode hooks | The same "revenge" premise is fragmented neon under Wong Kar-wai and hard-lit slow motion under Tsui Hark; folding them together poisons both |
+| **Genre** | 38 narrative / 10 sector | Pressure mechanics, audience payoff, scene granules, episode hooks | The same "revenge" premise is fragmented neon under Wong Kar-wai and hard-lit slow motion under Tsui Hark; folding them together poisons both |
 | **Spec** | 8 | Structure blocks, ASL floor, rhythm, quality bar | It decides "short drama vs cinematic texture vs commercial", which is orthogonal to genre |
 | **Look** | 9 | Imaging base, material, render texture | 2D thick paint / guoman 3D / game CG are imaging domains, not directors; mixing them into the director layer makes "how to cut" fight "what it looks like" |
 

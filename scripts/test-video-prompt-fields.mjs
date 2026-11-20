@@ -168,6 +168,28 @@ for (const [label, needle] of [
   ok(fallback.includes(needle), '回退路径丢失 ' + label + '：' + needle);
 }
 
+// 英文路径 + @引用重写：camera/timeBeats/vfx 里的 @实体@ 也必须换成 <Subject N>
+const shotsEn = [{
+  title: 'Vault',
+  visual: '@陈拾@ vaults over the steps',
+  motion: 'push off and land',
+  timeBeats: ['0s @陈拾@ presses the 3rd step', '0.7s airborne', '1.6s toe on the 5th step'],
+  camera: 'low 24mm side track on @陈拾@',
+  vfx: 'dust bursts under @陈拾@',
+  duration: 3,
+  characters: ['陈拾'],
+  scene: 'steps',
+  props: [],
+  dialogue: [],
+  sfx: 'stone scrape',
+}];
+const en = P.buildStructuredVideoPrompt(shotsEn, refs, bible, { zh: false });
+ok(en.includes('Action beats (in order, none may be skipped)'), '英文结构化路径缺动作节拍');
+ok(en.includes('Camera/lens/move:'), '英文结构化路径缺机位/焦段');
+ok(en.includes('VFX (must be visible)'), '英文结构化路径缺特效');
+ok(en.includes('<Subject 1>'), '英文结构化路径未把 @实体@ 重写成 <Subject N>');
+ok(!en.includes('@陈拾@'), '英文结构化路径仍残留 @实体@ 画布语法');
+
 if (errs.length) {
   console.error('✗ 视频提示词字段测试未通过（' + errs.length + ' 项）：');
   for (const e of errs) console.error('  - ' + e);

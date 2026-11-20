@@ -27,9 +27,16 @@ GitHub Releases carry the same notes in English; maintainer-facing runbooks live
   text into the request, but it now includes a compact lens parameter
   signature; the old assumption that the lens was fully digested into
   per-shot `camera` fields no longer holds once the structured path is used.
+  Each signature field is capped separately so a long camera-height note
+  cannot push palette / ASL / transition fields out of the lock.
 - **The FX `vfx` requirement is scoped.** Action / ability / spectacle
   shots still need at least one visible effect; pure dialogue shots may
   leave `vfx` empty instead of adding unrelated glow just to fill a field.
+- **Movement detection is precision-first.** Gaze / smell / metaphor /
+  stative "standing against the wall" lines no longer inject the movement
+  contract; flight, vaults, climbing, running and an action that follows a
+  speech tag do. A per-storyboard movement toggle (auto / on / off) is
+  exposed in the node UI and through `canvas_update_node`.
 
 ### Fixed
 - **Structured video prompts no longer drop `camera`, `timeBeats`, `vfx`

@@ -76,10 +76,21 @@ const manifest = JSON.parse(read('assets/canvas-director/manifest.json'));
 {
   ok(/连续位移/.test(craft), 'canvas-craft 未给连续位移留例外');
   ok(/接触点/.test(craft), 'canvas-craft 未写明拆镜只拆接触点');
+  ok(/连续位移镜允许 2–5s/.test(craft), 'canvas-craft 未写明连续位移 2–5s');
   ok(/连续位移/.test(cameraMoves), 'camera-moves 未给连续位移留例外');
   const speedZh = src.includes('连续位移（轻功/飞行/攀爬/墙跑）必须镜内完成');
   const speedEn = src.includes('continuous traversal (qinggong/flight/climb/wall-run) must happen inside the shot');
   ok(speedZh && speedEn, 'FX 速度铁律未区分「瞬时事件」与「连续位移」');
+}
+
+// ---------------- ⑤ 工具/节点接线 ----------------
+{
+  const hostSrc = read('index.js');
+  ok(/movementMode/.test(hostSrc), 'canvas_skill_pack / canvas_update_node 未暴露 movementMode');
+  ok(/args\.sceneText !== undefined/.test(hostSrc), 'sceneText 单独传入时未转发（自然调用静默无效）');
+  ok(/kind === 'storyboard' \|\| kind === 'prompt'/.test(hostSrc), 'kind=prompt 时 sceneText/movementMode 未生效');
+  ok(/movementMode: String\(n\.data\.movementMode/.test(src), 'runGenNode 未把节点的 movementMode 传给 aiStoryboardShots');
+  ok(/动作\/异能\/奇观场至少 3 镜要有 vfx/.test(src), 'jsonContract 的 vfx 必填未限定到动作/异能场（纯对话场仍被强制加光效）');
 }
 
 if (errs.length) {

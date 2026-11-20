@@ -210,14 +210,23 @@ export function lensSignature(md, opts) {
   const y = yamlBlock(md);
   if (!y) return '';
   const clean = (s) => String(s || '')
-    .replace(/\s+#.*$/, '')
+    // 只剥「空格 + #注释」；十六进制色值（#A8C4A2）必须保留。
+    .replace(/\s+#(?![0-9a-fA-F]{3,8}\b).*$/, '')
     .replace(/\s+/g, ' ')
+    .trim()
     .replace(/^["']|["']$/g, '')
     .trim();
-  const inlineList = (key, max) => {
+  /** 每个字段单独截断：先保尾部字段（色板/ASL/转场）进锁，再压长度。 */
+  const clip = (s, max) => {
+    const t = clean(s);
+    if (!t) return '';
+    if (t.length <= max) return t;
+    return t.slice(0, max).replace(/[，,；;、\s]+$/, '').trim() + '…';
+  };
+  const inlineList = (key, max, each) => {
     const m = new RegExp('^\\s*' + key + ':\\s*\\[([^\\]]+)\\]', 'm').exec(y);
     if (!m) return [];
-    return m[1].split(',').map(clean).filter(Boolean).slice(0, max || 3);
+    return m[1].split(',').map((x) => clip(x, each || 32)).filter(Boolean).slice(0, max || 3);
   };
   const scalar = (key) => {
     const m = new RegExp('^\\s*' + key + ':\\s*(.+)$', 'm').exec(y);
@@ -228,21 +237,25 @@ export function lensSignature(md, opts) {
     if (!m) return '';
     return m[1].split(',').map(clean).filter(Boolean).join('/');
   })();
-  const prefer = inlineList('prefer', 2);
-  const cuts = inlineList('transition_bias', 2);
+  const prefer = inlineList('prefer', 2, 32);
+  const cuts = inlineList('transition_bias', 2, 24);
   const bits = [];
   if (mm) bits.push((zh ? '焦段 ' : 'Lens ') + mm + 'mm');
-  const height = scalar('height');
+  const height = clip(scalar('height').split(/[；;。]/)[0], 60);
   if (height) bits.push((zh ? '机位 ' : 'Height ') + height);
   const budget = scalar('motion_budget');
   if (budget) bits.push((zh ? '运动预算 ' : 'Motion budget ') + budget);
   if (prefer.length) bits.push((zh ? '运镜 ' : 'Camera ') + prefer.join('、'));
-  const dominant = scalar('dominant');
-  const accent = scalar('accent');
+  const dominant = clip(scalar('dominant'), 48);
+  const accent = clip(scalar('accent'), 28);
   if (dominant) bits.push((zh ? '主色 ' : 'Palette ') + dominant);
   if (accent) bits.push((zh ? '点缀 ' : 'Accent ') + accent);
-  const asl = scalar('avg_shot_length_s');
-  if (asl) bits.push((zh ? '平均镜长 ' : 'ASL ') + asl + 's');
+  const aslRaw = scalar('avg_shot_length_s');
+  const asl = (() => {
+    const m = /^\s*(\d+(?:\.\d+)?(?:\s*[-–~]\s*\d+(?:\.\d+)?)?)/.exec(aslRaw);
+    return m ? m[1].replace(/\s+/g, '') : clip(aslRaw, 24);
+  })();
+  if (asl) bits.push((zh ? '平均镜长 ' : 'ASL ') + (/[a-zA-Z秒s]$/.test(asl) ? asl : asl + 's'));
   if (cuts.length) bits.push((zh ? '转场 ' : 'Cuts ') + cuts.join('、'));
   return bits.join(zh ? '；' : '; ');
 }

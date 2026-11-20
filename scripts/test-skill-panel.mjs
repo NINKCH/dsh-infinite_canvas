@@ -492,6 +492,21 @@ if (TABS && CRAFT) {
     ok(lockWong !== lockTsui, '切换 wong_jing / tsui_hark 后视频锁完全相同（导演差异被吞）');
     ok(!lockWong.includes('不是袁和平'), '视频锁倒入了透镜反例长文（应只抽参数）');
 
+    // 长 height 的透镜不能把色板/ASL/转场挤出 360B 预算；引号/单位/十六进制色值不能被洗坏。
+    const coenMd = fs.readFileSync(path.join(PACK, 'lenses', 'coen_brothers.md'), 'utf8');
+    const coenSig = P.lensSignature(coenMd, { zh: true });
+    ok(/平均镜长/.test(coenSig), 'coen 签名缺 ASL（长 height 吞掉了尾部字段）');
+    ok(/转场/.test(coenSig), 'coen 签名缺转场');
+    ok(!/秒s/.test(coenSig), 'ASL 数值已带单位却又追加 s（' + coenSig + '）');
+    ok(!/["“]dead-frontal/.test(coenSig), '数组元素去引号不完整（留下悬挂引号）');
+    CRAFT.saveSkillProfile('pLensCoen', { lens: 'coen_brothers', genres: ['action-mission'], form: 'cinematic', look: '' });
+    const lockCoen = await CRAFT.buildShotLockText('prompt', { pid: 'pLensCoen' });
+    ok(lockCoen.includes('平均镜长'), '长 height 透镜的视频锁丢失 ASL（360B 截断）');
+    ok(lockCoen.includes('转场'), '长 height 透镜的视频锁丢失转场');
+    const miyaMd = fs.readFileSync(path.join(PACK, 'lenses', 'miyazaki_hayao.md'), 'utf8');
+    const miyaSig = P.lensSignature(miyaMd, { zh: true });
+    ok(miyaSig.includes('#A8C4A2'), '十六进制色值被当成注释剥掉（' + miyaSig + '）');
+
     // 图片锁功能回归：medium='image' 必须产出完整紧凑锁——此前 buildImageLockText 返回语句引用
     // 未定义的 EOL 抛 ReferenceError，被调用点 try/catch 静默吞掉：图片生成从未真正拿到风格锁且零测试覆盖
     const imgLock = await CRAFT.buildShotLockText('prompt', { medium: 'image', pid: 'pVideoLock' });

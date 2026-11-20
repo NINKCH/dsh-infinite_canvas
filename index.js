@@ -3258,7 +3258,7 @@ async function canvasNodeStatus(args) {
   };
 }
 /** 可被 canvas_update_node 修改的节点字段白名单（结构字段 id/type/x/y/w/h/data 一律不可写）。 */
-const NODE_PATCH_FIELDS = ['prompt', 'idea', 'output', 'text', 'script', 'requirement', 'label', 'ratio', 'size', 'duration', 'resolution', 'frameMode', 'count', 'imageModel', 'videoModel', 'model', 'cont', 'targetDuration', 'combatMode', 'assetId'];
+const NODE_PATCH_FIELDS = ['prompt', 'idea', 'output', 'text', 'script', 'requirement', 'label', 'ratio', 'size', 'duration', 'resolution', 'frameMode', 'count', 'imageModel', 'videoModel', 'model', 'cont', 'targetDuration', 'combatMode', 'movementMode', 'assetId'];
 /** 更新已有节点的字段：对话侧"改提示词 / 改参数"的唯一入口（此前只能删节点重建）。 */
 function canvasUpdateNode(args) {
   const pid = String((args && args.projectId) || '');
@@ -3294,6 +3294,9 @@ function canvasUpdateNode(args) {
       v = num || null;
     } else if (k === 'combatMode') {
       // 打斗判定三态覆盖：auto=按场检测（缺省）/ on=本场强制按打斗注入 / off=强制不注入
+      v = ['auto', 'on', 'off'].includes(String(v).toLowerCase()) ? String(v).toLowerCase() : 'auto';
+    } else if (k === 'movementMode') {
+      // 移动/追逐判定三态覆盖：auto=按场检测（缺省）/ on=本场强制按移动注入 / off=强制不注入
       v = ['auto', 'on', 'off'].includes(String(v).toLowerCase()) ? String(v).toLowerCase() : 'auto';
     } else if (k === 'assetId') {
       v = String(v == null ? '' : v).trim() || null;
@@ -5957,7 +5960,7 @@ export function apply(ctx) {
             additionalProperties: false,
           },
           output: {
-            schema: { type: 'object', properties: { ok: { type: 'boolean' }, text: { type: 'string' }, type: { type: 'string' }, status: { type: 'string' }, x: { type: 'number' }, y: { type: 'number' }, w: { type: 'number' }, h: { type: 'number' }, assetId: { type: 'string' }, prompt: { type: 'string' }, ratio: { type: 'string' }, size: { type: 'string' }, duration: { type: 'number' }, resolution: { type: 'string' }, frameMode: { type: 'string' }, imageModel: { type: 'string' }, videoModel: { type: 'string' }, count: { type: 'number' }, targetDuration: { type: 'number', description: '分镜总时长硬约束（秒；缺省 = 自动档）' }, combatMode: { type: 'string', enum: ['auto', 'on', 'off'], description: '打斗判定：auto=按场检测 / on=强制打斗 / off=强制非打斗' }, cont: { type: 'boolean', description: '分镜衔接开关（默认 true）' }, genWarn: { type: 'string' }, chainFrom: { type: 'string' }, seam: { type: 'object', properties: { ok: { type: 'boolean' }, sim: { type: 'number' }, thr: { type: 'number' }, note: { type: 'string' } } }, tailPickAssetId: { type: 'string' }, historyAssetIds: { type: 'array', items: { type: 'string' } }, warnings: { type: 'array', items: { type: 'string' } }, shots: { type: 'array', items: { type: 'object', properties: { index: { type: 'number' }, title: { type: 'string' }, duration: { type: 'number' }, visual: { type: 'string' }, motion: { type: 'string' }, tail: { type: 'string' }, cam: { type: 'string' }, start: { type: 'string' }, seg: { type: 'string' }, characters: { type: 'array', items: { type: 'string' } }, scene: { type: 'string' }, props: { type: 'array', items: { type: 'string' } }, timeBeats: { type: 'array', items: { type: 'string' } }, camera: { type: 'string' }, vfx: { type: 'string' }, negative: { type: 'string' }, attack: { type: 'string' }, reaction: { type: 'string' }, impact: { type: 'string' }, initiative: { type: 'string' }, nextCombat: { type: 'string' } } } } }, required: ['ok', 'text'] },
+            schema: { type: 'object', properties: { ok: { type: 'boolean' }, text: { type: 'string' }, type: { type: 'string' }, status: { type: 'string' }, x: { type: 'number' }, y: { type: 'number' }, w: { type: 'number' }, h: { type: 'number' }, assetId: { type: 'string' }, prompt: { type: 'string' }, ratio: { type: 'string' }, size: { type: 'string' }, duration: { type: 'number' }, resolution: { type: 'string' }, frameMode: { type: 'string' }, imageModel: { type: 'string' }, videoModel: { type: 'string' }, count: { type: 'number' }, targetDuration: { type: 'number', description: '分镜总时长硬约束（秒；缺省 = 自动档）' }, combatMode: { type: 'string', enum: ['auto', 'on', 'off'], description: '打斗判定：auto=按场检测 / on=强制打斗 / off=强制非打斗' }, movementMode: { type: 'string', enum: ['auto', 'on', 'off'], description: '移动判定：auto=按场检测 / on=强制移动 / off=强制非移动' }, cont: { type: 'boolean', description: '分镜衔接开关（默认 true）' }, genWarn: { type: 'string' }, chainFrom: { type: 'string' }, seam: { type: 'object', properties: { ok: { type: 'boolean' }, sim: { type: 'number' }, thr: { type: 'number' }, note: { type: 'string' } } }, tailPickAssetId: { type: 'string' }, historyAssetIds: { type: 'array', items: { type: 'string' } }, warnings: { type: 'array', items: { type: 'string' } }, shots: { type: 'array', items: { type: 'object', properties: { index: { type: 'number' }, title: { type: 'string' }, duration: { type: 'number' }, visual: { type: 'string' }, motion: { type: 'string' }, tail: { type: 'string' }, cam: { type: 'string' }, start: { type: 'string' }, seg: { type: 'string' }, characters: { type: 'array', items: { type: 'string' } }, scene: { type: 'string' }, props: { type: 'array', items: { type: 'string' } }, timeBeats: { type: 'array', items: { type: 'string' } }, camera: { type: 'string' }, vfx: { type: 'string' }, negative: { type: 'string' }, attack: { type: 'string' }, reaction: { type: 'string' }, impact: { type: 'string' }, initiative: { type: 'string' }, nextCombat: { type: 'string' } } } } }, required: ['ok', 'text'] },
             render: (args, value) => [{ type: 'text', text: String(value.text || '') }],
           },
           timeoutMs: 30000,
@@ -6919,7 +6922,7 @@ export function apply(ctx) {
             }
             const built = await buildSkillPack({
               kind, profile: merged, hereDir: HERE, zh: true,
-              ...(kind === 'storyboard' && (args.combatMode !== undefined || args.movementMode !== undefined)
+              ...((kind === 'storyboard' || kind === 'prompt') && (args.combatMode !== undefined || args.movementMode !== undefined || args.sceneText !== undefined)
                 ? {
                     sceneText: String(args.sceneText || ''),
                     combatMode: String(args.combatMode || 'auto'),

@@ -561,6 +561,10 @@ function revealCanvasInRight() {
       'combatAuto': '打斗·自动',
       'combatOn': '打斗·开',
       'combatOff': '打斗·关',
+      'movementModeLabel': '移动判定：命中轻功/墙跑/追逐的场才注入身法与追逐规则（on=本场强制按移动，off=强制不注入，auto=按剧本检测）',
+      'movementAuto': '移动·自动',
+      'movementOn': '移动·开',
+      'movementOff': '移动·关',
       'customValuePh': '自定义后回车',
       'customCountPh': '自定义 1–100 镜',
       'customSegMaxPh': '自定义 1–300 秒',
@@ -1902,6 +1906,10 @@ function revealCanvasInRight() {
       'combatAuto': 'Combat · Auto',
       'combatOn': 'Combat · On',
       'combatOff': 'Combat · Off',
+      'movementModeLabel': 'Movement gating: only scenes detected as qinggong / wall-run / chase inject the movement contract & movement-rhythm card (on = force movement for this scene, off = force none, auto = detect from script)',
+      'movementAuto': 'Movement · Auto',
+      'movementOn': 'Movement · On',
+      'movementOff': 'Movement · Off',
       'customValuePh': 'Custom, press Enter',
       'customCountPh': 'Custom 1-100 shots',
       'customSegMaxPh': 'Custom 1-300 seconds',
@@ -6169,7 +6177,8 @@ body[data-ds-dark-theme] .dshic-pick-item.is-on{background:color-mix(in srgb,var
       };
       const appearsIn = (sub) => list.map((_, i) => i + 1).filter((idx) => {
         const s = list[idx - 1];
-        const hay = [s.visual, s.motion, s.title, (s.characters || []).join(' '), s.scene, (s.props || []).join(' '), dlgList(s).map((d) => d && d.role).join(' ')].join(' ');
+        const hay = [s.visual, s.motion, s.title, (s.characters || []).join(' '), s.scene, (s.props || []).join(' '), dlgList(s).map((d) => d && d.role).join(' '),
+          (s.timeBeats || []).join(' '), s.camera, s.vfx, s.attack, s.reaction, s.impact, s.initiative, s.nextCombat].join(' ');
         return hay.includes(sub.name);
       });
       const outs = [];
@@ -11243,7 +11252,7 @@ function queueThumb(assetId) {
             '- motion 是本镜动作与运镜（主体动作节拍、机位运动方向与速度、情绪节奏，50 字内）；与 visual 不重复；动作的承担者由画面内容决定——角色身体、特效、光影、环境物皆可（特效演绎项目见下方扩展条款）；',
             '- **【动作层次·硬性】timeBeats 是本镜的三个时间节拍（数组，按时间顺序）**：把"一个动作"拆成 **起势 → 发力 → 落点** 三拍，每拍写**可见的**身体/道具状态，如 ["0s 右手抬到一半、指节收紧","1.2s 手继续抬到胸口、肩线前压","3s 停在信封贴住心口、雨珠从指缝滑落"]。**只写一个节拍 = 模型只会演一个姿势（用户实测：动作极简、只会平移）**；凡 ≥2s 的镜头必须写满 3 拍，≤1s 的快切镜可以只写 1 拍。**每一拍都必须能拍出来，不写"他感到/他意识到"**；',
             '- **camera 是本镜的机位/焦段/运镜三件套**（不是只写"推近/平移"）：写成「景别 + 焦段光圈 + 运镜起点→终点」，如「中近景 50mm f/2.0，从腰高缓推至面部，匀速、到面部前 0.2 秒减速停住」。**禁止只写"推近/拉远/平移"这类空模板**（那是用户看到的"只会平移"的直接来源）；**一镜只能有一个主运镜**，要两个就拆镜；',
-            '- **vfx 是本镜必须可见的特效/细节**（不写就没有，模型不会自己加）：按题材点名 1–3 项——雨丝斜打 / 尘粒在光柱中浮动 / 雪片近大远小 / 逆光镜头光斑 / 路灯钠黄溢光 / 闪电瞬时照亮 / 衣角被风掀起 / 水面涟漪扩散 / 纸张翻飞 / 轻微手持晃动 / 运动模糊拖影 / 烟雾弥漫 / 蒸汽升腾。写**可呈现的画面现象**，不写"画面很唯美"这类空话；**每场至少 3 镜要有 vfx**；',
+            '- **vfx 是本镜必须可见的特效/细节**（不写就没有，模型不会自己加）：按题材点名 1–3 项——雨丝斜打 / 尘粒在光柱中浮动 / 雪片近大远小 / 逆光镜头光斑 / 路灯钠黄溢光 / 闪电瞬时照亮 / 衣角被风掀起 / 水面涟漪扩散 / 纸张翻飞 / 轻微手持晃动 / 运动模糊拖影 / 烟雾弥漫 / 蒸汽升腾。写**可呈现的画面现象**，不写"画面很唯美"这类空话；**动作/异能/奇观场至少 3 镜要有 vfx；纯对话场可留空**；',
             '- **【色调·逐镜显式】把本镜色调写进 visual（主色/色温/明暗对比，按影调色彩命题取值，如「钠黄主光、青绿补色、高对比」）——色调是逐镜的画面事实，不得只写"电影感/有质感"这类空话**；',
             '- characters/scene/props 使用剧本与设定集中的名称（不带 @），便于匹配资产；无道具给空数组；',
             '- **dialogue 是本镜的角色台词**：把剧本中落在这一镜的对白逐行搬进来（{"role":"角色名","line":"台词原文"}），台词必须**逐字来自剧本**、不新写不改写；本镜无台词给空数组；一镜尽量只放一个角色的台词（单说话人镜头利于声音参考提取）；',
@@ -11279,7 +11288,7 @@ function queueThumb(assetId) {
             '- motion = action & camera for the shot (action beats, camera move, emotional rhythm, <=50 words); do not repeat visual; what carries the motion is decided by the picture - the body, an effect, light or the environment are all valid (FX projects: see the extension clauses below);',
             '- **[ACTION LAYERING - HARD] timeBeats is this shot\'s three time beats (array, in order)**: split "one action" into **wind-up -> drive -> settle**, each beat describing a VISIBLE body/prop state, e.g. ["0s right hand half-way up, knuckles tightening","1.2s hand reaches the chest, shoulder line pressing forward","3s it settles over the envelope, a raindrop sliding off the fingers"]. **A single beat means the model performs a single pose (measured user feedback: minimal motion, pan-only)**; any shot >=2s must carry 3 beats, rapid cuts <=1s may carry 1. **Every beat must be filmable - never "he feels / he realizes"**;',
             '- **camera = body/lens/move for this shot** (not just "push in / pan"): write "shot size + focal length & aperture + move start->end", e.g. "medium close-up 50mm f/2.0, slow push from waist height to the face, constant speed, decelerating to a stop 0.2s before the face". **Never use empty template verbs like push in / pull out / pan alone** (that is exactly what produces the "pan-only" result); **one primary camera move per shot** - if you need two, split the shot;',
-            '- **vfx = physical effects/details that must be visible in this shot** (if unwritten they simply do not exist; the model will not add them): name 1-3 per shot by genre - slanted rain / dust motes floating in a light shaft / snowflakes near-to-far / backlit lens flare / sodium-vapour streetlamp spill / lightning flash lighting the set / coat hem lifted by wind / ripples spreading on water / paper sheets tumbling / subtle handheld shake / motion-blur trails / drifting smoke / rising steam. Write **renderable picture phenomena**, never "a beautiful frame"; **at least 3 shots per scene must carry vfx**;',
+            '- **vfx = physical effects/details that must be visible in this shot** (if unwritten they simply do not exist; the model will not add them): name 1-3 per shot by genre - slanted rain / dust motes floating in a light shaft / snowflakes near-to-far / backlit lens flare / sodium-vapour streetlamp spill / lightning flash lighting the set / coat hem lifted by wind / ripples spreading on water / paper sheets tumbling / subtle handheld shake / motion-blur trails / drifting smoke / rising steam. Write **renderable picture phenomena**, never "a beautiful frame"; **action/ability/spectacle scenes need vfx on at least 3 shots; pure dialogue scenes may leave it empty**;',
             '- **[TONE - PER SHOT] write this shot\'s dominant colour / colour temperature / contrast into visual per the look\'s colour thesis (e.g. "sodium-amber key, teal fill, high contrast") - tone is a per-shot fact, never just "cinematic"**;',
             '- characters/scene/props arrays must use plain names from the script and series bible (no @) so assets match; empty props array if none;',
             '- **dialogue = the character lines that fall in this shot**, moved verbatim from the script ({"role":"Name","line":"exact line"}); never rewrite lines; empty array if none; keep one speaker per shot when possible (helps voice-reference extraction);',
@@ -12768,7 +12777,7 @@ function queueThumb(assetId) {
       try {
         const prev = prevSceneTail(n); // 场 N-1 的尾镜 → 作为本场第 1 镜的硬性承接约束
         const targetDur = Math.max(0, Math.round(Number(n.data.targetDuration) * 10) / 10) || 0;
-        const shots = await aiStoryboardShots(st, n.data.requirement, Number(n.data.count) || 0, n.data.model, (kind, d) => aiStreamAppend(n.id, kind, d), prev, { cont: n.data.cont !== false, targetDuration: targetDur, combatMode: String(n.data.combatMode || 'auto') });
+        const shots = await aiStoryboardShots(st, n.data.requirement, Number(n.data.count) || 0, n.data.model, (kind, d) => aiStreamAppend(n.id, kind, d), prev, { cont: n.data.cont !== false, targetDuration: targetDur, combatMode: String(n.data.combatMode || 'auto'), movementMode: String(n.data.movementMode || 'auto') });
         // 总时长机械归位（issue：下拉硬约束的执行侧保底）：模型 Σ≠X 时按比例缩放各镜 duration，
         // 末镜吸收舍入残差 → Σ 恰等于 X。只缩放时长，绝不动内容字段；自动档（targetDur=0）零操作。
         if (targetDur && shots.length) {
@@ -15741,6 +15750,17 @@ function queueThumb(assetId) {
                 onChange: (v) => setData('combatMode', v),
               })
             : null,
+          isStoryboard
+            ? h(PopupSelect, {
+                value: String(n.data.movementMode || 'auto'), width: 88, title: T('movementModeLabel'),
+                options: [
+                  { value: 'auto', label: T('movementAuto') },
+                  { value: 'on', label: T('movementOn') },
+                  { value: 'off', label: T('movementOff') },
+                ],
+                onChange: (v) => setData('movementMode', v),
+              })
+            : null,
           (isImage || isVideo || isFinalCut)
             ? h(PopupSelect, {
                 value: n.data.ratio || '16:9', options: ratioOpts, onChange: onRatio, width: 74, title: T('ratioLabel'),
@@ -18383,6 +18403,7 @@ function queueThumb(assetId) {
     ];
 
     function detectMovementScene(text, opts) {
+      // 自动检测目前覆盖中文剧本；英文剧本请用 movementMode:'on' 强制注入。
       const o = opts || {};
       const mode = String(o.mode || o.movementMode || 'auto').toLowerCase();
       if (mode === 'on') return { hit: true, matched: [], mode: 'on' };
@@ -18392,22 +18413,30 @@ function queueThumb(assetId) {
       const HIT = new RegExp([
         '追逐', '追赶', '追逃', '追上', '追来', '追去', '追进', '追出', '追击',
         '逃走', '逃开', '逃向', '逃进', '逃出', '逃亡',
-        '狂奔', '疾跑', '疾奔', '跑下', '跑上', '跑过', '冲下', '冲上', '冲向',
-        '飞跃', '飞跨', '飞掠', '飞身', '腾空', '掠过', '掠出', '掠向', '窜上', '窜出', '窜向',
-        '攀上', '攀爬', '攀越', '翻墙', '翻上', '翻越', '飞檐走壁', '踏墙', '蹬墙', '贴墙', '墙面奔',
-        '屋脊', '屋檐', '轻功', '身法', '俯冲', '扑下', '扑来', '扑击',
-        '连跨', '跨过', '跨上', '跨下', '纵身一跃', '跃下', '跃上', '跃过',
+        '狂奔', '疾跑', '疾奔', '奔跑', '飞奔', '跑下', '跑上', '跑过', '跑进', '跑出',
+        '冲下', '冲上', '冲向', '冲进', '冲出',
+        '飞跃', '飞跨', '飞掠', '飞身', '飞行', '飞翔', '腾空', '掠出', '掠向', '窜上', '窜出', '窜向',
+        '攀上', '攀爬', '攀越', '翻墙', '翻上', '翻越', '飞檐走壁', '踏墙', '蹬墙', '墙面奔', '沿墙',
+        '轻功', '俯冲', '扑下', '扑击', '连跨', '纵身一跃', '跃下', '跃上', '跃过', '跃起',
+        '跳下', '跳上', '跳过', '翻身', '翻过',
       ].join('|'), 'g');
-      const DIALOGUE = /说道|说：|说道：|喊道|念道|心里想|暗想|旁白|字幕|歌词/;
-      const PAST = /(曾|当年|想起|回忆|听说|讲述|史料|新闻|棋局|牌局|谈判|演习|训练|梦里|梦中|传说|故事里|电影里)/;
+      const CROSS = /跨过|跨上|跨下/;
+      const PATH = /(台阶|石阶|阶|沟|墙|栏|屋顶|屋脊|水面|裂缝|槛|檐)/;
+      const DIALOGUE = /说道|说：|喊道|念道|心里想|暗想|旁白|字幕|歌词/g;
+      const PAST = /回忆起|回想起|当年|梦里|梦中|传说|故事里|电影里/;
       const lines = t.split(/\n|。|；|;|！|？|!|\?/);
       const matched = [];
-      for (const ln of lines) {
-        if (!ln || DIALOGUE.test(ln)) continue;
+      for (const raw of lines) {
+        if (!raw) continue;
+        // 只剥引号内对白与说话标签，保留同一句里的动作（「说道，纵身跃上屋脊」仍要命中）。
+        const ln = raw
+          .replace(/「[^」]*」|“[^”]*”|"[^"]*"/g, ' ')
+          .replace(DIALOGUE, ' ');
+        if (!ln.trim()) continue;
+        if (PAST.test(ln)) continue;
         const ms = ln.match(HIT) || [];
+        if (!ms.length && CROSS.test(ln) && PATH.test(ln)) ms.push('跨过');
         for (const w of ms) {
-          const i = ln.indexOf(w);
-          if (PAST.test(ln.slice(Math.max(0, i - 6), i))) continue;
           matched.push(w);
           break;
         }
@@ -18422,14 +18451,19 @@ function queueThumb(assetId) {
           '',
           '**[MOVEMENT / CHASE STORYBOARD - PHYSICS OF TRAVERSAL (this script contains movement; hard rules)]**',
           '- **A continuous displacement is ONE primary action**: qinggong, flight, climbing, wall-running, multi-step leaps - the whole traversal is one action, not several; never split it into one shot per step. The craft rule "one primary action per shot" means one continuous displacement, not one step;',
+          '- **Overrides the jsonContract three-beat rule**: this movement clause covers the three-beat rule: traversal shots use 2-4 contact-point beats; the three-beat rule only governs ordinary body-action shots;',
+          '- **Overrides the lens "one clip, one piece of information" bias**: a traversal shot needs at least 2 contact points (take-off + landing); that bias applies to information/dialogue shots, not to continuous displacement;',
           '- **Split only at contact points**: take-off, wall contact, landing. One shot may carry 2-4 contact points; never cut between every stair or every wall touch. The camera-moves rule "split when displacement exceeds 1/4 frame" yields to this clause: if the camera can hold the whole arc, one continuous tracking shot is legal;',
           '- **Duration**: a continuous traversal shot may run 2-5s (2-4 contact points per shot); never shatter it into 0.3-0.8s rapid cuts just because it is a chase - save rapid cuts for the reaction/attack after contact;',
+          '- **User-fixed total duration wins**: when `targetDuration` fixes the total, compress per-shot durations; keep the contact points;',
+          '- **Do not use state_jump for traversal**: qinggong / wall-run / chase are visible trajectories and must happen inside the shot; state_jump is only for teleport / appearance / vanishing;',
           '- **timeBeats are contact-point beats**: e.g. ["0s forefoot presses the 3rd step, knee deep","0.7s airborne, lead leg forward, cloth trailing","1.6s toe touches the 5th step, second push-off","2.4s landing absorbs, dust blooms outward"];',
           '- **Stairs**: one stride covers 3-5 steps; never stair-by-stair running, never feet off the surface, never sliding in place;',
           '- **Wall-run / climb**: write the foot or claw contact point, body-to-wall angle (about 30-45 degrees), weight pressed into the wall, debris/claw marks, and the landing point;',
           '- **Monsters / beasts**: write mass and inertia - ground/tile/beam deformation on landing, a real turning radius; never texture-slide across the scene;',
           '- **Chase**: write distance change, occlusion, eyeline lock, environmental damage (overturned stalls, broken tiles, dust);',
           '- **Camera**: wide lens / low side tracking / long-lens compression follow the director lens; the framing must hold the whole arc; one continuous tracking shot is allowed; never shatter the follow into rapid cuts just to obey "one camera move per shot";',
+          '- **Action lexicon (visible body states, take directly):** ' + MOVEMENT_ACTION_LEXICON.map((x) => x.en).join('; ') + ';',
           '- **Never**: stair-by-stair running, cutting per step, feet not contacting, weightless floating, wire-fu, sliding in place, constant-speed translation, stiff mechanical limbs, texture-sliding monsters.',
         ];
       }
@@ -18437,14 +18471,19 @@ function queueThumb(assetId) {
         '',
         '**【移动/追逐分镜·身法与空间（本剧本命中移动场面，以下为硬规则）】**',
         '- **连续位移是一个主动作**：轻功、飞行、攀爬、墙跑、连续跨阶，整段位移算「一个主动作」，不是「多个动作」；不要把它拆成一阶一镜。`canvas-craft` 的「一镜一主动作」在这里指「一段连续位移」，不是「每一步」；',
+        '- **覆盖 jsonContract 的「三拍」**：移动镜按接触点写 **2–4 拍**；三拍规则只约束普通身体动作镜；',
+        '- **覆盖透镜的「一镜一信息」**：移动镜至少写 2 个接触点（起跳 + 落点）；透镜的「一镜一信息」只适用于信息镜/对话镜，不适用于连续位移；',
         '- **拆镜只拆在接触点**：起跳点、墙面接触点、落点。一镜容纳 2–4 个接触点；不要在每一级台阶/每一个墙面之间切。`camera-moves` 的「位移超过画面 1/4 就拆镜」在移动段让位于本条：机位能容纳整条位移弧线时，允许一镜连续跟拍；',
         '- **时长**：连续位移镜允许 2–5s（一镜 2–4 个接触点）；不要为了「追逐=快切」把它切成 0.3–0.8s 的碎镜——快切留给接触后的反应/攻击；',
+        '- **用户固定总时长优先**：`targetDuration` 固定总时长时，按总时长压缩每镜；先压时长，不删接触点；',
+        '- **不要用 state_jump 代替位移**：轻功/墙跑/追逐是可见轨迹，必须镜内完成；state_jump 只用于瞬移/现身/消失；',
         '- **timeBeats 用接触点写**：如 ["0s 前脚掌压住第 3 级台阶，膝盖深屈","0.7s 腾空、前腿领先、衣袂后拖","1.6s 脚尖点在第 5 级台阶边缘、二次蹬出","2.4s 落地卸力、尘从脚边外扩"]；',
         '- **台阶级差**：一步跨 3–5 阶；禁止逐阶跑、禁止脚不接触、禁止原地滑步；',
         '- **墙跑/攀爬**：写明脚掌或爪尖的接触点、身体与墙夹角（约 30–45°）、重心压向墙、墙体碎屑/爪痕、离墙落点；',
         '- **怪物/异兽**：写明质量与惯性——落地时地面/瓦片/木梁的变形，转向有半径；禁止像贴图一样平移；',
         '- **追逐**：写明距离变化、遮挡关系、视线锁定、环境破坏（撞翻的摊/断瓦/扬尘）；',
         '- **镜头**：广角/低机位侧向跟拍/长焦压缩按导演透镜；机位必须能容纳整个位移弧线，允许一镜连续跟拍；不要为了「一镜一运镜」把跟拍拆成碎切；',
+        '- **动作词表（可见身体状态，直接取用）**：' + MOVEMENT_ACTION_LEXICON.map((x) => x.zh).join('；') + '；',
         '- **负向**：一阶一阶跑、逐阶切镜、脚不接触、无重量、钢丝感、原地滑步、匀速平移、机械抬手、怪物贴图滑动。',
       ];
     }
@@ -18825,7 +18864,7 @@ function queueThumb(assetId) {
         const md = await readPackCard('lens', lensEntry.file);
         if (md) {
           const sig = P.lensSignature(md, { zh });
-          if (sig) push('导演镜头锁：', capZh(sig, 360));
+          if (sig) push('导演镜头锁：', capZh(sig, 420));
         }
       }
       // ② 影调美学短语：影调卡「成像底层」摘要——全片质感的总控兜底（逐镜色调已写进 visual）

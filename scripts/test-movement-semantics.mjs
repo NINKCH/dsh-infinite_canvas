@@ -40,20 +40,50 @@ const {
   ok(r.hit === true, '检测：连续跨阶/墙跑文本应命中（实际 ' + JSON.stringify(r) + '）');
   ok(r.matched.length > 0 && r.mode === 'auto', '检测：命中词被记录、mode=auto');
 
-  const chase = '两人在屋脊上追逐，瓦片不断坠落，前面的身影一跃掠过三丈宽的巷口。';
-  ok(detectMovementScene(chase, {}).hit === true, '检测：屋脊追逐/飞跃应命中');
+  const chase = '两人在屋脊上奔跑，瓦片不断坠落，前面的身影一跃掠过三丈宽的巷口。';
+  ok(detectMovementScene(chase, {}).hit === true, '检测：屋脊奔跑/飞跃应命中');
 
   const climb = '怪物四肢着地攀上外墙，爪子在砖上刮出白痕。';
   ok(detectMovementScene(climb, {}).hit === true, '检测：攀爬/墙面接触应命中');
 
+  const fly = '他御剑飞行，穿过云层。';
+  ok(detectMovementScene(fly, {}).hit === true, '检测：飞行应命中');
+
+  const vault = '他纵身跃起，抓住屋檐。';
+  ok(detectMovementScene(vault, {}).hit === true, '检测：跃起/抓屋檐应命中');
+
+  const wallVault = '他翻身越过院墙。';
+  ok(detectMovementScene(wallVault, {}).hit === true, '检测：翻身越墙应命中');
+
+  const actionWithTag = '@陈拾@ 说道，一步跨过三级石阶。';
+  ok(detectMovementScene(actionWithTag, {}).hit === true, '检测：说话标签 + 同一句动作，动作仍应命中');
+
+  const pureDialogue = '「快追！」@陈拾@ 说道。';
+  ok(detectMovementScene(pureDialogue, {}).hit === false, '检测：纯对白行不应误判');
+
+  const gaze = '他的目光掠过窗台上的灰尘。';
+  ok(detectMovementScene(gaze, {}).hit === false, '检测：「目光掠过」不应误判为移动');
+
+  const smell = '一阵桂花香扑来。';
+  ok(detectMovementScene(smell, {}).hit === false, '检测：「香气扑来」不应误判为移动');
+
+  const metaphor = '他终于跨过心里那道坎。';
+  ok(detectMovementScene(metaphor, {}).hit === false, '检测：隐喻「跨过心里那道坎」不应误判');
+
+  const staticWall = '她贴墙站着，听隔壁的动静。';
+  ok(detectMovementScene(staticWall, {}).hit === false, '检测：静态「贴墙站着」不应误判');
+
+  const noun = '这是本门的身法口诀。';
+  ok(detectMovementScene(noun, {}).hit === false, '检测：名词「身法口诀」不应误判');
+
   const investigate = '他追查那封信的来历，翻看旧档案。';
   ok(detectMovementScene(investigate, {}).hit === false, '检测：「追查」不应误判为追逐');
 
-  const dialogue = '「快追！」@陈拾@ 说道。';
-  ok(detectMovementScene(dialogue, {}).hit === false, '检测：对白行不应误判');
+  const memory = '他回忆起当年在屋脊上狂奔的往事。';
+  ok(detectMovementScene(memory, {}).hit === false, '检测：回忆语境（含真实移动词）不应误判');
 
-  const memory = '他回忆起当年在山上奔跑的往事。';
-  ok(detectMovementScene(memory, {}).hit === false, '检测：回忆语境不应误判');
+  const training = '他在训练场冲向木桩。';
+  ok(detectMovementScene(training, {}).hit === true, '检测：「训练场」不应压掉真实移动动作');
 
   ok(detectMovementScene('', {}).hit === false, '检测：空文本不应误判');
   ok(detectMovementScene(investigate, { mode: 'on' }).hit === true, '检测：on 强制开启');
@@ -76,11 +106,18 @@ const {
     ok(zh.includes(needle), '中文契约块缺「' + label + '」：' + needle);
   }
   ok(!/禁止镜内高速位移/.test(zh), '移动契约块不应沿用「禁止镜内高速位移」——连续位移必须镜内完成');
+  ok(/覆盖/.test(zh) && /三拍/.test(zh), '移动契约块未显式覆盖 jsonContract 的「三拍」规则');
+  ok(/2–4 拍|2-4 拍/.test(zh), '移动契约块未写明接触点节拍 2–4 拍');
+  ok(/用户固定总时长/.test(zh), '移动契约块未写明「用户固定总时长优先于 2–5s」');
+  ok(/动作词表/.test(zh), '移动契约块未注入可见动作词表');
 
   const en = movementContractAddendum(false).join('\n');
   for (const needle of ['one primary action', 'contact point', '3-5 steps', 'wall', 'weight', 'never stair-by-stair', 'timeBeats']) {
     ok(en.toLowerCase().includes(needle.toLowerCase()), 'English contract missing: ' + needle);
   }
+  ok(/covers the three-beat rule/i.test(en), 'English contract does not override the three-beat rule');
+  ok(/user-fixed total duration/i.test(en), 'English contract missing user-fixed total duration precedence');
+  ok(/action lexicon/i.test(en), 'English contract missing the visible action lexicon');
 }
 
 // ---------------- ④ 词表与 3D 姿势对齐 ----------------

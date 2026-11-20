@@ -13,7 +13,7 @@
  *   4  patch 无旧包名 @ninkch/dsh-media-studio-preset 残留
  *   5  skills/director-workshop/SKILL.md frontmatter 合法（name/description）
  *   6  skills.js 可动态 import：name === 'media-studio-skills'、inject 含 'skills'
- *   7  skills.js 快照逻辑读得到本包 manifest（45 透镜/37 题材/15 影调当期数）
+ *   7  skills.js 快照逻辑读得到本包 manifest（45 透镜/38 题材/15 影调当期数）
  * 运行：node scripts/test-mode-preset.mjs；退出码 0=通过 1=失败
  */
 import { readFileSync } from 'node:fs';
