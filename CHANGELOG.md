@@ -6,6 +6,8 @@ GitHub Releases carry the same notes in English; maintainer-facing runbooks live
 
 ## [Unreleased]
 
+## [0.21.3] — 2026-11-23
+
 ### Added
 - **High-martial / ability genre and traversal direction.** A new
   `high-martial` narrative genre treats qinggong as the default way skilled
